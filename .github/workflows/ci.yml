@@ -16,7 +16,7 @@ jobs:
         runner: [ubuntu-24.04, ubuntu-24.04-arm]
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: DeterminateSystems/determinate-nix-action@92957199488000b908fdad19f63711000965d8f3 # v3
       - run: nix flake check --print-build-logs
       - run: nix develop -c bash scripts/test-scripts
@@ -37,7 +37,7 @@ jobs:
             -C "$RUNNER_TEMP/graph-proof" .
       - name: Retain Graph store worktree and complete Vitest output
         if: always() && matrix.runner == 'ubuntu-24.04' && steps.graph-proof.outcome != 'skipped'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: graph-full-check-proof
           path: ${{ runner.temp }}/graph-full-check-proof.tar.gz
