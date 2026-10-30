@@ -452,9 +452,24 @@ fn moved_python_signer_produces_a_record_the_generic_gate_accepts() {
     f.refresh_head();
     let config_dir = f.root.path().join(".config/st");
     fs::create_dir_all(&config_dir).unwrap();
+    // Resolve only the two protected signer's tools, not sandbox wrappers or
+    // writable build directories from the rest of the test harness's PATH.
+    use std::os::unix::fs::PermissionsExt;
+    let search_path = std::env::var_os("PATH").unwrap();
+    let mut tool_dirs = std::collections::BTreeSet::new();
+    for program in ["git", "ssh-keygen"] {
+        let executable = std::env::split_paths(&search_path)
+            .filter_map(|directory| fs::canonicalize(directory.join(program)).ok())
+            .find(|path| fs::metadata(path).is_ok_and(|metadata|
+                metadata.is_file() && metadata.permissions().mode() & 0o111 != 0))
+            .unwrap_or_else(|| panic!("a real {program} must be available"));
+        tool_dirs.insert(executable.parent().unwrap().to_path_buf());
+    }
+    let signer_path = std::env::join_paths(tool_dirs).unwrap();
     fs::write(config_dir.join("evidence-sign.json"), json!({
         "signer":PRINCIPAL,"ssh_key":f.key,
-        "scratch_repo":f.root.path().join("signer.git")
+        "scratch_repo":f.root.path().join("signer.git"),
+        "path":signer_path.to_str().unwrap()
     }).to_string()).unwrap();
     let statement = f.statement();
     let mut inputs = statement["predicate"]["observed"]["inputs"].clone();

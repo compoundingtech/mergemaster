@@ -307,3 +307,24 @@ require strict up-to-date branch protection. Graph's required-evidence lane
 does not run Graph in Actions. Generic signing/setup and authenticated release
 publication are separate prerequisites; the copied wrappers are not generic
 environment producers.
+
+The JSON result contains `version`, `check`, `base`, `head`, `tree`, `decision`,
+`outcome`, `reason`, `record` (an immutable record ID or null), and
+`protected_paths` (the touched protected paths, empty otherwise). Protected
+edits always return `decision: "refuse"` and `reason: "protected_paths"`,
+even for optional-fallback lanes. Only `protected_edits: "reject"` is supported.
+The stable reason codes are `satisfied`, `base_not_ancestor`, `protected_paths`,
+`ineligible_event`, `no_record`, `invalid_record`, `untrusted_signer`,
+`wrong_check`, `stale_tree`, `degraded`, `untrusted_tier`, `wrong_commit`,
+`untrusted_level`, `future_dated`, `too_old`, `check_failed`, `wrong_command`,
+`wrong_input`, and `workspace_dirty`. Consumers branch on these codes, not
+diagnostic prose. Malformed configuration or unavailable Git plumbing is an
+error, not a computed satisfaction result.
+
+`--github-output FILE` appends `skip`, `record`, `outcome`, `refuse`, and
+`refusal` only after computation completes. `refusal` is the reason code for
+a refusal, otherwise empty. Without `--event-file`, the gate supports a local
+object-only decision; this does not authenticate a GitHub event. With an event,
+the trusted `GITHUB_REPOSITORY` context and event repository/base/head must
+agree. Author allowlists additionally require opener, actor, triggering actor
+and every branch commit's exact author/committer identities.
