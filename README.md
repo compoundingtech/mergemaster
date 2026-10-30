@@ -320,8 +320,10 @@ The stable reason codes are `satisfied`, `base_not_ancestor`, `merge_history`, `
 `wrong_input`, and `workspace_dirty`. Consumers branch on these codes, not
 diagnostic prose. Malformed configuration or unavailable Git plumbing is an
 error, not a computed satisfaction result.
-Merge commits anywhere in `BASE..HEAD` refuse. Protected comparisons use
-Unicode NFKC normalization and lowercase component matching, including ancestor
+Merge commits anywhere in `BASE..HEAD` always refuse, including optional-fallback
+lanes. The `merge_history` reason takes precedence over protected edits, but
+`protected_paths` still lists every touched protected path. Protected comparisons
+use Unicode NFKC normalization and lowercase component matching, including ancestor
 replacement paths; signatures cannot authorize replacing a protected root with
 a symlink. Live head/base movement or unavailable live authority is an error,
 with no decision output, rather than a transferable success.
