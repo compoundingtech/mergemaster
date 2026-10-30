@@ -348,11 +348,10 @@ immutable signed note and explicitly pushes its note ref to `origin`:
 MM=/absolute/path/to/mergemaster
 CONFIG="$HOME/.config/mergemaster/evidence-sign.json"
 "$MM" evidence wrap --check graph-full-check --base "$BASE" --config "$CONFIG" \
-  --signer "$SIGNER_JSON" \
+  --signer "[\"$MM\",\"evidence\",\"sign\",\"--config\",\"$CONFIG\"]" \
   -- tools/graph check --full
 ```
 
-`SIGNER_JSON` supplies the explicit external signer argv.
 There is no default signer, `st sekrets` call or mandatory `flake.lock`.
 `--signer` is a JSON argv array, never shell source. `--config` is explicit:
 provision it outside the consumer repository as an account-owned regular file
@@ -379,6 +378,16 @@ untracked or ignored files. The measured system must equal the declared system.
 Setup must actually use these artifacts and include the full dependency closure.
 The wrapper and signer measure them independently; neither executes a consumer
 setup script with signing authority.
+
+The signing key must also be account-owned, mode 0600 and outside the consumer
+checkout. An optional `path` field supplies a trusted executable search path;
+otherwise the signer searches fixed system directories, not the caller's PATH.
+Resolved Git/OpenSSH programs and their directories must be root-owned and
+closed to other writers, or immutable Nix store paths. Loader/interpreter code
+injection variables are refused. Git signing runs in an isolated scratch
+repository with a closed environment, never the consumer's Git configuration.
+The signer independently reads the requested commit, BASE policy and environment
+digests, and owns the observation time and producer digest.
 
 A dirty checkout (including ignored files), moved HEAD, changed input,
 toolchain drift, signing failure or publication failure is non-success.
