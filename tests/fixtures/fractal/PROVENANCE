@@ -1,0 +1,42 @@
+Source: https://github.com/compoundingtech/fractal
+Commit: e83871ec919f95b3b3e2a9a1cd211c2ac37babda
+
+Committed fixtures are limited to policy, directly used non-moving scripts,
+wrapper-note testdata, and the documentation section used by evidence-flip-ready.
+Six unchanged process/supervision helpers are listed in infrastructure-PROVENANCE.
+
+Tree-shaped source witnesses are supplied by the non-flake fractal-fixture input:
+github:compoundingtech/fractal/e83871ec919f95b3b3e2a9a1cd211c2ac37babda
+The development shell exports its immutable source as MERGEMASTER_FRACTAL_FIXTURE.
+tests/prepare-fractal-fixture.py selects original ci-script-tests sparse inputs,
+lane definition paths, the real web subtree and original directory witnesses.
+This source is test data; its flake is not evaluated.
+
+The workflow generator additionally imports the original pinned effect-utils input:
+github:overengineeringstudio/effect-utils/d883d18e3ad7609602db0ec8687c14a77625b905
+
+original_path	source_git_blob	committed_git_blob	scope
+.st/crate-cut.json	4043fdb027647cb40b7eeebcb4efb84129e04814	4043fdb027647cb40b7eeebcb4efb84129e04814	whole file, unchanged
+.st/evidence-authors.json	a3120ef58b9875349dc645865cacfa009dec9fc5	a3120ef58b9875349dc645865cacfa009dec9fc5	whole file, unchanged
+.st/evidence-keys	fb86ed6ca6f0efc92cc19aed2a5735e7525de6f4	fb86ed6ca6f0efc92cc19aed2a5735e7525de6f4	whole file, unchanged
+.st/evidence-log-key	c5be5611cd6de87069e964654137491eca23607e	c5be5611cd6de87069e964654137491eca23607e	whole file, unchanged
+.st/evidence-policy.json	70d16599973f2f3716ab0a6861642c99de2b1ca5	70d16599973f2f3716ab0a6861642c99de2b1ca5	whole file, unchanged
+.st/evidence-retention.json	8de93487b3c935c6504c7ed61b2ae3658165a9ae	8de93487b3c935c6504c7ed61b2ae3658165a9ae	whole file, unchanged
+.st/evidence-signed-only.json	69c73d6b7342de5bfdb55bf70283aa8a9d7b4b20	69c73d6b7342de5bfdb55bf70283aa8a9d7b4b20	whole file, unchanged
+.st/evidence-skip-policy.json	c139516b50ea32294214f81e0b146333d0b3eea9	c139516b50ea32294214f81e0b146333d0b3eea9	whole file, unchanged
+.st/module-layers.json	67e6719353223f27f33e281e1bb6a8f8129c1ea4	67e6719353223f27f33e281e1bb6a8f8129c1ea4	whole file, unchanged
+.st/required-lanes.json	5f87a084b137704668fc701ce75f6472a8035201	5f87a084b137704668fc701ce75f6472a8035201	whole file, unchanged
+.st/review-harness.json	f0e9fe7719c765b68a86f67ff7f946fef4a6ea20	f0e9fe7719c765b68a86f67ff7f946fef4a6ea20	whole file, unchanged
+.st/review-risk.json	70dd1028816806798b9ecf6202c5347eecc20707	70dd1028816806798b9ecf6202c5347eecc20707	whole file, unchanged
+.st/review-verdict.schema.json	de1346a3b921119fc96e41320e9a888f873772c5	de1346a3b921119fc96e41320e9a888f873772c5	whole file, unchanged
+.st/risky-classes.json	00ad0f1dac43ab1b81dd5ea0477abd36ea088172	00ad0f1dac43ab1b81dd5ea0477abd36ea088172	whole file, unchanged
+.st/rust-test-inputs.json	ebde5a07071db9be1c88b56e6c76bab32ab7e048	ebde5a07071db9be1c88b56e6c76bab32ab7e048	whole file, unchanged
+docs/st3/gate-evidence.md	4b5fc80cde92f2b0dfe3dafa726e1df3fa83d159	78ba80b82d85b3e7a321a957591276a0eff4f7c2	lines 1291-1307 (Which checks skip today)
+scripts/ci-fractal-web-changes	add22baf2d6f79b9bc28ed38a729d2230acb68bc	add22baf2d6f79b9bc28ed38a729d2230acb68bc	whole file, unchanged
+scripts/ci-local	81654add15e707864ac8dfe3fbbaf069a94c369d	81654add15e707864ac8dfe3fbbaf069a94c369d	whole file, unchanged
+scripts/ci-rust-test-result	467ff766935a16aa7997fe5fbe78ef110623131e	467ff766935a16aa7997fe5fbe78ef110623131e	whole file, unchanged
+scripts/release_notes.py	059da5a93e3b421f323ab70c7bfd9acd34aa26fc	059da5a93e3b421f323ab70c7bfd9acd34aa26fc	whole file, unchanged
+scripts/rust-test-keys	a37998a626583209e45a9f9fbb1921f661e916a2	a37998a626583209e45a9f9fbb1921f661e916a2	whole file, unchanged
+scripts/testdata/evidence/wrapper-note/allowed-signers	5d556da48d6acfb78f5e4aea9468b6f7bb0b3a2b	5d556da48d6acfb78f5e4aea9468b6f7bb0b3a2b	whole file, unchanged
+scripts/testdata/evidence/wrapper-note/expected.json	972f3525b2fb3db3c90803505b93a691092e1e1f	972f3525b2fb3db3c90803505b93a691092e1e1f	whole file, unchanged
+scripts/testdata/evidence/wrapper-note/record.pack.base64	6ec56312444157b54e302300b68509ba18a67fe3	6ec56312444157b54e302300b68509ba18a67fe3	whole file, unchanged

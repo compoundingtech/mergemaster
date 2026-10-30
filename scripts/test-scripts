@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Run only mergemaster's copied self-tests, against the original Fractal layout.
+set -euo pipefail
+export PYTHONDONTWRITEBYTECODE=1
+root=$(cd "$(dirname "$0")/.." && pwd)
+. "$root/tests/fixtures/fractal/scripts/script-test-supervisor"
+. "$root/tests/fixtures/fractal/scripts/git-env-clean"
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_COUNT=0
+# Discover before overlaying fixtures: fixture-only scripts are not this suite.
+tests=()
+for path in "$root"/scripts/*-test; do
+  name=${path##*/}
+  case "$name" in st-test|fractal-test) continue ;; esac
+  tests+=("$name")
+done
+if [ "${#tests[@]}" -eq 0 ]; then
+  echo 'test-scripts: no copied self-tests found' >&2
+  exit 1
+fi
+export CI_PARALLEL_TESTS_KEEP=${CI_PARALLEL_TESTS_KEEP:-${XDG_CACHE_HOME:-$HOME/.cache}/mergemaster-script-tests}
+sandbox=$(mktemp -d "${TMPDIR:-/tmp}/mergemaster-script-tests.XXXXXX")
+trap 'rm -rf "$sandbox"' EXIT
+export HOME="$sandbox/home" XDG_CACHE_HOME="$sandbox/home/.cache" XDG_CONFIG_HOME="$sandbox/home/.config" XDG_STATE_HOME="$sandbox/home/.local/state"
+mkdir -p "$HOME" "$sandbox/repo"
+# Large repository-layout witnesses come from immutable source, not committed
+# fixture copies. Its flake is never evaluated.
+python3 "$root/tests/prepare-fractal-fixture.py" \
+  "${MERGEMASTER_FRACTAL_FIXTURE:?run in nix develop or set MERGEMASTER_FRACTAL_FIXTURE to the pinned Fractal source}" "$sandbox/repo"
+chmod -R u+w "$sandbox/repo"
+# Original repository files are test data, never the consuming build definition.
+cp -R "$root/tests/fixtures/fractal/." "$sandbox/repo/"
+# Nix-store source directories are read-only; make the private copy writable
+# before overlaying the moving scripts or creating sandbox-only files.
+chmod -R u+w "$sandbox/repo"
+mkdir -p "$sandbox/repo/scripts"
+cp -R "$root/scripts/." "$sandbox/repo/scripts/"
+chmod -R u+w "$sandbox/repo"
+cd "$sandbox/repo"
+git init -q -b main
+git config user.name 'Script test fixture'
+git config user.email 'script-tests@example.invalid'
+git config core.hooksPath /dev/null
+git add -f .
+git -c commit.gpgsign=false commit -q -m 'Original Fractal test inputs with copied mergemaster scripts'
+# The workflow-generation self-test imports the same pinned external source
+# that supplied Fractal's genie toolchain.
+mkdir -p "$sandbox/repo/repos"
+ln -s "${MERGEMASTER_EFFECT_UTILS:?run in nix develop or set MERGEMASTER_EFFECT_UTILS to the pinned effect-utils source}" "$sandbox/repo/repos/effect-utils"
+# Like ci-sparse-tree --link repos, external sources are environment, not
+# tracked fixture inputs or lane-definition paths.
+. scripts/ci-parallel-tests
+printf 'Running %s copied script self-tests\n' "${#tests[@]}"
+parallel_tests "${tests[@]}"

@@ -1,0 +1,12 @@
+Source: https://github.com/compoundingtech/fractal
+Commit: e83871ec919f95b3b3e2a9a1cd211c2ac37babda
+
+Vendored unchanged test infrastructure under tests/fixtures/fractal/scripts/:
+These helpers are test data, not part of the production scripts/ extraction.
+original_path	git_blob_sha1
+scripts/ci-parallel-tests	2dc70aa1b286111f361661c7c1dbf41721a9023e
+scripts/fractal_test_evidence.py	ff954b190832287238f2ba75537e8bdcce30ffe0
+scripts/fractal_test_process.py	27db78700c445b121a2f3838a53d2c597535b9a0
+scripts/git-env-clean	1e57524ce5b1ff9ea4b26427e5ac5f0e11be6884
+scripts/script-test-supervisor	5b3bf4b403ea21904fd527a36f75b55de3807cc9
+scripts/script_process.py	0fb8f1c023c2b2a3be50548bf58086b62e8c5536
