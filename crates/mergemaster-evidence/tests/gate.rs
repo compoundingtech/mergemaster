@@ -11,6 +11,14 @@ use std::{
 const CHECK: &str = "graph-full-check";
 const PRINCIPAL: &str = "agent/fixture";
 
+// Nix sandboxes have neither /usr/bin/env nor an ambient interpreter path.
+fn python_executable() -> String {
+    std::env::split_paths(&std::env::var_os("PATH").unwrap())
+        .filter(|directory| directory.is_absolute())
+        .filter_map(|directory| fs::canonicalize(directory.join("python3")).ok())
+        .find(|path| path.is_file()).unwrap().to_str().unwrap().to_owned()
+}
+
 struct Fixture {
     root: tempfile::TempDir,
     repo: PathBuf,
@@ -153,7 +161,7 @@ impl Fixture {
         let bin = self.root.path().join("bin");
         fs::create_dir_all(&bin).unwrap();
         let script = bin.join("gh");
-        fs::write(&script, r#"#!/usr/bin/env python3
+        fs::write(&script, format!(r#"#!{python}
 import json, os, pathlib, sys
 root = pathlib.Path(os.environ["HOME"])
 assert os.environ["GH_TOKEN"] == "fixture-token"
@@ -162,7 +170,7 @@ with (root / "api-calls").open("a") as log:
     log.write(sys.argv[4] + "\n")
 name = "live-pull" if "/pulls/" in sys.argv[4] else "live-base"
 print((root / name).read_text())
-"#).unwrap();
+"#, python = python_executable())).unwrap();
         fs::set_permissions(script, fs::Permissions::from_mode(0o755)).unwrap();
         fs::write(self.root.path().join("live-pull"), json!({
             "head":{"sha":head,"repo":{"full_name":"fixture/repo"}},
@@ -611,14 +619,14 @@ fn concurrent_local_head_and_base_movements_cannot_publish_decisions() {
             let bin = f.root.path().join("bin");
             fs::create_dir_all(&bin).unwrap();
             let script = bin.join("git");
-            fs::write(&script, format!(r#"#!/usr/bin/env python3
+            fs::write(&script, format!(r#"#!{python}
 import subprocess, sys
 git = {real_git:?}
 args = sys.argv[1:]
 if "refs/notes/evidence/" in args:
     subprocess.run([git, "-C", {repo:?}, "update-ref", {reference:?}, {replacement:?}], check=True)
 raise SystemExit(subprocess.run([git] + args).returncode)
-"#, repo = f.repo.to_str().unwrap(), replacement = if reference == "HEAD" { &f.base } else { &f.head })).unwrap();
+"#, python = python_executable(), repo = f.repo.to_str().unwrap(), replacement = if reference == "HEAD" { &f.base } else { &f.head })).unwrap();
             fs::set_permissions(script, fs::Permissions::from_mode(0o755)).unwrap();
             let outputs = f.root.path().join("outputs");
             let result = f.gate(&["--github-output", outputs.to_str().unwrap()]);
