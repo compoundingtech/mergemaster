@@ -173,3 +173,158 @@ mergemaster evidence verify --repo . --record "$RECORD" \
 The Rust evidence sources originate from `compoundingtech/fractal` commit
 `d6e91e3b6db855c30b4d35f2e78a29a3948b1ded`. The evidence library is available as
 `mergemaster_evidence::evidence`.
+
+## Generic verifier consumer contract
+
+`mergemaster gate` is a separate, BASE-pinned single-lane verifier. It does not
+replace the copied Fractal scripts or make their daemon policy generic. The
+consumer provides full 40-hex commit IDs for the accepted base and candidate
+head, and authenticated Actions event data, never a PR-authored event file:
+
+```sh
+mergemaster gate --check graph-full-check --base "$BASE" --head "$HEAD" \
+  --event-file "$GITHUB_EVENT_PATH" --format json
+```
+
+Commit `.mergemaster/tool-pin.json`, `evidence-keys`, `lanes.json`, and
+`environment.json`, plus the trusted base workflow. There is no `.st` or
+`.fractal` fallback. Every policy, allowed signer and environment declaration
+comes from BASE Git objects; HEAD supplies candidate objects and observations.
+The explicit pin schema is:
+
+```json
+{"version":1,"repository":"compoundingtech/mergemaster","revision":"<full immutable generic-verifier commit SHA>"}
+```
+
+The revision notation above is not a runnable pin. The bootstrap must validate
+the allowlisted upstream and immutable revision and authenticate the release
+artifact's digest/provenance before invoking its absolute executable. A SHA
+alone is not binary provenance. Missing artifacts must fail closed.
+`evidence-keys` uses OpenSSH allowed-signers lines, for example:
+
+```text
+agent/larch ssh-ed25519 <provisioned-public-key>
+agent/sorrel ssh-ed25519 <provisioned-public-key>
+```
+
+Provision actual public keys; the example deliberately makes no key-to-machine
+association. Version one accepts Ed25519 public keys with literal `agent/name`
+or `host/name` principals (comma-separated lists allowed). Names contain ASCII
+letters, digits, `-`, `_`, or `.`. The only supported optional key restriction is
+`namespaces="git"` before `ssh-ed25519`; trailing comments, blank lines and
+comment-only lines are allowed. Unsupported key types/options, principal
+patterns, invalid SSH wire keys and signer files with no keys fail closed.
+A Graph-shaped `lanes.json` is:
+
+```json
+{
+  "version": 1,
+  "pull_request": {
+    "same_repository": true,
+    "authors": {"mode": "none"},
+    "base_relation": "ancestor"
+  },
+  "protected_paths": [".mergemaster/", ".github/workflows/", ".github/actions/"],
+  "bootstrap_paths": ["genie"],
+  "lanes": {
+    "graph-full-check": {
+      "argv": ["tools/graph", "check", "--full"],
+      "definition_paths": ["tools", "lib", "package.json", "tsconfig.json", "vitest.config.ts"],
+      "trust_levels": ["agent"],
+      "mode": "required_evidence",
+      "events": ["pull_request"],
+      "environment": {
+        "manifest": ".mergemaster/environment.json",
+        "paths": ["package.json", "tools", "lib"]
+      },
+      "protected_edits": "reject",
+      "remediation_argv": ["mergemaster", "evidence", "wrap", "--check", "graph-full-check"]
+    }
+  }
+}
+```
+
+Use the actual committed consumer paths; omit `bootstrap_paths` when there is
+no generator/bootstrap source. Declared bootstrap paths are automatically
+protected, as are `.mergemaster/`, `.github/workflows/` and `.github/actions/`;
+policy can add protection, not remove it. Prefixes match complete path
+components, not globs. Missing input paths, escaping paths, symlinks,
+submodules, unknown schema fields and unsupported versions/policy fail closed.
+The only alternate lane mode is `optional_fallback`; optional positive
+`max_age_seconds` bounds signed observation age. `authors.mode=none` adds no
+author restriction but does not bypass repository or signer checks. An explicit
+allowlist uses `{"mode":"allowlist","logins":[...],"git_authors":[...],
+"git_committers":[...]}`: all lists must be nonempty, Git identities are exact
+`Name <email>` strings, and opener, actor, triggering actor and branch commit
+identities must all be eligible.
+
+The strict environment schema describes a complete immutable external runtime
+and dependency closure; no Nix file is required:
+
+```json
+{
+  "version": 1,
+  "system": "x86_64-linux",
+  "toolchain": {
+    "runtime": {"name": "bun", "identity": "sha256:<64-hex-runtime-artifact-digest>"},
+    "dependencies": {
+      "external-library": {"name": "external-library", "identity": "git:<40-hex-commit>"}
+    }
+  }
+}
+```
+
+Replace notation with measured identities; mutable version labels and external
+checkout paths are not identities. Supported systems are `x86_64-linux`,
+`aarch64-linux`, `x86_64-darwin`, and `aarch64-darwin`. Every artifact has exactly
+`name` and `identity`; identities are `sha256:` plus 64 hex digits or `git:` plus
+40 hex digits. List every non-repository dependency under sorted named
+`dependencies`; use an empty map only for a genuinely empty external closure.
+The wrapper must measure and enforce this closure before claiming provenance.
+The verifier reads data and Git blobs only, never executes the declared runtime.
+
+Signer and verifier share `gate::config::expected_inputs`. Hashes are lowercase
+SHA-256 of compact JSON tuples. Environment binding is
+`[1, BASE_environment_bytes_as_integer_array, declared_paths, files]`;
+toolchain binding is `[1, resolved_toolchain]`; lane-definition binding is
+`[1, check_name, lane, definition_files]`. Expanded files are sorted by UTF-8
+path bytes and encoded as `[path, Git_mode, content_sha256]`. Toolchain struct
+fields are ordered `runtime`, `dependencies`; artifacts are `name`, `identity`.
+Lane struct fields follow the example, then `max_age_seconds` if present.
+The environment declaration is ordered `manifest`, `paths`. Dependency map
+keys are byte-sorted. Environment bytes are preserved exactly, including
+whitespace. These hashes supplement exact signed commit and tree identity;
+they never permit cross-tree evidence reuse.
+
+`skip/satisfied` means trusted evidence covers the exact lane, not a skipped
+required GitHub job. `refuse` must fail the required check; `run` must execute
+the real fallback or fail. A computed decision exits zero even for refusal;
+usage/internal failures exit nonzero and missing outputs are never success.
+Use a read-only, base-owned `pull_request_target` bootstrap with no candidate
+checkout execution or private signing keys. Publish the required check on the
+explicit HEAD, recheck unchanged HEAD and accepted base before success, and
+require strict up-to-date branch protection. Graph's required-evidence lane
+does not run Graph in Actions. Generic signing/setup and authenticated release
+publication are separate prerequisites; the copied wrappers are not generic
+environment producers.
+
+The JSON result contains `version`, `check`, `base`, `head`, `tree`, `decision`,
+`outcome`, `reason`, `record` (an immutable record ID or null), and
+`protected_paths` (the touched protected paths, empty otherwise). Protected
+edits always return `decision: "refuse"` and `reason: "protected_paths"`,
+even for optional-fallback lanes. Only `protected_edits: "reject"` is supported.
+The stable reason codes are `satisfied`, `base_not_ancestor`, `protected_paths`,
+`ineligible_event`, `no_record`, `invalid_record`, `untrusted_signer`,
+`wrong_check`, `stale_tree`, `degraded`, `untrusted_tier`, `wrong_commit`,
+`untrusted_level`, `future_dated`, `too_old`, `check_failed`, `wrong_command`,
+`wrong_input`, and `workspace_dirty`. Consumers branch on these codes, not
+diagnostic prose. Malformed configuration or unavailable Git plumbing is an
+error, not a computed satisfaction result.
+
+`--github-output FILE` appends `skip`, `record`, `outcome`, `refuse`, and
+`refusal` only after computation completes. `refusal` is the reason code for
+a refusal, otherwise empty. Without `--event-file`, the gate supports a local
+object-only decision; this does not authenticate a GitHub event. With an event,
+the trusted `GITHUB_REPOSITORY` context and event repository/base/head must
+agree. Author allowlists additionally require opener, actor, triggering actor
+and every branch commit's exact author/committer identities.
