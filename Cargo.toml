@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/mergemaster-evidence"]
+resolver = "3"
