@@ -200,6 +200,10 @@ The revision notation above is not a runnable pin. The bootstrap must validate
 the allowlisted upstream and immutable revision and authenticate the release
 artifact's digest/provenance before invoking its absolute executable. A SHA
 alone is not binary provenance. Missing artifacts must fail closed.
+Release downloads additionally require a `release` object in this BASE pin:
+`{"version":"vX.Y.Z","sha256":"<64 lowercase hex digits for the x86_64 musl asset>"}`.
+`revision` still identifies the exact source commit. Both values must be real
+published identifiers, not the illustrative notation here.
 `evidence-keys` uses OpenSSH allowed-signers lines, for example:
 
 ```text
@@ -304,8 +308,8 @@ Use a read-only, base-owned `pull_request_target` bootstrap with no candidate
 checkout execution or private signing keys. Publish the required check on the
 explicit HEAD, recheck unchanged HEAD and accepted base before success, and
 require strict up-to-date branch protection. Graph's required-evidence lane
-does not run Graph in Actions. Authenticated release publication and consumer
-setup enforcement remain prerequisites; copied Fractal wrappers retain their
+does not execute its full check in the publisher job. The separate unprivileged
+validate job may execute candidate code. Copied Fractal wrappers retain their
 original contracts and are not generic environment producers.
 
 The JSON result contains `version`, `check`, `base`, `head`, `tree`, `decision`,
@@ -445,6 +449,49 @@ wrapper attestation, not hardware isolation from an operator able to invoke the
 signer. Existing Python evidence verification can read the same note, but
 consumer policies that require legacy `flake_lock_sha256` must not be applied
 to a generic environment lane.
+
+## Base-only generic required-check publisher
+
+`genie/generic-evidence.ts` exports `genericEvidenceRequiredJob`. Compose it
+under `pull_request_target`; the function additionally enforces that event at
+job runtime. The complete generator example and semantic YAML golden are in
+`tests/fixtures/generic-evidence/`. Its separate `pull_request` validate job
+has read-only permissions, no secrets, and an exact-head checkout. A trusted
+label event reevaluates evidence after hosted validation or review completes.
+
+The publisher checks out BASE only, downloads the x86_64 musl release named
+by BASE's pin, checks the pinned SHA-256, and runs `gh attestation verify`
+with the pinned source/workflow digest, release workflow identity, and
+`--deny-self-hosted-runners`. HEAD and evidence refs are fetched as Git objects;
+candidate source, setup, package installs, and signing never execute there.
+Missing binary, provenance, evidence, token, or gate output fails closed.
+
+The authenticated collection uses these GitHub REST endpoints:
+
+```text
+GET /repos/{repository}/pulls/{number}
+GET /repos/{repository}/git/ref/heads/{encoded-base-ref}
+GET /repos/{repository}/pulls/{number}/reviews?per_page=100&page=N
+GET /repos/{repository}/commits/{head}/check-runs?filter=all&per_page=100&page=N
+GET /repos/{repository}/actions/runs/{run_id}
+GET /repos/{repository}/actions/runs/{run_id}/jobs?filter=latest&per_page=100&page=N
+```
+
+Reviews, checks and jobs are fully paginated. Check/run/job identity is joined
+against authenticated Actions metadata, including the actual workflow path and
+ID, not a PR-supplied label or URL alone. Only latest-attempt jobs qualify.
+After the gate's live recheck, publication rechecks unchanged open PR HEAD and
+accepted base once more before `POST /repos/{repository}/check-runs` at HEAD.
+The gate's approval evaluation itself is offline; live authority rechecks
+remain authenticated API operations outside that evaluator.
+
+`appTokenStep` is the explicit integration point for a dedicated GitHub App
+token-producing step (ID `app-token`, output `token`). Until configured, its
+default placeholder exits unsuccessfully and cannot publish success. The
+workflow token is read-only and never substitutes for the App token. App
+creation, key provisioning, and consumer ruleset enrollment are separate from
+this fragment; no App or ruleset is created by this PR.
+
 ## Release binaries and retained Graph-shaped proof
 
 `.github/workflows/release.yml` builds native Linux x86_64 and aarch64 musl
@@ -461,3 +508,23 @@ No release exists until a maintainer pushes a version tag. Consumers must pin
 the exact published asset digest and source revision; a version label alone
 is not a trust boundary.
 
+CI also runs `tests/test-graph-proof.py` with the built binary. This is an
+independent Graph-shaped fixture, not a modification to a production Graph
+repository. `tools/graph setup` resolves Vitest into a separate, committed Git
+dependency closure. The committed environment binds the exact Node executable
+and that full closure; `tools/graph check --full` runs the complete real Vitest
+suite. The wrapper signs and publishes the observation to a fixture origin,
+then the gate must return `skip/satisfied` for the exact candidate.
+The `graph-full-check-proof` Actions artifact retains the post-setup repository
+and dependency worktrees, complete Vitest output, setup output, and gate JSON.
+It explicitly excludes the ephemeral private signing key and signer config.
+Worktrees are archived as a tarball so Git file modes and dependency symlinks
+survive download; the archive excludes signing secrets even on a failed proof.
+
+To reproduce while keeping the proof directory:
+
+```sh
+package="$(nix build .# --no-link --print-out-paths)"
+nix develop -c python3 tests/test-graph-proof.py \
+  --binary "$package/bin/mergemaster" --work-dir /absolute/new/proof-directory
+```

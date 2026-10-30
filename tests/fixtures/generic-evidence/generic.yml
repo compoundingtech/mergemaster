@@ -1,0 +1,109 @@
+{
+  "name": "Generic evidence example",
+  "on": {
+    "pull_request": {
+      "types": [
+        "opened",
+        "synchronize",
+        "reopened"
+      ]
+    },
+    "pull_request_target": {
+      "types": [
+        "opened",
+        "synchronize",
+        "reopened",
+        "ready_for_review",
+        "labeled"
+      ]
+    }
+  },
+  "permissions": {
+    "contents": "read"
+  },
+  "jobs": {
+    "validate": {
+      "name": "validate",
+      "if": "github.event_name == 'pull_request'",
+      "runs-on": "ubuntu-24.04",
+      "permissions": {
+        "contents": "read"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+          "with": {
+            "ref": "${{ github.event.pull_request.head.sha }}",
+            "persist-credentials": false
+          }
+        },
+        {
+          "run": "cargo test --workspace --locked"
+        }
+      ]
+    },
+    "generic-evidence": {
+      "name": "generic-evidence-publisher",
+      "if": "github.event_name == 'pull_request_target'",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 15,
+      "permissions": {
+        "contents": "read",
+        "actions": "read",
+        "checks": "read",
+        "pull-requests": "read",
+        "attestations": "read"
+      },
+      "defaults": {
+        "run": {
+          "shell": "bash"
+        }
+      },
+      "env": {
+        "CHECK": "graph-full-check",
+        "BASE_SHA": "${{ github.event.pull_request.base.sha }}",
+        "HEAD_SHA": "${{ github.event.pull_request.head.sha }}",
+        "GH_TOKEN": "${{ github.token }}",
+        "GITHUB_TOKEN": "${{ github.token }}",
+        "GH_PROMPT_DISABLED": "1"
+      },
+      "steps": [
+        {
+          "name": "Check out accepted base only",
+          "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+          "with": {
+            "ref": "${{ github.event.pull_request.base.sha }}",
+            "persist-credentials": false,
+            "fetch-depth": 0
+          }
+        },
+        {
+          "name": "Fetch pinned verifier and authenticated hosted evidence",
+          "run": "python3 - prepare <<'GENERIC_EVIDENCE_PY'\n<BASE-TRUSTED-PUBLISHER>\n\nGENERIC_EVIDENCE_PY"
+        },
+        {
+          "name": "Evaluate base-controlled evidence policy",
+          "id": "gate",
+          "run": "\"$RUNNER_TEMP/generic-evidence-release/mergemaster-x86_64-unknown-linux-musl\" gate \\\n  --check \"$CHECK\" --base \"$BASE_SHA\" --head \"$HEAD_SHA\" \\\n  --event-file \"$GITHUB_EVENT_PATH\" --hosted-evidence \"$RUNNER_TEMP/generic-hosted-evidence.json\" \\\n  --format json --github-output \"$GITHUB_OUTPUT\" > \"$RUNNER_TEMP/generic-evidence-decision.json\""
+        },
+        {
+          "name": "GitHub App token not configured (PR C')",
+          "run": "echo \"GitHub App token is not configured; refusing to publish\" >&2\nexit 1",
+          "id": "app-token",
+          "if": "always()"
+        },
+        {
+          "name": "Publish exact-HEAD check with strict finalization",
+          "if": "always()",
+          "env": {
+            "APP_TOKEN": "${{ steps.app-token.outputs.token }}",
+            "GATE_OUTCOME": "${{ steps.gate.outcome }}",
+            "GATE_SKIP": "${{ steps.gate.outputs.skip }}",
+            "APP_OUTCOME": "${{ steps.app-token.outcome }}"
+          },
+          "run": "python3 - finalize <<'GENERIC_EVIDENCE_PY'\n<BASE-TRUSTED-PUBLISHER>\n\nGENERIC_EVIDENCE_PY"
+        }
+      ]
+    }
+  }
+}

@@ -49,7 +49,7 @@ with tempfile.TemporaryDirectory(prefix='workflow-adapters-', dir=ROOT / 'tmp') 
     # and the parent's ignored tmp directory must not suppress formatting/files.
     subprocess.run(['git', '-c', 'init.templateDir=', 'init', '--quiet', str(work)], check=True)
     subprocess.run(['tsc', '--strict', '--noEmit', '--target', 'ES2023', '--module', 'ESNext',
-                    str(ROOT / 'genie/evidence.ts')], check=True)
+                    str(ROOT / 'genie/evidence.ts'), str(ROOT / 'genie/generic-evidence.ts')], check=True)
     workflows = work / '.github/workflows'
     workflows.mkdir(parents=True)
     # Genie invokes oxfmt after serialization and silently falls back if absent.
@@ -118,3 +118,5 @@ with tempfile.TemporaryDirectory(prefix='workflow-adapters-', dir=ROOT / 'tmp') 
                 fromfile=f'pinned/{name}', tofile=f'rendered/{name}'))
         print(f'{name}.yml: evidence sections byte-identical YES')
     print('Workflow adapter strict typecheck and golden test passed')
+
+subprocess.run(['python3', str(ROOT / 'tests/test-generic-evidence.py')], check=True)
