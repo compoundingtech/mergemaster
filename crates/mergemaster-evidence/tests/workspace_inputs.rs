@@ -50,6 +50,7 @@ fn actual_bytes_must_match_blobs_even_when_a_clean_filter_hides_the_change() {
     fs::write(repo.path().join(".gitattributes"), "tools/check filter=erase\n").unwrap();
     git(repo.path(), &["config", "filter.erase.clean", "printf canonical"]);
     git(repo.path(), &["add", "."]);
+    git(repo.path(), &["add", "--renormalize", "tools/check"]);
     git(repo.path(), &["commit", "-q", "-m", "filtered input"]);
     fs::write(repo.path().join("tools/check"), "printf untrusted\\n\n").unwrap();
     assert!(git(repo.path(), &["status", "--porcelain"]).is_empty());
