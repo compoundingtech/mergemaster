@@ -320,6 +320,9 @@ The stable reason codes are `satisfied`, `base_not_ancestor`, `protected_paths`,
 `wrong_input`, and `workspace_dirty`. Consumers branch on these codes, not
 diagnostic prose. Malformed configuration or unavailable Git plumbing is an
 error, not a computed satisfaction result.
+Merge commits anywhere in `BASE..HEAD` always refuse, including optional-fallback
+lanes. The `merge_history` reason takes precedence over protected edits, but
+`protected_paths` still lists every touched protected path.
 
 `--github-output FILE` appends `skip`, `record`, `outcome`, `refuse`, and
 `refusal` only after computation completes. `refusal` is the reason code for
