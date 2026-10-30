@@ -145,13 +145,16 @@ inputs.mergemaster.inputs.nixpkgs.follows = "nixpkgs";
 ```
 
 Run `nix develop -c python3 tests/test-workflow-adapters.py` for the strict
-TypeScript check and golden test. It injects the public fragments into the
-pinned `fractal-fixture` generators with Fractal's original settings and
-compares every fleet evidence job, plus the complete observer and signed-tree
-workflows, byte-for-byte against the pinned YAML. It uses the real pinned
-effect-utils generator and retains the consumer's queue/cache/sandbox
-wrappers. Original fixture action tags are used only to prove unchanged
-output; this repository's hosted workflow uses SHA-pinned actions.
+TypeScript check and golden test. It renders both the unmodified pinned
+`fractal-fixture` generators and the public fragments with Fractal's original
+settings through the same real pinned effect-utils generator, requiring
+byte-identical output. It also compares every fleet evidence job and the
+complete observer and signed-tree workflows against the committed fixture
+YAML. The shell supplies `oxfmt`, which genie invokes after serialization;
+without it genie silently emits unformatted YAML. The test retains the
+consumer's queue/cache/sandbox wrappers. Original fixture action tags are
+used only to prove unchanged output; this repository's hosted workflow uses
+SHA-pinned actions.
 
 ## Evidence CLI
 

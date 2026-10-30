@@ -34,10 +34,9 @@ with tempfile.TemporaryDirectory(prefix='mergemaster-workflow-adapters-') as scr
                     str(ROOT / 'genie/evidence.ts')], check=True)
     workflows = work / '.github/workflows'
     workflows.mkdir(parents=True)
-    # Genie preserves scalar quote styles from the consumer's existing YAML.
-    # Model a consumer cutover, not first-time generation into an empty tree.
-    for name in ('fleet', 'evidence-observe', 'signed-tree'):
-        shutil.copy2(FIXTURE / f'.github/workflows/{name}.yml', workflows / f'{name}.yml')
+    # Genie invokes oxfmt after serialization and silently falls back if absent.
+    # Require the real formatter so both renders match the consumer pipeline.
+    assert shutil.which('oxfmt'), 'oxfmt is required for faithful consumer YAML formatting'
     # Keep the consumer's existing queue/cache/sandbox wrappers and lane configuration.
     for path in (FIXTURE / '.github/workflows').glob('*.ts'):
         if not path.name.endswith('.genie.ts'):
@@ -50,6 +49,12 @@ with tempfile.TemporaryDirectory(prefix='mergemaster-workflow-adapters-') as scr
         (work / 'scripts' / path.name).symlink_to(
             ROOT / 'scripts/ci-evidence-source' if path.name == 'ci-evidence-source' else path,
             target_is_directory=path.is_dir())
+    for name in ('fleet', 'evidence-observe', 'signed-tree'):
+        shutil.copy2(FIXTURE / f'.github/workflows/{name}.yml.genie.ts',
+                     workflows / f'{name}.yml.genie.ts')
+    subprocess.run(['genie'], cwd=work, check=True, env=dict(os.environ, HOME=scratch))
+    baseline = {name: (workflows / f'{name}.yml').read_bytes()
+                for name in ('fleet', 'evidence-observe', 'signed-tree')}
     source = (FIXTURE / '.github/workflows/fleet.yml.genie.ts').read_text()
     signing = "{ actions: adapterActions, checkoutSteps: fullHistoryCheckoutSteps({ 'persist-credentials': false }, { name: 'Check out the tested commit', 'continue-on-error': true }), environment: evidenceEnvironment, stageNames: evidenceStageNames, stepNames: evidenceStepNames, laneNames: evidenceLaneNames, webNoteEnv: fractalWebNoteEnv, needs: "
     aggregate_needs = source.splitlines()[725].strip().removeprefix('needs: ').removesuffix(',')
@@ -72,6 +77,11 @@ with tempfile.TemporaryDirectory(prefix='mergemaster-workflow-adapters-') as scr
                    env=dict(os.environ, HOME=scratch))
     for name in ('fleet', 'evidence-observe', 'signed-tree'):
         actual = (workflows / f'{name}.yml').read_bytes()
+        assert actual == baseline[name], ''.join(difflib.unified_diff(
+            baseline[name].decode().splitlines(keepends=True),
+            actual.decode().splitlines(keepends=True),
+            fromfile=f'consumer-generator/{name}', tofile=f'adapter-generator/{name}'))
+        print(f'{name}.yml: generator-to-generator byte-identical YES')
         expected = (FIXTURE / f'.github/workflows/{name}.yml').read_bytes()
         if name == 'fleet':
             actual_jobs = job_blocks(actual.decode())
