@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Run only mergemaster's copied self-tests, against the original Fractal layout.
 set -euo pipefail
+export PYTHONDONTWRITEBYTECODE=1
 . "$(dirname "$0")/script-test-supervisor"
 . "$(dirname "$0")/git-env-clean"
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_COUNT=0
@@ -20,7 +21,6 @@ export CI_PARALLEL_TESTS_KEEP=${CI_PARALLEL_TESTS_KEEP:-${XDG_CACHE_HOME:-$HOME/
 sandbox=$(mktemp -d "${TMPDIR:-/tmp}/mergemaster-script-tests.XXXXXX")
 trap 'rm -rf "$sandbox"' EXIT
 export HOME="$sandbox/home" XDG_CACHE_HOME="$sandbox/home/.cache" XDG_CONFIG_HOME="$sandbox/home/.config" XDG_STATE_HOME="$sandbox/home/.local/state"
-export PYTHONDONTWRITEBYTECODE=1
 mkdir -p "$HOME" "$sandbox/repo"
 # Original repository files are test data, never the consuming build definition.
 cp -R "$root/tests/fixtures/fractal/." "$sandbox/repo/"
