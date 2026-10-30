@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Render extracted adapters through pinned Fractal's real generator and compare bytes."""
+import difflib
 import os
 from pathlib import Path
 import re
@@ -75,8 +76,13 @@ with tempfile.TemporaryDirectory(prefix='mergemaster-workflow-adapters-') as scr
             assert selected, 'No evidence jobs selected'
             assert actual_jobs.keys() == expected_jobs.keys(), 'Consumer job inventory changed'
             for key in selected:
-                assert actual_jobs[key].encode() == expected_jobs[key].encode(), f'{name}: {key} differs'
+                assert actual_jobs[key].encode() == expected_jobs[key].encode(), ''.join(
+                    difflib.unified_diff(expected_jobs[key].splitlines(keepends=True),
+                                         actual_jobs[key].splitlines(keepends=True),
+                                         fromfile=f'pinned/{name}/{key}', tofile=f'rendered/{name}/{key}'))
         else:
-            assert actual == expected, f'{name}: workflow differs'
+            assert actual == expected, ''.join(difflib.unified_diff(
+                expected.decode().splitlines(keepends=True), actual.decode().splitlines(keepends=True),
+                fromfile=f'pinned/{name}', tofile=f'rendered/{name}'))
         print(f'{name}.yml: evidence sections byte-identical YES')
     print('Workflow adapter strict typecheck and golden test passed')
