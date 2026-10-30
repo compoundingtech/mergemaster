@@ -1,11 +1,9 @@
 {
   description = "Portable signed Git evidence core and CLI";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  # Genie shares effect-utils' pinned Buck toolchain and nixpkgs authority.
+  inputs.nixpkgs.follows = "effect-utils/nixpkgs";
   inputs.effect-utils.url = "github:overengineeringstudio/effect-utils/d883d18e3ad7609602db0ec8687c14a77625b905";
-  inputs.effect-utils.inputs.nixpkgs.follows = "nixpkgs";
-  inputs.effect-utils.inputs.tsgo.inputs.nixpkgs.follows = "nixpkgs";
-  inputs.effect-utils.inputs.tsgo.inputs.nixpkgsUnstable.follows = "nixpkgs";
 
   outputs = { self, nixpkgs, effect-utils }:
     let
