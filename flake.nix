@@ -17,7 +17,7 @@
       forAllSystems = nixpkgs.lib.genAttrs systems;
       scriptInputs = pkgs: with pkgs; [
         effect-utils.packages.${pkgs.stdenv.hostPlatform.system}.genie
-        python3 git openssh bash coreutils findutils gnugrep gnused gawk nix
+        (python3.withPackages (packages: [ packages.pyyaml ])) git openssh bash coreutils findutils gnugrep gnused gawk nix
         nodejs typescript oxfmt
         gnutar gzip bzip2 xz zstd jq curl diffutils util-linux procps which time
       ];

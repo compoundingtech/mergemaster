@@ -18,6 +18,14 @@ path = "tests/integration.rs"
 name = "gate"
 path = "tests/gate.rs"
 
+[[test]]
+name = "workspace_inputs"
+path = "tests/workspace_inputs.rs"
+
+[[test]]
+name = "generic_evidence"
+path = "tests/generic_evidence.rs"
+
 [dependencies]
 anyhow = "1"
 base64 = "0.22"
