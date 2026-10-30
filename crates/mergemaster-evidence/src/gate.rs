@@ -1,6 +1,7 @@
 //! BASE-authorized, read-only single-lane evidence decisions.
 pub mod config;
 pub mod git;
+mod approval;
 
 use anyhow::{Context, Result, ensure};
 use chrono::{DateTime, Duration, Utc};
@@ -17,6 +18,7 @@ pub struct Args {
     #[arg(long)] pub base: String,
     #[arg(long)] pub head: String,
     #[arg(long)] pub event_file: Option<PathBuf>,
+    #[arg(long)] pub hosted_evidence: Option<PathBuf>,
     #[arg(long, value_parser = ["json"])] pub format: String,
     #[arg(long)] pub github_output: Option<PathBuf>,
 }
@@ -48,12 +50,13 @@ pub struct Decision {
     pub reason: &'static str,
     pub record: Option<String>,
     pub protected_paths: Vec<String>,
+    pub summary: String,
 }
 
 pub fn run(args: Args) -> Result<()> {
     let repo = std::env::current_dir()?;
     let live = Live::read(&repo, &args.base, &args.head, args.event_file.as_deref())?;
-    let decision = compute(&repo, &args.check, &args.base, &args.head, args.event_file.as_deref())?;
+    let decision = compute(&repo, &args.check, &args.base, &args.head, args.event_file.as_deref(), args.hosted_evidence.as_deref())?;
     let json = serde_json::to_string(&decision)?;
     let mut output = args.github_output.map(|path|
         std::fs::OpenOptions::new().append(true).create(true).open(path)).transpose()?;
@@ -162,12 +165,12 @@ impl Live {
 
 pub fn decide(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path>) -> Result<Decision> {
     let live = Live::read(repo, base, head, event)?;
-    let decision = compute(repo, check, base, head, event)?;
+    let decision = compute(repo, check, base, head, event, None)?;
     live.recheck(repo, base, head)?;
     Ok(decision)
 }
 
-fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path>) -> Result<Decision> {
+fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path>, hosted: Option<&Path>) -> Result<Decision> {
     commit(repo, base)?;
     commit(repo, head)?;
     let config = config::load(repo, base)?;
@@ -175,7 +178,7 @@ fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path
     let tree = git::text(repo, &["rev-parse", &format!("{head}^{{tree}}")])?;
     let mut decision = Decision { version: 1, check: check.into(), base: base.into(), head: head.into(), tree,
         decision: if lane.mode == "required_evidence" { "refuse" } else { "run" },
-        outcome: "rejected", reason: "base_not_ancestor", record: None, protected_paths: Vec::new() };
+        outcome: "rejected", reason: "base_not_ancestor", record: None, protected_paths: Vec::new(), summary: String::new() };
     let relation = git::command(repo).args(["merge-base", "--is-ancestor", base, head]).output()?;
     match relation.status.code() {
         Some(0) => {},
@@ -195,13 +198,29 @@ fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path
             decision.protected_paths.push(path.to_owned());
         }
     }
-    if !decision.protected_paths.is_empty() {
+    if !decision.protected_paths.is_empty() && lane.protected_edits == "reject" {
         decision.decision = "refuse";
         decision.reason = "protected_paths";
         return Ok(decision);
     }
     if !eligible(repo, base, head, event, &config, lane)? {
         decision.reason = "ineligible_event";
+        return Ok(decision);
+    }
+    if !decision.protected_paths.is_empty() {
+        decision.decision = "refuse";
+        decision.reason = "protected_paths";
+        if lane.protected_edits == "human_approval" {
+            if lane.require_hosted.iter().any(|required|
+                decision.protected_paths.contains(&required.workflow_path)) {
+                decision.summary = "this PR changes the validate workflow; validate ran the changed file".into();
+            }
+            decision.reason = approval::evaluate(lane, head, hosted)?;
+            if decision.reason == "human_approval_satisfied" {
+                decision.decision = "skip";
+                decision.outcome = "satisfied";
+            }
+        }
         return Ok(decision);
     }
     let expected = config::expected_inputs(repo, head, check, lane, &config.environment, &config.environment_bytes)?;

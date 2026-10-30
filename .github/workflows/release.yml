@@ -1,0 +1,144 @@
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]*.[0-9]*.[0-9]*']
+  pull_request:
+  # Always build-only, even when dispatched against an existing version tag.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      RUST_TOOLCHAIN: 1.93.0
+      TARGET: ${{ matrix.target }}
+      RUSTFLAGS: '-C target-feature=+crt-static -C linker=musl-gcc'
+    steps:
+      - name: Validate release tag
+        if: github.event_name == 'push'
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+            echo 'Release tags must have the form vX.Y.Z (no leading zeroes).' >&2
+            exit 1
+          }
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install native musl toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y musl-tools binutils
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --target "$TARGET"
+      - name: Build locked release binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo +"$RUST_TOOLCHAIN" build --locked --release --target "$TARGET" --package mergemaster-evidence --bin mergemaster
+      - name: Verify static linking and smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="target/$TARGET/release/mergemaster"
+          readelf --program-headers "$binary" > program-headers.txt
+          readelf --dynamic "$binary" > dynamic-section.txt
+          if grep -Eq 'INTERP' program-headers.txt || grep -Eq '\(NEEDED\)' dynamic-section.txt; then
+            echo 'Release binary must not require an ELF interpreter or shared libraries.' >&2
+            exit 1
+          fi
+          "$binary" --help
+          "$binary" --version
+          mkdir -p dist
+          install -m 755 "$binary" "dist/mergemaster-$TARGET"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mergemaster-${{ matrix.target }}
+          path: dist/mergemaster-${{ matrix.target }}
+          if-no-files-found: error
+          retention-days: 7
+
+  bundle:
+    name: Assemble release assets (also for dry runs)
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: mergemaster-*
+          merge-multiple: true
+          path: dist
+      - name: Generate SHA256SUMS
+        working-directory: dist
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum mergemaster-aarch64-unknown-linux-musl mergemaster-x86_64-unknown-linux-musl > SHA256SUMS
+          sha256sum --check --strict SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-assets
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Attest and publish version tag
+    needs: bundle
+    # Neither pull_request nor workflow_dispatch may attest or publish.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      # Do not check out or execute release code in the credentialed job.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-assets
+          path: dist
+      - name: Verify assembled checksums
+        working-directory: dist
+        run: sha256sum --check --strict SHA256SUMS
+      - name: Attest binaries and checksums
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: dist/*
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" --verify-tag --target "$RELEASE_COMMIT" \
+            --title "$RELEASE_TAG" --notes 'Linux musl binaries; verify SHA256SUMS and GitHub build provenance before use. Runtime operations may require git and ssh on PATH.' \
+            dist/mergemaster-aarch64-unknown-linux-musl \
+            dist/mergemaster-x86_64-unknown-linux-musl dist/SHA256SUMS

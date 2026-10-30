@@ -1,0 +1,18 @@
+#!/usr/bin/env node
+// This fixture is independent of the production Graph repository.
+import { spawnSync } from 'node:child_process'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+const dependencies = process.env.GRAPH_DEPENDENCIES
+if (!dependencies) throw new Error('GRAPH_DEPENDENCIES is required')
+const [command, flag] = process.argv.slice(2)
+let result
+if (command === 'setup' && !flag) {
+  mkdirSync(dependencies, { recursive: true })
+  writeFileSync(resolve(dependencies, 'package.json'), JSON.stringify({ private: true, dependencies: { vitest: '4.0.18' } }))
+  result = spawnSync('npm', ['install', '--prefix', dependencies, '--ignore-scripts', '--no-audit', '--no-fund'], { stdio: 'inherit' })
+} else if (command === 'check' && flag === '--full') {
+  result = spawnSync(process.execPath, [resolve(dependencies, 'node_modules/vitest/vitest.mjs'), 'run', '--root', process.cwd(), '--globals', '--reporter=verbose', '--no-file-parallelism', '--no-cache'], { stdio: 'inherit' })
+} else throw new Error('expected setup or check --full')
+if (result.error) throw result.error
+process.exit(result.status ?? 1)

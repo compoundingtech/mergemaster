@@ -200,6 +200,10 @@ The revision notation above is not a runnable pin. The bootstrap must validate
 the allowlisted upstream and immutable revision and authenticate the release
 artifact's digest/provenance before invoking its absolute executable. A SHA
 alone is not binary provenance. Missing artifacts must fail closed.
+Release downloads additionally require a `release` object in this BASE pin:
+`{"version":"vX.Y.Z","sha256":"<64 lowercase hex digits for the x86_64 musl asset>"}`.
+`revision` still identifies the exact source commit. Both values must be real
+published identifiers, not the illustrative notation here.
 `evidence-keys` uses OpenSSH allowed-signers lines, for example:
 
 ```text
@@ -304,20 +308,23 @@ Use a read-only, base-owned `pull_request_target` bootstrap with no candidate
 checkout execution or private signing keys. Publish the required check on the
 explicit HEAD, recheck unchanged HEAD and accepted base before success, and
 require strict up-to-date branch protection. Graph's required-evidence lane
-does not run Graph in Actions. Authenticated release publication and consumer
-setup enforcement remain prerequisites; copied Fractal wrappers retain their
+does not execute its full check in the publisher job. The separate unprivileged
+validate job may execute candidate code. Copied Fractal wrappers retain their
 original contracts and are not generic environment producers.
 
 The JSON result contains `version`, `check`, `base`, `head`, `tree`, `decision`,
-`outcome`, `reason`, `record` (an immutable record ID or null), and
-`protected_paths` (the touched protected paths, empty otherwise). Protected
-edits always return `decision: "refuse"` and `reason: "protected_paths"`,
-even for optional-fallback lanes. Only `protected_edits: "reject"` is supported.
+`outcome`, `reason`, `record` (an immutable record ID or null),
+`protected_paths` (the touched protected paths, empty otherwise), and `summary`.
+`protected_edits: "reject"` always refuses protected edits, even for
+optional-fallback lanes. A BASE-authorized `human_approval` policy permits the
+explicit review/hosted-check path described below; agent signatures alone
+never authorize protected changes.
 The stable reason codes are `satisfied`, `base_not_ancestor`, `merge_history`, `protected_paths`,
 `ineligible_event`, `no_record`, `invalid_record`, `untrusted_signer`,
 `wrong_check`, `stale_tree`, `degraded`, `untrusted_tier`, `wrong_commit`,
 `untrusted_level`, `future_dated`, `too_old`, `check_failed`, `wrong_command`,
-`wrong_input`, and `workspace_dirty`. Consumers branch on these codes, not
+`wrong_input`, `workspace_dirty`, `approval_evidence_missing`, `human_approval_missing`,
+`hosted_check_missing`, and `human_approval_satisfied`. Consumers branch on these codes, not
 diagnostic prose. Malformed configuration or unavailable Git plumbing is an
 error, not a computed satisfaction result.
 Merge commits anywhere in `BASE..HEAD` refuse. Protected comparisons use
@@ -337,6 +344,49 @@ This does not authenticate a GitHub event. With an event, the trusted
 the live PR head and base branch immediately before emitting a decision.
 Author allowlists additionally require opener, actor, triggering actor and every
 branch commit's exact author/committer identities.
+
+### Protected edits with human approval
+
+A lane may set the following policy in the accepted BASE `lanes.json`:
+
+```json
+{
+  "protected_edits": "human_approval",
+  "approvers": ["schickling"],
+  "require_hosted": [{
+    "name": "validate",
+    "workflow_id": 123456,
+    "workflow_path": ".github/workflows/validate.yml"
+  }]
+}
+```
+
+Replace the example workflow ID with the repository's actual workflow ID.
+Both approvers and hosted checks must be nonempty. An approver's current
+approving review must have `commit_id` equal to the exact candidate HEAD.
+New pushes invalidate prior approval; dismissed approvals and later change
+requests revoke it. The required hosted job must have completed successfully
+at that same HEAD in a `pull_request` run whose numeric workflow ID **and**
+workflow path equal BASE policy. A matching job display name is insufficient:
+renamed workflows and extra PR-authored workflows named `validate` do not count.
+Every configured hosted check is required. This administrative path passes
+without an agent evidence note and does not activate candidate policy.
+
+The publisher fetches authenticated evidence into a fresh trusted file and
+passes `--hosted-evidence FILE`. The approval evaluator performs no network
+requests and never executes candidate code; the existing final live PR/base
+recheck remains mandatory. The file has version 1, `repository`, `head`,
+`reviews` (projected API review ID, user login, state, commit ID, submitted time),
+and `checks` (job name, head SHA, status, conclusion, and an API-joined
+`workflow_run` with run ID, workflow ID, path, head SHA and event).
+Never accept this file from PR artifacts, checked-out candidate files, or an
+untrusted caller. The generic publisher fragment collects all API pages.
+
+**Limit:** when the PR edits the validate workflow itself, validate executes
+that changed file, not BASE's contents. The decision summary explicitly says:
+“this PR changes the validate workflow; validate ran the changed file”.
+Workflow identity prevents name spoofing, not a human-approved change to the
+authorized workflow's implementation. Reviewers must inspect such changes.
 
 ## Generic lane execution and signing
 
@@ -399,3 +449,80 @@ wrapper attestation, not hardware isolation from an operator able to invoke the
 signer. Existing Python evidence verification can read the same note, but
 consumer policies that require legacy `flake_lock_sha256` must not be applied
 to a generic environment lane.
+
+## Base-only generic required-check publisher
+
+`genie/generic-evidence.ts` exports `genericEvidenceRequiredJob`. Compose it
+under `pull_request_target`; the function additionally enforces that event at
+job runtime. The complete generator example and semantic YAML golden are in
+`tests/fixtures/generic-evidence/`. Its separate `pull_request` validate job
+has read-only permissions, no secrets, and an exact-head checkout. A trusted
+label event reevaluates evidence after hosted validation or review completes.
+
+The publisher checks out BASE only, downloads the x86_64 musl release named
+by BASE's pin, checks the pinned SHA-256, and runs `gh attestation verify`
+with the pinned source/workflow digest, release workflow identity, and
+`--deny-self-hosted-runners`. HEAD and evidence refs are fetched as Git objects;
+candidate source, setup, package installs, and signing never execute there.
+Missing binary, provenance, evidence, token, or gate output fails closed.
+
+The authenticated collection uses these GitHub REST endpoints:
+
+```text
+GET /repos/{repository}/pulls/{number}
+GET /repos/{repository}/git/ref/heads/{encoded-base-ref}
+GET /repos/{repository}/pulls/{number}/reviews?per_page=100&page=N
+GET /repos/{repository}/commits/{head}/check-runs?filter=all&per_page=100&page=N
+GET /repos/{repository}/actions/runs/{run_id}
+GET /repos/{repository}/actions/runs/{run_id}/jobs?filter=latest&per_page=100&page=N
+```
+
+Reviews, checks and jobs are fully paginated. Check/run/job identity is joined
+against authenticated Actions metadata, including the actual workflow path and
+ID, not a PR-supplied label or URL alone. Only latest-attempt jobs qualify.
+After the gate's live recheck, publication rechecks unchanged open PR HEAD and
+accepted base once more before `POST /repos/{repository}/check-runs` at HEAD.
+The gate's approval evaluation itself is offline; live authority rechecks
+remain authenticated API operations outside that evaluator.
+
+`appTokenStep` is the explicit integration point for a dedicated GitHub App
+token-producing step (ID `app-token`, output `token`). Until configured, its
+default placeholder exits unsuccessfully and cannot publish success. The
+workflow token is read-only and never substitutes for the App token. App
+creation, key provisioning, and consumer ruleset enrollment are separate from
+this fragment; no App or ruleset is created by this PR.
+
+## Release binaries and retained Graph-shaped proof
+
+`.github/workflows/release.yml` builds native Linux x86_64 and aarch64 musl
+executables on GitHub-hosted runners. A pushed `vX.Y.Z` tag publishes
+`mergemaster-x86_64-unknown-linux-musl`,
+`mergemaster-aarch64-unknown-linux-musl`, and `SHA256SUMS`, with GitHub
+build-provenance attestations for all three assets. Builds use locked Cargo
+dependencies and reject an ELF interpreter or dynamic shared-library dependency.
+Git and OpenSSH remain runtime prerequisites for evidence operations.
+
+Pull requests and `workflow_dispatch` build both architectures and assemble
+checksums but cannot attest or publish, even when dispatch targets a tag.
+No release exists until a maintainer pushes a version tag. Consumers must pin
+the exact published asset digest and source revision; a version label alone
+is not a trust boundary.
+
+CI also runs `tests/test-graph-proof.py` with the built binary. This is an
+independent Graph-shaped fixture, not a modification to a production Graph
+repository. `tools/graph setup` resolves Vitest into a separate, committed Git
+dependency closure. The committed environment binds the exact Node executable
+and that full closure; `tools/graph check --full` runs the complete real Vitest
+suite. The wrapper signs and publishes the observation to a fixture origin,
+then the gate must return `skip/satisfied` for the exact candidate.
+The `graph-full-check-proof` Actions artifact retains the post-setup repository
+and dependency worktrees, complete Vitest output, setup output, and gate JSON.
+It explicitly excludes the ephemeral private signing key and signer config.
+
+To reproduce while keeping the proof directory:
+
+```sh
+package="$(nix build .# --no-link --print-out-paths)"
+nix develop -c python3 tests/test-graph-proof.py \
+  --binary "$package/bin/mergemaster" --work-dir /absolute/new/proof-directory
+```
