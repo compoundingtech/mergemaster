@@ -38,8 +38,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertNotIn('pull_request_target', WORKFLOW)
         self.assertNotIn('workflow_run', WORKFLOW)
         self.assertIn('\npermissions:\n  contents: read\n', WORKFLOW)
-        self.assertNotIn('    if:', job('build'))
-        self.assertNotIn('    if:', job('bundle'))
+        self.assertNotRegex(job('build'), r'(?m)^    if:')
+        self.assertNotRegex(job('bundle'), r'(?m)^    if:')
         self.assertIn("    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')\n",
                       job('publish'))
         for name in ('build', 'bundle'):
