@@ -10,8 +10,9 @@ nix flake check
 ```
 
 The flake provides the `mergemaster` binary and runs the Rust unit and Git
-integration tests on `x86_64-linux` and `aarch64-linux`. Git, OpenSSH, Python 3,
-and GNU coreutils are required by the integration tests.
+integration tests (`checks.evidence`) and copied script self-tests
+(`checks.scripts`) on `x86_64-linux` and `aarch64-linux`. The development shell
+provides both suites' Python, Git, OpenSSH and GNU command-line dependencies.
 
 For development:
 
@@ -20,6 +21,45 @@ nix develop
 cargo test --workspace
 cargo run -- evidence --help
 ```
+
+## Copied evidence scripts
+
+The evidence scripts and their self-tests are copied byte-for-byte from
+`compoundingtech/fractal` commit
+`e83871ec919f95b3b3e2a9a1cd211c2ac37babda`. Their original Fractal configuration
+paths, command names and defaults are intentionally unchanged; this extraction
+does not make the scripts general-purpose replacements for the Rust CLI.
+The accompanying systemd service and timer files are shipped as source only:
+the flake does not install, enable or run them.
+
+Run the script suite independently:
+
+```sh
+nix develop -c bash scripts/test-scripts
+# Or, with the dependencies already on PATH:
+bash scripts/test-scripts
+```
+
+`scripts/test-scripts` discovers every copied `scripts/*-test` self-test,
+including `evidence-verify-test`; `st-test` and `fractal-test` are production
+entrypoints, not self-tests. Fixture-only tests are not added to the suite.
+The runner creates a temporary Git repository, restores
+`tests/fixtures/fractal/` at the original repository-relative paths, then
+overlays the current copied scripts and commits the combined tree. Tests that
+read policy, workflows, source paths or Git objects therefore see the original
+layout without modifying this checkout or evaluating the fixture's flake.
+These fixture files remain test data, not active mergemaster policy.
+
+The original `script-test-supervisor` and its Python dependencies own fixture
+process cleanup on Linux; the original `git-env-clean` removes inherited
+repository selectors, and `ci-parallel-tests` collects failures across the
+suite. The runner also isolates home/config/state directories and disables
+inherited Git configuration. It removes its temporary repository on exit.
+`GENIE_FRESHNESS_JOBS` controls parallelism (default 6).
+Failed-test logs are retained under
+`${XDG_CACHE_HOME:-$HOME/.cache}/mergemaster-script-tests`, or the directory
+specified by `CI_PARALLEL_TESTS_KEEP`; in a Nix check they live in the build's
+temporary directory. The suite needs no network service or running daemon.
 
 ## Evidence CLI
 
