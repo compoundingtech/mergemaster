@@ -4,6 +4,8 @@
   # Genie shares effect-utils' pinned Buck toolchain and nixpkgs authority.
   inputs.nixpkgs.follows = "effect-utils/nixpkgs";
   inputs.effect-utils.url = "github:overengineeringstudio/effect-utils/d883d18e3ad7609602db0ec8687c14a77625b905";
+  inputs.effect-utils.inputs.nixpkgs.url = "github:NixOS/nixpkgs/4ba99f3209788ed04f01af38f77ddb803ad6ec63";
+  inputs.effect-utils.inputs.tsgo.inputs.nixpkgsUnstable.url = "github:NixOS/nixpkgs/44a91898084f46797b5fac650c7e8c9ac38c43d4";
 
   outputs = { self, nixpkgs, effect-utils }:
     let
