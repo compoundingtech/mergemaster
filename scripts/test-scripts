@@ -24,6 +24,9 @@ export HOME="$sandbox/home" XDG_CACHE_HOME="$sandbox/home/.cache" XDG_CONFIG_HOM
 mkdir -p "$HOME" "$sandbox/repo"
 # Original repository files are test data, never the consuming build definition.
 cp -R "$root/tests/fixtures/fractal/." "$sandbox/repo/"
+# Nix-store source directories are read-only; make the private copy writable
+# before overlaying the moving scripts or creating sandbox-only files.
+chmod -R u+w "$sandbox/repo"
 mkdir -p "$sandbox/repo/scripts"
 cp -R "$root/scripts/." "$sandbox/repo/scripts/"
 chmod -R u+w "$sandbox/repo"
