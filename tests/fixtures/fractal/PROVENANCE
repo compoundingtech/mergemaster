@@ -5,7 +5,8 @@ These are unmodified source fixtures, not installed consumer configuration.
 They retain the source ci-script-tests sparse inputs and lane-definition paths;
 real web source files exercise the tracked-path coverage assertion (>100 paths).
 Other policy input directories retain an original source member for existence checks.
-Moving scripts and vendored test infrastructure are supplied by scripts/ instead.
+Moving scripts are supplied by scripts/; vendored test infrastructure is listed
+separately in infrastructure-PROVENANCE beside this file.
 The workflow generator also imports repos/effect-utils from the flake input:
 https://github.com/overengineeringstudio/effect-utils
 Commit: d883d18e3ad7609602db0ec8687c14a77625b905

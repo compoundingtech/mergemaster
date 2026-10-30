@@ -2,10 +2,10 @@
 # Run only mergemaster's copied self-tests, against the original Fractal layout.
 set -euo pipefail
 export PYTHONDONTWRITEBYTECODE=1
-. "$(dirname "$0")/script-test-supervisor"
-. "$(dirname "$0")/git-env-clean"
-export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_COUNT=0
 root=$(cd "$(dirname "$0")/.." && pwd)
+. "$root/tests/fixtures/fractal/scripts/script-test-supervisor"
+. "$root/tests/fixtures/fractal/scripts/git-env-clean"
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_COUNT=0
 # Discover before overlaying fixtures: fixture-only scripts are not this suite.
 tests=()
 for path in "$root"/scripts/*-test; do
