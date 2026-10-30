@@ -52,6 +52,7 @@ with tempfile.TemporaryDirectory(prefix='mergemaster-workflow-adapters-') as scr
     for name in ('fleet', 'evidence-observe', 'signed-tree'):
         shutil.copy2(FIXTURE / f'.github/workflows/{name}.yml.genie.ts',
                      workflows / f'{name}.yml.genie.ts')
+        (workflows / f'{name}.yml.genie.ts').chmod(0o644)
     subprocess.run(['genie'], cwd=work, check=True, env=dict(os.environ, HOME=scratch))
     baseline = {name: (workflows / f'{name}.yml').read_bytes()
                 for name in ('fleet', 'evidence-observe', 'signed-tree')}
