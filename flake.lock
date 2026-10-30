@@ -1,5 +1,46 @@
 {
   "nodes": {
+    "effect-utils": {
+      "inputs": {
+        "flake-utils": "flake-utils",
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "tsgo": "tsgo"
+      },
+      "locked": {
+        "lastModified": 1793249746,
+        "narHash": "sha256-0jklcur3TLRMeIwSl64QWBz+bfyuJOkqlB/4nS11kAQ=",
+        "owner": "overengineeringstudio",
+        "repo": "effect-utils",
+        "rev": "d883d18e3ad7609602db0ec8687c14a77625b905",
+        "type": "github"
+      },
+      "original": {
+        "owner": "overengineeringstudio",
+        "repo": "effect-utils",
+        "rev": "d883d18e3ad7609602db0ec8687c14a77625b905",
+        "type": "github"
+      }
+    },
+    "flake-utils": {
+      "inputs": {
+        "systems": "systems"
+      },
+      "locked": {
+        "lastModified": 1731533236,
+        "narHash": "sha256-l0KFg5HjrsfsO/JpG+r7fRrqm12kzFHyUHqHCVpMMbI=",
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "rev": "11707dc2f618dd54ca8739b309ec4fc024de578b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1793110635,
@@ -18,7 +59,64 @@
     },
     "root": {
       "inputs": {
+        "effect-utils": "effect-utils",
         "nixpkgs": "nixpkgs"
+      }
+    },
+    "systems": {
+      "locked": {
+        "lastModified": 1681028828,
+        "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
+        "owner": "nix-systems",
+        "repo": "default",
+        "rev": "da67096a3b9bf56a91d16901293e51ba5b49a27e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-systems",
+        "repo": "default",
+        "type": "github"
+      }
+    },
+    "tsgo": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "nixpkgsUnstable": [
+          "nixpkgs"
+        ],
+        "typescript-src": "typescript-src"
+      },
+      "locked": {
+        "lastModified": 1790073243,
+        "narHash": "sha256-iMBIU1NIatc0na3Hnd0oqr9bgKtDrcRh9KclGRL6Avs=",
+        "owner": "Effect-TS",
+        "repo": "tsgo",
+        "rev": "d6758e71e59ef0ec1eac3111392480b23f5b527f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Effect-TS",
+        "repo": "tsgo",
+        "type": "github"
+      }
+    },
+    "typescript-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1789827226,
+        "narHash": "sha256-w4kB6wcoWeG8o/JXS0OijDvMWFPHWBri+C9KCzIvhZ8=",
+        "owner": "microsoft",
+        "repo": "TypeScript",
+        "rev": "f29aeb9f825d96feea27841f3f7342dbf0df68a8",
+        "type": "github"
+      },
+      "original": {
+        "owner": "microsoft",
+        "repo": "TypeScript",
+        "rev": "f29aeb9f825d96feea27841f3f7342dbf0df68a8",
+        "type": "github"
       }
     }
   },

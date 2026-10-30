@@ -6,6 +6,11 @@ They retain the source ci-script-tests sparse inputs and lane-definition paths;
 real web source files exercise the tracked-path coverage assertion (>100 paths).
 Other policy input directories retain an original source member for existence checks.
 Moving scripts and vendored test infrastructure are supplied by scripts/ instead.
+The workflow generator also imports repos/effect-utils from the flake input:
+https://github.com/overengineeringstudio/effect-utils
+Commit: d883d18e3ad7609602db0ec8687c14a77625b905
+This matches the original Fractal megarepo.lock and flake.lock fixture entries;
+the runner exposes the immutable input source as a sandbox-only symlink.
 
 original_path	git_blob_sha1
 .buckconfig	afca51dd67e37235f74e0788c7fcd33627cbe3fc

@@ -2,12 +2,17 @@
   description = "Portable signed Git evidence core and CLI";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs.effect-utils.url = "github:overengineeringstudio/effect-utils/d883d18e3ad7609602db0ec8687c14a77625b905";
+  inputs.effect-utils.inputs.nixpkgs.follows = "nixpkgs";
+  inputs.effect-utils.inputs.tsgo.inputs.nixpkgs.follows = "nixpkgs";
+  inputs.effect-utils.inputs.tsgo.inputs.nixpkgsUnstable.follows = "nixpkgs";
 
-  outputs = { self, nixpkgs }:
+  outputs = { self, nixpkgs, effect-utils }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
       scriptInputs = pkgs: with pkgs; [
+        effect-utils.packages.${pkgs.stdenv.hostPlatform.system}.genie
         python3 git openssh bash coreutils findutils gnugrep gnused gawk
         gnutar gzip bzip2 xz zstd jq curl diffutils util-linux procps which time
       ];
@@ -42,6 +47,7 @@
           } ''
             export HOME="$TMPDIR/home"
             export CI_PARALLEL_TESTS_KEEP="$TMPDIR/script-test-logs"
+            export MERGEMASTER_EFFECT_UTILS=${effect-utils}
             mkdir -p "$HOME"
             bash ${pkgs.lib.cleanSource self}/scripts/test-scripts
             touch "$out"
@@ -51,6 +57,7 @@
         let pkgs = import nixpkgs { inherit system; };
         in { default = pkgs.mkShell {
           packages = [ pkgs.cargo pkgs.rustc ] ++ scriptInputs pkgs;
+          MERGEMASTER_EFFECT_UTILS = "${effect-utils}";
         }; });
     };
 }

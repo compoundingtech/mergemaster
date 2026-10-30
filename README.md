@@ -36,7 +36,7 @@ Run the script suite independently:
 
 ```sh
 nix develop -c bash scripts/test-scripts
-# Or, with the dependencies already on PATH:
+# Or, with dependencies and MERGEMASTER_EFFECT_UTILS already set:
 bash scripts/test-scripts
 ```
 
@@ -49,6 +49,10 @@ overlays the current copied scripts and commits the combined tree. Tests that
 read policy, workflows, source paths or Git objects therefore see the original
 layout without modifying this checkout or evaluating the fixture's flake.
 These fixture files remain test data, not active mergemaster policy.
+The workflow-generation self-test also uses the original pinned `effect-utils`
+source and its real `genie` binary. The flake supplies both; outside the
+development shell, `MERGEMASTER_EFFECT_UTILS` must point to that pinned source.
+
 
 The original `script-test-supervisor` and its Python dependencies own fixture
 process cleanup on Linux; the original `git-env-clean` removes inherited
