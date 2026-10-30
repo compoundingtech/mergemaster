@@ -27,10 +27,6 @@ cp -R "$root/tests/fixtures/fractal/." "$sandbox/repo/"
 mkdir -p "$sandbox/repo/scripts"
 cp -R "$root/scripts/." "$sandbox/repo/scripts/"
 chmod -R u+w "$sandbox/repo"
-# The workflow-generation self-test imports the same pinned external source
-# that supplied Fractal's genie toolchain.
-mkdir -p "$sandbox/repo/repos"
-ln -s "${MERGEMASTER_EFFECT_UTILS:?run in nix develop or set MERGEMASTER_EFFECT_UTILS to the pinned effect-utils source}" "$sandbox/repo/repos/effect-utils"
 cd "$sandbox/repo"
 git init -q -b main
 git config user.name 'Script test fixture'
@@ -38,6 +34,12 @@ git config user.email 'script-tests@example.invalid'
 git config core.hooksPath /dev/null
 git add -f .
 git -c commit.gpgsign=false commit -q -m 'Original Fractal test inputs with copied mergemaster scripts'
+# The workflow-generation self-test imports the same pinned external source
+# that supplied Fractal's genie toolchain.
+mkdir -p "$sandbox/repo/repos"
+ln -s "${MERGEMASTER_EFFECT_UTILS:?run in nix develop or set MERGEMASTER_EFFECT_UTILS to the pinned effect-utils source}" "$sandbox/repo/repos/effect-utils"
+# Like ci-sparse-tree --link repos, external sources are environment, not
+# tracked fixture inputs or lane-definition paths.
 . scripts/ci-parallel-tests
 printf 'Running %s copied script self-tests\n' "${#tests[@]}"
 parallel_tests "${tests[@]}"
