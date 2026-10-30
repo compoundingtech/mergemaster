@@ -54,7 +54,8 @@ source and its real `genie` binary. The flake supplies both; outside the
 development shell, `MERGEMASTER_EFFECT_UTILS` must point to that pinned source.
 The Nix check follows Fractal's bubblewrap setup: a network-isolated root
 provides `/usr/bin/env` and `/bin/sh` for unmodified executable fixtures and
-Git hooks created by the tests.
+Git hooks created by the tests. An immutable test tool profile also supplies
+the fixed system path that `st-test` intentionally gives child commands.
 
 
 The original `script-test-supervisor` and its Python dependencies own fixture

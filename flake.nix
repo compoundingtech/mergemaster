@@ -39,7 +39,15 @@
     in {
       packages = forAllSystems (system: { default = packageFor system; });
       checks = forAllSystems (system:
-        let pkgs = import nixpkgs { inherit system; };
+        let
+          pkgs = import nixpkgs { inherit system; };
+          # st-test deliberately normalizes child PATH to fixed system paths.
+          # Give those paths real tools, rather than bypassing that behavior.
+          fixtureSystemPath = pkgs.buildEnv {
+            name = "mergemaster-fixture-system-path";
+            paths = with pkgs; [ bash coreutils findutils git openssh python3 ];
+            pathsToLink = [ "/bin" ];
+          };
         in {
           evidence = self.packages.${system}.default;
           scripts = pkgs.runCommand "mergemaster-script-tests" {
@@ -55,6 +63,7 @@
               --dev /dev --proc /proc --tmpfs /tmp \
               --dir /usr/bin --ro-bind ${pkgs.coreutils}/bin/env /usr/bin/env \
               --dir /bin --ro-bind ${pkgs.bash}/bin/sh /bin/sh \
+              --ro-bind ${fixtureSystemPath}/bin /run/current-system/sw/bin \
               --unsetenv PYTHONPATH --unshare-net --chdir "$TMPDIR" \
               -- bash ${pkgs.lib.cleanSource self}/scripts/test-scripts
             touch "$out"
