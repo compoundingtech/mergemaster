@@ -12,6 +12,8 @@ pub struct EvidenceArgs {
 
 #[derive(Subcommand)]
 pub enum EvidenceCommand {
+    /// Run a BASE-declared lane once, sign its observation, and publish its note.
+    Wrap(super::generic::WrapArgs),
     /// Installed observer for a protected profile; accepts authenticated CI selectors only.
     #[command(hide = true)]
     ObserveCi {
@@ -65,6 +67,11 @@ pub enum EvidenceCommand {
 
 pub fn run(args: EvidenceArgs) -> Result<()> {
     let value = match args.command {
+        EvidenceCommand::Wrap(args) => {
+            let code = super::generic::run_wrap(&args)?;
+            if code != 0 { std::process::exit(code); }
+            return Ok(());
+        }
         EvidenceCommand::ObserveCi {
             run,
             attempt,

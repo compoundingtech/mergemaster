@@ -304,27 +304,89 @@ Use a read-only, base-owned `pull_request_target` bootstrap with no candidate
 checkout execution or private signing keys. Publish the required check on the
 explicit HEAD, recheck unchanged HEAD and accepted base before success, and
 require strict up-to-date branch protection. Graph's required-evidence lane
-does not run Graph in Actions. Generic signing/setup and authenticated release
-publication are separate prerequisites; the copied wrappers are not generic
-environment producers.
+does not run Graph in Actions. Authenticated release publication and consumer
+setup enforcement remain prerequisites; copied Fractal wrappers retain their
+original contracts and are not generic environment producers.
 
 The JSON result contains `version`, `check`, `base`, `head`, `tree`, `decision`,
 `outcome`, `reason`, `record` (an immutable record ID or null), and
 `protected_paths` (the touched protected paths, empty otherwise). Protected
 edits always return `decision: "refuse"` and `reason: "protected_paths"`,
 even for optional-fallback lanes. Only `protected_edits: "reject"` is supported.
-The stable reason codes are `satisfied`, `base_not_ancestor`, `protected_paths`,
+The stable reason codes are `satisfied`, `base_not_ancestor`, `merge_history`, `protected_paths`,
 `ineligible_event`, `no_record`, `invalid_record`, `untrusted_signer`,
 `wrong_check`, `stale_tree`, `degraded`, `untrusted_tier`, `wrong_commit`,
 `untrusted_level`, `future_dated`, `too_old`, `check_failed`, `wrong_command`,
 `wrong_input`, and `workspace_dirty`. Consumers branch on these codes, not
 diagnostic prose. Malformed configuration or unavailable Git plumbing is an
 error, not a computed satisfaction result.
+Merge commits anywhere in `BASE..HEAD` refuse. Protected comparisons use
+Unicode NFKC normalization and lowercase component matching, including ancestor
+replacement paths; signatures cannot authorize replacing a protected root with
+a symlink. Live head/base movement or unavailable live authority is an error,
+with no decision output, rather than a transferable success.
 
 `--github-output FILE` appends `skip`, `record`, `outcome`, `refuse`, and
 `refusal` only after computation completes. `refusal` is the reason code for
-a refusal, otherwise empty. Without `--event-file`, the gate supports a local
-object-only decision; this does not authenticate a GitHub event. With an event,
-the trusted `GITHUB_REPOSITORY` context and event repository/base/head must
-agree. Author allowlists additionally require opener, actor, triggering actor
-and every branch commit's exact author/committer identities.
+a refusal, otherwise empty. Local decisions require the checkout's live `HEAD`
+to equal the requested head and a local branch or remote-tracking ref at BASE.
+The gate snapshots mutable branch refs and refuses if they change before output.
+This does not authenticate a GitHub event. With an event, the trusted
+`GITHUB_REPOSITORY` context and event repository/base/head must agree.
+`GITHUB_TOKEN` and an installed trusted `gh` executable are required to re-query
+the live PR head and base branch immediately before emitting a decision.
+Author allowlists additionally require opener, actor, triggering actor and every
+branch commit's exact author/committer identities.
+
+## Generic lane execution and signing
+
+`mergemaster evidence wrap` runs the exact BASE-declared command once, measures
+its inputs before and after execution, signs successes and failures, imports the
+immutable signed note and explicitly pushes its note ref to `origin`:
+
+```sh
+MM=/absolute/path/to/mergemaster
+CONFIG="$HOME/.config/mergemaster/evidence-sign.json"
+"$MM" evidence wrap --check graph-full-check --base "$BASE" --config "$CONFIG" \
+  --signer "$SIGNER_JSON" \
+  -- tools/graph check --full
+```
+
+`SIGNER_JSON` supplies the explicit external signer argv.
+There is no default signer, `st sekrets` call or mandatory `flake.lock`.
+`--signer` is a JSON argv array, never shell source. `--config` is explicit:
+provision it outside the consumer repository as an account-owned regular file
+with mode 0600. Its schema is:
+
+```json
+{
+  "version": 1,
+  "signer": "agent/operator",
+  "ssh_key": "/absolute/private/key",
+  "toolchain": {
+    "runtime": "/absolute/runtime/artifact",
+    "dependencies": {
+      "external-library": "/absolute/dependency/artifact"
+    }
+  }
+}
+```
+
+Each measurement path corresponds to the same named artifact in the committed
+`environment.json`. A `sha256:` identity measures a file's complete bytes; a
+`git:` identity requires a checkout at that exact commit with no dirty,
+untracked or ignored files. The measured system must equal the declared system.
+Setup must actually use these artifacts and include the full dependency closure.
+The wrapper and signer measure them independently; neither executes a consumer
+setup script with signing authority.
+
+A dirty checkout (including ignored files), moved HEAD, changed input,
+toolchain drift, signing failure or publication failure is non-success.
+A failing lane is still signed and published, then exits nonzero. Complete
+combined output is retained as a Git blob under
+`refs/evidence-output/<output-sha256>` in the local checkout; its SHA-256 is
+bound by the unchanged signed check format. The signature is a cooperative
+wrapper attestation, not hardware isolation from an operator able to invoke the
+signer. Existing Python evidence verification can read the same note, but
+consumer policies that require legacy `flake_lock_sha256` must not be applied
+to a generic environment lane.
