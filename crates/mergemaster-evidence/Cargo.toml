@@ -14,6 +14,10 @@ path = "src/main.rs"
 name = "integration"
 path = "tests/integration.rs"
 
+[[test]]
+name = "gate"
+path = "tests/gate.rs"
+
 [dependencies]
 anyhow = "1"
 base64 = "0.22"
