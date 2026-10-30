@@ -34,6 +34,10 @@ with tempfile.TemporaryDirectory(prefix='mergemaster-workflow-adapters-') as scr
                     str(ROOT / 'genie/evidence.ts')], check=True)
     workflows = work / '.github/workflows'
     workflows.mkdir(parents=True)
+    # Genie preserves scalar quote styles from the consumer's existing YAML.
+    # Model a consumer cutover, not first-time generation into an empty tree.
+    for name in ('fleet', 'evidence-observe', 'signed-tree'):
+        shutil.copy2(FIXTURE / f'.github/workflows/{name}.yml', workflows / f'{name}.yml')
     # Keep the consumer's existing queue/cache/sandbox wrappers and lane configuration.
     for path in (FIXTURE / '.github/workflows').glob('*.ts'):
         if not path.name.endswith('.genie.ts'):
