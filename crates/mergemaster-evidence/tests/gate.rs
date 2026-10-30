@@ -212,6 +212,116 @@ print((root / name).read_text())
     }
 }
 
+fn approval_fixture() -> Fixture {
+    let mut f = Fixture::new();
+    let mut policy = Fixture::policy("required_evidence");
+    let lane = &mut policy["lanes"][CHECK];
+    lane["protected_edits"] = json!("human_approval");
+    lane["approvers"] = json!(["schickling"]);
+    lane["require_hosted"] = json!([{
+        "name":"validate", "workflow_id":42, "workflow_path":".github/workflows/validate.yml"
+    }]);
+    f.write(".mergemaster/lanes.json", policy.to_string());
+    f.write(".github/workflows/validate.yml", "name: validate\n");
+    f.base = f.commit("base-authorized human policy");
+    f.write(".github/workflows/validate.yml", "name: validate\n# candidate change\n");
+    f.refresh_head();
+    f
+}
+
+fn approval_evidence(f: &Fixture) -> Value {
+    json!({
+        "version":1,"repository":"fixture/repo","head":f.head,
+        "reviews":[{"id":100,"user":{"login":"schickling"},"state":"APPROVED",
+            "commit_id":f.head,"submitted_at":"2026-10-30T12:00:00Z"}],
+        "checks":[{"name":"validate","head_sha":f.head,"status":"completed","conclusion":"success",
+            "workflow_run":{"id":7,"workflow_id":42,"path":".github/workflows/validate.yml",
+                "head_sha":f.head,"event":"pull_request"}}]
+    })
+}
+
+#[test]
+fn protected_human_approval_requires_exact_review_and_workflow_identity() {
+    for case in ["valid", "missing", "stale_review", "stranger", "changes_requested", "dismissed",
+        "failed", "pending", "stale_check", "stale_run", "renamed_workflow", "extra_validate",
+        "wrong_event", "workflow_changed"] {
+        let f = approval_fixture();
+        let mut evidence = approval_evidence(&f);
+        match case {
+            "stale_review" => evidence["reviews"][0]["commit_id"] = json!(f.base),
+            "stranger" => evidence["reviews"][0]["user"]["login"] = json!("other"),
+            "changes_requested" | "dismissed" => {
+                let mut review = evidence["reviews"][0].clone();
+                review["id"] = json!(101);
+                review["state"] = json!(if case == "dismissed" { "DISMISSED" } else { "CHANGES_REQUESTED" });
+                evidence["reviews"].as_array_mut().unwrap().push(review);
+            },
+            "failed" => evidence["checks"][0]["conclusion"] = json!("failure"),
+            "pending" => evidence["checks"][0]["status"] = json!("in_progress"),
+            "stale_check" => evidence["checks"][0]["head_sha"] = json!(f.base),
+            "stale_run" => evidence["checks"][0]["workflow_run"]["head_sha"] = json!(f.base),
+            "renamed_workflow" => evidence["checks"][0]["workflow_run"]["path"] = json!(".github/workflows/renamed.yml"),
+            // Same display name and same path are insufficient: workflow ID is BASE policy.
+            "extra_validate" => evidence["checks"][0]["workflow_run"]["workflow_id"] = json!(43),
+            "wrong_event" => evidence["checks"][0]["workflow_run"]["event"] = json!("pull_request_target"),
+            _ => {},
+        }
+        let path = f.root.path().join("hosted.json");
+        fs::write(&path, evidence.to_string()).unwrap();
+        let arguments = ["--hosted-evidence", path.to_str().unwrap()];
+        let decision = f.decision(if case == "missing" { &[] } else { &arguments });
+        let satisfied = matches!(case, "valid" | "workflow_changed");
+        assert_eq!(decision["decision"], if satisfied { "skip" } else { "refuse" }, "{case}: {decision}");
+        if satisfied {
+            assert_eq!(decision["reason"], "human_approval_satisfied");
+            assert!(decision["record"].is_null(), "human policy is not agent evidence");
+        }
+        assert_eq!(decision["summary"],
+            "this PR changes the validate workflow; validate ran the changed file");
+    }
+}
+
+#[test]
+fn human_approval_does_not_transfer_to_a_new_push_or_head_policy() {
+    let mut f = approval_fixture();
+    let mut evidence = approval_evidence(&f);
+    f.write("source.txt", "a new push\n");
+    f.refresh_head();
+    // Publisher has the new head/check, but the approving review is stale.
+    evidence["head"] = json!(f.head);
+    evidence["checks"][0]["head_sha"] = json!(f.head);
+    evidence["checks"][0]["workflow_run"]["head_sha"] = json!(f.head);
+    let path = f.root.path().join("hosted.json");
+    fs::write(&path, evidence.to_string()).unwrap();
+    assert_eq!(f.decision(&["--hosted-evidence", path.to_str().unwrap()])["reason"], "human_approval_missing");
+    // A PR cannot nominate its own approver.
+    let mut policy = Fixture::policy("required_evidence");
+    policy["lanes"][CHECK]["protected_edits"] = json!("human_approval");
+    policy["lanes"][CHECK]["approvers"] = json!(["other"]);
+    f.write(".mergemaster/lanes.json", policy.to_string());
+    f.refresh_head();
+    let mut evidence = approval_evidence(&f);
+    evidence["reviews"][0]["user"]["login"] = json!("other");
+    fs::write(&path, evidence.to_string()).unwrap();
+    assert_eq!(f.decision(&["--hosted-evidence", path.to_str().unwrap()])["reason"], "human_approval_missing");
+}
+
+#[test]
+fn malformed_or_misbound_hosted_evidence_never_writes_success() {
+    let f = approval_fixture();
+    for case in ["repository", "head", "malformed"] {
+        let mut evidence = approval_evidence(&f);
+        if case == "repository" { evidence["repository"] = json!("other/repo"); }
+        if case == "head" { evidence["head"] = json!(f.base); }
+        let path = f.root.path().join("hosted.json");
+        fs::write(&path, if case == "malformed" { "{}".into() } else { evidence.to_string() }).unwrap();
+        let output = f.root.path().join(format!("output-{case}"));
+        assert!(!f.gate(&["--hosted-evidence", path.to_str().unwrap(),
+            "--github-output", output.to_str().unwrap()]).status.success());
+        assert!(!output.exists());
+    }
+}
+
 
 #[test]
 fn signed_observations_require_every_lane_binding() {

@@ -8,7 +8,17 @@ use super::git::{git, text};
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ToolPin { version: u32, repository: String, revision: String }
+struct ToolPin {
+    version: u32,
+    repository: String,
+    revision: String,
+    #[serde(default)]
+    release: Option<ReleasePin>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReleasePin { version: String, sha256: String }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -46,9 +56,21 @@ pub struct Lane {
     pub events: Vec<String>,
     pub environment: EnvironmentDeclaration,
     pub protected_edits: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub approvers: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub require_hosted: Vec<HostedCheck>,
     pub remediation_argv: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_age_seconds: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct HostedCheck {
+    pub name: String,
+    pub workflow_id: u64,
+    pub workflow_path: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -119,6 +141,14 @@ pub fn load(repo: &Path, base: &str) -> Result<Config> {
     ensure!(text(repo, &["cat-file", "-t", base])?.trim() == "commit", "BASE is not a commit");
     let pin: ToolPin = decode(&blob(repo, base, ".mergemaster/tool-pin.json")?, "tool pin")?;
     ensure!(pin.version == 1 && pin.repository == "compoundingtech/mergemaster" && full_commit(&pin.revision), "unsupported tool pin");
+    if let Some(release) = &pin.release {
+        let version = release.version.strip_prefix('v').context("release version must start with v")?;
+        ensure!(version.split('.').count() == 3
+            && version.split('.').all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+            && release.sha256.len() == 64
+            && release.sha256.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+            "invalid release pin");
+    }
     let mut policy: Policy = decode(&blob(repo, base, ".mergemaster/lanes.json")?, "lanes policy")?;
     let environment_bytes = blob(repo, base, ".mergemaster/environment.json")?;
     let environment: Environment = decode(&environment_bytes, "environment")?;
@@ -144,9 +174,26 @@ pub fn load(repo: &Path, base: &str) -> Result<Config> {
             && nonempty(&lane.argv[0]) && !lane.remediation_argv.is_empty()
             && lane.remediation_argv.iter().all(|arg| !arg.contains('\0')), "invalid lane argv");
         ensure!(matches!(lane.mode.as_str(), "required_evidence" | "optional_fallback")
-            && lane.protected_edits == "reject" && lane.events == ["pull_request"]
+            && matches!(lane.protected_edits.as_str(), "reject" | "human_approval") && lane.events == ["pull_request"]
             && !lane.trust_levels.is_empty() && lane.trust_levels.iter().all(|level| matches!(level.as_str(), "agent" | "host"))
             && lane.max_age_seconds != Some(0), "unsupported lane policy");
+        if lane.protected_edits == "human_approval" {
+            ensure!(!lane.approvers.is_empty() && lane.approvers.iter().all(|login|
+                nonempty(login) && login.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
+                && !lane.require_hosted.is_empty(), "human approval requires approvers and hosted checks");
+            let mut names = std::collections::BTreeSet::new();
+            for hosted in &lane.require_hosted {
+                validate_path(&hosted.workflow_path)?;
+                ensure!(nonempty(&hosted.name) && names.insert(&hosted.name) && hosted.workflow_id > 0
+                    && hosted.workflow_path.starts_with(".github/workflows/")
+                    && (hosted.workflow_path.ends_with(".yml") || hosted.workflow_path.ends_with(".yaml")),
+                    "invalid required hosted check");
+                blob(repo, base, &hosted.workflow_path)?;
+            }
+        } else {
+            ensure!(lane.approvers.is_empty() && lane.require_hosted.is_empty(),
+                "approval configuration requires human_approval policy");
+        }
         ensure!(lane.environment.manifest == ".mergemaster/environment.json", "unsupported environment manifest");
         entries(repo, base, &lane.definition_paths)?;
         entries(repo, base, &lane.environment.paths)?;

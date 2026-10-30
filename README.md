@@ -309,15 +309,18 @@ setup enforcement remain prerequisites; copied Fractal wrappers retain their
 original contracts and are not generic environment producers.
 
 The JSON result contains `version`, `check`, `base`, `head`, `tree`, `decision`,
-`outcome`, `reason`, `record` (an immutable record ID or null), and
-`protected_paths` (the touched protected paths, empty otherwise). Protected
-edits always return `decision: "refuse"` and `reason: "protected_paths"`,
-even for optional-fallback lanes. Only `protected_edits: "reject"` is supported.
+`outcome`, `reason`, `record` (an immutable record ID or null),
+`protected_paths` (the touched protected paths, empty otherwise), and `summary`.
+`protected_edits: "reject"` always refuses protected edits, even for
+optional-fallback lanes. A BASE-authorized `human_approval` policy permits the
+explicit review/hosted-check path described below; agent signatures alone
+never authorize protected changes.
 The stable reason codes are `satisfied`, `base_not_ancestor`, `merge_history`, `protected_paths`,
 `ineligible_event`, `no_record`, `invalid_record`, `untrusted_signer`,
 `wrong_check`, `stale_tree`, `degraded`, `untrusted_tier`, `wrong_commit`,
 `untrusted_level`, `future_dated`, `too_old`, `check_failed`, `wrong_command`,
-`wrong_input`, and `workspace_dirty`. Consumers branch on these codes, not
+`wrong_input`, `workspace_dirty`, `approval_evidence_missing`, `human_approval_missing`,
+`hosted_check_missing`, and `human_approval_satisfied`. Consumers branch on these codes, not
 diagnostic prose. Malformed configuration or unavailable Git plumbing is an
 error, not a computed satisfaction result.
 Merge commits anywhere in `BASE..HEAD` refuse. Protected comparisons use
@@ -337,6 +340,49 @@ This does not authenticate a GitHub event. With an event, the trusted
 the live PR head and base branch immediately before emitting a decision.
 Author allowlists additionally require opener, actor, triggering actor and every
 branch commit's exact author/committer identities.
+
+### Protected edits with human approval
+
+A lane may set the following policy in the accepted BASE `lanes.json`:
+
+```json
+{
+  "protected_edits": "human_approval",
+  "approvers": ["schickling"],
+  "require_hosted": [{
+    "name": "validate",
+    "workflow_id": 123456,
+    "workflow_path": ".github/workflows/validate.yml"
+  }]
+}
+```
+
+Replace the example workflow ID with the repository's actual workflow ID.
+Both approvers and hosted checks must be nonempty. An approver's current
+approving review must have `commit_id` equal to the exact candidate HEAD.
+New pushes invalidate prior approval; dismissed approvals and later change
+requests revoke it. The required hosted job must have completed successfully
+at that same HEAD in a `pull_request` run whose numeric workflow ID **and**
+workflow path equal BASE policy. A matching job display name is insufficient:
+renamed workflows and extra PR-authored workflows named `validate` do not count.
+Every configured hosted check is required. This administrative path passes
+without an agent evidence note and does not activate candidate policy.
+
+The publisher fetches authenticated evidence into a fresh trusted file and
+passes `--hosted-evidence FILE`. The approval evaluator performs no network
+requests and never executes candidate code; the existing final live PR/base
+recheck remains mandatory. The file has version 1, `repository`, `head`,
+`reviews` (projected API review ID, user login, state, commit ID, submitted time),
+and `checks` (job name, head SHA, status, conclusion, and an API-joined
+`workflow_run` with run ID, workflow ID, path, head SHA and event).
+Never accept this file from PR artifacts, checked-out candidate files, or an
+untrusted caller. The generic publisher fragment collects all API pages.
+
+**Limit:** when the PR edits the validate workflow itself, validate executes
+that changed file, not BASE's contents. The decision summary explicitly says:
+“this PR changes the validate workflow; validate ran the changed file”.
+Workflow identity prevents name spoofing, not a human-approved change to the
+authorized workflow's implementation. Reviewers must inspect such changes.
 
 ## Generic lane execution and signing
 
