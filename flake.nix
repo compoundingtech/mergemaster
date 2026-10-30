@@ -13,7 +13,7 @@
       forAllSystems = nixpkgs.lib.genAttrs systems;
       scriptInputs = pkgs: with pkgs; [
         effect-utils.packages.${pkgs.stdenv.hostPlatform.system}.genie
-        python3 git openssh bash coreutils findutils gnugrep gnused gawk
+        python3 git openssh bash coreutils findutils gnugrep gnused gawk nix
         gnutar gzip bzip2 xz zstd jq curl diffutils util-linux procps which time
       ];
       packageFor = system:
@@ -45,7 +45,7 @@
           # Give those paths real tools, rather than bypassing that behavior.
           fixtureSystemPath = pkgs.buildEnv {
             name = "mergemaster-fixture-system-path";
-            paths = with pkgs; [ bash coreutils findutils git openssh python3 ];
+            paths = with pkgs; [ bash coreutils findutils git nix openssh python3 ];
             pathsToLink = [ "/bin" ];
           };
         in {
