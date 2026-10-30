@@ -43,13 +43,20 @@
         in {
           evidence = self.packages.${system}.default;
           scripts = pkgs.runCommand "mergemaster-script-tests" {
-            nativeBuildInputs = scriptInputs pkgs;
+            nativeBuildInputs = scriptInputs pkgs ++ [ pkgs.bubblewrap ];
           } ''
             export HOME="$TMPDIR/home"
             export CI_PARALLEL_TESTS_KEEP="$TMPDIR/script-test-logs"
             export MERGEMASTER_EFFECT_UTILS=${effect-utils}
             mkdir -p "$HOME"
-            bash ${pkgs.lib.cleanSource self}/scripts/test-scripts
+            # Original Fractal tests create executable fixtures and Git hooks
+            # with /usr/bin/env shebangs. Match its hermetic FHS test root.
+            bwrap --bind /nix /nix --bind "$TMPDIR" "$TMPDIR" --ro-bind /etc /etc \
+              --dev /dev --proc /proc --tmpfs /tmp \
+              --dir /usr/bin --ro-bind ${pkgs.coreutils}/bin/env /usr/bin/env \
+              --dir /bin --ro-bind ${pkgs.bash}/bin/sh /bin/sh \
+              --unsetenv PYTHONPATH --unshare-net --chdir "$TMPDIR" \
+              -- bash ${pkgs.lib.cleanSource self}/scripts/test-scripts
             touch "$out"
           '';
         });
