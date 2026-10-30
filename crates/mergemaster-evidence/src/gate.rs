@@ -185,10 +185,6 @@ fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path
         Some(1) => return Ok(decision),
         _ => anyhow::bail!("ancestry unavailable: {}", String::from_utf8_lossy(&relation.stderr)),
     }
-    if !git::text(repo, &["rev-list", "--min-parents=2", &format!("{base}..{head}")])?.is_empty() {
-        decision.reason = "merge_history";
-        return Ok(decision);
-    }
     let paths = git::git(repo, &["diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--name-only", "-z", base, head, "--"])?;
     let mandatory = [".mergemaster/", ".github/workflows/", ".github/actions/"];
     for path in paths.split(|b| *b == 0).filter(|p| !p.is_empty()) {
@@ -197,6 +193,11 @@ fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path
             .chain(config.policy.bootstrap_paths.iter().map(String::as_str)).any(|prefix| matches_path(path, prefix)) {
             decision.protected_paths.push(path.to_owned());
         }
+    }
+    if !git::text(repo, &["rev-list", "--min-parents=2", &format!("{base}..{head}")])?.is_empty() {
+        decision.decision = "refuse";
+        decision.reason = "merge_history";
+        return Ok(decision);
     }
     if !decision.protected_paths.is_empty() && lane.protected_edits == "reject" {
         decision.decision = "refuse";
