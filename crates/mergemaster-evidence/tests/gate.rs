@@ -578,6 +578,30 @@ fn merge_commits_anywhere_in_candidate_history_refuse() {
 }
 
 #[test]
+fn optional_fallback_merge_history_refuses_and_lists_protected_edits() {
+    for protected in [false, true] {
+        let mut f = Fixture::new();
+        f.write(".mergemaster/lanes.json", Fixture::policy("optional_fallback").to_string());
+        f.base = f.commit("optional base policy");
+        if protected { f.write(".github/workflows/evidence.yml", "name: changed\n"); }
+        f.refresh_head();
+        let side = f.git(&["commit-tree", &f.tree, "-p", &f.base, "-m", "side"], b"");
+        let merge = f.git(&["commit-tree", &f.tree, "-p", &f.head, "-p", &side, "-m", "merge"], b"");
+        f.git(&["update-ref", "HEAD", &merge], b"");
+        f.head = merge;
+        let decision = f.decision(&[]);
+        assert_eq!(decision["decision"], "refuse");
+        assert_eq!(decision["reason"], "merge_history");
+        assert_eq!(decision["protected_paths"], if protected {
+            json!([".github/workflows/evidence.yml"])
+        } else { json!([]) });
+        let output = f.root.path().join("github-output");
+        f.decision(&["--github-output", output.to_str().unwrap()]);
+        assert!(fs::read_to_string(output).unwrap().contains("refuse=true\n"));
+    }
+}
+
+#[test]
 fn live_github_recheck_precedes_all_decision_outputs() {
     for outcome in ["skip", "no_note", "protected"] {
         for moved in ["head", "base", "unavailable", "unchanged"] {
