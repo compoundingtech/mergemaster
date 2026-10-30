@@ -268,9 +268,8 @@ fn protected_human_approval_requires_exact_review_and_workflow_identity() {
         }
         let path = f.root.path().join("hosted.json");
         fs::write(&path, evidence.to_string()).unwrap();
-        let decision = f.decision(if case == "missing" { &[] } else {
-            &["--hosted-evidence", path.to_str().unwrap()]
-        });
+        let arguments = ["--hosted-evidence", path.to_str().unwrap()];
+        let decision = f.decision(if case == "missing" { &[] } else { &arguments });
         let satisfied = matches!(case, "valid" | "workflow_changed");
         assert_eq!(decision["decision"], if satisfied { "skip" } else { "refuse" }, "{case}: {decision}");
         if satisfied {
