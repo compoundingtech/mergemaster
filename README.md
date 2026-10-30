@@ -381,6 +381,10 @@ untracked or ignored files. The measured system must equal the declared system.
 Setup must actually use these artifacts and include the full dependency closure.
 The wrapper and signer measure them independently; neither executes a consumer
 setup script with signing authority.
+Workspace cleanliness hashes actual tracked filesystem bytes against committed
+blobs, independently of Git's stat cache and clean filters. Index entries marked
+`skip-worktree` or `assume-unchanged` are refused, even if their bytes match.
+The wrapper and signer share this check; it also applies to Git dependencies.
 
 A dirty checkout (including ignored files), moved HEAD, changed input,
 toolchain drift, signing failure or publication failure is non-success.
