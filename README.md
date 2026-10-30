@@ -518,6 +518,8 @@ then the gate must return `skip/satisfied` for the exact candidate.
 The `graph-full-check-proof` Actions artifact retains the post-setup repository
 and dependency worktrees, complete Vitest output, setup output, and gate JSON.
 It explicitly excludes the ephemeral private signing key and signer config.
+Worktrees are archived as a tarball so Git file modes and dependency symlinks
+survive download; the archive excludes signing secrets even on a failed proof.
 
 To reproduce while keeping the proof directory:
 
