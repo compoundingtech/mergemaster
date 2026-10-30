@@ -1,6 +1,9 @@
 # Source: compoundingtech/fractal
 # Commit: e83871ec919f95b3b3e2a9a1cd211c2ac37babda
-# Scripts copied as-is; Git blob SHA-1 hashes (not file SHA-1 hashes).
+# Scripts copied as-is except the documented upstream patch below; Git blob SHA-1 hashes (not file SHA-1 hashes).
+# scripts/fractal-test-test: apply the fixture maintenance-isolation patch from
+# https://github.com/compoundingtech/fractal/pull/4398 (5f995f26e5).
+# The source_blob column remains the original import; mergemaster_blob includes this patch.
 path	source_blob	mergemaster_blob
 scripts/ci-evidence-gate	4400fdf73ad4d572e1437286c1088965e1de964c	4400fdf73ad4d572e1437286c1088965e1de964c
 scripts/ci-evidence-gate-test	9927e0b3d6e095f8d7c1e8485cb441fa178caeb1	9927e0b3d6e095f8d7c1e8485cb441fa178caeb1
@@ -70,7 +73,7 @@ scripts/evidence_test_support.py	3590f507364ac813bed170e490149c25561fa2d5	3590f5
 scripts/fractal-test	08a31a9ab85b195c71387a8021cc85d383de75e8	08a31a9ab85b195c71387a8021cc85d383de75e8
 scripts/fractal-test-report	5bc77bf53ec47d0e580d5e4c26e20cb24a0b3f16	5bc77bf53ec47d0e580d5e4c26e20cb24a0b3f16
 scripts/fractal-test-report-test	616e9248c0a584b40590a7682242df337f7dbf93	616e9248c0a584b40590a7682242df337f7dbf93
-scripts/fractal-test-test	608abec5c3044afa1066e39b4ff703be5249b20d	608abec5c3044afa1066e39b4ff703be5249b20d
+scripts/fractal-test-test	608abec5c3044afa1066e39b4ff703be5249b20d	6ea3a386b3d5455f3d7e2e6371ac17dcb5499559
 scripts/install-git-hooks	5655c13c85772ff65aa7aecfd78326ffd033cd10	5655c13c85772ff65aa7aecfd78326ffd033cd10
 scripts/lane-definition-closure	cee51d7d65d375eb6f5559b403e5acc4eb2f7f5c	cee51d7d65d375eb6f5559b403e5acc4eb2f7f5c
 scripts/lane-definition-closure-test	8ac1eca3d95a681667134167883606fddb73dc58	8ac1eca3d95a681667134167883606fddb73dc58
