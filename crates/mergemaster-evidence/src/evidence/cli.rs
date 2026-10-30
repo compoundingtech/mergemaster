@@ -12,6 +12,12 @@ pub struct EvidenceArgs {
 
 #[derive(Subcommand)]
 pub enum EvidenceCommand {
+    /// Run a BASE-declared lane once, sign its observation, and publish its note.
+    Wrap(super::generic::WrapArgs),
+    /// Sign a wrapper request using explicit account-local configuration.
+    Sign(super::signing::SignArgs),
+    #[command(hide = true)]
+    SignWorker(super::signing::SignArgs),
     /// Installed observer for a protected profile; accepts authenticated CI selectors only.
     #[command(hide = true)]
     ObserveCi {
@@ -65,6 +71,13 @@ pub enum EvidenceCommand {
 
 pub fn run(args: EvidenceArgs) -> Result<()> {
     let value = match args.command {
+        EvidenceCommand::Wrap(args) => {
+            let code = super::generic::run_wrap(&args)?;
+            if code != 0 { std::process::exit(code); }
+            return Ok(());
+        }
+        EvidenceCommand::Sign(args) => return super::signing::run_sign(args),
+        EvidenceCommand::SignWorker(args) => return super::signing::run_worker(args),
         EvidenceCommand::ObserveCi {
             run,
             attempt,
