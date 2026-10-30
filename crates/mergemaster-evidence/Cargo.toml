@@ -1,0 +1,27 @@
+[package]
+name = "mergemaster-evidence"
+version = "0.1.0"
+edition = "2024"
+description = "Portable signed gate observations in immutable Git notes"
+license = "MIT"
+autotests = false
+
+[[bin]]
+name = "mergemaster"
+path = "src/main.rs"
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+clap = { version = "4", features = ["derive", "env"] }
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+# Fractal enables this through workspace feature unification; preserve CLI JSON bytes.
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+tempfile = "3"
