@@ -11,6 +11,14 @@ use std::{
 const CHECK: &str = "graph-full-check";
 const PRINCIPAL: &str = "agent/fixture";
 
+// Nix sandboxes have neither /usr/bin/env nor an ambient interpreter path.
+fn python_executable() -> String {
+    std::env::split_paths(&std::env::var_os("PATH").unwrap())
+        .filter(|directory| directory.is_absolute())
+        .filter_map(|directory| fs::canonicalize(directory.join("python3")).ok())
+        .find(|path| path.is_file()).unwrap().to_str().unwrap().to_owned()
+}
+
 struct Fixture {
     root: tempfile::TempDir,
     repo: PathBuf,
@@ -46,6 +54,7 @@ impl Fixture {
         f.write("source.txt", "base\n");
         f.write(".github/workflows/evidence.yml", "name: trusted\n");
         f.base = f.commit("base");
+        f.git(&["update-ref", "refs/heads/gate-base", &f.base], b"");
         f.write("source.txt", "candidate\n");
         f.refresh_head();
         f
@@ -147,8 +156,35 @@ impl Fixture {
         self.git(&["update-ref", &reference, record], b"");
     }
 
+    fn live_api(&self, head: &str, base: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        let bin = self.root.path().join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let script = bin.join("gh");
+        fs::write(&script, format!(r#"#!{python}
+import json, os, pathlib, sys
+root = pathlib.Path(os.environ["HOME"])
+assert os.environ["GH_TOKEN"] == "fixture-token"
+assert sys.argv[1:4] == ["api", "--hostname", "github.com"]
+with (root / "api-calls").open("a") as log:
+    log.write(sys.argv[4] + "\n")
+name = "live-pull" if "/pulls/" in sys.argv[4] else "live-base"
+print((root / name).read_text())
+"#, python = python_executable())).unwrap();
+        fs::set_permissions(script, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::write(self.root.path().join("live-pull"), json!({
+            "head":{"sha":head,"repo":{"full_name":"fixture/repo"}},
+            "base":{"ref":"main","repo":{"full_name":"fixture/repo"}}
+        }).to_string()).unwrap();
+        fs::write(self.root.path().join("live-base"), json!({"object":{"sha":base}}).to_string()).unwrap();
+    }
+
     fn gate(&self, extra: &[&str]) -> Output {
-        self.command(env!("CARGO_BIN_EXE_mergemaster")).args([
+        self.git(&["update-ref", "refs/heads/gate-base", &self.base], b"");
+        let mut command = self.command(env!("CARGO_BIN_EXE_mergemaster"));
+        let path = std::env::join_paths(std::iter::once(self.root.path().join("bin"))
+            .chain(std::env::split_paths(&std::env::var_os("PATH").unwrap()))).unwrap();
+        command.env("PATH", path).env("GITHUB_TOKEN", "fixture-token").args([
             "gate", "--check", CHECK, "--base", &self.base, "--head", &self.head, "--format", "json",
         ]).args(extra).output().unwrap()
     }
@@ -307,6 +343,7 @@ fn divergent_history_and_same_tree_different_commit_are_not_eligible() {
     assert_eq!(f.decision(&[])["decision"], "refuse");
     let unrelated = f.git(&["commit-tree", &f.tree, "-m", "unrelated"], b"");
     f.head = unrelated;
+    f.git(&["update-ref", "HEAD", &f.head], b"");
     let decision = f.decision(&[]);
     assert_eq!(decision["decision"], "refuse");
     assert_eq!(decision["reason"], "base_not_ancestor");
@@ -372,9 +409,10 @@ fn supplied_event_must_bind_exact_head_base_and_repository() {
         f.note(&f.statement(), &f.key, "tree");
         let mut event = json!({
             "repository":{"full_name":"fixture/repo"},
+            "number":1,
             "pull_request":{
                 "head":{"sha":f.head,"repo":{"full_name":"fixture/repo"}},
-                "base":{"sha":f.base,"repo":{"full_name":"fixture/repo"}},
+                "base":{"sha":f.base,"ref":"main","repo":{"full_name":"fixture/repo"}},
                 "user":{"login":"fixture"}
             }
         });
@@ -386,6 +424,7 @@ fn supplied_event_must_bind_exact_head_base_and_repository() {
             _ => {}
         }
         let path = f.root.path().join("event.json");
+        f.live_api(&f.head, &f.base);
         fs::write(&path, event.to_string()).unwrap();
         let decision = f.decision(&["--event-file", path.to_str().unwrap()]);
         assert_eq!(decision["decision"], if case == "valid" { "skip" } else { "refuse" }, "{case}: {decision}");
@@ -500,4 +539,121 @@ fn moved_python_signer_produces_a_record_the_generic_gate_accepts() {
     assert!(python.status.success(), "{}", String::from_utf8_lossy(&python.stdout));
     let reference: Value = serde_json::from_slice(&python.stdout).unwrap();
     assert_eq!(reference["record"], record);
+}
+
+#[test]
+fn protected_aliases_and_symlink_replacements_never_skip() {
+    for path in [".MERGEMASTER/new", ".GitHub/Workflows/new.yml",
+        ".github/ｗｏｒｋｆｌｏｗｓ/new.yml", "．mergemaster/new", ".github/actions/new"] {
+        let mut f = Fixture::new();
+        f.write(path, "protected alias\n");
+        f.refresh_head();
+        f.note(&f.statement(), &f.key, "tree");
+        assert_eq!(f.decision(&[])["reason"], "protected_paths", "{path}");
+    }
+    for path in [".github/workflows/evidence.yml", ".github", ".mergemaster"] {
+        let mut f = Fixture::new();
+        let target = f.repo.join(path);
+        if target.is_dir() { fs::remove_dir_all(&target).unwrap(); }
+        else { fs::remove_file(&target).unwrap(); }
+        std::os::unix::fs::symlink("outside", target).unwrap();
+        f.refresh_head();
+        // Trust still comes from BASE even when HEAD replaces the entire root.
+        assert_eq!(f.decision(&[])["reason"], "protected_paths", "{path}");
+    }
+}
+
+#[test]
+fn merge_commits_anywhere_in_candidate_history_refuse() {
+    for at_tip in [true, false] {
+        let mut f = Fixture::new();
+        let side = f.git(&["commit-tree", &f.tree, "-p", &f.base, "-m", "side"], b"");
+        let merge = f.git(&["commit-tree", &f.tree, "-p", &f.head, "-p", &side, "-m", "merge"], b"");
+        f.git(&["update-ref", "HEAD", &merge], b"");
+        f.head = merge;
+        if !at_tip { f.refresh_head(); }
+        f.note(&f.statement(), &f.key, "tree");
+        assert_eq!(f.decision(&[])["reason"], "merge_history");
+    }
+}
+
+#[test]
+fn live_github_recheck_precedes_all_decision_outputs() {
+    for outcome in ["skip", "no_note", "protected"] {
+        for moved in ["head", "base", "unavailable", "unchanged"] {
+            let mut f = Fixture::new();
+            if outcome == "protected" { f.write(".github/actions/new", "changed"); f.refresh_head(); }
+            if outcome == "skip" { f.note(&f.statement(), &f.key, "tree"); }
+            f.live_api(if moved == "head" { &f.base } else { &f.head },
+                if moved == "base" { &f.head } else { &f.base });
+            if moved == "unavailable" { fs::remove_file(f.root.path().join("live-pull")).unwrap(); }
+            let event = f.root.path().join("event.json");
+            fs::write(&event, json!({"number":1, "repository":{"full_name":"fixture/repo"},
+                "pull_request":{"head":{"sha":f.head,"repo":{"full_name":"fixture/repo"}},
+                    "base":{"sha":f.base,"ref":"main","repo":{"full_name":"fixture/repo"}}}
+            }).to_string()).unwrap();
+            let outputs = f.root.path().join("outputs");
+            let result = f.gate(&["--event-file", event.to_str().unwrap(),
+                "--github-output", outputs.to_str().unwrap()]);
+            assert_eq!(result.status.success(), moved == "unchanged", "{outcome}/{moved}");
+            if moved != "unchanged" {
+                assert!(result.stdout.is_empty());
+                assert!(!outputs.exists() || fs::read(outputs).unwrap().is_empty());
+            }
+            assert!(f.root.path().join("api-calls").exists(), "{outcome}/{moved}: no live recheck");
+        }
+    }
+}
+
+#[test]
+fn concurrent_local_head_and_base_movements_cannot_publish_decisions() {
+    use std::os::unix::fs::PermissionsExt;
+    for evidence in [false, true] {
+        for reference in ["HEAD", "refs/heads/gate-base"] {
+            let f = Fixture::new();
+            if evidence { f.note(&f.statement(), &f.key, "tree"); }
+            // A Git interposer moves a real ref at evidence discovery, after the
+            // initial snapshot. No sleeps or scheduler-dependent timing.
+            let real_git = f.command("sh").args(["-c", "command -v git"]).output().unwrap();
+            let real_git = String::from_utf8(real_git.stdout).unwrap().trim().to_owned();
+            let bin = f.root.path().join("bin");
+            fs::create_dir_all(&bin).unwrap();
+            let script = bin.join("git");
+            fs::write(&script, format!(r#"#!{python}
+import subprocess, sys
+git = {real_git:?}
+args = sys.argv[1:]
+if "refs/notes/evidence/" in args:
+    subprocess.run([git, "-C", {repo:?}, "update-ref", {reference:?}, {replacement:?}], check=True)
+raise SystemExit(subprocess.run([git] + args).returncode)
+"#, python = python_executable(), repo = f.repo.to_str().unwrap(), replacement = if reference == "HEAD" { &f.base } else { &f.head })).unwrap();
+            fs::set_permissions(script, fs::Permissions::from_mode(0o755)).unwrap();
+            let outputs = f.root.path().join("outputs");
+            let result = f.gate(&["--github-output", outputs.to_str().unwrap()]);
+            assert!(!result.status.success(), "{evidence}/{reference}");
+            assert!(String::from_utf8_lossy(&result.stderr).contains("refs changed"));
+            assert!(result.stdout.is_empty());
+            assert!(!outputs.exists() || fs::read(outputs).unwrap().is_empty());
+        }
+    }
+}
+
+#[test]
+fn immutable_ids_alone_are_not_a_local_live_authority() {
+    for missing_base_ref in [true, false] {
+        let f = Fixture::new();
+        if missing_base_ref {
+            f.git(&["update-ref", "-d", "refs/heads/gate-base"], b"");
+        } else {
+            f.git(&["update-ref", "HEAD", &f.base], b"");
+        }
+        let outputs = f.root.path().join("outputs");
+        let result = f.command(env!("CARGO_BIN_EXE_mergemaster")).args([
+            "gate", "--check", CHECK, "--base", &f.base, "--head", &f.head,
+            "--format", "json", "--github-output", outputs.to_str().unwrap(),
+        ]).output().unwrap();
+        assert!(!result.status.success());
+        assert!(result.stdout.is_empty());
+        assert!(!outputs.exists() || fs::read(outputs).unwrap().is_empty());
+    }
 }
