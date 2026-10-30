@@ -28,8 +28,26 @@ def job_blocks(text):
             for i, match in enumerate(matches)}
 
 
-with tempfile.TemporaryDirectory(prefix='mergemaster-workflow-adapters-') as scratch:
+def generate(work, workflows, scratch):
+    subprocess.run(['genie'], cwd=work, check=True, env=dict(os.environ, HOME=scratch))
+    # Exercise the post-generation formatter explicitly: genie's fallback hides
+    # formatter failures, which would otherwise look like adapter byte drift.
+    for name in ('fleet', 'evidence-observe', 'signed-tree'):
+        target = workflows / f'{name}.yml'
+        formatted = subprocess.run(['oxfmt', '--stdin-filepath', str(target.relative_to(work))],
+                                   input=target.read_bytes(), capture_output=True, cwd=work,
+                                   env=dict(os.environ, HOME=scratch, PWD=str(work)))
+        assert formatted.returncode == 0 and formatted.stdout, formatted.stderr.decode()
+        target.chmod(0o644)
+        target.write_bytes(formatted.stdout)
+
+
+(ROOT / 'tmp').mkdir(exist_ok=True)
+with tempfile.TemporaryDirectory(prefix='workflow-adapters-', dir=ROOT / 'tmp') as scratch:
     work = Path(scratch)
+    # A real fixture repository bounds ignore discovery; host temporary paths
+    # and the parent's ignored tmp directory must not suppress formatting/files.
+    subprocess.run(['git', '-c', 'init.templateDir=', 'init', '--quiet', str(work)], check=True)
     subprocess.run(['tsc', '--strict', '--noEmit', '--target', 'ES2023', '--module', 'ESNext',
                     str(ROOT / 'genie/evidence.ts')], check=True)
     workflows = work / '.github/workflows'
@@ -53,7 +71,7 @@ with tempfile.TemporaryDirectory(prefix='mergemaster-workflow-adapters-') as scr
         shutil.copy2(FIXTURE / f'.github/workflows/{name}.yml.genie.ts',
                      workflows / f'{name}.yml.genie.ts')
         (workflows / f'{name}.yml.genie.ts').chmod(0o644)
-    subprocess.run(['genie'], cwd=work, check=True, env=dict(os.environ, HOME=scratch))
+    generate(work, workflows, scratch)
     baseline = {name: (workflows / f'{name}.yml').read_bytes()
                 for name in ('fleet', 'evidence-observe', 'signed-tree')}
     source = (FIXTURE / '.github/workflows/fleet.yml.genie.ts').read_text()
@@ -74,8 +92,7 @@ with tempfile.TemporaryDirectory(prefix='mergemaster-workflow-adapters-') as scr
         original = (FIXTURE / f'.github/workflows/{name}.yml.genie.ts').read_text()
         (workflows / f'{name}.yml.genie.ts').write_text(
             IMPORT + ACTIONS + replace_lines(original, start, end, anchor, replacement))
-    subprocess.run(['genie'], cwd=work, check=True,
-                   env=dict(os.environ, HOME=scratch))
+    generate(work, workflows, scratch)
     for name in ('fleet', 'evidence-observe', 'signed-tree'):
         actual = (workflows / f'{name}.yml').read_bytes()
         assert actual == baseline[name], ''.join(difflib.unified_diff(
