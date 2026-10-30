@@ -33,7 +33,7 @@
       devShells = forAllSystems (system:
         let pkgs = import nixpkgs { inherit system; };
         in { default = pkgs.mkShell {
-          packages = [ pkgs.cargo pkgs.rustc pkgs.git pkgs.openssh ];
+          packages = [ pkgs.cargo pkgs.rustc pkgs.git pkgs.openssh pkgs.python3 pkgs.coreutils ];
         }; });
     };
 }

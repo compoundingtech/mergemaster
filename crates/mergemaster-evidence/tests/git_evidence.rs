@@ -58,7 +58,6 @@ fn isolated(test: &str) -> bool {
         .env("XDG_STATE_HOME", &state)
         .env("XDG_CONFIG_HOME", &config)
         .env("TMPDIR", &tmp)
-        .env("NEXTEST_BIN_EXE_st3", test_bin!("st3"))
         .output()
         .unwrap();
     assert!(String::from_utf8_lossy(&output.stdout).contains("running 1 test"));
