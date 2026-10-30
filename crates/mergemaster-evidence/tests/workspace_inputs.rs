@@ -53,6 +53,8 @@ fn actual_bytes_must_match_blobs_even_when_a_clean_filter_hides_the_change() {
     git(repo.path(), &["add", "--renormalize", "tools/check"]);
     git(repo.path(), &["commit", "-q", "-m", "filtered input"]);
     fs::write(repo.path().join("tools/check"), "printf untrusted\\n\n").unwrap();
+    // Refresh cached stat data through the filter without changing the canonical blob.
+    git(repo.path(), &["add", "tools/check"]);
     assert!(git(repo.path(), &["status", "--porcelain"]).is_empty());
     assert!(!clean(repo.path()).unwrap(), "accepted bytes different from the committed blob");
 }
