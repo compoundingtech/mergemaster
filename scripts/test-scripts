@@ -22,6 +22,11 @@ sandbox=$(mktemp -d "${TMPDIR:-/tmp}/mergemaster-script-tests.XXXXXX")
 trap 'rm -rf "$sandbox"' EXIT
 export HOME="$sandbox/home" XDG_CACHE_HOME="$sandbox/home/.cache" XDG_CONFIG_HOME="$sandbox/home/.config" XDG_STATE_HOME="$sandbox/home/.local/state"
 mkdir -p "$HOME" "$sandbox/repo"
+# Large repository-layout witnesses come from immutable source, not committed
+# fixture copies. Its flake is never evaluated.
+python3 "$root/tests/prepare-fractal-fixture.py" \
+  "${MERGEMASTER_FRACTAL_FIXTURE:?run in nix develop or set MERGEMASTER_FRACTAL_FIXTURE to the pinned Fractal source}" "$sandbox/repo"
+chmod -R u+w "$sandbox/repo"
 # Original repository files are test data, never the consuming build definition.
 cp -R "$root/tests/fixtures/fractal/." "$sandbox/repo/"
 # Nix-store source directories are read-only; make the private copy writable

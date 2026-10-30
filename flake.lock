@@ -39,6 +39,23 @@
         "type": "github"
       }
     },
+    "fractal-fixture": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1793341662,
+        "narHash": "sha256-TG9HJx2WE941Bv6crfWIm2IJDyOR8WBKHkic3mZ0MeE=",
+        "owner": "compoundingtech",
+        "repo": "fractal",
+        "rev": "e83871ec919f95b3b3e2a9a1cd211c2ac37babda",
+        "type": "github"
+      },
+      "original": {
+        "owner": "compoundingtech",
+        "repo": "fractal",
+        "rev": "e83871ec919f95b3b3e2a9a1cd211c2ac37babda",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1789178647,
@@ -90,6 +107,7 @@
     "root": {
       "inputs": {
         "effect-utils": "effect-utils",
+        "fractal-fixture": "fractal-fixture",
         "nixpkgs": [
           "effect-utils",
           "nixpkgs"
