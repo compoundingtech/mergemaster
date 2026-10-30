@@ -90,6 +90,69 @@ Failed-test logs are retained under
 specified by `CI_PARALLEL_TESTS_KEEP`. The suite needs no network service or
 running daemon after the pinned dependencies and sources are available.
 
+## Workflow adapters
+
+`genie/evidence.ts` exports typed job fragments for evidence gates, pre-sign
+notices, source retention, aggregate and per-crate signing, observation, and
+the signed-tree shadow check. Consumers compose these objects into their
+existing `githubWorkflow` configuration; there is no remotely executed
+reusable workflow or composite action. Required checks, lane dependencies,
+runner labels, environments, checkout steps, and action references are
+consumer settings. Supply full commit SHAs for action references, with the
+release tag in a source comment.
+
+```ts
+import { evidenceGateJobs, evidenceSourceJob } from './repos/mergemaster/genie/evidence.ts'
+import { readFileSync } from 'node:fs'
+
+const actions = {
+  checkout: 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262', // v4
+  uploadArtifact: 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02', // v4
+  downloadArtifact: 'actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093', // v4
+}
+const jobs = {
+  ...evidenceGateJobs({ checks: ['linux-gate'], actions }),
+  'evidence-source': evidenceSourceJob(
+    readFileSync(new URL('./repos/mergemaster/scripts/ci-evidence-source', import.meta.url), 'utf8'),
+    actions,
+  ),
+}
+```
+
+Source retention embeds the real `scripts/ci-evidence-source` producer when
+generating YAML, never a separately maintained copy. Signing fragments take
+the consumer's full-history checkout steps, signing environment, check names,
+and lane-specific web-note environment. `configDir` and `legacyConfigDir`
+default to `.fractal` and `.st`; the accepted base decides which key file exists.
+Script command names and record formats remain unchanged.
+
+The gate fetches its executable from the accepted BASE revision, including
+the original pull-request merge-parent selection. Signers archive BASE's
+scripts and read BASE's keys, never PR-head tools. Consumers must make the
+scripts available at these unchanged base paths before using the adapters.
+The observer job must remain in a default-branch `workflow_run`/manual
+workflow, with its protected runner labels and default-branch checkout.
+The signed-tree job must remain under `pull_request_target`, whose checkout
+is the base branch; never override it to the PR head. Event selection,
+protected environment enrollment, runner-group restrictions and check skip
+wiring remain consumer policy, not adapter side effects.
+
+Fractal consumers share their existing flake authorities:
+
+```nix
+inputs.mergemaster.inputs.effect-utils.follows = "effect-utils";
+inputs.mergemaster.inputs.nixpkgs.follows = "nixpkgs";
+```
+
+Run `nix develop -c python3 tests/test-workflow-adapters.py` for the strict
+TypeScript check and golden test. It injects the public fragments into the
+pinned `fractal-fixture` generators with Fractal's original settings and
+compares every fleet evidence job, plus the complete observer and signed-tree
+workflows, byte-for-byte against the pinned YAML. It uses the real pinned
+effect-utils generator and retains the consumer's queue/cache/sandbox
+wrappers. Original fixture action tags are used only to prove unchanged
+output; this repository's hosted workflow uses SHA-pinned actions.
+
 ## Evidence CLI
 
 `mergemaster evidence` exposes `put`, `show`, `verify`, and the protected
