@@ -445,3 +445,19 @@ wrapper attestation, not hardware isolation from an operator able to invoke the
 signer. Existing Python evidence verification can read the same note, but
 consumer policies that require legacy `flake_lock_sha256` must not be applied
 to a generic environment lane.
+## Release binaries and retained Graph-shaped proof
+
+`.github/workflows/release.yml` builds native Linux x86_64 and aarch64 musl
+executables on GitHub-hosted runners. A pushed `vX.Y.Z` tag publishes
+`mergemaster-x86_64-unknown-linux-musl`,
+`mergemaster-aarch64-unknown-linux-musl`, and `SHA256SUMS`, with GitHub
+build-provenance attestations for all three assets. Builds use locked Cargo
+dependencies and reject an ELF interpreter or dynamic shared-library dependency.
+Git and OpenSSH remain runtime prerequisites for evidence operations.
+
+Pull requests and `workflow_dispatch` build both architectures and assemble
+checksums but cannot attest or publish, even when dispatch targets a tag.
+No release exists until a maintainer pushes a version tag. Consumers must pin
+the exact published asset digest and source revision; a version label alone
+is not a trust boundary.
+
