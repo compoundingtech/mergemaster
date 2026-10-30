@@ -28,8 +28,8 @@ pub struct WrapArgs {
 
 fn clean(repo: &Path, head: &str) -> Result<()> {
     ensure!(git::text(repo, &["rev-parse", "HEAD"])? == head, "HEAD changed during evidence collection");
-    ensure!(git::git(repo, &["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored=matching", "--ignore-submodules=none"])?.is_empty(),
-        "evidence requires a clean workspace, including untracked and ignored files");
+    ensure!(super::signing::clean(repo)?,
+        "evidence requires exact committed workspace bytes and no hidden, untracked or ignored inputs");
     Ok(())
 }
 
