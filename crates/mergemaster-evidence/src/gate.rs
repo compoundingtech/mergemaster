@@ -9,6 +9,7 @@ use serde::Serialize;
 use std::{collections::BTreeSet, io::Write, path::{Path, PathBuf}, process::Command};
 use crate::evidence::{self, Fact, Statement, TrustTier};
 use config::{Authors, Config, Lane};
+use unicode_normalization::UnicodeNormalization;
 
 #[derive(ClapArgs)]
 pub struct Args {
@@ -50,10 +51,15 @@ pub struct Decision {
 }
 
 pub fn run(args: Args) -> Result<()> {
-    let decision = decide(&std::env::current_dir()?, &args.check, &args.base, &args.head, args.event_file.as_deref())?;
+    let repo = std::env::current_dir()?;
+    let live = Live::read(&repo, &args.base, &args.head, args.event_file.as_deref())?;
+    let decision = compute(&repo, &args.check, &args.base, &args.head, args.event_file.as_deref())?;
     let json = serde_json::to_string(&decision)?;
-    if let Some(path) = args.github_output {
-        let mut output = std::fs::OpenOptions::new().append(true).create(true).open(path)?;
+    let mut output = args.github_output.map(|path|
+        std::fs::OpenOptions::new().append(true).create(true).open(path)).transpose()?;
+    live.recheck(&repo, &args.base, &args.head)?;
+    if let Some(output) = output.as_mut() {
+        // No decision outputs are written until the mutable authorities are rechecked.
         writeln!(output, "skip={}\nrecord={}\noutcome={}\nrefuse={}\nrefusal={}",
             decision.decision == "skip", decision.record.as_deref().unwrap_or(""),
             decision.outcome, decision.decision == "refuse",
@@ -73,7 +79,95 @@ fn commit(repo: &Path, value: &str) -> Result<()> {
     Ok(())
 }
 
+// Explicit object IDs are not a live authority. Locally require a matching HEAD
+// and a named base ref, then watch their mutable ref namespace. In Actions only
+// authenticated GitHub metadata is authoritative, not the checkout's refs.
+enum Live {
+    Local { head: String, head_ref: String, refs: String },
+    Github { repository: String, number: u64, base_ref: String },
+}
+
+impl Live {
+    fn read(repo: &Path, base: &str, head: &str, event: Option<&Path>) -> Result<Self> {
+        if let Some(path) = event {
+            let event: serde_json::Value = serde_json::from_slice(&std::fs::read(path)?)?;
+            let repository = std::env::var("GITHUB_REPOSITORY").context("trusted repository required")?;
+            ensure!(repository.split('/').count() == 2 && repository.split('/').all(|part|
+                !part.is_empty() && part.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))),
+                "invalid trusted repository");
+            let number = event.pointer("/pull_request/number").or_else(|| event.get("number"))
+                .and_then(serde_json::Value::as_u64).filter(|n| *n > 0).context("PR number required")?;
+            let base_ref = event.pointer("/pull_request/base/ref")
+                .and_then(serde_json::Value::as_str).context("base branch required")?.to_owned();
+            return Ok(Self::Github { repository, number, base_ref });
+        }
+        let current = git::text(repo, &["rev-parse", "HEAD"])?;
+        ensure!(current == head, "local HEAD does not match requested head");
+        let refs = Self::refs(repo)?;
+        ensure!(refs.lines().any(|line| line.split_once(' ').is_some_and(|(_, id)| id == base)),
+            "local base requires a matching branch or remote-tracking ref");
+        let head_ref = git::text(repo, &["rev-parse", "--symbolic-full-name", "HEAD"])?;
+        Ok(Self::Local { head: current, head_ref, refs })
+    }
+
+    fn refs(repo: &Path) -> Result<String> {
+        git::text(repo, &["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/", "refs/remotes/"])
+    }
+
+    fn recheck(&self, repo: &Path, base: &str, head: &str) -> Result<()> {
+        match self {
+            Self::Local { head: initial, head_ref, refs } => {
+                ensure!(git::text(repo, &["rev-parse", "HEAD"])? == *initial &&
+                    git::text(repo, &["rev-parse", "--symbolic-full-name", "HEAD"])? == *head_ref &&
+                    Self::refs(repo)? == *refs, "local head or base refs changed during verification");
+            }
+            Self::Github { repository, number, base_ref } => {
+                let pull = Self::api(repo, &format!("repos/{repository}/pulls/{number}"))?;
+                ensure!(pull.pointer("/head/sha").and_then(serde_json::Value::as_str) == Some(head) &&
+                    pull.pointer("/head/repo/full_name").and_then(serde_json::Value::as_str) == Some(repository.as_str()) &&
+                    pull.pointer("/base/repo/full_name").and_then(serde_json::Value::as_str) == Some(repository.as_str()) &&
+                    pull.pointer("/base/ref").and_then(serde_json::Value::as_str) == Some(base_ref.as_str()),
+                    "live PR metadata changed");
+                let encoded: String = base_ref.bytes().map(|b| format!("%{b:02X}")).collect();
+                let branch = Self::api(repo, &format!("repos/{repository}/git/ref/heads/{encoded}"))?;
+                ensure!(branch.pointer("/object/sha").and_then(serde_json::Value::as_str) == Some(base),
+                    "live base tip changed");
+            }
+        }
+        Ok(())
+    }
+
+    fn api(repo: &Path, endpoint: &str) -> Result<serde_json::Value> {
+        let token = std::env::var("GITHUB_TOKEN").context("authenticated live recheck requires GITHUB_TOKEN")?;
+        ensure!(!token.is_empty(), "authenticated live recheck requires GITHUB_TOKEN");
+        // PATH is trusted job context, but never execute a relative entry or a
+        // tool supplied by candidate source (including symlinks into it).
+        let repo = std::fs::canonicalize(repo)?;
+        let executable = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+            .filter(|directory| directory.is_absolute())
+            .filter_map(|directory| std::fs::canonicalize(directory.join("gh")).ok())
+            .find(|path| !path.starts_with(&repo) && path.is_file())
+            .context("trusted gh executable outside candidate repository required")?;
+        let config = tempfile::tempdir()?;
+        let mut command = Command::new(executable);
+        git::sanitize(&mut command);
+        let output = command.args(["api", "--hostname", "github.com", endpoint])
+            .env("GH_TOKEN", token).env("GH_PROMPT_DISABLED", "1").env("GH_CONFIG_DIR", config.path())
+            .env_remove("GH_HOST").stdin(std::process::Stdio::null()).output()
+            .context("querying live GitHub metadata")?;
+        ensure!(output.status.success(), "authenticated live GitHub recheck failed");
+        serde_json::from_slice(&output.stdout).context("invalid live GitHub metadata")
+    }
+}
+
 pub fn decide(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path>) -> Result<Decision> {
+    let live = Live::read(repo, base, head, event)?;
+    let decision = compute(repo, check, base, head, event)?;
+    live.recheck(repo, base, head)?;
+    Ok(decision)
+}
+
+fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path>) -> Result<Decision> {
     commit(repo, base)?;
     commit(repo, head)?;
     let config = config::load(repo, base)?;
@@ -87,6 +181,10 @@ pub fn decide(repo: &Path, check: &str, base: &str, head: &str, event: Option<&P
         Some(0) => {},
         Some(1) => return Ok(decision),
         _ => anyhow::bail!("ancestry unavailable: {}", String::from_utf8_lossy(&relation.stderr)),
+    }
+    if !git::text(repo, &["rev-list", "--min-parents=2", &format!("{base}..{head}")])?.is_empty() {
+        decision.reason = "merge_history";
+        return Ok(decision);
     }
     let paths = git::git(repo, &["diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--name-only", "-z", base, head, "--"])?;
     let mandatory = [".mergemaster/", ".github/workflows/", ".github/actions/"];
@@ -157,8 +255,13 @@ pub fn decide(repo: &Path, check: &str, base: &str, head: &str, event: Option<&P
 }
 
 fn matches_path(path: &str, prefix: &str) -> bool {
+    // NFKC closes compatibility-spelling aliases (including fullwidth dots and
+    // separators); lowercase also covers case-insensitive checkout filesystems.
+    let path = path.nfkc().flat_map(char::to_lowercase).collect::<String>();
+    let prefix = prefix.nfkc().flat_map(char::to_lowercase).collect::<String>();
     let prefix = prefix.trim_end_matches('/');
-    path == prefix || path.strip_prefix(prefix).is_some_and(|rest| rest.starts_with('/'))
+    path == prefix || path.strip_prefix(prefix).is_some_and(|rest| rest.starts_with('/')) ||
+        prefix.strip_prefix(path.as_str()).is_some_and(|rest| rest.starts_with('/'))
 }
 
 fn failed(statement: &Statement, check: &str) -> bool {
