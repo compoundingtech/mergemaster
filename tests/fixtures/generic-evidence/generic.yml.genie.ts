@@ -17,7 +17,8 @@ export default githubWorkflow({
       'runs-on': 'ubuntu-24.04',
       permissions: { contents: 'read' },
       steps: [
-        { uses: 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262', with: {
+        // actions/checkout v7.0.1
+        { uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1', with: {
           ref: '${{ github.event.pull_request.head.sha }}', 'persist-credentials': false,
         } },
         { run: 'cargo test --workspace --locked' },
@@ -25,7 +26,7 @@ export default githubWorkflow({
     },
     'generic-evidence': genericEvidenceRequiredJob({
       check: 'graph-full-check',
-      checkout: 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262',
+      checkout: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1', // v7.0.1
     }),
   },
 })
