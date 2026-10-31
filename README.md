@@ -610,17 +610,44 @@ fragment; the names above are this stack's explicit consumer contract.
 
 ### Interim: local operator state and operator apply
 
-The App bootstrap uses local operator state and operator-run apply because
-the manifest consent flow cannot run in CI. Once the program's remote state
-backend exists, this stack migrates to it and to CI-applied plan plus drift
-detection on `main`.
+The interim exception covers **App bootstrap only**: local operator state and
+operator-run deploy, because the manifest consent flow cannot run in CI.
+When the Effect-utils Manager's program remote state backend lands (due
+2026-11-12), this stack moves to that backend and to CI-applied plan plus
+drift detection on `main`, no later than **2026-11-19**.
 
-State is explicitly local (`iac/.alchemy/`), ignored by Git, and must be
-protected and retained by the single operator across both deployments.
-Local state is accepted because it contains no private key and a registered
-App can be recovered with adopt-by-slug if state is lost. CI only runs
-offline tests. Do not create
-preview stages for these long-lived Apps. Permission/event drift is a typed
+`MERGEMASTER_IAC_STATE_DIR` configures the absolute state root, defaulting to
+`${XDG_STATE_HOME:-$HOME/.local/state}/mergemaster/iac`; Alchemy stores its
+state under that root's `state/` subdirectory. The root must be outside the
+repository checkout, including through symlink aliases. The supported
+`AlchemyContext` directory injection is scoped to `localState()` only;
+other runtime artifacts retain Alchemy's defaults. Local state is accepted
+because it contains no private key and a registered App can be recovered
+with adopt-by-slug if state is lost.
+
+Use the documented `pnpm run plan` and `pnpm run deploy` commands: they set
+umask 077 and check the state tree before and after the CLI exits. Directories
+must be 0700, regular files 0600; symlinks and looser modes fail closed,
+without silently changing existing permissions. After every deploy, run
+`pnpm run check-state`: it must find **no** PEM/`-----BEGIN`/private-key value
+markers anywhere in the state tree. Secret destination names such as
+`MERGEMASTER_APP_PRIVATE_KEY` are non-secret metadata, not key values; the
+scanner permits those names and never prints matched contents.
+
+Keep a protected backup after each successful state check until migration:
+
+```sh
+pnpm run check-state
+state_dir="${MERGEMASTER_IAC_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/mergemaster/iac}"
+backup_dir="${state_dir}.backup-$(date -u +%Y%m%dT%H%M%SZ)"
+install -d -m 0700 "$backup_dir"
+cp -a "$state_dir/." "$backup_dir/"
+```
+
+Retain the same state root across both manifest deployments. Lost pending
+state cannot be recovered by adoption before an App exists. CI runs offline
+tests only during the bootstrap exception. Do not create preview stages
+for these long-lived Apps. Permission/event drift is a typed
 hard error. Registered destruction fails closed: uninstall/delete in the
 owner UI; the stack never automatically orphans an App or destroys its key.
 After ambiguous conversion failure, do not replay the one-use code: inspect

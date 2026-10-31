@@ -4,9 +4,10 @@
   "type": "module",
   "packageManager": "pnpm@12.15.0",
   "scripts": {
-    "test": "node --import ./register.mjs --test stack.test.ts",
-    "plan": "node --import ./register.mjs ./node_modules/alchemy/bin/cli.js plan --config alchemy.run.ts --stage production",
-    "deploy": "node --import ./register.mjs ./node_modules/alchemy/bin/cli.js deploy --config alchemy.run.ts --stage production"
+    "test": "node --import ./register.mjs --test stack.test.ts state.test.mjs",
+    "plan": "node operator.mjs plan --config alchemy.run.ts --stage production",
+    "deploy": "node operator.mjs deploy --config alchemy.run.ts --stage production",
+    "check-state": "node state.mjs"
   },
   "dependencies": {
     "@alchemy.run/github": "2.0.0-beta.84",
