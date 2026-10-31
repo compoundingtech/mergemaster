@@ -9,7 +9,7 @@ import { AlchemyContext } from 'alchemy/AlchemyContext'
 import { State } from 'alchemy/State'
 import { PlatformServices } from 'alchemy/Util/PlatformServices'
 import { Effect } from 'effect'
-import { checkState, operatorState, prepareStateDirectory, resolveStateDirectory } from './state.mjs'
+import { checkState, operatorState, resolveStateDirectory } from './state.mjs'
 
 test('state location honors operator configuration, XDG, and HOME outside the checkout', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mergemaster-state-location-'))
@@ -81,53 +81,35 @@ test('check-state command fails closed on a fixture without exposing key content
   } finally { rmSync(directory, { recursive: true }) }
 })
 
-test('registration inputs fail strict scans and permit only an env-unset purge preflight', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'mergemaster-purge-preflight-'))
-  const keys = ['MERGEMASTER_IAC_STATE_DIR', 'APP_MANIFEST_CODE', 'APP_MANIFEST_STATE']
-  const saved = keys.map((key) => process.env[key])
-  const command = process.argv[2]
-  const mask = process.umask()
+test('state-only conversion is allowed but callback codes and redacted values fail closed', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'mergemaster-code-scan-'))
   try {
-    process.env.MERGEMASTER_IAC_STATE_DIR = directory
-    delete process.env.APP_MANIFEST_CODE
-    delete process.env.APP_MANIFEST_STATE
-    process.argv[2] = 'deploy'
     const file = join(directory, 'app.json')
-    for (const contents of ['{"props":{"conversion":{"state":"fixture-code"}}}', '{"props":{"code":{"__redacted__":"fixture-code"}}}']) {
-      writeFileSync(file, contents, { mode: 0o600 })
+    writeFileSync(file, '{"props":{"conversion":{"state":"public-pending-token"}}}', { mode: 0o600 })
+    checkState(directory)
+    for (const contents of [
+      '{"props":{"conversion":{"code":"fixture-code","state":"public-pending-token"}}}',
+      '{"props":{"value":{"__redacted__":"fixture-code"}}}',
+      '{"props":{"conver\\u0073ion":{"code":"fixture-code"}}}',
+    ]) {
+      writeFileSync(file, contents)
       assert.throws(() => checkState(directory), (error) => {
-        assert.match(error.message, /Manifest conversion input/)
+        assert.match(error.message, /Manifest conversion code/)
         assert.doesNotMatch(error.message, /fixture-code/)
         return true
       })
-      assert.equal(prepareStateDirectory(), directory)
-      for (const key of ['APP_MANIFEST_CODE', 'APP_MANIFEST_STATE']) {
-        process.env[key] = 'fixture-code'
-        assert.throws(() => prepareStateDirectory(), /Manifest conversion input/)
-        delete process.env[key]
-      }
-      process.argv[2] = 'plan'
-      assert.throws(() => prepareStateDirectory(), /Manifest conversion input/)
-      process.argv[2] = 'deploy'
       const failed = spawnSync(process.execPath, [fileURLToPath(new URL('./state.mjs', import.meta.url))], {
-        env: process.env, encoding: 'utf8',
+        env: { ...process.env, MERGEMASTER_IAC_STATE_DIR: directory }, encoding: 'utf8',
       })
       assert.notEqual(failed.status, 0)
-      assert.match(failed.stderr, /Manifest conversion input/)
+      assert.match(failed.stderr, /Manifest conversion code/)
       assert.doesNotMatch(failed.stdout + failed.stderr, /fixture-code/)
     }
-    writeFileSync(file, ['-----', 'BEGIN PRIVATE KEY-----fixture-key'].join(''))
-    assert.throws(() => prepareStateDirectory(), /Private-key marker/)
-    chmodSync(file, 0o644)
-    assert.throws(() => prepareStateDirectory(), /0600/)
-  } finally {
-    keys.forEach((key, index) => {
-      if (saved[index] === undefined) delete process.env[key]
-      else process.env[key] = saved[index]
+    writeFileSync(file, '{"fixture-code"')
+    assert.throws(() => checkState(directory), (error) => {
+      assert.match(error.message, /Invalid JSON/)
+      assert.doesNotMatch(error.message, /fixture-code/)
+      return true
     })
-    if (command === undefined) delete process.argv[2]
-    else process.argv[2] = command
-    process.umask(mask)
-    rmSync(directory, { recursive: true })
-  }
+  } finally { rmSync(directory, { recursive: true }) }
 })

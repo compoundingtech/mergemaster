@@ -1,6 +1,6 @@
 import * as GitHub from '@overeng/alchemy-github'
 import * as Output from 'alchemy/Output'
-import { Effect, Redacted } from 'effect'
+import { Effect } from 'effect'
 
 /** One entry per repository; each owns a separate checks-only App and key sink. */
 export const repositories = [{
@@ -17,7 +17,6 @@ export const appOutput = (app: GitHub.AppAttributes) => app.status === 'pending'
   : { status: app.status, integrationId: app.integrationId, slug: app.slug }
 
 export interface Registration {
-  readonly code?: string
   readonly state?: string
   readonly adoptSlug?: string
 }
@@ -42,9 +41,7 @@ export const resources = (registrations: Readonly<Record<string, Registration>> 
         owner: repo.owner, repository: repo.repository,
         environment: environment.name, name: publisherPrivateKey,
       },
-      ...(registration.code === undefined ? {} : {
-        conversion: { code: Redacted.make(registration.code), state: registration.state ?? '' },
-      }),
+      ...(registration.state === undefined ? {} : { conversion: { state: registration.state } }),
       ...(registration.adoptSlug === undefined ? {} : { adopt: { slug: registration.adoptSlug } }),
     })
     outputs.push([repo.id, Output.map(Output.of(app), appOutput)] as const)

@@ -582,31 +582,21 @@ does not submit the manifest. The loopback redirect
 address bar. Compare state to `graph.state` and complete within one hour.
 Read the code through a trusted secret-input path, not a literal shell command
 or a committed env file; then, with `APP_MANIFEST_CODE` and
-`APP_MANIFEST_STATE` exported in that same operator shell:
+`APP_MANIFEST_CODE_STATE` exported in that same operator shell:
 
 ```sh
 pnpm run deploy
-unset APP_MANIFEST_CODE APP_MANIFEST_STATE
+unset APP_MANIFEST_CODE APP_MANIFEST_CODE_STATE
 ```
 
-After successful conversion (`graph.status` is `registered` and
-`graph.integrationId` is present), run one more **purge deploy** with both
-manifest variables unset, then the strict check, before taking any backup:
-
-```sh
-pnpm run deploy
-pnpm run check-state
-```
-
-The conversion can register successfully yet fail the guarded command's
-post-check because Alchemy retains its callback code as a durable input.
-The env-unset purge deploy performs metadata GETs, not another conversion
-POST, and commits inputs without `conversion`. Its preflight alone permits
-registration-input markers when both manifest variables are unset; modes,
-symlinks and PEM checks stay strict. Post-deploy and `check-state` scans
-always reject `conversion` properties or `__redacted__` values without
-printing them. If registration did not succeed, follow the failure cleanup
-conditions below instead of backing up state or replaying the code.
+The apply-time `ManifestCodes.fromEnv('APP_MANIFEST_CODE')` source reads the
+code and its companion `APP_MANIFEST_CODE_STATE` only during conversion;
+planning and provider construction never read the code. Only
+`conversion.state` enters resource inputs: that token is non-secret because
+it is already a pending output and part of the manifest form. The provider
+fix ends the callback-code-in-state exception: the code is never a resource
+input, durable state value or stack output, so no purge deploy is required.
+After successful registration, run `pnpm run check-state` before backup.
 
 Install the App on **only** `schickling/factory`. Registered outputs
 are `graph.status`, `graph.integrationId`, and `graph.slug`. Pending outputs
@@ -649,22 +639,15 @@ umask 077 and check the state tree before and after the CLI exits. Directories
 must be 0700, regular files 0600; symlinks and looser modes fail closed,
 without silently changing existing permissions. After every deploy, run
 `pnpm run check-state`: it must find **no** PEM/`-----BEGIN`/private-key value
-markers, `conversion` properties or `__redacted__` values anywhere in the
+markers, `conversion.code` properties or `__redacted__` values anywhere in the
 state tree. Secret destination names such as `MERGEMASTER_APP_PRIVATE_KEY`
 are non-secret metadata, not key values; the scanner permits those names
 and never prints matched contents.
 
-The single-use App-manifest callback code (valid at most 1 h) may sit in
-the 0600 local state under this bounded exception:
-
-1. Take the state backup only after a successful registration (status registered with an integrationId).
-2. If the conversion fails or is interrupted, delete the code from the state before the operator session ends (state entry for the App resource; do not print it), and record that in the post-deploy check-state PR comment.
-3. Do not copy, upload or sync the state file anywhere before (1) or (2) is done.
-
-The exception ends when the GitHub.App resource keeps the code out of durable state (Effect-utils Manager follow-up, due 2026-11-12 with the remote backend); this stack moves to that version when it migrates.
-
-After successful registration, the env-unset purge deploy and a clean state
-check, keep a protected backup until migration:
+Take the state backup only after a successful registration (status registered
+with an integrationId) and a clean state check; keep it protected until
+migration. Legacy state containing callback codes must be cleaned without
+printing them before strict checks permit plan/deploy or backup.
 
 ```sh
 pnpm run check-state
