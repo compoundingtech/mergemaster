@@ -4,8 +4,8 @@ import { Effect, Redacted } from 'effect'
 
 /** One entry per repository; each owns a separate checks-only App and key sink. */
 export const repositories = [{
-  id: 'graph', owner: 'schickling', repository: 'smalltalk-graph', defaultBranch: 'main',
-  appName: 'Smalltalk Graph Evidence',
+  id: 'graph', owner: 'schickling', repository: 'factory', defaultBranch: 'main',
+  appName: 'Factory Evidence',
 }] as const
 
 export const publisherEnvironment = 'mergemaster-check-publisher'

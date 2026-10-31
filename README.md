@@ -538,7 +538,7 @@ nix develop -c python3 tests/test-graph-proof.py \
 ## Repository check-publisher infrastructure
 
 `iac/alchemy.run.ts` owns one private, user-owned GitHub App per entry in
-`iac/stack.ts`. The Graph entry targets `schickling/smalltalk-graph`, whose
+`iac/stack.ts`. The Graph entry targets `schickling/factory`, whose
 default branch is `main`. Its App requests only `checks: write` (GitHub adds
 `metadata: read`), has no events or active webhook, and has no author allowlist.
 The Graph repository owns its ruleset and consumer workflows; this stack
@@ -608,7 +608,7 @@ always reject `conversion` properties or `__redacted__` values without
 printing them. If registration did not succeed, follow the failure cleanup
 conditions below instead of backing up state or replaying the code.
 
-Install the App on **only** `schickling/smalltalk-graph`. Registered outputs
+Install the App on **only** `schickling/factory`. Registered outputs
 are `graph.status`, `graph.integrationId`, and `graph.slug`. Pending outputs
 are `graph.status`, `graph.manifestHtml`, `graph.state`, and `graph.expiresAt`;
 there is no integration ID until registration succeeds. Give
@@ -622,7 +622,7 @@ Its consumer must set job `environment: 'mergemaster-check-publisher'` and
 supply `appTokenStep` using a SHA-pinned `actions/create-github-app-token`:
 `app-id` is the exported integration ID, `private-key` is
 `${{ secrets.MERGEMASTER_APP_PRIVATE_KEY }}`, `owner` is `schickling`, and
-`repositories` is `smalltalk-graph`. The fragment assigns step ID `app-token`
+`repositories` is `factory`. The fragment assigns step ID `app-token`
 and consumes its `token` output; it never falls back to `GITHUB_TOKEN`.
 There were no pre-existing environment or secret names in the generic
 fragment; the names above are this stack's explicit consumer contract.
