@@ -56,9 +56,12 @@ test('offline Alchemy plan declares a main-only environment and a sink-only chec
       assert.deepEqual(environment.props.deploymentBranchPolicy, { customBranchPolicies: ['main'] })
       assert.deepEqual(app.props.manifest.permissions, { checks: 'write' })
       assert.deepEqual(app.props.manifest.events, [])
+      assert.equal(app.props.manifest.name, 'Factory Evidence')
+      assert.equal(app.props.manifest.url, 'https://github.com/schickling/factory')
+      assert.equal(environment.props.repository, 'factory')
       assert.equal(app.props.privateKeySecret.name, publisherPrivateKey)
       assert.equal(app.props.privateKeySecret.owner, 'schickling')
-      assert.equal(app.props.privateKeySecret.repository, 'smalltalk-graph')
+      assert.equal(app.props.privateKeySecret.repository, 'factory')
       assert.equal(environment.props.name, publisherEnvironment)
       assert.equal('value' in app.props.privateKeySecret, false)
     }), { ...options, state: stack.state }).pipe(
@@ -73,7 +76,7 @@ test('registered stack outputs explicitly exclude even unexpected secret attribu
   const output = appOutput({
     status: 'registered', appId: 123, integrationId: 123, slug: 'graph-evidence',
     permissions: { checks: 'write' }, events: [],
-    privateKeySecret: { owner: 'schickling', repository: 'smalltalk-graph', name: publisherPrivateKey,
+    privateKeySecret: { owner: 'schickling', repository: 'factory', name: publisherPrivateKey,
       environment: publisherEnvironment, scope: 'environment', updatedAt: '2026-10-31T00:00:00Z' },
     ...{ pem: '-----BEGIN PRIVATE KEY-----fixture-private-key', value: 'fixture-secret-value' },
   })
