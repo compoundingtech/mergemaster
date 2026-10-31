@@ -608,6 +608,13 @@ and consumes its `token` output; it never falls back to `GITHUB_TOKEN`.
 There were no pre-existing environment or secret names in the generic
 fragment; the names above are this stack's explicit consumer contract.
 
+### Interim: local operator state and operator apply
+
+The App bootstrap uses local operator state and operator-run apply because
+the manifest consent flow cannot run in CI. Once the program's remote state
+backend exists, this stack migrates to it and to CI-applied plan plus drift
+detection on `main`.
+
 State is explicitly local (`iac/.alchemy/`), ignored by Git, and must be
 protected and retained by the single operator across both deployments.
 Local state is accepted because it contains no private key and a registered
