@@ -20,16 +20,22 @@ export const resolveStateDirectory = (env = process.env, home = homedir(), check
 }
 
 /** Fail closed without printing state contents or silently repairing unsafe files. */
-export const checkState = (directory) => {
+export const checkState = (directory, options = {}) => {
   const stat = lstatSync(directory)
   const mode = stat.isDirectory() ? 0o700 : 0o600
   if ((!stat.isDirectory() && !stat.isFile()) || (stat.mode & 0o7777) !== mode) {
     throw new Error('State requires regular files 0600 and directories 0700; no symlinks')
   }
   if (stat.isDirectory()) {
-    for (const name of readdirSync(directory)) checkState(join(directory, name))
-  } else if (/-----BEGIN|BEGIN .*PRIVATE KEY|"(?:pem|privateKey|private_key)"\s*:/i.test(readFileSync(directory, 'utf8'))) {
-    throw new Error('Private-key marker found in state; contents withheld')
+    for (const name of readdirSync(directory)) checkState(join(directory, name), options)
+  } else {
+    const contents = readFileSync(directory, 'utf8')
+    if (/-----BEGIN|BEGIN .*PRIVATE KEY|"(?:pem|privateKey|private_key)"\s*:/i.test(contents)) {
+      throw new Error('Private-key marker found in state; contents withheld')
+    }
+    if (!options.allowRegistrationInputs && /"(?:conversion|__redacted__)"\s*:/.test(contents)) {
+      throw new Error('Manifest conversion input found in state; contents withheld')
+    }
   }
 }
 
@@ -37,7 +43,9 @@ export const prepareStateDirectory = () => {
   process.umask(0o077)
   const directory = resolveStateDirectory()
   mkdirSync(directory, { recursive: true, mode: 0o700 })
-  checkState(directory)
+  // An env-unset purge deploy must be able to remove persisted registration inputs.
+  checkState(directory, { allowRegistrationInputs:
+    process.argv[2] === 'deploy' && process.env.APP_MANIFEST_CODE === undefined && process.env.APP_MANIFEST_STATE === undefined })
   return directory
 }
 

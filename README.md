@@ -589,6 +589,25 @@ pnpm run deploy
 unset APP_MANIFEST_CODE APP_MANIFEST_STATE
 ```
 
+After successful conversion (`graph.status` is `registered` and
+`graph.integrationId` is present), run one more **purge deploy** with both
+manifest variables unset, then the strict check, before taking any backup:
+
+```sh
+pnpm run deploy
+pnpm run check-state
+```
+
+The conversion can register successfully yet fail the guarded command's
+post-check because Alchemy retains its callback code as a durable input.
+The env-unset purge deploy performs metadata GETs, not another conversion
+POST, and commits inputs without `conversion`. Its preflight alone permits
+registration-input markers when both manifest variables are unset; modes,
+symlinks and PEM checks stay strict. Post-deploy and `check-state` scans
+always reject `conversion` properties or `__redacted__` values without
+printing them. If registration did not succeed, follow the failure cleanup
+conditions below instead of backing up state or replaying the code.
+
 Install the App on **only** `schickling/smalltalk-graph`. Registered outputs
 are `graph.status`, `graph.integrationId`, and `graph.slug`. Pending outputs
 are `graph.status`, `graph.manifestHtml`, `graph.state`, and `graph.expiresAt`;
@@ -630,9 +649,10 @@ umask 077 and check the state tree before and after the CLI exits. Directories
 must be 0700, regular files 0600; symlinks and looser modes fail closed,
 without silently changing existing permissions. After every deploy, run
 `pnpm run check-state`: it must find **no** PEM/`-----BEGIN`/private-key value
-markers anywhere in the state tree. Secret destination names such as
-`MERGEMASTER_APP_PRIVATE_KEY` are non-secret metadata, not key values; the
-scanner permits those names and never prints matched contents.
+markers, `conversion` properties or `__redacted__` values anywhere in the
+state tree. Secret destination names such as `MERGEMASTER_APP_PRIVATE_KEY`
+are non-secret metadata, not key values; the scanner permits those names
+and never prints matched contents.
 
 The single-use App-manifest callback code (valid at most 1 h) may sit in
 the 0600 local state under this bounded exception:
@@ -643,8 +663,8 @@ the 0600 local state under this bounded exception:
 
 The exception ends when the GitHub.App resource keeps the code out of durable state (Effect-utils Manager follow-up, due 2026-11-12 with the remote backend); this stack moves to that version when it migrates.
 
-After successful registration and a clean state check, keep a protected
-backup until migration:
+After successful registration, the env-unset purge deploy and a clean state
+check, keep a protected backup until migration:
 
 ```sh
 pnpm run check-state
