@@ -634,7 +634,17 @@ markers anywhere in the state tree. Secret destination names such as
 `MERGEMASTER_APP_PRIVATE_KEY` are non-secret metadata, not key values; the
 scanner permits those names and never prints matched contents.
 
-Keep a protected backup after each successful state check until migration:
+The single-use App-manifest callback code (valid at most 1 h) may sit in
+the 0600 local state under this bounded exception:
+
+1. Take the state backup only after a successful registration (status registered with an integrationId).
+2. If the conversion fails or is interrupted, delete the code from the state before the operator session ends (state entry for the App resource; do not print it), and record that in the post-deploy check-state PR comment.
+3. Do not copy, upload or sync the state file anywhere before (1) or (2) is done.
+
+The exception ends when the GitHub.App resource keeps the code out of durable state (Effect-utils Manager follow-up, due 2026-11-12 with the remote backend); this stack moves to that version when it migrates.
+
+After successful registration and a clean state check, keep a protected
+backup until migration:
 
 ```sh
 pnpm run check-state
