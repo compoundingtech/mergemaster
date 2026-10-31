@@ -42,3 +42,27 @@ jobs:
           name: graph-full-check-proof
           path: ${{ runner.temp }}/graph-full-check-proof.tar.gz
           if-no-files-found: error
+
+  publisher-stack:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: provider
+        run: echo "commit=$(jq -r '.members["effect-utils"].commit' megarepo.lock)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: overengineeringstudio/effect-utils
+          ref: ${{ steps.provider.outputs.commit }}
+          path: repos/effect-utils
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.20.0
+      - run: npm ci --install-links --ignore-scripts
+        working-directory: iac
+      - run: npm test
+        working-directory: iac

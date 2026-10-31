@@ -534,3 +534,87 @@ package="$(nix build .# --no-link --print-out-paths)"
 nix develop -c python3 tests/test-graph-proof.py \
   --binary "$package/bin/mergemaster" --work-dir /absolute/new/proof-directory
 ```
+
+## Repository check-publisher infrastructure
+
+`iac/alchemy.run.ts` owns one private, user-owned GitHub App per entry in
+`iac/stack.ts`. The Graph entry targets `schickling/smalltalk-graph`, whose
+default branch is `main`. Its App requests only `checks: write` (GitHub adds
+`metadata: read`), has no events or active webhook, and has no author allowlist.
+The Graph repository owns its ruleset and consumer workflows; this stack
+does not declare a ruleset or run candidate code.
+
+The environment `mergemaster-check-publisher` permits only the exact `main`
+branch, not all protected branches. The App provider seals the private key
+directly into that environment's `MERGEMASTER_APP_PRIVATE_KEY` Actions secret.
+There is deliberately no separate `GitHub.Secret` resource: neither a PEM
+input nor a PEM output belongs in Alchemy state. Deployment credentials need
+repository administration/environment and Actions-secret access; these are
+separate from the new App's checks-only runtime credential. Private-repository
+environment support requires a compatible GitHub plan.
+
+### Operator manifest registration
+
+The isolated IaC package uses npm (this repository has no pnpm workspace).
+Node 24.20.0 is used in hosted CI. The pinned effect-utils source is composed
+through `megarepo.lock`; its unpublished provider is installed as a copied
+file dependency. The small Oxc loader uses Alchemy's own runtime tooling to
+load that provider's TypeScript without building effect-utils.
+
+```sh
+mr apply --worktree-mode commit --only effect-utils
+cd iac
+npm ci --install-links --ignore-scripts
+npm test                         # offline; no GitHub credentials or mutation
+umask 077
+npm run plan                    # review before deploying
+npm run deploy                  # first deployment: pending manifest, not an App
+```
+
+Only an operator with delegated owner consent may continue. Submit the
+`graph.manifestHtml` form from the pending output in the owner's authenticated
+browser session. The form POST is required; navigating to its action URL alone
+does not submit the manifest. The loopback redirect
+`http://127.0.0.1:8787/github-app-callback` carries the one-time `code` and
+`state`; a refused connection is harmless because those values remain in the
+address bar. Compare state to `graph.state` and complete within one hour.
+Read the code through a trusted secret-input path, not a literal shell command
+or a committed env file; then, with `APP_MANIFEST_CODE` and
+`APP_MANIFEST_STATE` exported in that same operator shell:
+
+```sh
+npm run deploy
+unset APP_MANIFEST_CODE APP_MANIFEST_STATE
+```
+
+Install the App on **only** `schickling/smalltalk-graph`. Registered outputs
+are `graph.status`, `graph.integrationId`, and `graph.slug`. Pending outputs
+are `graph.status`, `graph.manifestHtml`, `graph.state`, and `graph.expiresAt`;
+there is no integration ID until registration succeeds. Give
+`graph.integrationId` (the App ID, not an installation ID) to the Graph
+ruleset owner for the required `graph-full-check` integration binding.
+
+The base-only publisher is `genericEvidenceRequiredJob` from
+`genie/generic-evidence.ts`, running on `pull_request_target`; the independent
+unprivileged `validate` workflow remains `.github/workflows/validate.yml`.
+Its consumer must set job `environment: 'mergemaster-check-publisher'` and
+supply `appTokenStep` using a SHA-pinned `actions/create-github-app-token`:
+`app-id` is the exported integration ID, `private-key` is
+`${{ secrets.MERGEMASTER_APP_PRIVATE_KEY }}`, `owner` is `schickling`, and
+`repositories` is `smalltalk-graph`. The fragment assigns step ID `app-token`
+and consumes its `token` output; it never falls back to `GITHUB_TOKEN`.
+There were no pre-existing environment or secret names in the generic
+fragment; the names above are this stack's explicit consumer contract.
+
+State is explicitly local (`iac/.alchemy/`), ignored by Git, and must be
+protected and retained by the single operator across both deployments.
+The shared/remote state backend location remains an operator decision before
+multi-operator or CI deployment; CI only runs offline tests. Do not create
+preview stages for these long-lived Apps. Permission/event drift is a typed
+hard error. Registered destruction fails closed: uninstall/delete in the
+owner UI; the stack never automatically orphans an App or destroys its key.
+After ambiguous conversion failure, do not replay the one-use code: inspect
+the owner UI, revoke/rotate and reseed the same secret through a trusted
+secret-management path, then use `APP_ADOPT_SLUG` with `npm run deploy` and
+unset it afterward. `APP_REPOSITORY` selects the entry for conversion/adoption
+(default `graph`); adding future repositories requires one table entry each.
