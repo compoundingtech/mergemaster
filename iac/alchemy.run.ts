@@ -4,10 +4,9 @@ import { resources } from './stack.ts'
 import { operatorState, prepareStateDirectory } from './state.mjs'
 
 export default Alchemy.Stack('RepositoryCheckPublishers', {
-  providers: GitHub.providers(),
+  providers: GitHub.providers({ manifestCodeSource: GitHub.ManifestCodes.fromEnv('APP_MANIFEST_CODE') }),
   state: operatorState(prepareStateDirectory()),
 }, resources({ [process.env.APP_REPOSITORY ?? 'graph']: {
-  code: process.env.APP_MANIFEST_CODE,
-  state: process.env.APP_MANIFEST_STATE,
+  state: process.env.APP_MANIFEST_CODE_STATE,
   adoptSlug: process.env.APP_ADOPT_SLUG,
 } }))

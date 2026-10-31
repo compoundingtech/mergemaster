@@ -4,7 +4,7 @@
   "type": "module",
   "packageManager": "pnpm@12.15.0",
   "scripts": {
-    "test": "node --import ./register.mjs --test stack.test.ts state.test.mjs",
+    "test": "node --import ./register.mjs --test stack.test.ts state.test.mjs manifest-code.test.ts",
     "plan": "node operator.mjs plan --config alchemy.run.ts --stage production",
     "deploy": "node operator.mjs deploy --config alchemy.run.ts --stage production",
     "check-state": "node state.mjs"
