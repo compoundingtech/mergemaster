@@ -1,0 +1,20 @@
+{
+  "name": "@mergemaster/check-publisher-infrastructure",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.15.0",
+  "scripts": {
+    "test": "node --import ./register.mjs --test stack.test.ts state.test.mjs",
+    "plan": "node operator.mjs plan --config alchemy.run.ts --stage production",
+    "deploy": "node operator.mjs deploy --config alchemy.run.ts --stage production",
+    "check-state": "node state.mjs"
+  },
+  "dependencies": {
+    "@alchemy.run/github": "2.0.0-beta.84",
+    "@alchemy.run/node-utils": "2.0.0-beta.84",
+    "@effect/platform-node": "4.1.0",
+    "@overeng/alchemy-github": "file:../repos/effect-utils/packages/@overeng/alchemy-github",
+    "alchemy": "2.0.0-beta.84",
+    "effect": "4.1.0"
+  }
+}

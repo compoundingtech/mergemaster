@@ -534,3 +534,154 @@ package="$(nix build .# --no-link --print-out-paths)"
 nix develop -c python3 tests/test-graph-proof.py \
   --binary "$package/bin/mergemaster" --work-dir /absolute/new/proof-directory
 ```
+
+## Repository check-publisher infrastructure
+
+`iac/alchemy.run.ts` owns one private, user-owned GitHub App per entry in
+`iac/stack.ts`. The Graph entry targets `schickling/smalltalk-graph`, whose
+default branch is `main`. Its App requests only `checks: write` (GitHub adds
+`metadata: read`), has no events or active webhook, and has no author allowlist.
+The Graph repository owns its ruleset and consumer workflows; this stack
+does not declare a ruleset or run candidate code.
+
+The environment `mergemaster-check-publisher` permits only the exact `main`
+branch, not all protected branches. The App provider seals the private key
+directly into that environment's `MERGEMASTER_APP_PRIVATE_KEY` Actions secret.
+There is deliberately no separate `GitHub.Secret` resource: neither a PEM
+input nor a PEM output belongs in Alchemy state. Deployment credentials need
+repository administration/environment and Actions-secret access; these are
+separate from the new App's checks-only runtime credential. Private-repository
+environment support requires a compatible GitHub plan.
+
+### Operator manifest registration
+
+The isolated IaC package uses pnpm 12.15.0, the fleet pin from the composed
+effect-utils `nix/pnpm.nix`, with its own `iac/pnpm-lock.yaml`.
+Node 24.20.0 is used in hosted CI. The pinned effect-utils source is composed
+through `megarepo.lock`; pnpm's `file:` dependency installs the unpublished
+provider with its dependencies, rather than linking an uninstalled checkout.
+The small Oxc loader uses Alchemy's own runtime tooling to load that
+provider's TypeScript without building effect-utils.
+
+```sh
+mr apply --worktree-mode commit --only effect-utils
+cd iac
+pnpm install --frozen-lockfile --ignore-scripts
+pnpm test                       # offline; no GitHub credentials or mutation
+umask 077
+pnpm run plan                   # review before deploying
+pnpm run deploy                 # first deployment: pending manifest, not an App
+```
+
+Only an operator with delegated owner consent may continue. Submit the
+`graph.manifestHtml` form from the pending output in the owner's authenticated
+browser session. The form POST is required; navigating to its action URL alone
+does not submit the manifest. The loopback redirect
+`http://127.0.0.1:8787/github-app-callback` carries the one-time `code` and
+`state`; a refused connection is harmless because those values remain in the
+address bar. Compare state to `graph.state` and complete within one hour.
+Read the code through a trusted secret-input path, not a literal shell command
+or a committed env file; then, with `APP_MANIFEST_CODE` and
+`APP_MANIFEST_STATE` exported in that same operator shell:
+
+```sh
+pnpm run deploy
+unset APP_MANIFEST_CODE APP_MANIFEST_STATE
+```
+
+After successful conversion (`graph.status` is `registered` and
+`graph.integrationId` is present), run one more **purge deploy** with both
+manifest variables unset, then the strict check, before taking any backup:
+
+```sh
+pnpm run deploy
+pnpm run check-state
+```
+
+The conversion can register successfully yet fail the guarded command's
+post-check because Alchemy retains its callback code as a durable input.
+The env-unset purge deploy performs metadata GETs, not another conversion
+POST, and commits inputs without `conversion`. Its preflight alone permits
+registration-input markers when both manifest variables are unset; modes,
+symlinks and PEM checks stay strict. Post-deploy and `check-state` scans
+always reject `conversion` properties or `__redacted__` values without
+printing them. If registration did not succeed, follow the failure cleanup
+conditions below instead of backing up state or replaying the code.
+
+Install the App on **only** `schickling/smalltalk-graph`. Registered outputs
+are `graph.status`, `graph.integrationId`, and `graph.slug`. Pending outputs
+are `graph.status`, `graph.manifestHtml`, `graph.state`, and `graph.expiresAt`;
+there is no integration ID until registration succeeds. Give
+`graph.integrationId` (the App ID, not an installation ID) to the Graph
+ruleset owner for the required `graph-full-check` integration binding.
+
+The base-only publisher is `genericEvidenceRequiredJob` from
+`genie/generic-evidence.ts`, running on `pull_request_target`; the independent
+unprivileged `validate` workflow remains `.github/workflows/validate.yml`.
+Its consumer must set job `environment: 'mergemaster-check-publisher'` and
+supply `appTokenStep` using a SHA-pinned `actions/create-github-app-token`:
+`app-id` is the exported integration ID, `private-key` is
+`${{ secrets.MERGEMASTER_APP_PRIVATE_KEY }}`, `owner` is `schickling`, and
+`repositories` is `smalltalk-graph`. The fragment assigns step ID `app-token`
+and consumes its `token` output; it never falls back to `GITHUB_TOKEN`.
+There were no pre-existing environment or secret names in the generic
+fragment; the names above are this stack's explicit consumer contract.
+
+### Interim: local operator state and operator apply
+
+The interim exception covers **App bootstrap only**: local operator state and
+operator-run deploy, because the manifest consent flow cannot run in CI.
+When the Effect-utils Manager's program remote state backend lands (due
+2026-11-12), this stack moves to that backend and to CI-applied plan plus
+drift detection on `main`, no later than **2026-11-19**.
+
+`MERGEMASTER_IAC_STATE_DIR` configures the absolute state root, defaulting to
+`${XDG_STATE_HOME:-$HOME/.local/state}/mergemaster/iac`; Alchemy stores its
+state under that root's `state/` subdirectory. The root must be outside the
+repository checkout, including through symlink aliases. The supported
+`AlchemyContext` directory injection is scoped to `localState()` only;
+other runtime artifacts retain Alchemy's defaults. Local state is accepted
+because it contains no private key and a registered App can be recovered
+with adopt-by-slug if state is lost.
+
+Use the documented `pnpm run plan` and `pnpm run deploy` commands: they set
+umask 077 and check the state tree before and after the CLI exits. Directories
+must be 0700, regular files 0600; symlinks and looser modes fail closed,
+without silently changing existing permissions. After every deploy, run
+`pnpm run check-state`: it must find **no** PEM/`-----BEGIN`/private-key value
+markers, `conversion` properties or `__redacted__` values anywhere in the
+state tree. Secret destination names such as `MERGEMASTER_APP_PRIVATE_KEY`
+are non-secret metadata, not key values; the scanner permits those names
+and never prints matched contents.
+
+The single-use App-manifest callback code (valid at most 1 h) may sit in
+the 0600 local state under this bounded exception:
+
+1. Take the state backup only after a successful registration (status registered with an integrationId).
+2. If the conversion fails or is interrupted, delete the code from the state before the operator session ends (state entry for the App resource; do not print it), and record that in the post-deploy check-state PR comment.
+3. Do not copy, upload or sync the state file anywhere before (1) or (2) is done.
+
+The exception ends when the GitHub.App resource keeps the code out of durable state (Effect-utils Manager follow-up, due 2026-11-12 with the remote backend); this stack moves to that version when it migrates.
+
+After successful registration, the env-unset purge deploy and a clean state
+check, keep a protected backup until migration:
+
+```sh
+pnpm run check-state
+state_dir="${MERGEMASTER_IAC_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/mergemaster/iac}"
+backup_dir="${state_dir}.backup-$(date -u +%Y%m%dT%H%M%SZ)"
+install -d -m 0700 "$backup_dir"
+cp -a "$state_dir/." "$backup_dir/"
+```
+
+Retain the same state root across both manifest deployments. Lost pending
+state cannot be recovered by adoption before an App exists. CI runs offline
+tests only during the bootstrap exception. Do not create preview stages
+for these long-lived Apps. Permission/event drift is a typed
+hard error. Registered destruction fails closed: uninstall/delete in the
+owner UI; the stack never automatically orphans an App or destroys its key.
+After ambiguous conversion failure, do not replay the one-use code: inspect
+the owner UI, revoke/rotate and reseed the same secret through a trusted
+secret-management path, then use `APP_ADOPT_SLUG` with `pnpm run deploy` and
+unset it afterward. `APP_REPOSITORY` selects the entry for conversion/adoption
+(default `graph`); adding future repositories requires one table entry each.

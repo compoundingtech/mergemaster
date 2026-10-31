@@ -1,0 +1,5 @@
+packages:
+  - .
+
+# Use the already provisioned fleet pin, not pnpm's package-manager bootstrap.
+pmOnFail: ignore

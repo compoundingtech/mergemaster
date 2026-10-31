@@ -2,3 +2,6 @@
 /result
 /result-*
 /tmp/
+/repos/
+/iac/node_modules/
+/iac/.alchemy/
