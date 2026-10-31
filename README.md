@@ -555,20 +555,22 @@ environment support requires a compatible GitHub plan.
 
 ### Operator manifest registration
 
-The isolated IaC package uses npm (this repository has no pnpm workspace).
+The isolated IaC package uses pnpm 12.15.0, the fleet pin from the composed
+effect-utils `nix/pnpm.nix`, with its own `iac/pnpm-lock.yaml`.
 Node 24.20.0 is used in hosted CI. The pinned effect-utils source is composed
-through `megarepo.lock`; its unpublished provider is installed as a copied
-file dependency. The small Oxc loader uses Alchemy's own runtime tooling to
-load that provider's TypeScript without building effect-utils.
+through `megarepo.lock`; pnpm's `file:` dependency installs the unpublished
+provider with its dependencies, rather than linking an uninstalled checkout.
+The small Oxc loader uses Alchemy's own runtime tooling to load that
+provider's TypeScript without building effect-utils.
 
 ```sh
 mr apply --worktree-mode commit --only effect-utils
 cd iac
-npm ci --install-links --ignore-scripts
-npm test                         # offline; no GitHub credentials or mutation
+pnpm install --frozen-lockfile --ignore-scripts
+pnpm test                       # offline; no GitHub credentials or mutation
 umask 077
-npm run plan                    # review before deploying
-npm run deploy                  # first deployment: pending manifest, not an App
+pnpm run plan                   # review before deploying
+pnpm run deploy                 # first deployment: pending manifest, not an App
 ```
 
 Only an operator with delegated owner consent may continue. Submit the
@@ -583,7 +585,7 @@ or a committed env file; then, with `APP_MANIFEST_CODE` and
 `APP_MANIFEST_STATE` exported in that same operator shell:
 
 ```sh
-npm run deploy
+pnpm run deploy
 unset APP_MANIFEST_CODE APP_MANIFEST_STATE
 ```
 
@@ -608,13 +610,14 @@ fragment; the names above are this stack's explicit consumer contract.
 
 State is explicitly local (`iac/.alchemy/`), ignored by Git, and must be
 protected and retained by the single operator across both deployments.
-The shared/remote state backend location remains an operator decision before
-multi-operator or CI deployment; CI only runs offline tests. Do not create
+Local state is accepted because it contains no private key and a registered
+App can be recovered with adopt-by-slug if state is lost. CI only runs
+offline tests. Do not create
 preview stages for these long-lived Apps. Permission/event drift is a typed
 hard error. Registered destruction fails closed: uninstall/delete in the
 owner UI; the stack never automatically orphans an App or destroys its key.
 After ambiguous conversion failure, do not replay the one-use code: inspect
 the owner UI, revoke/rotate and reseed the same secret through a trusted
-secret-management path, then use `APP_ADOPT_SLUG` with `npm run deploy` and
+secret-management path, then use `APP_ADOPT_SLUG` with `pnpm run deploy` and
 unset it afterward. `APP_REPOSITORY` selects the entry for conversion/adoption
 (default `graph`); adding future repositories requires one table entry each.

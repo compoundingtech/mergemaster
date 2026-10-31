@@ -2,12 +2,14 @@
   "name": "@mergemaster/check-publisher-infrastructure",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@12.15.0",
   "scripts": {
     "test": "node --import ./register.mjs --test stack.test.ts",
     "plan": "node --import ./register.mjs ./node_modules/alchemy/bin/cli.js plan --config alchemy.run.ts --stage production",
     "deploy": "node --import ./register.mjs ./node_modules/alchemy/bin/cli.js deploy --config alchemy.run.ts --stage production"
   },
   "dependencies": {
+    "@alchemy.run/github": "2.0.0-beta.84",
     "@alchemy.run/node-utils": "2.0.0-beta.84",
     "@effect/platform-node": "4.1.0",
     "@overeng/alchemy-github": "file:../repos/effect-utils/packages/@overeng/alchemy-github",
