@@ -43,6 +43,17 @@ liveness rules. Kept cargo targets are tagged on creation and emptied above
 the 80 GB cap only when tagged or owned by the pool; untagged caller-owned
 targets remain untouched, and the cache tag alone never counts as a warm build.
 
+Readiness treats a cancelled run as no evidence unless a job it judged failed.
+Cancelled attempts do not count toward satisfied lines or hide real failures,
+and are reported separately as `cancelled_runs`. Timeouts still count as failures.
+
+The legacy verifier selects the newest pass that validates. It passes over only
+passes from a level accepted by no kind of the check, or carrying another tree's
+lane definition; every other validation rule still applies. A later failure
+(within the clock-skew margin) refuses regardless of its level or lane definition.
+With no valid pass, the newest record decides as before. Results include
+`decided_by` and `skipped_newer` so the decision can be audited.
+
 Run the script suite independently:
 
 ```sh
@@ -79,6 +90,7 @@ SHA in `scripts/PROVENANCE` (or the extraction SHA before any ports). Watched
 paths include every fixture origin manifest, including infrastructure helpers.
 Full-history traversal retains merged branch changes even when a merge discards
 them, and includes merge-only resolutions relative to each merge's first parent.
+Each entry in the JSON `commits` array is one full SHA and subject, not patch text.
 The scheduled **Fractal parity drift** workflow reports every six hours without
 blocking CI or changing evidence policy. It reads history only, never upstream
 scripts. Omit `--report-only` to return exit 1 when newer commits exist; invalid
