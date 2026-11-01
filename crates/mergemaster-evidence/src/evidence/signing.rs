@@ -266,8 +266,11 @@ pub fn run_worker(args: SignArgs) -> Result<()> {
     let nix_check = derivation(&request.repo, &request.head, lane, &policy.environment, &args.config)?;
     if let Some((derivation, nix, _)) = &nix_check {
         let execution = request.inputs.get("nix_execution").context("missing Nix execution mode")?;
-        ensure!(request.command == super::derivation::argv(&lane.argv[0], &derivation.path, execution)?, "command differs from derived BASE lane");
-        let claims = derivation.claims(nix, execution)?;
+        let command_mode = request.inputs.get("nix_command_mode").context("missing Nix command mode")?;
+        ensure!((execution == "failed") == (request.exit_code != 0), "Nix execution claim contradicts exit status");
+        ensure!(execution != "failed" || !request.inputs.contains_key("nix_outputs_sha256"), "failed execution must not assert realized outputs");
+        ensure!(request.command == super::derivation::argv(&lane.argv[0], &derivation.path, command_mode)?, "command differs from derived BASE lane");
+        let claims = derivation.claims(nix, execution, command_mode)?;
         ensure!(claims.iter().all(|(key, value)| request.inputs.get(key) == Some(value)), "independent derivation digest mismatch");
     } else { ensure!(lane.argv == request.command, "command differs from BASE lane"); }
     let closures = measure_toolchain(&request.repo, &policy.environment, &args.config, &request.command, nix_check.is_none())?;

@@ -15,6 +15,7 @@ p.add_argument('--node', type=Path, required=True)
 p.add_argument('--nix', type=Path, required=True)
 p.add_argument('--work-dir', type=Path, required=True)
 p.add_argument('--derivation', action='store_true')
+p.add_argument('--require-daemon', action='store_true')
 a = p.parse_args()
 binary, node, nix = (path.resolve(strict=True) for path in (a.binary, a.node, a.nix))
 work = a.work_dir.resolve()
@@ -121,7 +122,8 @@ if a.derivation:
     write('environment.json', environment)
     shutil.copytree(deps / 'fixture', repo / 'fixture/node_modules/fixture')
     (repo / 'builder.cjs').write_text('const fs=require("node:fs"); const value=require(process.env.src+"/node_modules/fixture"); '
-        'fs.writeFileSync(process.env.TMPDIR+"/scratch",String(value)); fs.writeFileSync(process.env.out,String(value)); console.error("RUN_BUILDER");\n')
+        'console.error("RUN_BUILDER_START"); let acc=0; for(let i=0;i<2000000000;i++) acc=(acc+i)|0; console.error("RUN_BUILDER_FINISH "+acc); '
+        'fs.writeFileSync(process.env.TMPDIR+"/scratch",String(value)); fs.writeFileSync(process.env.out,String(value));\n')
     system = f'{platform.machine()}-linux'
     (repo / 'flake.nix').write_text('{ outputs = { self }: { checks.' + system + '.marker = builtins.derivation { '
         'name = "mergemaster-proof-' + hashlib.sha256(str(work).encode()).hexdigest()[:12] + '"; '
@@ -141,24 +143,39 @@ if a.derivation:
     git('add', '.')
     git('commit', '-qm', 'Derivation candidate')
     head = git('rev-parse', 'HEAD')
-    nix_flags = [str(nix), '--extra-experimental-features', 'nix-command flakes']
+    nix_flags = [str(nix), '--extra-experimental-features', 'nix-command flakes',
+                 '--option', 'builders', '', '--option', 'build-hook', '', '--option', 'max-jobs', '1']
     installable = f'git+file://{repo}?rev={head}#checks.{system}.marker'
-    # A second client may realize/coalesce the cold output; the evidence command
-    # must still end with a separate --rebuild and include its builder log.
-    racer = subprocess.Popen([*nix_flags, 'build', '--no-link', installable], cwd=repo, env=env,
+    # Synchronize on a live builder, then require actual same-output lock contention.
+    racer = subprocess.Popen([*nix_flags, 'build', '--print-build-logs', '--no-link', installable], cwd=repo, env=env,
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    startup = bytearray()
+    for line in iter(racer.stderr.readline, b''):
+        startup.extend(line)
+        if b'RUN_BUILDER_START' in line:
+            break
+    assert b'RUN_BUILDER_START' in startup and racer.poll() is None, startup
+    # Hostile caller and candidate preferences must not weaken either boundary.
+    env['NIX_CONFIG'] = 'accept-flake-config = true\npure-eval = false\nallow-import-from-derivation = true\nmax-jobs = 0\n'
     wrap = [binary, 'evidence', 'wrap', '--check', 'node', '--base', base, '--config', config,
             '--signer', json.dumps(signer)]
     fresh = run(wrap)
     race_out, race_err = racer.communicate()
     assert racer.returncode == 0, (race_out, race_err)
-    assert b'RUN_BUILDER' in fresh.stdout, fresh.stdout
+    assert b'RUN_BUILDER_START' in fresh.stdout and b'waiting for lock on' in fresh.stdout, fresh.stdout
     value = json.loads(run([binary, 'gate', '--check', 'node', '--base', base, '--head', head, '--format', 'json']).stdout)
     assert value['decision'] == 'skip', value
     statement = json.loads(git('show', value['record'] + ':' + git('rev-parse', head + '^{tree}')))
     inputs = statement['predicate']['observed']['inputs']
     actual = statement['predicate']['observed']['checks']['node']['command']
     assert inputs['nix_execution'] == 'rebuild' and '--rebuild' in actual
+    for option, expected in [('builders', ''), ('build-hook', ''), ('max-jobs', '1'), ('accept-flake-config', 'false')]:
+        assert any(actual[i:i+3] == ['--option', option, expected] for i in range(len(actual))), actual
+    assert len(inputs['nix_settings_sha256']) == 64
+    if a.require_daemon:
+        assert inputs['nix_store'] == 'daemon' and inputs['nix_daemon_trusted'] == 'true', inputs
+    print('Verified execution boundary:', json.dumps({k: v for k, v in inputs.items() if k in
+          ('nix_settings_sha256', 'nix_store', 'nix_daemon_trusted', 'nix_execution')}, sort_keys=True))
     request.update(base=base, head=head, command=actual, inputs=inputs)
     request['command'] = [*actual[:-1], '/nix/store/' + '0' * 32 + '-wrong.drv^*']
     assert run(signer, ok=False, input=json.dumps(request).encode()).returncode != 0
@@ -172,6 +189,45 @@ if a.derivation:
     git('commit', '-qm', 'Non-deterministic candidate')
     nondeterministic = run(wrap, ok=False)
     assert nondeterministic.returncode != 0, nondeterministic.stdout
+    def failure_record():
+        value = json.loads(run([binary, 'gate', '--check', 'node', '--base', base,
+                               '--head', git('rev-parse', 'HEAD'), '--format', 'json']).stdout)
+        assert value['reason'] == 'check_failed' and value['record'], value
+        statement = json.loads(git('show', value['record'] + ':' + git('rev-parse', 'HEAD^{tree}')))
+        inputs = statement['predicate']['observed']['inputs']
+        assert inputs['nix_execution'] == 'failed' and 'nix_outputs_sha256' not in inputs, inputs
+    failure_record()
+    (repo / 'builder.cjs').write_text('console.error("COLD_FAILURE"); process.exit(7);\n')
+    git('add', '.')
+    git('commit', '-qm', 'Cold failing candidate')
+    assert run(wrap, ok=False).returncode != 0
+    failure_record()
+    assert run([*wrap, '--reuse'], ok=False).returncode != 0
+    failure_record()
+    (repo / 'builder.cjs').write_text('require("node:fs").writeFileSync(process.env.out,"42");\n')
+    lane['nix_check']['required'] = 'any'
+    write('lanes.json', policy)
+    git('add', '.')
+    git('commit', '-qm', 'Reuse-accepting BASE policy')
+    base = git('rev-parse', 'HEAD')
+    git('update-ref', 'refs/heads/gate-base', base)
+    (repo / 'candidate').write_text('reuse candidate\n')
+    git('add', '.')
+    git('commit', '-qm', 'Reuse candidate')
+    head = git('rev-parse', 'HEAD')
+    wrap = [binary, 'evidence', 'wrap', '--check', 'node', '--base', base, '--config', config,
+            '--signer', json.dumps(signer)]
+    run([*wrap, '--reuse'])
+    value = json.loads(run([binary, 'gate', '--check', 'node', '--base', base, '--head', head, '--format', 'json']).stdout)
+    assert value['decision'] == 'skip' and value['outcome'] == 'reused' and value['reason'] == 'execution_reused', value
+    # Saved/candidate acceptance cannot enable an absolute-path read in pure evaluation.
+    flake = (repo / 'flake.nix').read_text()
+    flake = flake.replace('{ outputs', '{ nixConfig = { pure-eval = false; allow-import-from-derivation = true; }; outputs')
+    flake = flake.replace('name = "', 'name = builtins.readFile /etc/hostname; ignored = "')
+    (repo / 'flake.nix').write_text(flake)
+    git('add', '.')
+    git('commit', '-qm', 'Hostile flake preferences')
+    assert run(wrap, ok=False).returncode != 0
     print('PASS derivation cold/racing rebuild, argv mismatch, reused freshness refusal, non-deterministic refusal')
 key.unlink()
 config.unlink()

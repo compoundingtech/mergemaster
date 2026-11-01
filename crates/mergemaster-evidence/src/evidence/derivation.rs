@@ -1,25 +1,67 @@
-//! Pinned Git flake evaluation and explicit fresh-versus-reused realizations.
-use std::{collections::BTreeMap, path::Path, process::Command};
+//! Pinned evaluation and daemon-aware, local-only freshness proofs.
+use std::{collections::BTreeMap, path::Path, process::{Command, Output}};
 use anyhow::{Context, Result, ensure};
 use sha2::{Digest, Sha256};
 use crate::gate::config::NixCheck;
 
-pub struct Derivation { pub path: String, outputs: BTreeMap<String, String> }
-fn command(nix: &Path, git: &Path) -> Command {
+const SETTINGS: &[(&str, &str)] = &[("accept-flake-config", "false"), ("pure-eval", "true"),
+    ("allow-import-from-derivation", "false"), ("builders", ""), ("build-hook", ""), ("max-jobs", "1")];
+pub struct Derivation { pub path: String, outputs: BTreeMap<String, String>, settings: BTreeMap<String, String> }
+fn prefix(executable: &str) -> Vec<String> {
+    let mut args = vec![executable.into(), "--extra-experimental-features".into(), "nix-command flakes".into()];
+    for (name, value) in SETTINGS { args.extend(["--option".into(), (*name).into(), (*value).into()]); }
+    args
+}
+/// The temporary HOME excludes saved trusted flake settings; no caller config survives.
+pub(super) fn isolated(nix: &Path, git: &Path) -> Result<(Command, tempfile::TempDir)> {
+    let home = tempfile::tempdir()?;
     let mut command = Command::new(nix);
-    command.env_clear().env("LC_ALL", "C").env("PATH", git.parent().expect("absolute trusted git"));
-    command.args(["--extra-experimental-features", "nix-command flakes", "--option", "allow-import-from-derivation", "false"]);
-    command
+    command.env_clear().env("LC_ALL", "C").env("PATH", git.parent().context("trusted git parent")?)
+        .env("HOME", home.path()).env("XDG_CONFIG_HOME", home.path()).env("NIX_USER_CONF_FILES", "/dev/null")
+        .env("NIX_CONFIG", SETTINGS.iter().map(|(key, value)| format!("{key} = {value}\n")).collect::<String>());
+    Ok((command, home))
+}
+fn run(nix: &Path, git: &Path, args: &[&str]) -> Result<Output> {
+    let (mut command, _home) = isolated(nix, git)?;
+    let output = command.args(&prefix(nix.to_str().context("Nix path UTF-8")?)[1..]).args(args).output()?;
+    refuse_ignored(&output.stderr)?;
+    Ok(output)
+}
+pub(super) fn refuse_ignored(stderr: &[u8]) -> Result<()> {
+    ensure!(!String::from_utf8_lossy(stderr).contains("ignoring the client-specified setting"), "Nix daemon ignored required execution settings");
+    Ok(())
+}
+fn settings(nix: &Path, git: &Path) -> Result<BTreeMap<String, String>> {
+    let output = run(nix, git, &["config", "show", "--json"])?;
+    ensure!(output.status.success(), "cannot inspect effective Nix settings");
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    for (key, expected) in SETTINGS {
+        let actual = value.get(*key).and_then(|entry| entry.get("value")).context("required Nix setting missing")?;
+        let text = if actual.as_array().is_some_and(Vec::is_empty) { String::new() }
+            else { actual.as_str().map_or_else(|| actual.to_string(), str::to_owned) };
+        ensure!(text == *expected, "effective Nix setting differs: {key}");
+    }
+    let output = run(nix, git, &["store", "info", "--json"])?;
+    ensure!(output.status.success(), "cannot inspect Nix store trust");
+    let store: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    let url = store.get("url").and_then(serde_json::Value::as_str).context("missing Nix store URL")?;
+    if url.starts_with("daemon") {
+        ensure!(store.get("trusted").and_then(serde_json::Value::as_bool) == Some(true), "fresh evidence requires a trusted Nix daemon client so execution overrides take effect");
+    } else { ensure!(url.starts_with("local"), "unsupported Nix store for execution evidence"); }
+    let mut claims = BTreeMap::from([("nix_settings_sha256".into(), settings_digest()?),
+        ("nix_store".into(), url.to_owned())]);
+    claims.insert("nix_daemon_trusted".into(), store.get("trusted").and_then(serde_json::Value::as_bool).unwrap_or(false).to_string());
+    Ok(claims)
 }
 impl Derivation {
     pub fn evaluate(nix: &Path, git: &Path, repo: &Path, head: &str, check: &NixCheck) -> Result<Self> {
+        let settings = settings(nix, git)?;
         let source = url_source(repo, head)?;
-        let output = command(nix, git).args(["eval", "--raw", "--no-write-lock-file", "--no-update-lock-file",
-            &format!("{source}#{}.drvPath", check.attribute)]).output()?;
+        let output = run(nix, git, &["eval", "--raw", "--no-write-lock-file", "--no-update-lock-file", &format!("{source}#{}.drvPath", check.attribute)])?;
         ensure!(output.status.success(), "Nix check evaluation failed: {}", String::from_utf8_lossy(&output.stderr));
         let path = String::from_utf8(output.stdout)?;
         ensure!(crate::gate::config::nix_store_path(&path) && path.ends_with(".drv"), "invalid derivation path");
-        let output = command(nix, git).args(["derivation", "show", &path]).output()?;
+        let output = run(nix, git, &["derivation", "show", &path])?;
         ensure!(output.status.success(), "cannot inspect check derivation");
         let value: serde_json::Value = serde_json::from_slice(&output.stdout)?;
         let outputs = value.get(&path).and_then(|v| v.get("outputs")).and_then(serde_json::Value::as_object).context("missing derivation outputs")?;
@@ -29,70 +71,66 @@ impl Derivation {
             Ok((name.clone(), path.to_owned()))
         }).collect::<Result<BTreeMap<_, _>>>()?;
         ensure!(!outputs.is_empty(), "check has no outputs");
-        Ok(Self { path, outputs })
+        Ok(Self { path, outputs, settings })
     }
     pub fn valid(&self, nix: &Path, git: &Path) -> Result<bool> {
-        let output = command(nix, git).args(["path-info", "--json"]).args(self.outputs.values()).output()?;
-        Ok(output.status.success())
+        let paths: Vec<_> = self.outputs.values().map(String::as_str).collect();
+        let mut args = vec!["path-info", "--json"];
+        args.extend(paths);
+        Ok(run(nix, git, &args)?.status.success())
     }
-    pub fn prepare(&self, nix: &Path, git: &Path, reuse: bool) -> Result<()> {
-        if !reuse && !self.valid(nix, git)? {
-            let status = command(nix, git).args(["build", "--no-link", &format!("{}^*", self.path)]).status()?;
-            ensure!(status.success(), "initial check realization failed");
+    pub fn claims(&self, nix: &Path, execution: &str, command_mode: &str) -> Result<BTreeMap<String, String>> {
+        ensure!(matches!(execution, "rebuild" | "reused" | "failed"), "invalid Nix execution mode");
+        let mut claims = self.settings.clone();
+        claims.extend([("nix_derivation".into(), self.path.clone()), ("nix_execution".into(), execution.into()),
+            ("nix_command_mode".into(), command_mode.into()),
+            ("nix_command_sha256".into(), command_digest(&argv(nix.to_str().context("Nix path UTF-8")?, &self.path, command_mode)?)?)]);
+        if execution != "failed" {
+            ensure!(execution == command_mode, "Nix execution differs from command mode");
+            let outputs = self.outputs.iter().map(|(name, path)| {
+                let closure = super::nix::measure(nix, path)?;
+                Ok((name, path, closure.get(path).context("missing output NAR hash")?.clone()))
+            }).collect::<Result<Vec<_>>>()?;
+            claims.insert("nix_outputs_sha256".into(), hex::encode(Sha256::digest(serde_json::to_vec(&outputs)?)));
         }
-        Ok(())
-    }
-    pub fn claims(&self, nix: &Path, execution: &str) -> Result<BTreeMap<String, String>> {
-        ensure!(matches!(execution, "rebuild" | "reused"), "invalid Nix execution mode");
-        let outputs = self.outputs.iter().map(|(name, path)| {
-            let closure = super::nix::measure(nix, path)?;
-            Ok((name, path, closure.get(path).context("missing output NAR hash")?.clone()))
-        }).collect::<Result<Vec<_>>>()?;
-        Ok(BTreeMap::from([
-            ("nix_derivation".into(), self.path.clone()),
-            ("nix_outputs_sha256".into(), hex::encode(Sha256::digest(serde_json::to_vec(&outputs)?))),
-            ("nix_execution".into(), execution.into()),
-            ("nix_command_sha256".into(), command_digest(&argv(nix.to_str().context("Nix path is not UTF-8")?, &self.path, execution)?)?),
-        ]))
+        Ok(claims)
     }
 }
 fn url_source(repo: &Path, head: &str) -> Result<String> {
     let path = repo.to_str().context("repository path is not UTF-8")?;
-    let encoded: String = path.bytes().map(|b| if b.is_ascii_alphanumeric() || b"/-._~".contains(&b) {
-        char::from(b).to_string()
-    } else { format!("%{b:02X}") }).collect();
+    let encoded: String = path.bytes().map(|b| if b.is_ascii_alphanumeric() || b"/-._~".contains(&b) { char::from(b).to_string() } else { format!("%{b:02X}") }).collect();
     Ok(format!("git+file://{encoded}?rev={head}"))
 }
-
 pub fn argv(executable: &str, drv: &str, execution: &str) -> Result<Vec<String>> {
-    ensure!(crate::gate::config::nix_store_path(drv) && drv.ends_with(".drv")
-        && matches!(execution, "rebuild" | "reused"), "invalid derivation execution");
-    let mut argv: Vec<String> = [executable, "--extra-experimental-features", "nix-command flakes",
-        "--option", "allow-import-from-derivation", "false", "build", "--no-link", "--json", "--print-build-logs"]
-        .into_iter().map(str::to_owned).collect();
+    ensure!(crate::gate::config::nix_store_path(drv) && drv.ends_with(".drv") && matches!(execution, "rebuild" | "reused"), "invalid derivation execution");
+    let mut argv = prefix(executable);
+    argv.extend(["build", "--no-link", "--json", "--print-build-logs"].map(str::to_owned));
     if execution == "rebuild" { argv.extend(["--option", "substitute", "false", "--rebuild"].map(str::to_owned)); }
     argv.push(format!("{drv}^*"));
     Ok(argv)
 }
-
-pub fn command_digest(argv: &[String]) -> Result<String> {
-    Ok(hex::encode(Sha256::digest(serde_json::to_vec(argv)?)))
+pub fn command_digest(argv: &[String]) -> Result<String> { Ok(hex::encode(Sha256::digest(serde_json::to_vec(argv)?))) }
+pub fn settings_digest() -> Result<String> {
+    Ok(hex::encode(Sha256::digest(serde_json::to_vec(SETTINGS)?)))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn freshness_is_an_unconditional_rebuild_and_argv_is_bound() {
+    fn freshness_is_local_unconditional_rebuild_and_argv_bound() {
         let drv = "/nix/store/00000000000000000000000000000000-check.drv";
         let fresh = argv("/nix/store/nix/bin/nix", drv, "rebuild").unwrap();
-        assert!(fresh.windows(2).any(|pair| pair == ["substitute", "false"]));
+        for pair in [["substitute", "false"], ["builders", ""], ["build-hook", ""], ["max-jobs", "1"], ["accept-flake-config", "false"]] {
+            assert!(fresh.windows(2).any(|window| window == pair));
+        }
         assert!(fresh.iter().any(|arg| arg == "--rebuild"));
         let reused = argv("/nix/store/nix/bin/nix", drv, "reused").unwrap();
         assert!(!reused.iter().any(|arg| arg == "--rebuild"));
         assert_ne!(command_digest(&fresh).unwrap(), command_digest(&reused).unwrap());
         assert!(argv("nix", drv, "built").is_err());
         assert!(argv("nix", "../check.drv", "rebuild").is_err());
+        assert!(refuse_ignored(b"warning: ignoring the client-specified setting 'builders'").is_err());
         assert_eq!(url_source(Path::new("/repo/a #b"), "abc").unwrap(), "git+file:///repo/a%20%23b?rev=abc");
     }
 }

@@ -45,6 +45,16 @@ fn input_git(repo: &Path, args: &[&str], input: &[u8]) -> Result<String> {
     Ok(String::from_utf8(output.stdout)?.trim().to_owned())
 }
 
+fn execute(repo: &Path, argv: &[String], output: &fs::File, git: Option<&Path>) -> Result<std::process::ExitStatus> {
+    let (mut launch, _home) = if let Some(git) = git {
+        let (launch, home) = super::derivation::isolated(Path::new(&argv[0]), git)?;
+        (launch, Some(home))
+    } else { (Command::new(&argv[0]), None) };
+    launch.args(&argv[1..]).current_dir(repo)
+        .stdout(Stdio::from(output.try_clone()?)).stderr(Stdio::from(output.try_clone()?))
+        .status().context("running evidence lane")
+}
+
 pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     let cwd = std::env::current_dir()?;
     let repo = fs::canonicalize(git::text(&cwd, &["rev-parse", "--show-toplevel"])?)?;
@@ -61,9 +71,9 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     let mut inputs = config::expected_inputs(&repo, &head, &args.check, lane, &policy.environment, &policy.environment_bytes)?;
     inputs.extend(measure_toolchain(&repo, &policy.environment, &args.config, &args.command, lane.nix_check.is_none())?);
     let nix_check = super::signing::derivation(&repo, &head, lane, &policy.environment, &args.config)?;
-    let execution = if args.reuse { "reused" } else { "rebuild" };
-    let command = if let Some((derivation, nix, git)) = &nix_check {
-        derivation.prepare(nix, git, args.reuse)?;
+    let mut execution = if args.reuse { "reused" } else { "rebuild" };
+    let mut command_mode = execution;
+    let mut command = if let Some((derivation, _, _)) = &nix_check {
         let command = super::derivation::argv(&lane.argv[0], &derivation.path, execution)?;
         ensure!(args.command.is_empty() || args.command == command, "command differs from normalized derivation argv");
         command
@@ -76,16 +86,26 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     // Both child descriptors share a single open file description, preserving combined bytes
     // without pipe deadlocks or lossy UTF-8 conversion. The command keeps the caller's env.
     let mut output_file = tempfile::tempfile()?;
-    let mut launch_lane = Command::new(&command[0]);
-    if let Some((_, _, git)) = &nix_check {
-        launch_lane.env_clear().env("LC_ALL", "C").env("PATH", git.parent().context("trusted git parent")?);
-    }
-    let status = launch_lane.args(&command[1..]).current_dir(&repo)
-        .stdout(Stdio::from(output_file.try_clone()?)).stderr(Stdio::from(output_file.try_clone()?))
-        .status().context("running evidence lane")?;
+    let git_tool = nix_check.as_ref().map(|(_, _, git)| git.as_path());
+    let preparation = if let Some((derivation, nix, git)) = &nix_check {
+        if !args.reuse && !derivation.valid(nix, git)? {
+            let argv = super::derivation::argv(&lane.argv[0], &derivation.path, "reused")?;
+            let status = execute(&repo, &argv, &output_file, git_tool)?;
+            if status.success() { None } else {
+                command = argv;
+                command_mode = "reused";
+                Some(status)
+            }
+        } else { None }
+    } else { None };
+    let status = if let Some(status) = preparation { status } else {
+        execute(&repo, &command, &output_file, git_tool)?
+    };
+    if !status.success() && nix_check.is_some() { execution = "failed"; }
     output_file.seek(SeekFrom::Start(0))?;
     let mut output = Vec::new();
     output_file.read_to_end(&mut output)?;
+    if nix_check.is_some() { super::derivation::refuse_ignored(&output)?; }
     {
         let mut stdout = std::io::stdout().lock();
         stdout.write_all(&output)?;
@@ -99,7 +119,7 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     ensure!(closures.iter().all(|(key, value)| inputs.get(key) == Some(value)), "Nix closure changed during execution");
     let after = config::expected_inputs(&repo, &head, &args.check, lane, &policy.environment, &policy.environment_bytes)?;
     ensure!(after.iter().all(|(key, value)| inputs.get(key) == Some(value)), "lane inputs changed during execution");
-    if let Some((derivation, nix, _)) = &nix_check { inputs.extend(derivation.claims(nix, execution)?); }
+    if let Some((derivation, nix, _)) = &nix_check { inputs.extend(derivation.claims(nix, execution, command_mode)?); }
     #[cfg(unix)]
     let exit_code = {
         use std::os::unix::process::ExitStatusExt;
