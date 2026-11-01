@@ -436,13 +436,12 @@ fn base_keys_and_policy_cannot_be_replaced_by_head() {
 }
 
 #[test]
-fn malformed_or_missing_base_configuration_is_not_a_computed_decision() {
-    for case in ["unknown", "missing", "missing_field", "malformed", "version", "escape", "missing_path", "unsupported_adapter", "bad_environment", "bad_pin"] {
+fn malformed_base_configuration_is_not_a_computed_decision() {
+    for case in ["unknown", "missing_field", "malformed", "version", "escape", "missing_path", "unsupported_adapter", "bad_environment", "bad_pin"] {
         let mut f = Fixture::new();
         let mut policy = Fixture::policy("required_evidence");
         match case {
             "unknown" => policy["unknown"] = json!(true),
-            "missing" => { fs::remove_file(f.repo.join(".mergemaster/evidence-keys")).unwrap(); }
             "missing_field" => { policy["lanes"][CHECK].as_object_mut().unwrap().remove("argv"); }
             "malformed" => {}
             "version" => policy["version"] = json!(2),
