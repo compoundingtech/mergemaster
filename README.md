@@ -544,6 +544,35 @@ signer. Existing Python evidence verification can read the same note, but
 consumer policies that require legacy `flake_lock_sha256` must not be applied
 to a generic environment lane.
 
+### Read-only informational reporter
+
+`genie/generic-evidence.ts` exports `genericEvidenceReporterJob({ check, checkout,
+runner? })` for `pull_request` workflows. The checkout action must be SHA-pinned;
+the fragment checks out the event's accepted BASE, never the candidate worktree.
+It downloads the verifier release declared by BASE's tool pin, verifies its
+digest and source/workflow attestation, and fetches HEAD and evidence refs as
+Git objects only. It never installs candidate dependencies, runs candidate
+commands or setup, signs evidence, or writes statuses, checks or comments.
+Ignored `node_modules`-style inputs and scratch files are not executed or
+interpreted by this object-only reporter.
+
+The job requests only `contents: read` and sets `continue-on-error: true`.
+Its only report surfaces are its step conclusion and an escaped job summary;
+it must **not** be configured as a required check. Missing, refused or unavailable
+evidence is informational failure, never authorization to skip a required lane.
+Unlike the required publisher, it does not gather hosted review/check evidence
+or accept a GitHub App token. Consumers retain their independent validation job
+and required-check policy. See `tests/fixtures/generic-evidence/` for composition.
+
+When a required BASE config blob (`tool-pin.json`, `lanes.json`,
+`environment.json` or `evidence-keys`) is absent, the gate emits
+`decision: "refuse"`, `outcome: "rejected"`, `reason: "config_missing"` with the
+missing path in its summary. Candidate config never fills the gap. Invalid JSON,
+symlinks, directories and Git/object failures remain errors without a decision,
+not `config_missing`. A missing tool pin also prevents the workflow bootstrap
+from acquiring a verifier; that bootstrap failure is reported as incomplete.
+
+
 ## Base-only generic required-check publisher
 
 `genie/generic-evidence.ts` exports `genericEvidenceRequiredJob`. Compose it

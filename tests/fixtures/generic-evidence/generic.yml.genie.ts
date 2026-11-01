@@ -1,5 +1,5 @@
 import { githubWorkflow } from '../../repos/effect-utils/genie/external.ts'
-import { genericEvidenceRequiredJob } from '../../genie/generic-evidence.ts'
+import { genericEvidenceRequiredJob, genericEvidenceReporterJob } from '../../genie/generic-evidence.ts'
 
 // Copy to .github/workflows/generic.yml.genie.ts in a consumer with effect-utils.
 // The App-token step deliberately fails closed until PR C' configures the App.
@@ -27,6 +27,10 @@ export default githubWorkflow({
     'generic-evidence': genericEvidenceRequiredJob({
       check: 'graph-full-check',
       checkout: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1', // v7.0.1
+    }),
+    'evidence-report': genericEvidenceReporterJob({
+      check: 'graph-full-check',
+      checkout: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
     }),
   },
 })
