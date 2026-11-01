@@ -22,7 +22,10 @@ pub struct WrapArgs {
     /// Account-local measurement and signing configuration, outside the checkout.
     #[arg(long)]
     pub config: PathBuf,
-    #[arg(last = true, required = true)]
+    /// Reuse a derivation realization; never assert a fresh test execution.
+    #[arg(long)]
+    pub reuse: bool,
+    #[arg(last = true)]
     pub command: Vec<String>,
 }
 
@@ -51,12 +54,20 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     let tree = git::text(&repo, &["rev-parse", "HEAD^{tree}"])?;
     let policy = config::load(&repo, &args.base)?;
     let lane = policy.policy.lanes.get(&args.check).context("unknown BASE lane")?;
-    ensure!(args.command == lane.argv, "command must exactly equal BASE lane argv");
+    ensure!(lane.nix_check.is_some() || (!args.reuse && args.command == lane.argv), "command must exactly equal BASE lane argv");
     let signer: Vec<String> = serde_json::from_str(&args.signer).context("--signer must be a JSON argv array")?;
     ensure!(!signer.is_empty() && !signer[0].is_empty() && signer.iter().all(|arg| !arg.contains('\0')), "invalid signer argv");
     clean(&repo, &head)?;
     let mut inputs = config::expected_inputs(&repo, &head, &args.check, lane, &policy.environment, &policy.environment_bytes)?;
-    measure_toolchain(&repo, &policy.environment, &args.config)?;
+    inputs.extend(measure_toolchain(&repo, &policy.environment, &args.config, &args.command, lane.nix_check.is_none())?);
+    let nix_check = super::signing::derivation(&repo, &head, lane, &policy.environment, &args.config)?;
+    let execution = if args.reuse { "reused" } else { "rebuild" };
+    let command = if let Some((derivation, nix, git)) = &nix_check {
+        derivation.prepare(nix, git, args.reuse)?;
+        let command = super::derivation::argv(&lane.argv[0], &derivation.path, execution)?;
+        ensure!(args.command.is_empty() || args.command == command, "command differs from normalized derivation argv");
+        command
+    } else { args.command.clone() };
     for (key, value) in [("workspace_clean", "true"), ("untracked_files", "false"), ("attempt", "1")] {
         inputs.insert(key.into(), value.into());
     }
@@ -65,7 +76,11 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     // Both child descriptors share a single open file description, preserving combined bytes
     // without pipe deadlocks or lossy UTF-8 conversion. The command keeps the caller's env.
     let mut output_file = tempfile::tempfile()?;
-    let status = Command::new(&args.command[0]).args(&args.command[1..]).current_dir(&repo)
+    let mut launch_lane = Command::new(&command[0]);
+    if let Some((_, _, git)) = &nix_check {
+        launch_lane.env_clear().env("LC_ALL", "C").env("PATH", git.parent().context("trusted git parent")?);
+    }
+    let status = launch_lane.args(&command[1..]).current_dir(&repo)
         .stdout(Stdio::from(output_file.try_clone()?)).stderr(Stdio::from(output_file.try_clone()?))
         .status().context("running evidence lane")?;
     output_file.seek(SeekFrom::Start(0))?;
@@ -80,9 +95,11 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     let blob = input_git(&repo, &["hash-object", "-w", "--stdin"], &output)?;
     git::git(&repo, &["update-ref", &format!("refs/evidence-output/{output_sha256}"), &blob])?;
     clean(&repo, &head)?;
-    measure_toolchain(&repo, &policy.environment, &args.config)?;
+    let closures = measure_toolchain(&repo, &policy.environment, &args.config, &command, lane.nix_check.is_none())?;
+    ensure!(closures.iter().all(|(key, value)| inputs.get(key) == Some(value)), "Nix closure changed during execution");
     let after = config::expected_inputs(&repo, &head, &args.check, lane, &policy.environment, &policy.environment_bytes)?;
     ensure!(after.iter().all(|(key, value)| inputs.get(key) == Some(value)), "lane inputs changed during execution");
+    if let Some((derivation, nix, _)) = &nix_check { inputs.extend(derivation.claims(nix, execution)?); }
     #[cfg(unix)]
     let exit_code = {
         use std::os::unix::process::ExitStatusExt;
@@ -91,7 +108,7 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     #[cfg(not(unix))]
     let exit_code = status.code().unwrap_or(1);
     let request = Request { version: 1, repo: repo.clone(), base: args.base.clone(), head: head.clone(),
-        check: args.check.clone(), command: args.command.clone(), exit_code,
+        check: args.check.clone(), command, exit_code,
         output: STANDARD.encode(output), inputs };
     let mut launch = Command::new(&signer[0]);
     launch.args(&signer[1..]).current_dir(&repo);

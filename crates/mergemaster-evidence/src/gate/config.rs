@@ -63,7 +63,18 @@ pub struct Lane {
     pub remediation_argv: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_age_seconds: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nix_check: Option<NixCheck>,
 }
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct NixCheck {
+    pub attribute: String,
+    #[serde(default = "fresh")]
+    pub required: String,
+}
+fn fresh() -> String { "fresh".into() }
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -106,6 +117,14 @@ pub struct Config {
 
 pub fn full_commit(value: &str) -> bool {
     value.len() == 40 && value.bytes().all(|c| c.is_ascii_hexdigit())
+}
+
+/// A literal top-level store output, never a flake expression or subpath.
+pub fn nix_store_path(path: &str) -> bool {
+    path.strip_prefix("/nix/store/").is_some_and(|name|
+        name.len() > 33 && name.as_bytes()[32] == b'-'
+        && name.as_bytes()[..32].iter().all(|c| b"0123456789abcdfghijklmnpqrsvwxyz".contains(c))
+        && name[33..].bytes().all(|c| c.is_ascii_alphanumeric() || b"+-._?=".contains(&c)))
 }
 
 fn nonempty(value: &str) -> bool {
@@ -194,6 +213,13 @@ pub fn load(repo: &Path, base: &str) -> Result<Config> {
             ensure!(lane.approvers.is_empty() && lane.require_hosted.is_empty(),
                 "approval configuration requires human_approval policy");
         }
+        if let Some(check) = &lane.nix_check {
+            let parts: Vec<_> = check.attribute.split('.').collect();
+            ensure!(parts.len() == 3 && parts[0] == "checks"
+                && parts.iter().all(|part| !part.is_empty() && part.bytes().all(|c| c.is_ascii_alphanumeric() || b"_-".contains(&c)))
+                && matches!(check.required.as_str(), "fresh" | "any"), "invalid Nix check declaration");
+            ensure!(lane.argv.len() == 1 && Path::new(&lane.argv[0]).is_absolute(), "Nix check argv declares the absolute trusted nix executable only");
+        }
         ensure!(lane.environment.manifest == ".mergemaster/environment.json", "unsupported environment manifest");
         entries(repo, base, &lane.definition_paths)?;
         entries(repo, base, &lane.environment.paths)?;
@@ -237,8 +263,9 @@ fn validate_environment(environment: &Environment) -> Result<()> {
         .chain(environment.toolchain.dependencies.iter().map(|(name, artifact)| (name.as_str(), artifact))) {
         ensure!(nonempty(name) && nonempty(&artifact.name), "invalid toolchain artifact");
         let valid = artifact.identity.strip_prefix("sha256:").is_some_and(|hash| hash.len() == 64 && hash.bytes().all(|c| c.is_ascii_hexdigit()))
-            || artifact.identity.strip_prefix("git:").is_some_and(full_commit);
-        ensure!(valid, "toolchain artifacts require immutable sha256 or git identities");
+            || artifact.identity.strip_prefix("git:").is_some_and(full_commit)
+            || artifact.identity.strip_prefix("nix:").is_some_and(nix_store_path);
+        ensure!(valid, "toolchain artifacts require immutable sha256, git or nix identities");
     }
     Ok(())
 }
