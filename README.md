@@ -27,13 +27,18 @@ cargo run -- evidence --help
 
 ## Copied evidence scripts
 
-The evidence scripts and their self-tests are copied byte-for-byte from
+The evidence scripts and their self-tests originate from
 `compoundingtech/fractal` commit
-`e83871ec919f95b3b3e2a9a1cd211c2ac37babda`. Their original Fractal configuration
+`e83871ec919f95b3b3e2a9a1cd211c2ac37babda`, with upstream ports recorded in
+`scripts/PROVENANCE`. Their original Fractal configuration
 paths, command names and defaults are intentionally unchanged; this extraction
 does not make the scripts general-purpose replacements for the Rust CLI.
 The accompanying systemd service and timer files are shipped as source only:
 the flake does not install, enable or run them.
+
+Readiness treats a cancelled run as no evidence unless a job it judged failed.
+Cancelled attempts do not count toward satisfied lines or hide real failures,
+and are reported separately as `cancelled_runs`. Timeouts still count as failures.
 
 Run the script suite independently:
 
