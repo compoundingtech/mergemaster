@@ -22,7 +22,10 @@ pub struct WrapArgs {
     /// Account-local measurement and signing configuration, outside the checkout.
     #[arg(long)]
     pub config: PathBuf,
-    #[arg(last = true, required = true)]
+    /// Reuse a derivation realization; never assert a fresh test execution.
+    #[arg(long)]
+    pub reuse: bool,
+    #[arg(last = true)]
     pub command: Vec<String>,
 }
 
@@ -42,6 +45,16 @@ fn input_git(repo: &Path, args: &[&str], input: &[u8]) -> Result<String> {
     Ok(String::from_utf8(output.stdout)?.trim().to_owned())
 }
 
+fn execute(repo: &Path, argv: &[String], output: &fs::File, git: Option<&Path>) -> Result<std::process::ExitStatus> {
+    let (mut launch, _home) = if let Some(git) = git {
+        let (launch, home) = super::derivation::isolated(Path::new(&argv[0]), git)?;
+        (launch, Some(home))
+    } else { (Command::new(&argv[0]), None) };
+    launch.args(&argv[1..]).current_dir(repo)
+        .stdout(Stdio::from(output.try_clone()?)).stderr(Stdio::from(output.try_clone()?))
+        .status().context("running evidence lane")
+}
+
 pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     let cwd = std::env::current_dir()?;
     let repo = fs::canonicalize(git::text(&cwd, &["rev-parse", "--show-toplevel"])?)?;
@@ -51,12 +64,20 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     let tree = git::text(&repo, &["rev-parse", "HEAD^{tree}"])?;
     let policy = config::load(&repo, &args.base)?;
     let lane = policy.policy.lanes.get(&args.check).context("unknown BASE lane")?;
-    ensure!(args.command == lane.argv, "command must exactly equal BASE lane argv");
+    ensure!(lane.nix_check.is_some() || (!args.reuse && args.command == lane.argv), "command must exactly equal BASE lane argv");
     let signer: Vec<String> = serde_json::from_str(&args.signer).context("--signer must be a JSON argv array")?;
     ensure!(!signer.is_empty() && !signer[0].is_empty() && signer.iter().all(|arg| !arg.contains('\0')), "invalid signer argv");
     clean(&repo, &head)?;
     let mut inputs = config::expected_inputs(&repo, &head, &args.check, lane, &policy.environment, &policy.environment_bytes)?;
-    inputs.extend(measure_toolchain(&repo, &policy.environment, &args.config, &args.command)?);
+    inputs.extend(measure_toolchain(&repo, &policy.environment, &args.config, &args.command, lane.nix_check.is_none())?);
+    let nix_check = super::signing::derivation(&repo, &head, lane, &policy.environment, &args.config)?;
+    let mut execution = if args.reuse { "reused" } else { "rebuild" };
+    let mut command_mode = execution;
+    let mut command = if let Some((derivation, _, _)) = &nix_check {
+        let command = super::derivation::argv(&lane.argv[0], &derivation.path, execution)?;
+        ensure!(args.command.is_empty() || args.command == command, "command differs from normalized derivation argv");
+        command
+    } else { args.command.clone() };
     for (key, value) in [("workspace_clean", "true"), ("untracked_files", "false"), ("attempt", "1")] {
         inputs.insert(key.into(), value.into());
     }
@@ -65,12 +86,26 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     // Both child descriptors share a single open file description, preserving combined bytes
     // without pipe deadlocks or lossy UTF-8 conversion. The command keeps the caller's env.
     let mut output_file = tempfile::tempfile()?;
-    let status = Command::new(&args.command[0]).args(&args.command[1..]).current_dir(&repo)
-        .stdout(Stdio::from(output_file.try_clone()?)).stderr(Stdio::from(output_file.try_clone()?))
-        .status().context("running evidence lane")?;
+    let git_tool = nix_check.as_ref().map(|(_, _, git)| git.as_path());
+    let preparation = if let Some((derivation, nix, git)) = &nix_check {
+        if !args.reuse && !derivation.valid(nix, git)? {
+            let argv = super::derivation::argv(&lane.argv[0], &derivation.path, "reused")?;
+            let status = execute(&repo, &argv, &output_file, git_tool)?;
+            if status.success() { None } else {
+                command = argv;
+                command_mode = "reused";
+                Some(status)
+            }
+        } else { None }
+    } else { None };
+    let status = if let Some(status) = preparation { status } else {
+        execute(&repo, &command, &output_file, git_tool)?
+    };
+    if !status.success() && nix_check.is_some() { execution = "failed"; }
     output_file.seek(SeekFrom::Start(0))?;
     let mut output = Vec::new();
     output_file.read_to_end(&mut output)?;
+    if nix_check.is_some() { super::derivation::refuse_ignored(&output)?; }
     {
         let mut stdout = std::io::stdout().lock();
         stdout.write_all(&output)?;
@@ -80,10 +115,11 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     let blob = input_git(&repo, &["hash-object", "-w", "--stdin"], &output)?;
     git::git(&repo, &["update-ref", &format!("refs/evidence-output/{output_sha256}"), &blob])?;
     clean(&repo, &head)?;
-    let closures = measure_toolchain(&repo, &policy.environment, &args.config, &args.command)?;
+    let closures = measure_toolchain(&repo, &policy.environment, &args.config, &command, lane.nix_check.is_none())?;
     ensure!(closures.iter().all(|(key, value)| inputs.get(key) == Some(value)), "Nix closure changed during execution");
     let after = config::expected_inputs(&repo, &head, &args.check, lane, &policy.environment, &policy.environment_bytes)?;
     ensure!(after.iter().all(|(key, value)| inputs.get(key) == Some(value)), "lane inputs changed during execution");
+    if let Some((derivation, nix, _)) = &nix_check { inputs.extend(derivation.claims(nix, execution, command_mode)?); }
     #[cfg(unix)]
     let exit_code = {
         use std::os::unix::process::ExitStatusExt;
@@ -92,7 +128,7 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     #[cfg(not(unix))]
     let exit_code = status.code().unwrap_or(1);
     let request = Request { version: 1, repo: repo.clone(), base: args.base.clone(), head: head.clone(),
-        check: args.check.clone(), command: args.command.clone(), exit_code,
+        check: args.check.clone(), command, exit_code,
         output: STANDARD.encode(output), inputs };
     let mut launch = Command::new(&signer[0]);
     launch.args(&signer[1..]).current_dir(&repo);

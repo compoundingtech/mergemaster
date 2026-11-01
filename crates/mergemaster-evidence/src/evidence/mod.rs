@@ -15,6 +15,7 @@ pub mod cli;
 pub mod generic;
 pub mod signing;
 mod nix;
+pub(crate) mod derivation;
 mod ci_reattest;
 mod ci_transport;
 pub mod observers;

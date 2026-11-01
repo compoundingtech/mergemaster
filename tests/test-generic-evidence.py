@@ -122,6 +122,15 @@ class PublisherTests(unittest.TestCase):
         self.assertEqual((payload['head_sha'], payload['conclusion'], token), (HEAD, 'success', 'app-only'))
         self.assertIn('this PR changes the validate workflow; validate ran the changed file', payload['output']['summary'])
 
+    def test_policy_accepted_reuse_preserves_nonfresh_summary(self):
+        self.decision.update(outcome='reused', reason='execution_reused',
+                             summary='A trusted realization was reused; no fresh test execution is asserted.')
+        self.save_decision()
+        self.ns['finalize']()
+        payload, _ = self.posts[0]
+        self.assertEqual(payload['conclusion'], 'success')
+        self.assertIn('no fresh test execution', payload['output']['summary'])
+
     def test_refusal_preserves_changed_workflow_summary(self):
         self.decision.update(decision='run', outcome='rejected')
         self.save_decision()

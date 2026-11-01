@@ -63,7 +63,18 @@ pub struct Lane {
     pub remediation_argv: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_age_seconds: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nix_check: Option<NixCheck>,
 }
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct NixCheck {
+    pub attribute: String,
+    #[serde(default = "fresh")]
+    pub required: String,
+}
+fn fresh() -> String { "fresh".into() }
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -201,6 +212,13 @@ pub fn load(repo: &Path, base: &str) -> Result<Config> {
         } else {
             ensure!(lane.approvers.is_empty() && lane.require_hosted.is_empty(),
                 "approval configuration requires human_approval policy");
+        }
+        if let Some(check) = &lane.nix_check {
+            let parts: Vec<_> = check.attribute.split('.').collect();
+            ensure!(parts.len() == 3 && parts[0] == "checks"
+                && parts.iter().all(|part| !part.is_empty() && part.bytes().all(|c| c.is_ascii_alphanumeric() || b"_-".contains(&c)))
+                && matches!(check.required.as_str(), "fresh" | "any"), "invalid Nix check declaration");
+            ensure!(lane.argv.len() == 1 && Path::new(&lane.argv[0]).is_absolute(), "Nix check argv declares the absolute trusted nix executable only");
         }
         ensure!(lane.environment.manifest == ".mergemaster/environment.json", "unsupported environment manifest");
         entries(repo, base, &lane.definition_paths)?;
