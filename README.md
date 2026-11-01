@@ -27,13 +27,21 @@ cargo run -- evidence --help
 
 ## Copied evidence scripts
 
-The evidence scripts and their self-tests are copied byte-for-byte from
+The evidence scripts and their self-tests originate from
 `compoundingtech/fractal` commit
-`e83871ec919f95b3b3e2a9a1cd211c2ac37babda`. Their original Fractal configuration
+`e83871ec919f95b3b3e2a9a1cd211c2ac37babda`, with upstream ports recorded in
+`scripts/PROVENANCE`. Their original Fractal configuration
 paths, command names and defaults are intentionally unchanged; this extraction
 does not make the scripts general-purpose replacements for the Rust CLI.
 The accompanying systemd service and timer files are shipped as source only:
 the flake does not install, enable or run them.
+
+The legacy verifier selects the newest pass that validates. It passes over only
+passes from a level accepted by no kind of the check, or carrying another tree's
+lane definition; every other validation rule still applies. A later failure
+(within the clock-skew margin) refuses regardless of its level or lane definition.
+With no valid pass, the newest record decides as before. Results include
+`decided_by` and `skipped_newer` so the decision can be audited.
 
 Run the script suite independently:
 
