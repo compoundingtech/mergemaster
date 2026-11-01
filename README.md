@@ -38,6 +38,10 @@ admitted scope; build and seat-lane caps still require memory and CPU limits.
 The accompanying systemd service and timer files are shipped as source only:
 the flake does not install, enable or run them.
 
+Readiness treats a cancelled run as no evidence unless a job it judged failed.
+Cancelled attempts do not count toward satisfied lines or hide real failures,
+and are reported separately as `cancelled_runs`. Timeouts still count as failures.
+
 The legacy verifier selects the newest pass that validates. It passes over only
 passes from a level accepted by no kind of the check, or carrying another tree's
 lane definition; every other validation rule still applies. A later failure
