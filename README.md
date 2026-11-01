@@ -518,12 +518,32 @@ updates disabled. Only static-output derivations are supported. The signed
 and sources, unlike a marker's runtime closure. `nix_outputs_sha256` hashes sorted
 compact JSON `[output_name, realized_path, narHash]` tuples.
 
+Both processes use an isolated temporary HOME/XDG configuration directory,
+`NIX_USER_CONF_FILES=/dev/null`, and controlled NIX_CONFIG plus explicit CLI
+settings. Flake configuration acceptance is disabled, pure evaluation enabled,
+and IFD disabled; candidate preferences and saved trusted settings cannot
+override those restrictions. `nix config show --json` independently verifies
+the effective settings. Execution pins `builders=""`, `build-hook=""` and
+`max-jobs=1`: remote dispatch cannot silently turn a check-mode rebuild into
+a normal remote realization. The store must be local, or `nix store info --json`
+must identify a **trusted daemon client**, so restricted overrides take effect.
+Untrusted daemon clients and any "ignoring the client-specified setting"
+diagnostic fail closed. A usable local builder is required; none is silently
+replaced by a remote builder. `nix_settings_sha256` binds the ordered setting
+pairs (accept-flake-config=false, pure-eval=true,
+allow-import-from-derivation=false, builders="", build-hook="", max-jobs=1);
+`nix_store` and `nix_daemon_trusted` bind the observed store/trust boundary.
+
 Fresh execution first realizes missing outputs, then **always** runs
 `nix build --rebuild --option substitute false <drv>^*`. Only that final execution
 is evidence, including when another client races or coalesces initial realization.
 Cold outputs can therefore build twice. Fresh lanes must have deterministic
 outputs: differing rebuild outputs fail the lane. `nix_execution` is `rebuild`
-(fresh) or `reused` (cached/substituted/otherwise realized; never claimed fresh).
+(fresh), `reused` (cached/substituted/otherwise realized; never claimed fresh), or
+`failed` (no output or freshness assertion). `nix_command_mode` records the actual
+command's rebuild/reused shape, including when cold preparation fails.
+Failed cold builds and failed reused realizations are captured, signed and
+published with their nonzero status, without `nix_outputs_sha256`.
 The gate refuses reuse for `fresh`; `any` reports `execution_reused` with outcome
 `reused`, not a fresh-test outcome.
 

@@ -319,6 +319,10 @@ fn satisfy(statement: &Statement, check: &str, head: &str, tree: &str, lane: &La
     if lane.nix_check.is_some() {
         let Some(drv) = inputs.get("nix_derivation") else { return "wrong_input" };
         let Some(execution) = inputs.get("nix_execution") else { return "wrong_input" };
+        if inputs.get("nix_command_mode") != Some(execution)
+            || evidence::derivation::settings_digest().ok().as_ref() != inputs.get("nix_settings_sha256")
+            || !inputs.get("nix_store").is_some_and(|store| store.starts_with("local")
+                || (store.starts_with("daemon") && inputs.get("nix_daemon_trusted").map(String::as_str) == Some("true"))) { return "wrong_input"; }
         let Ok(argv) = evidence::derivation::argv(&lane.argv[0], drv, execution) else { return "wrong_input" };
         if result.command != argv { return "wrong_command"; }
         if evidence::derivation::command_digest(&argv).ok().as_ref() != inputs.get("nix_command_sha256")
