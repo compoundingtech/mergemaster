@@ -92,27 +92,49 @@ fn hash_file(path: &Path) -> Result<String> {
     Ok(hex::encode(digest.finalize()))
 }
 
-fn measure(path: &Path, expected: &config::Artifact) -> Result<()> {
+fn measure(path: &Path, expected: &config::Artifact, nix: Option<&Path>) -> Result<Option<BTreeMap<String, String>>> {
     ensure!(path.is_absolute(), "toolchain measurement paths must be absolute");
     if let Some(hash) = expected.identity.strip_prefix("sha256:") {
         ensure!(std::fs::metadata(path)?.is_file() && hash_file(path)? == hash, "toolchain file identity mismatch");
     } else if let Some(commit) = expected.identity.strip_prefix("git:") {
         ensure!(git::text(path, &["rev-parse", "HEAD"])? == commit && clean(path)?, "toolchain repository identity mismatch or dirty dependency");
+    } else if let Some(root) = expected.identity.strip_prefix("nix:") {
+        ensure!(path == Path::new(root), "configured Nix artifact differs from BASE");
+        return Ok(Some(super::nix::measure(nix.context("trusted nix missing")?, root)?));
     } else { anyhow::bail!("unsupported toolchain identity"); }
-    Ok(())
+    Ok(None)
 }
 
-/// Measure actual provisioned runtime/dependency artifacts, not caller-supplied digests.
-pub fn measure_toolchain(repo: &Path, environment: &config::Environment, path: &Path) -> Result<()> {
+/// Independently measure provisioned artifacts and bind execution to Nix closure bytes.
+pub fn measure_toolchain(repo: &Path, environment: &config::Environment, path: &Path,
+    command: &[String]) -> Result<BTreeMap<String, String>> {
     let config = configuration(path, repo)?;
     let system = format!("{}-{}", std::env::consts::ARCH, if cfg!(target_os = "macos") { "darwin" } else { std::env::consts::OS });
     ensure!(environment.system == system, "runtime platform does not match committed environment");
-    measure(&config.toolchain.runtime, &environment.toolchain.runtime)?;
     ensure!(config.toolchain.dependencies.len() == environment.toolchain.dependencies.len(), "dependency measurement set differs");
-    for (name, artifact) in &environment.toolchain.dependencies {
-        measure(config.toolchain.dependencies.get(name).context("missing dependency measurement")?, artifact)?;
+    let artifacts = std::iter::once(("runtime", &environment.toolchain.runtime, Some(&config.toolchain.runtime)))
+        .chain(environment.toolchain.dependencies.iter().map(|(name, artifact)|
+            (name.as_str(), artifact, config.toolchain.dependencies.get(name))));
+    let needs_nix = environment.toolchain.runtime.identity.starts_with("nix:")
+        || environment.toolchain.dependencies.values().any(|a| a.identity.starts_with("nix:"));
+    let nix = needs_nix.then(|| find_tool(&config, "nix")).transpose()?;
+    let mut claims = BTreeMap::new();
+    let mut executable_bound = false;
+    let executable = if needs_nix {
+        let argv0 = Path::new(command.first().context("missing lane executable")?);
+        ensure!(argv0.is_absolute(), "Nix lanes require absolute argv[0] from the measured closure");
+        Some(std::fs::canonicalize(argv0)?)
+    } else { None };
+    for (_name, artifact, provisioned) in artifacts {
+        let provisioned = provisioned.context("missing dependency measurement")?;
+        if let Some(closure) = measure(provisioned, artifact, nix.as_deref())? {
+            claims.insert(format!("nix_closure_sha256:{}", artifact.identity), super::nix::digest(&closure)?);
+            executable_bound |= executable.as_ref().is_some_and(|exe|
+                closure.keys().any(|root| exe.starts_with(root)));
+        }
     }
-    Ok(())
+    ensure!(!needs_nix || executable_bound, "lane executable is outside measured Nix closures");
+    Ok(claims)
 }
 
 pub fn clean(repo: &Path) -> Result<bool> {
@@ -172,17 +194,18 @@ fn trusted_file(path: &Path) -> Result<PathBuf> {
     Ok(path)
 }
 
-fn tools(config: &SignConfig) -> Result<(PathBuf, PathBuf)> {
+fn find_tool(config: &SignConfig, name: &str) -> Result<PathBuf> {
     let path = config.path.as_deref().unwrap_or("/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:/usr/bin:/bin");
-    let find = |name: &str| -> Result<PathBuf> {
-        for directory in path.split(':') {
-            ensure!(Path::new(directory).is_absolute(), "trusted PATH must contain only absolute directories");
-            let candidate = Path::new(directory).join(name);
-            if candidate.exists() { return trusted_file(&candidate); }
-        }
-        anyhow::bail!("trusted tool missing: {name}")
-    };
-    Ok((find("git")?, find("ssh-keygen")?))
+    for directory in path.split(':') {
+        ensure!(Path::new(directory).is_absolute(), "trusted PATH must contain only absolute directories");
+        let candidate = Path::new(directory).join(name);
+        if candidate.exists() { return trusted_file(&candidate); }
+    }
+    anyhow::bail!("trusted tool missing: {name}")
+}
+
+fn tools(config: &SignConfig) -> Result<(PathBuf, PathBuf)> {
+    Ok((find_tool(config, "git")?, find_tool(config, "ssh-keygen")?))
 }
 
 /// Re-exec with a closed environment before invoking the shared immutable-record writer.
@@ -227,7 +250,8 @@ pub fn run_worker(args: SignArgs) -> Result<()> {
     let policy = config::load(&request.repo, &request.base)?;
     let lane = policy.policy.lanes.get(&request.check).context("unknown lane")?;
     ensure!(lane.argv == request.command, "command differs from BASE lane");
-    measure_toolchain(&request.repo, &policy.environment, &args.config)?;
+    let closures = measure_toolchain(&request.repo, &policy.environment, &args.config, &request.command)?;
+    ensure!(closures.iter().all(|(key, value)| request.inputs.get(key) == Some(value)), "independent Nix closure digest mismatch");
     let expected = config::expected_inputs(&request.repo, &request.head, &request.check, lane, &policy.environment, &policy.environment_bytes)?;
     ensure!(expected.iter().all(|(key, value)| request.inputs.get(key) == Some(value)), "independent input digest mismatch");
     ensure!(request.inputs.get("workspace_clean").map(String::as_str) == Some("true")

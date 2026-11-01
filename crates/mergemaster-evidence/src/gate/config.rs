@@ -108,6 +108,14 @@ pub fn full_commit(value: &str) -> bool {
     value.len() == 40 && value.bytes().all(|c| c.is_ascii_hexdigit())
 }
 
+/// A literal top-level store output, never a flake expression or subpath.
+pub fn nix_store_path(path: &str) -> bool {
+    path.strip_prefix("/nix/store/").is_some_and(|name|
+        name.len() > 33 && name.as_bytes()[32] == b'-'
+        && name.as_bytes()[..32].iter().all(|c| b"0123456789abcdfghijklmnpqrsvwxyz".contains(c))
+        && name[33..].bytes().all(|c| c.is_ascii_alphanumeric() || b"+-._?=".contains(&c)))
+}
+
 fn nonempty(value: &str) -> bool {
     !value.trim().is_empty() && !value.chars().any(char::is_control)
 }
@@ -237,8 +245,9 @@ fn validate_environment(environment: &Environment) -> Result<()> {
         .chain(environment.toolchain.dependencies.iter().map(|(name, artifact)| (name.as_str(), artifact))) {
         ensure!(nonempty(name) && nonempty(&artifact.name), "invalid toolchain artifact");
         let valid = artifact.identity.strip_prefix("sha256:").is_some_and(|hash| hash.len() == 64 && hash.bytes().all(|c| c.is_ascii_hexdigit()))
-            || artifact.identity.strip_prefix("git:").is_some_and(full_commit);
-        ensure!(valid, "toolchain artifacts require immutable sha256 or git identities");
+            || artifact.identity.strip_prefix("git:").is_some_and(full_commit)
+            || artifact.identity.strip_prefix("nix:").is_some_and(nix_store_path);
+        ensure!(valid, "toolchain artifacts require immutable sha256, git or nix identities");
     }
     Ok(())
 }

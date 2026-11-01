@@ -56,7 +56,7 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     ensure!(!signer.is_empty() && !signer[0].is_empty() && signer.iter().all(|arg| !arg.contains('\0')), "invalid signer argv");
     clean(&repo, &head)?;
     let mut inputs = config::expected_inputs(&repo, &head, &args.check, lane, &policy.environment, &policy.environment_bytes)?;
-    measure_toolchain(&repo, &policy.environment, &args.config)?;
+    inputs.extend(measure_toolchain(&repo, &policy.environment, &args.config, &args.command)?);
     for (key, value) in [("workspace_clean", "true"), ("untracked_files", "false"), ("attempt", "1")] {
         inputs.insert(key.into(), value.into());
     }
@@ -80,7 +80,8 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     let blob = input_git(&repo, &["hash-object", "-w", "--stdin"], &output)?;
     git::git(&repo, &["update-ref", &format!("refs/evidence-output/{output_sha256}"), &blob])?;
     clean(&repo, &head)?;
-    measure_toolchain(&repo, &policy.environment, &args.config)?;
+    let closures = measure_toolchain(&repo, &policy.environment, &args.config, &args.command)?;
+    ensure!(closures.iter().all(|(key, value)| inputs.get(key) == Some(value)), "Nix closure changed during execution");
     let after = config::expected_inputs(&repo, &head, &args.check, lane, &policy.environment, &policy.environment_bytes)?;
     ensure!(after.iter().all(|(key, value)| inputs.get(key) == Some(value)), "lane inputs changed during execution");
     #[cfg(unix)]

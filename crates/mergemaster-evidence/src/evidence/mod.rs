@@ -14,6 +14,7 @@ use std::{
 pub mod cli;
 pub mod generic;
 pub mod signing;
+mod nix;
 mod ci_reattest;
 mod ci_transport;
 pub mod observers;

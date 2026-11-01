@@ -487,6 +487,25 @@ digests, and owns the observation time and producer digest.
 
 A dirty checkout (including ignored files), moved HEAD, changed input,
 toolchain drift, signing failure or publication failure is non-success.
+
+Nix artifacts use `nix:/nix/store/<32-character-store-hash>-<name>` (a literal
+registered output root, not an expression or a subpath). The account configuration
+must provision that exact path and include a trusted `nix` in its tool search
+path. Both wrapper (before and after execution) and isolated signer independently
+run `nix path-info --recursive --json`, refusing absent/invalid roots or members.
+The signed input `nix_closure_sha256:<artifact-identity>` is SHA-256 of compact
+JSON `[path,narHash]` tuples sorted by path, with SHA-256 NAR hashes. Closure
+differences refuse signing. Existing SHA-256/Git artifact records remain valid;
+the object-only gate does not invoke Nix or provision artifacts.
+
+For any Nix artifact, BASE lane `argv[0]` must be absolute and resolve to an
+executable inside a measured closure member. This is the required execution
+binding, checked independently by wrapper and signer; a mutable PATH launcher
+outside those closures is refused. Scripts, environment variables, subprocess
+selection and transitive runtime behavior remain the cooperative lane author's
+responsibility: this is measured evidence, not a sandbox. Put required runtimes
+in the declared closure and do not use ambient PATH to substitute dependencies.
+
 A failing lane is still signed and published, then exits nonzero. Complete
 combined output is retained as a Git blob under
 `refs/evidence-output/<output-sha256>` in the local checkout; its SHA-256 is
