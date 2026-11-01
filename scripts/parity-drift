@@ -38,7 +38,7 @@ def report(repo, provenance, ref):
     # Traverse every merged branch, including changes discarded by a merge.
     # Include merge-only resolutions, comparing merges with their first parent;
     # do not restrict traversal to the first-parent chain or repeat each parent.
-    pending = git('log', '--full-history', '--diff-merges=first-parent', '--reverse',
+    pending = git('log', '--full-history', '--diff-merges=first-parent', '--no-patch', '--reverse',
                   '--format=%H %s', f'{baseline}..{head}', '--', *paths)
     return {'ported_through': baseline, 'upstream_head': head,
             'scope': 'newer commits only; older unported work remains in the cutover inventory',
