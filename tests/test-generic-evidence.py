@@ -201,6 +201,21 @@ class PublisherTests(unittest.TestCase):
         self.assertIn('&lt;script&gt;', summary.read_text())
         self.assertEqual(self.posts, [])
 
+    def test_reporter_accepts_policy_allowed_reuse_without_asserting_freshness(self):
+        source = (ROOT / 'genie/generic-evidence.ts').read_text().split(
+            'export const genericEvidenceReport = String.raw`', 1)[1].split('\n`', 1)[0]
+        summary = self.path / 'summary'
+        os.environ.update(GITHUB_STEP_SUMMARY=str(summary), GATE_OUTCOME='success')
+        self.decision.update(decision='skip', outcome='reused', reason='execution_reused',
+                             summary='A trusted realization was reused; no fresh execution asserted.')
+        self.save_decision()
+        with self.assertRaises(SystemExit) as raised:
+            exec(compile(source, 'report-summary', 'exec'), {})
+        self.assertEqual(raised.exception.code, 0)
+        self.assertIn('no fresh execution asserted', summary.read_text())
+        self.assertIn('execution_reused', summary.read_text())
+        self.assertEqual(self.posts, [])
+
     def test_reporter_incomplete_gate_cannot_look_successful(self):
         source = (ROOT / 'genie/generic-evidence.ts').read_text().split(
             'export const genericEvidenceReport = String.raw`', 1)[1].split('\n`', 1)[0]
@@ -236,7 +251,8 @@ def golden():
         reporter = actual['jobs'].pop('evidence-report')
         assert reporter['if'] == "github.event_name == 'pull_request'"
         assert reporter['continue-on-error'] == 'true'
-        assert reporter['permissions'] == {'contents': 'read'}
+        # API calls are mocked above; this proves declared scopes, not private-repo authorization.
+        assert reporter['permissions'] == {'contents': 'read', 'pull-requests': 'read'}
         assert reporter['steps'][0]['with']['ref'] == '${{ github.event.pull_request.base.sha }}'
         assert reporter['steps'][0]['with']['persist-credentials'] == 'false'
         prepare = reporter['steps'][1]['run']
