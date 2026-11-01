@@ -125,7 +125,8 @@ if a.derivation:
     system = f'{platform.machine()}-linux'
     (repo / 'flake.nix').write_text('{ outputs = { self }: { checks.' + system + '.marker = builtins.derivation { '
         'name = "mergemaster-proof-' + hashlib.sha256(str(work).encode()).hexdigest()[:12] + '"; '
-        'system = "' + system + '"; builder = "' + str(node) + '"; args = [ ./builder.cjs ]; src = ./fixture; }; }; }\n')
+        'system = "' + system + '"; builder = builtins.appendContext "' + str(node) + '" { "' + str(root) +
+        '" = { path = true; }; }; args = [ ./builder.cjs ]; src = ./fixture; }; }; }\n')
     policy = json.loads((repo / '.mergemaster/lanes.json').read_text())
     lane = policy['lanes']['node']
     lane.update(argv=[str(nix)], definition_paths=['flake.nix', 'builder.cjs', 'fixture'],
