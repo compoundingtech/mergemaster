@@ -435,6 +435,41 @@ blobs, independently of Git's stat cache and clean filters. Index entries marked
 `skip-worktree` or `assume-unchanged` are refused, even if their bytes match.
 The wrapper and signer share this check; it also applies to Git dependencies.
 
+BASE lanes may declare materialized workspace `inputs` and writable `scratch`:
+
+```json
+"inputs": {
+  "node_modules": {"name": "locked modules", "identity": "tree-sha256:<64 lowercase hex>"}
+},
+"scratch": [".build"]
+```
+
+These are lane fields in `lanes.json`, not operator configuration. Provision inputs
+before wrapping; the wrapper does not download or install them. `sha256:` binds a
+regular file's bytes. `tree-sha256:` binds a directory: SHA-256 of compact JSON
+`[1, rows]`, with rows `[relative_path, kind, digest]` sorted by UTF-8 path bytes.
+The root row has path `""`; kinds are `directory`, `file`, or `executable` (any
+execute bit). Directory digests are `""`; file digests are lowercase SHA-256.
+Empty directories are included. Symlinks and special entries are refused.
+
+Roots must be literal repository-relative paths without trailing slashes. They
+cannot overlap each other, tracked files (including ancestors), or Git metadata.
+Root ancestors cannot be symlinks. Scratch must start absent or empty; the wrapper
+creates it before execution. Only scratch may acquire output; its descendants
+must remain regular files/directories. Every other ignored or untracked entry,
+including empty directories, is refused. Inputs are measured before and after
+execution and independently by the signer before and after signing. These are
+cooperative byte checks, not an OS sandbox or protection from transient writes
+restored before measurement.
+
+Declarations bind signed inputs as `workspace_binding: "v2"` and
+`workspace_declaration_sha256`: SHA-256 of compact JSON `[2, inputs, scratch]`
+(input keys byte-sorted, artifact field order `name,identity`, scratch order
+preserved). The object-only verifier recomputes this digest from BASE policy;
+it never requires materializations in its checkout. With both declarations
+absent or empty, Lane serialization and expected inputs remain unchanged, so
+v0.1 evidence stays verifiable.
+
 The signing key must also be account-owned, mode 0600 and outside the consumer
 checkout. An optional `path` field supplies a trusted executable search path;
 otherwise the signer searches fixed system directories, not the caller's PATH.
@@ -445,7 +480,7 @@ repository with a closed environment, never the consumer's Git configuration.
 The signer independently reads the requested commit, BASE policy and environment
 digests, and owns the observation time and producer digest.
 
-A dirty checkout (including ignored files), moved HEAD, changed input,
+A dirty checkout (including undeclared ignored files), moved HEAD, changed input,
 toolchain drift, signing failure or publication failure is non-success.
 
 Nix artifacts use `nix:/nix/store/<32-character-store-hash>-<name>` (a literal
