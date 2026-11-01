@@ -4,6 +4,22 @@
 # scripts/fractal-test-test: apply the fixture maintenance-isolation patch from
 # https://github.com/compoundingtech/fractal/pull/4398 (5f995f26e5).
 # The source_blob column remains the original import; mergemaster_blob includes applied patches.
+# Port: 64351934f2f637f63f44d1f5d72563414135a3cc
+# Scope: scripts/st-test scripts/fractal-test-test; two-hour queue aging.
+# Upstream hunks SHA256: 368ffaff939aecc9bb91e7979a4f273d4fb7ab63aca501c609b34e7614743336
+# Applied hunks SHA256: 368ffaff939aecc9bb91e7979a4f273d4fb7ab63aca501c609b34e7614743336
+# Conflict resolutions: none.
+# Port: 070a825080ae70d4261b32642bb23b58e9a017ca
+# Scope: scripts/st-test scripts/fractal-test-test; free-tree waiter liveness.
+# Upstream hunks SHA256: fbe09163843378c51b37c375565b4593a5652df6160ae7f04134150043195cf4
+# Applied hunks SHA256: 5881b4c4424c28e792c6a7cf193957b93c5458147c616a02fb0c58ea5aa467cc
+# Conflict resolutions: no code changes; difflib aligns the repeated test-tail
+# got[0][1].close() and blank line at the opposite insertion boundary.
+# Port: c99f654509554d5fd68b9c353b505f0cb11624f2
+# Scope: scripts/st-test scripts/fractal-test-test; pool target cap ownership.
+# Upstream hunks SHA256: adce56274ce34c7ab62e9111e980cfa7a6165463be2c86f015b0c89d92d6e329
+# Applied hunks SHA256: adce56274ce34c7ab62e9111e980cfa7a6165463be2c86f015b0c89d92d6e329
+# Conflict resolutions: none. Fractal-owned operator docs/release notes are not copied scripts.
 # Port: f257a6fe63a3557cd33fbecb085b1b6453065d4e
 # Scope: scripts/st-test scripts/fractal-test-test; upstream PR #4554.
 # Upstream hunks SHA256: c5a04b8b4b5778ebe8a473b6ec3d106df7aaca2e420752d6dee0ae52cc52d93b
@@ -91,8 +107,8 @@ scripts/evidence_test_support.py	3590f507364ac813bed170e490149c25561fa2d5	3590f5
 scripts/fractal-test	08a31a9ab85b195c71387a8021cc85d383de75e8	08a31a9ab85b195c71387a8021cc85d383de75e8
 scripts/fractal-test-report	5bc77bf53ec47d0e580d5e4c26e20cb24a0b3f16	5bc77bf53ec47d0e580d5e4c26e20cb24a0b3f16
 scripts/fractal-test-report-test	616e9248c0a584b40590a7682242df337f7dbf93	616e9248c0a584b40590a7682242df337f7dbf93
-scripts/fractal-test-test	608abec5c3044afa1066e39b4ff703be5249b20d	1416b421866c15fa4010e9bd594717cf9fbc5198
+scripts/fractal-test-test	608abec5c3044afa1066e39b4ff703be5249b20d	f9070587d4358eb4acd052835cb7618b63a1aba7
 scripts/install-git-hooks	5655c13c85772ff65aa7aecfd78326ffd033cd10	5655c13c85772ff65aa7aecfd78326ffd033cd10
 scripts/lane-definition-closure	cee51d7d65d375eb6f5559b403e5acc4eb2f7f5c	cee51d7d65d375eb6f5559b403e5acc4eb2f7f5c
 scripts/lane-definition-closure-test	8ac1eca3d95a681667134167883606fddb73dc58	8ac1eca3d95a681667134167883606fddb73dc58
-scripts/st-test	eb8f6c8b7dc1b58096595330d2ebfe6368973400	4fad339f0b68e4bd0c695b6928087dbba45405ec
+scripts/st-test	eb8f6c8b7dc1b58096595330d2ebfe6368973400	fa27497f16f0a1d42c5235fe21b629457f577737
