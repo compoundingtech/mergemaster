@@ -82,12 +82,19 @@ class DriftTest(unittest.TestCase):
     def test_every_committed_manifest_origin_is_watched(self):
         provenance = ROOT / 'scripts/PROVENANCE'
         _, watched = drift.inventory(provenance)
-        manifests = [provenance, *(ROOT / 'tests/fixtures/fractal').rglob('*PROVENANCE')]
+        fixtures = list((ROOT / 'tests/fixtures/fractal').rglob('*PROVENANCE'))
+        self.assertGreater(len(fixtures), 0, 'fixture origin manifests must be provisioned in the CI sandbox')
+        self.assertTrue({'PROVENANCE', 'infrastructure-PROVENANCE'} <= {path.name for path in fixtures},
+                        'both committed fixture inventories must be present')
+        manifests = [provenance, *fixtures]
         for manifest in manifests:
+            checked = 0
             for line in manifest.read_text().splitlines():
                 if '\t' in line and not line.startswith(('#', 'path\t', 'original_path\t')):
                     with self.subTest(manifest=manifest.name, path=line.split('\t')[0]):
                         self.assertIn(line.split('\t')[0], watched)
+                    checked += 1
+            self.assertGreater(checked, 0, f'{manifest} must contain checked origin rows')
 
     def test_infrastructure_and_nested_fixture_manifest_origins_report_drift(self):
         fixtures = self.root / 'tests/fixtures/fractal'
