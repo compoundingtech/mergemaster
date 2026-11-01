@@ -498,13 +498,67 @@ JSON `[path,narHash]` tuples sorted by path, with SHA-256 NAR hashes. Closure
 differences refuse signing. Existing SHA-256/Git artifact records remain valid;
 the object-only gate does not invoke Nix or provision artifacts.
 
-For any Nix artifact, BASE lane `argv[0]` must be absolute and resolve to an
+For a non-derivation lane using any Nix artifact, BASE lane `argv[0]` must be absolute and resolve to an
 executable inside a measured closure member. This is the required execution
 binding, checked independently by wrapper and signer; a mutable PATH launcher
 outside those closures is refused. Scripts, environment variables, subprocess
 selection and transitive runtime behavior remain the cooperative lane author's
 responsibility: this is measured evidence, not a sandbox. Put required runtimes
 in the declared closure and do not use ambient PATH to substitute dependencies.
+
+### Nix flake-check lanes
+
+Marker outputs are not executable runtime identities. A lane may instead declare
+`"nix_check": {"attribute": "checks.x86_64-linux.example", "required": "fresh"}`
+and `argv: ["/nix/store/<hash>-nix/bin/nix"]`. `required` defaults to `fresh`;
+`any` explicitly permits reuse. The executable's output root must itself be a
+`nix:` artifact in `environment.json`, provisioned at that exact store path on
+every signing host. Invoke `evidence wrap` without a trailing command; `--reuse`
+requests a realization without claiming fresh execution.
+
+Wrapper and signer independently evaluate the attribute from the exact committed
+HEAD using pure, Git-pinned flake evaluation, with import-from-derivation and lock
+updates disabled. Only static-output derivations are supported. The signed
+`nix_derivation` is the `.drv` store path: its hash covers build input derivations
+and sources, unlike a marker's runtime closure. `nix_outputs_sha256` hashes sorted
+compact JSON `[output_name, realized_path, narHash]` tuples.
+
+Both processes use an isolated temporary HOME/XDG configuration directory,
+`NIX_USER_CONF_FILES=/dev/null`, and controlled NIX_CONFIG plus explicit CLI
+settings. Flake configuration acceptance is disabled, pure evaluation enabled,
+and IFD disabled; candidate preferences and saved trusted settings cannot
+override those restrictions. `nix config show --json` independently verifies
+the effective settings. Execution pins `builders=""`, `build-hook=""` and
+`max-jobs=1`: remote dispatch cannot silently turn a check-mode rebuild into
+a normal remote realization. The store must be local, or `nix store info --json`
+must identify a **trusted daemon client**, so restricted overrides take effect.
+Untrusted daemon clients and any "ignoring the client-specified setting"
+diagnostic fail closed. A usable local builder is required; none is silently
+replaced by a remote builder. `nix_settings_sha256` binds the ordered setting
+pairs (accept-flake-config=false, pure-eval=true,
+allow-import-from-derivation=false, builders="", build-hook="", max-jobs=1);
+`nix_store` and `nix_daemon_trusted` bind the observed store/trust boundary.
+
+Fresh execution first realizes missing outputs, then **always** runs
+`nix build --rebuild --option substitute false <drv>^*`. Only that final execution
+is evidence, including when another client races or coalesces initial realization.
+Cold outputs can therefore build twice. Fresh lanes must have deterministic
+outputs: differing rebuild outputs fail the lane. `nix_execution` is `rebuild`
+(fresh), `reused` (cached/substituted/otherwise realized; never claimed fresh), or
+`failed` (no output or freshness assertion). `nix_command_mode` records the actual
+command's rebuild/reused shape, including when cold preparation fails.
+Failed cold builds and failed reused realizations are captured, signed and
+published with their nonzero status, without `nix_outputs_sha256`.
+The gate refuses reuse for `fresh`; `any` reports `execution_reused` with outcome
+`reused`, not a fresh-test outcome.
+
+The signed check command is the complete normalized argv actually executed,
+including the trusted executable, fixed evaluation/build flags, `.drv` path and
+execution flags, not an inert `nix build .#attribute` declaration.
+`nix_command_sha256` binds those argv bytes as compact JSON. The signer recomputes
+the argv from its independent evaluation; the read-only gate recomputes its shape
+from BASE plus signed derivation/mode without running Nix. The lane-definition
+digest continues binding the complete BASE attribute and freshness policy.
 
 A failing lane is still signed and published, then exits nonzero. Complete
 combined output is retained as a Git blob under

@@ -107,7 +107,7 @@ fn measure(path: &Path, expected: &config::Artifact, nix: Option<&Path>) -> Resu
 
 /// Independently measure provisioned artifacts and bind execution to Nix closure bytes.
 pub fn measure_toolchain(repo: &Path, environment: &config::Environment, path: &Path,
-    command: &[String]) -> Result<BTreeMap<String, String>> {
+    command: &[String], bind_execution: bool) -> Result<BTreeMap<String, String>> {
     let config = configuration(path, repo)?;
     let system = format!("{}-{}", std::env::consts::ARCH, if cfg!(target_os = "macos") { "darwin" } else { std::env::consts::OS });
     ensure!(environment.system == system, "runtime platform does not match committed environment");
@@ -120,7 +120,7 @@ pub fn measure_toolchain(repo: &Path, environment: &config::Environment, path: &
     let nix = needs_nix.then(|| find_tool(&config, "nix")).transpose()?;
     let mut claims = BTreeMap::new();
     let mut executable_bound = false;
-    let executable = if needs_nix {
+    let executable = if needs_nix && bind_execution {
         let argv0 = Path::new(command.first().context("missing lane executable")?);
         ensure!(argv0.is_absolute(), "Nix lanes require absolute argv[0] from the measured closure");
         Some(std::fs::canonicalize(argv0)?)
@@ -133,7 +133,7 @@ pub fn measure_toolchain(repo: &Path, environment: &config::Environment, path: &
                 closure.keys().any(|root| exe.starts_with(root)));
         }
     }
-    ensure!(!needs_nix || executable_bound, "lane executable is outside measured Nix closures");
+    ensure!(!needs_nix || !bind_execution || executable_bound, "lane executable is outside measured Nix closures");
     Ok(claims)
 }
 
@@ -208,6 +208,20 @@ fn tools(config: &SignConfig) -> Result<(PathBuf, PathBuf)> {
     Ok((find_tool(config, "git")?, find_tool(config, "ssh-keygen")?))
 }
 
+pub(super) fn derivation(repo: &Path, head: &str, lane: &config::Lane, environment: &config::Environment, path: &Path)
+    -> Result<Option<(super::derivation::Derivation, PathBuf, PathBuf)>> {
+    let Some(check) = &lane.nix_check else { return Ok(None) };
+    let config = configuration(path, repo)?;
+    let nix = find_tool(&config, "nix")?;
+    ensure!(Path::new(&lane.argv[0]) == nix, "BASE must pin the configured trusted nix executable");
+    let root = nix.ancestors().find_map(|path| path.to_str().filter(|path| config::nix_store_path(path)))
+        .context("Nix executable must reside in a store artifact")?;
+    ensure!(std::iter::once(&environment.toolchain.runtime).chain(environment.toolchain.dependencies.values())
+        .any(|artifact| artifact.identity == format!("nix:{root}")), "declare the Nix executable's store root as a nix: artifact");
+    let git = find_tool(&config, "git")?;
+    Ok(Some((super::derivation::Derivation::evaluate(&nix, &git, repo, head, check)?, nix, git)))
+}
+
 /// Re-exec with a closed environment before invoking the shared immutable-record writer.
 pub fn run_sign(args: SignArgs) -> Result<()> {
     refuse_loader()?;
@@ -249,8 +263,17 @@ pub fn run_worker(args: SignArgs) -> Result<()> {
     ensure!(git::text(&request.repo, &["rev-parse", "HEAD"])? == request.head && clean(&request.repo)?, "signer requires exact clean HEAD");
     let policy = config::load(&request.repo, &request.base)?;
     let lane = policy.policy.lanes.get(&request.check).context("unknown lane")?;
-    ensure!(lane.argv == request.command, "command differs from BASE lane");
-    let closures = measure_toolchain(&request.repo, &policy.environment, &args.config, &request.command)?;
+    let nix_check = derivation(&request.repo, &request.head, lane, &policy.environment, &args.config)?;
+    if let Some((derivation, nix, _)) = &nix_check {
+        let execution = request.inputs.get("nix_execution").context("missing Nix execution mode")?;
+        let command_mode = request.inputs.get("nix_command_mode").context("missing Nix command mode")?;
+        ensure!((execution == "failed") == (request.exit_code != 0), "Nix execution claim contradicts exit status");
+        ensure!(execution != "failed" || !request.inputs.contains_key("nix_outputs_sha256"), "failed execution must not assert realized outputs");
+        ensure!(request.command == super::derivation::argv(&lane.argv[0], &derivation.path, command_mode)?, "command differs from derived BASE lane");
+        let claims = derivation.claims(nix, execution, command_mode)?;
+        ensure!(claims.iter().all(|(key, value)| request.inputs.get(key) == Some(value)), "independent derivation digest mismatch");
+    } else { ensure!(lane.argv == request.command, "command differs from BASE lane"); }
+    let closures = measure_toolchain(&request.repo, &policy.environment, &args.config, &request.command, nix_check.is_none())?;
     ensure!(closures.iter().all(|(key, value)| request.inputs.get(key) == Some(value)), "independent Nix closure digest mismatch");
     let expected = config::expected_inputs(&request.repo, &request.head, &request.check, lane, &policy.environment, &policy.environment_bytes)?;
     ensure!(expected.iter().all(|(key, value)| request.inputs.get(key) == Some(value)), "independent input digest mismatch");
