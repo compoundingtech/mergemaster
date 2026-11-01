@@ -74,6 +74,7 @@ SHA in `scripts/PROVENANCE` (or the extraction SHA before any ports). Watched
 paths include every fixture origin manifest, including infrastructure helpers.
 Full-history traversal retains merged branch changes even when a merge discards
 them, and includes merge-only resolutions relative to each merge's first parent.
+Each entry in the JSON `commits` array is one full SHA and subject, not patch text.
 The scheduled **Fractal parity drift** workflow reports every six hours without
 blocking CI or changing evidence policy. It reads history only, never upstream
 scripts. Omit `--report-only` to return exit 1 when newer commits exist; invalid

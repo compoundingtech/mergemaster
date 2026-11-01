@@ -45,9 +45,15 @@ class DriftTest(unittest.TestCase):
         return self.git('rev-parse', 'HEAD')
 
     def run_guard(self, *args):
-        return subprocess.run(['python3', str(ROOT / 'scripts/parity-drift'),
-                               '--fractal-repo', str(self.repo), '--provenance', str(self.provenance), *args],
-                              env=self.env, capture_output=True, text=True)
+        result = subprocess.run(['python3', str(ROOT / 'scripts/parity-drift'),
+                                 '--fractal-repo', str(self.repo), '--provenance', str(self.provenance), *args],
+                                env=self.env, capture_output=True, text=True)
+        if result.returncode in (0, 1) and result.stdout:
+            # In particular, --diff-merges must not leak patch text into the
+            # commits array. Check every row, including merge-only resolutions.
+            for row in json.loads(result.stdout)['commits']:
+                self.assertRegex(row, r'^[0-9a-f]{40} [^\r\n]+$')
+        return result
 
     def test_clean_history_and_unmapped_changes(self):
         self.commit('unrelated', 'not evidence')
