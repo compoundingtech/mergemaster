@@ -20,11 +20,11 @@ def inventory(provenance):
         raise ValueError('missing mapped script paths')
     paths += ['crates/fractal-kernel/src/evidence', 'crates/fractal-kernel/src/cli_output.rs',
               'crates/fractal/tests/git_evidence.rs']
-    # Include committed fixture origins as well as the moving script inventory.
-    fixture = provenance.parent.parent / 'tests/fixtures/fractal/PROVENANCE'
-    if fixture.exists():
-        paths += [line.split('\t')[0] for line in fixture.read_text().splitlines()
-                  if '\t' in line and not line.startswith('original_path\t')]
+    # Each committed fixture manifest is an origin inventory, including helpers.
+    fixtures = provenance.parent.parent / 'tests/fixtures/fractal'
+    for manifest in fixtures.rglob('*PROVENANCE'):
+        paths += [line.split('\t')[0] for line in manifest.read_text().splitlines()
+                  if '\t' in line and not line.startswith(('original_path\t', '#'))]
     return ports[-1] if ports else baseline[1], sorted(set(paths))
 
 
@@ -35,7 +35,11 @@ def report(repo, provenance, ref):
     head = git('rev-parse', '--verify', ref + '^{commit}')
     # A stale checkout or rewritten history is an error, not a clean report.
     subprocess.run(['git', '-C', str(repo), 'merge-base', '--is-ancestor', baseline, head], check=True)
-    pending = git('log', '--no-merges', '--reverse', '--format=%H %s', f'{baseline}..{head}', '--', *paths)
+    # Traverse every merged branch, including changes discarded by a merge.
+    # Include merge-only resolutions, comparing merges with their first parent;
+    # do not restrict traversal to the first-parent chain or repeat each parent.
+    pending = git('log', '--full-history', '--diff-merges=first-parent', '--reverse',
+                  '--format=%H %s', f'{baseline}..{head}', '--', *paths)
     return {'ported_through': baseline, 'upstream_head': head,
             'scope': 'newer commits only; older unported work remains in the cutover inventory',
             'commits': pending.splitlines() if pending else []}

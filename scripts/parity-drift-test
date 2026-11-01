@@ -79,6 +79,49 @@ class DriftTest(unittest.TestCase):
         self.assertEqual(result['ported_through'], port)
         self.assertEqual(result['commits'], [policy + ' policy', rust + ' rust'])
 
+    def test_every_committed_manifest_origin_is_watched(self):
+        provenance = ROOT / 'scripts/PROVENANCE'
+        _, watched = drift.inventory(provenance)
+        manifests = [provenance, *(ROOT / 'tests/fixtures/fractal').rglob('*PROVENANCE')]
+        for manifest in manifests:
+            for line in manifest.read_text().splitlines():
+                if '\t' in line and not line.startswith(('#', 'path\t', 'original_path\t')):
+                    with self.subTest(manifest=manifest.name, path=line.split('\t')[0]):
+                        self.assertIn(line.split('\t')[0], watched)
+
+    def test_infrastructure_and_nested_fixture_manifest_origins_report_drift(self):
+        fixtures = self.root / 'tests/fixtures/fractal'
+        (fixtures / 'nested').mkdir(parents=True)
+        (fixtures / 'infrastructure-PROVENANCE').write_text(
+            'original_path\tgit_blob_sha1\nscripts/script_process.py\told\n')
+        (fixtures / 'nested/other-PROVENANCE').write_text(
+            'original_path\tgit_blob_sha1\n.st/other.json\told\n')
+        helper = self.commit('scripts/script_process.py', 'helper')
+        other = self.commit('.st/other.json', 'other fixture')
+        out = self.run_guard()
+        self.assertEqual(out.returncode, 1, out.stderr)
+        self.assertEqual(json.loads(out.stdout)['commits'], [helper + ' helper', other + ' other fixture'])
+
+    def test_merged_branch_changes_are_reported_even_when_merge_discards_them(self):
+        side = self.commit('scripts/st-test', 'side change')
+        tree = self.git('rev-parse', self.base + '^{tree}')
+        main = self.git('commit-tree', tree, '-p', self.base, '-m', 'main line')
+        merge = self.git('commit-tree', tree, '-p', main, '-p', side, '-m', 'discard side')
+        out = self.run_guard('--ref', merge)
+        self.assertEqual(out.returncode, 1, out.stderr)
+        self.assertIn(side + ' side change', json.loads(out.stdout)['commits'])
+
+    def test_merge_only_resolution_is_reported(self):
+        side = self.commit('unrelated', 'side line')
+        main = self.git('commit-tree', self.git('rev-parse', self.base + '^{tree}'),
+                        '-p', self.base, '-m', 'main line')
+        self.commit('scripts/st-test', 'merge-only content')
+        merge = self.git('commit-tree', self.git('rev-parse', 'HEAD^{tree}'),
+                         '-p', main, '-p', side, '-m', 'merge resolution')
+        out = self.run_guard('--ref', merge)
+        self.assertEqual(out.returncode, 1, out.stderr)
+        self.assertIn(merge + ' merge resolution', json.loads(out.stdout)['commits'])
+
     def test_missing_or_nonancestor_watermark_is_not_clean_even_in_report_only(self):
         self.provenance.write_text('# Commit: ' + '0' * 40 + '\nscripts/st-test\told\tnew\n')
         self.assertNotEqual(self.run_guard('--report-only').returncode, 0)
