@@ -71,7 +71,10 @@ impl Derivation {
         let paths: Vec<_> = self.outputs.values().map(String::as_str).collect();
         let mut args = vec!["path-info", "--json"];
         args.extend(paths);
-        Ok(run(nix, git, &args)?.status.success())
+        let output = run(nix, git, &args)?;
+        if !output.status.success() { return Ok(false); }
+        let value: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+        Ok(self.outputs.values().all(|path| registered(&value, path) && Path::new(path).exists()))
     }
     pub fn claims(&self, nix: &Path, execution: &str, command_mode: &str) -> Result<BTreeMap<String, String>> {
         ensure!(matches!(execution, "rebuild" | "reused" | "failed"), "invalid Nix execution mode");
@@ -137,6 +140,12 @@ mod tests {
         let escape = serde_json::json!({drv:{"version":4,"outputs":{"out":{"path":"../escape"}}}});
         assert!(parse_outputs(&escape, drv).is_err());
     }
+    #[test]
+    fn successful_json_with_null_is_not_a_registered_output() {
+        assert!(!registered(&serde_json::json!({"/nix/store/output":null}), "/nix/store/output"));
+        assert!(registered(&serde_json::json!({"/nix/store/output":{"narHash":"sha256-hash"}}), "/nix/store/output"));
+        assert!(!registered(&serde_json::json!([]), "/nix/store/output"));
+    }
 }
 
 fn parse_outputs(value: &serde_json::Value, drv: &str) -> Result<BTreeMap<String, String>> {
@@ -156,4 +165,10 @@ fn parse_outputs(value: &serde_json::Value, drv: &str) -> Result<BTreeMap<String
     }).collect::<Result<BTreeMap<_, _>>>()?;
     ensure!(!outputs.is_empty(), "check has no outputs");
     Ok(outputs)
+}
+
+fn registered(value: &serde_json::Value, path: &str) -> bool {
+    value.get(path).or_else(|| value.as_array()?.iter().find(|entry|
+        entry.get("path").and_then(serde_json::Value::as_str) == Some(path)))
+        .is_some_and(|entry| entry.get("narHash").and_then(serde_json::Value::as_str).is_some())
 }
