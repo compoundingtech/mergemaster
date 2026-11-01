@@ -38,6 +38,11 @@ admitted scope; build and seat-lane caps still require memory and CPU limits.
 The accompanying systemd service and timer files are shipped as source only:
 the flake does not install, enable or run them.
 
+The pool runner preserves Fractal's two-hour queue aging and free-tree waiter
+liveness rules. Kept cargo targets are tagged on creation and emptied above
+the 80 GB cap only when tagged or owned by the pool; untagged caller-owned
+targets remain untouched, and the cache tag alone never counts as a warm build.
+
 Readiness treats a cancelled run as no evidence unless a job it judged failed.
 Cancelled attempts do not count toward satisfied lines or hide real failures,
 and are reported separately as `cancelled_runs`. Timeouts still count as failures.
