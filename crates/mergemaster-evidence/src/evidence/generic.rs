@@ -1,6 +1,6 @@
 //! Run a BASE-declared lane once, retaining its complete output and publishing its signed note.
 use std::{
-    fs, io::{Read, Seek, SeekFrom, Write}, path::PathBuf,
+    fs, io::{Read, Seek, SeekFrom, Write}, path::{Path, PathBuf},
     process::{Command, Stdio},
 };
 use anyhow::{Context, Result, ensure};
