@@ -38,6 +38,14 @@ admitted scope; build and seat-lane caps still require memory and CPU limits.
 The accompanying systemd service and timer files are shipped as source only:
 the flake does not install, enable or run them.
 
+The legacy verifier selects the newest pass that validates. It passes over only
+passes from a level accepted by no kind of the check, or carrying another tree's
+lane definition; every other validation rule still applies. A later failure
+(within the clock-skew margin) refuses regardless of its level or lane definition.
+With no valid pass, the newest record decides as before. Results include
+`decided_by` and `skipped_newer` so the decision can be audited.
+Known upstream limitation: with `--prefer-levels`, an invalid older preferred pass can refuse verification despite a newer valid nonpreferred pass after an intervening failure; the upstream fix will be ported without local divergence.
+
 Run the script suite independently:
 
 ```sh

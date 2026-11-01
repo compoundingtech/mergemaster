@@ -4,6 +4,14 @@
 # scripts/fractal-test-test: apply the fixture maintenance-isolation patch from
 # https://github.com/compoundingtech/fractal/pull/4398 (5f995f26e5).
 # The source_blob column remains the original import; mergemaster_blob includes applied patches.
+# Port: e59b2b60a5cef23a24861f9b6af151bc54c959c1
+# Scope: scripts/evidence-verify scripts/evidence-verify-test; newest-valid-pass parity.
+# Upstream hunks SHA256: aebac02d3f1da2208a8514864c1fe62154f94e3bc5ff447aab1412a922a89f8d
+# Applied hunks SHA256: aebac02d3f1da2208a8514864c1fe62154f94e3bc5ff447aab1412a922a89f8d
+# Conflict resolutions: none; production and test hunks are unchanged.
+# Hunk digest: per Scope path in listed order, append path + newline, then
+# difflib.unified_diff(before.splitlines(True), after.splitlines(True), n=0)
+# excluding ---/+++/@@ headers; SHA256 of concatenated UTF-8 bytes.
 # Port: f257a6fe63a3557cd33fbecb085b1b6453065d4e
 # Scope: scripts/st-test scripts/fractal-test-test; upstream PR #4554.
 # Upstream hunks SHA256: c5a04b8b4b5778ebe8a473b6ec3d106df7aaca2e420752d6dee0ae52cc52d93b
@@ -83,8 +91,8 @@ scripts/evidence-sign	288b9c2ca9ba7e4f909dd4656df52ae30c9a8914	288b9c2ca9ba7e4f9
 scripts/evidence-sign-hardening-test	6889e6c38273dc85ede41668e622af5b7f8b541f	6889e6c38273dc85ede41668e622af5b7f8b541f
 scripts/evidence-skip-report	c7d43b6b813b79b283c0b77f8689ecffc0b1e9a5	c7d43b6b813b79b283c0b77f8689ecffc0b1e9a5
 scripts/evidence-skip-report-test	49c58386ec3312a18b623b29936b1f7ea80d9f88	49c58386ec3312a18b623b29936b1f7ea80d9f88
-scripts/evidence-verify	478118e3b9b595a0d6267492749c96c4225f83c2	478118e3b9b595a0d6267492749c96c4225f83c2
-scripts/evidence-verify-test	d4bd2f008a91c0d5209b097e495a804b222ee14e	d4bd2f008a91c0d5209b097e495a804b222ee14e
+scripts/evidence-verify	478118e3b9b595a0d6267492749c96c4225f83c2	0f875246edca273addd48d882f0ab7684e3e48d3
+scripts/evidence-verify-test	d4bd2f008a91c0d5209b097e495a804b222ee14e	f8e592288aef491d3a9b99fb297f0390ad61ffd9
 scripts/evidence-wrap	9b0735473bc8f319093092b26421aed9c3df98cf	9b0735473bc8f319093092b26421aed9c3df98cf
 scripts/evidence-wrap-test	4c871cd463a6a57357277b94cb1f5d9ef0af838b	4c871cd463a6a57357277b94cb1f5d9ef0af838b
 scripts/evidence_test_support.py	3590f507364ac813bed170e490149c25561fa2d5	3590f507364ac813bed170e490149c25561fa2d5
