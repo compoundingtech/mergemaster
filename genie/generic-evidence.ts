@@ -155,7 +155,7 @@ def finalize():
         summary = decision['summary']
         require(os.environ.get('GATE_OUTCOME') == 'success' and os.environ.get('GATE_SKIP') == 'true', 'gate did not pass')
         require(os.environ.get('APP_OUTCOME') == 'success', 'App token step did not pass')
-        require(decision['decision'] == 'skip' and decision['outcome'] in ('satisfied', 'reused'), 'gate refused')
+        require(decision['decision'] == 'skip' and decision['outcome'] == 'satisfied', 'gate refused')
         recheck()  # Last mutable-authority observation before publishing success.
         success = True
     except Exception:
