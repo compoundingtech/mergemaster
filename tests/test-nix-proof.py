@@ -122,7 +122,7 @@ if a.derivation:
     write('environment.json', environment)
     shutil.copytree(deps / 'fixture', repo / 'fixture/node_modules/fixture')
     (repo / 'builder.cjs').write_text('const fs=require("node:fs"); const value=require(process.env.src+"/node_modules/fixture"); '
-        'console.error("RUN_BUILDER_START"); let acc=0; for(let i=0;i<2000000000;i++) acc=(acc+i)|0; console.error("RUN_BUILDER_FINISH "+acc); '
+        'console.error("RUN_BUILDER_START"); let acc=0; for(let i=0;i<20000000000;i++) acc=(acc+i)|0; console.error("RUN_BUILDER_FINISH "+acc); '
         'fs.writeFileSync(process.env.TMPDIR+"/scratch",String(value)); fs.writeFileSync(process.env.out,String(value));\n')
     system = f'{platform.machine()}-linux'
     (repo / 'flake.nix').write_text('{ outputs = { self }: { checks.' + system + '.marker = builtins.derivation { '
