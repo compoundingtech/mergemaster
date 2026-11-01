@@ -22,6 +22,13 @@ jobs:
       - run: nix develop -c bash scripts/test-scripts
       - run: nix develop -c python3 tests/test-workflow-adapters.py
       - run: python3 tests/test-release-workflow.py
+      - name: Nix artifact and fresh derivation proof
+        run: |
+          package="$(nix build .# --no-link --print-out-paths)"
+          nix develop -c bash -c 'python3 tests/test-nix-proof.py \
+            --binary "$1/bin/mergemaster" --node "$(node -p process.execPath)" \
+            --nix "$(readlink -f "$(command -v nix)")" \
+            --work-dir "$RUNNER_TEMP/nix-proof" --derivation' -- "$package"
       - name: Graph-shaped full-check proof
         id: graph-proof
         if: matrix.runner == 'ubuntu-24.04'
