@@ -101,7 +101,7 @@ fn url_source(repo: &Path, head: &str) -> Result<String> {
 pub fn argv(executable: &str, drv: &str, execution: &str) -> Result<Vec<String>> {
     ensure!(crate::gate::config::nix_store_path(drv) && drv.ends_with(".drv") && matches!(execution, "rebuild" | "reused"), "invalid derivation execution");
     let mut argv = prefix(executable);
-    argv.extend(["build", "--no-link", "--json", "--print-build-logs"].map(str::to_owned));
+    argv.extend(["--log-format", "internal-json", "build", "--no-link", "--json", "--print-build-logs"].map(str::to_owned));
     if execution == "rebuild" { argv.extend(["--option", "substitute", "false", "--rebuild"].map(str::to_owned)); }
     argv.push(format!("{drv}^*"));
     Ok(argv)
