@@ -42,6 +42,13 @@ Readiness treats a cancelled run as no evidence unless a job it judged failed.
 Cancelled attempts do not count toward satisfied lines or hide real failures,
 and are reported separately as `cancelled_runs`. Timeouts still count as failures.
 
+The legacy verifier selects the newest pass that validates. It passes over only
+passes from a level accepted by no kind of the check, or carrying another tree's
+lane definition; every other validation rule still applies. A later failure
+(within the clock-skew margin) refuses regardless of its level or lane definition.
+With no valid pass, the newest record decides as before. Results include
+`decided_by` and `skipped_newer` so the decision can be audited.
+
 Run the script suite independently:
 
 ```sh

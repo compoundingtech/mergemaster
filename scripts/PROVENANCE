@@ -17,6 +17,11 @@
 # Scope: scripts/evidence-flip-ready scripts/evidence-flip-ready-test
 # Upstream and applied hunks SHA256: 2c2cc7c7aa0be1304a37ab22fd9f9385671207714c69aa9f3b4fbcc27a925fac
 # Conflict resolutions: none for all four ports; scoped hunks are unchanged.
+# Port: e59b2b60a5cef23a24861f9b6af151bc54c959c1
+# Scope: scripts/evidence-verify scripts/evidence-verify-test; newest-valid-pass parity.
+# Upstream hunks SHA256: aebac02d3f1da2208a8514864c1fe62154f94e3bc5ff447aab1412a922a89f8d
+# Applied hunks SHA256: aebac02d3f1da2208a8514864c1fe62154f94e3bc5ff447aab1412a922a89f8d
+# Conflict resolutions: none; production and test hunks are unchanged.
 # Hunk digest: per Scope path in listed order, append path + newline, then
 # difflib.unified_diff(before.splitlines(True), after.splitlines(True), n=0)
 # excluding ---/+++/@@ headers; SHA256 of concatenated UTF-8 bytes.
@@ -38,6 +43,11 @@
 # f912db8749a298e566f8ffcb76748a27cd23766c1bd3be1cf7babf0e58a42f04
 # Port lines are an ordered watermark for newer-commit scans, not an assertion
 # that every older commit has been ported; older backlog remains separately inventoried.
+# Port: 572ee5dee7b55e5959a9ed350018372390797f9f
+# Scope: scripts/evidence-verify scripts/evidence-verify-test; upstream PR #4643.
+# Upstream hunks SHA256: 057c7db10dbcb2a1e7b721ffd6b0b7b67bace2aa6b111be70b8997c4b3bc8b94
+# Applied hunks SHA256: 057c7db10dbcb2a1e7b721ffd6b0b7b67bace2aa6b111be70b8997c4b3bc8b94
+# Conflict resolutions: none; obsolete preferred passes are excluded before validation.
 path	source_blob	mergemaster_blob
 scripts/ci-evidence-gate	4400fdf73ad4d572e1437286c1088965e1de964c	4400fdf73ad4d572e1437286c1088965e1de964c
 scripts/ci-evidence-gate-test	9927e0b3d6e095f8d7c1e8485cb441fa178caeb1	9927e0b3d6e095f8d7c1e8485cb441fa178caeb1
@@ -99,8 +109,8 @@ scripts/evidence-sign	288b9c2ca9ba7e4f909dd4656df52ae30c9a8914	288b9c2ca9ba7e4f9
 scripts/evidence-sign-hardening-test	6889e6c38273dc85ede41668e622af5b7f8b541f	6889e6c38273dc85ede41668e622af5b7f8b541f
 scripts/evidence-skip-report	c7d43b6b813b79b283c0b77f8689ecffc0b1e9a5	c7d43b6b813b79b283c0b77f8689ecffc0b1e9a5
 scripts/evidence-skip-report-test	49c58386ec3312a18b623b29936b1f7ea80d9f88	49c58386ec3312a18b623b29936b1f7ea80d9f88
-scripts/evidence-verify	478118e3b9b595a0d6267492749c96c4225f83c2	478118e3b9b595a0d6267492749c96c4225f83c2
-scripts/evidence-verify-test	d4bd2f008a91c0d5209b097e495a804b222ee14e	df8e96ac85793973e852ec375dd689222bfbcb25
+scripts/evidence-verify	478118e3b9b595a0d6267492749c96c4225f83c2	5ed6ade05b64b65825d4f6e6da812db1263c6148
+scripts/evidence-verify-test	d4bd2f008a91c0d5209b097e495a804b222ee14e	43015334ab96287f17588bf5602a6fb52af4983a
 scripts/evidence-wrap	9b0735473bc8f319093092b26421aed9c3df98cf	9b0735473bc8f319093092b26421aed9c3df98cf
 scripts/evidence-wrap-test	4c871cd463a6a57357277b94cb1f5d9ef0af838b	4c871cd463a6a57357277b94cb1f5d9ef0af838b
 scripts/evidence_test_support.py	3590f507364ac813bed170e490149c25561fa2d5	3590f507364ac813bed170e490149c25561fa2d5
