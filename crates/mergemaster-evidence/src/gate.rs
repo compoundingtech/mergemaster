@@ -173,9 +173,17 @@ pub fn decide(repo: &Path, check: &str, base: &str, head: &str, event: Option<&P
 fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path>, hosted: Option<&Path>) -> Result<Decision> {
     commit(repo, base)?;
     commit(repo, head)?;
-    let config = config::load(repo, base)?;
-    let lane = config.policy.lanes.get(check).context("unknown check")?;
     let tree = git::text(repo, &["rev-parse", &format!("{head}^{{tree}}")])?;
+    let config = match config::load(repo, base) {
+        Ok(config) => config,
+        Err(error) if error.is::<config::MissingConfig>() => return Ok(Decision {
+            version: 1, check: check.into(), base: base.into(), head: head.into(), tree,
+            decision: "refuse", outcome: "rejected", reason: "config_missing",
+            record: None, protected_paths: Vec::new(), summary: error.to_string(),
+        }),
+        Err(error) => return Err(error),
+    };
+    let lane = config.policy.lanes.get(check).context("unknown check")?;
     let mut decision = Decision { version: 1, check: check.into(), base: base.into(), head: head.into(), tree,
         decision: if lane.mode == "required_evidence" { "refuse" } else { "run" },
         outcome: "rejected", reason: "base_not_ancestor", record: None, protected_paths: Vec::new(), summary: String::new() };

@@ -156,6 +156,59 @@ class PublisherTests(unittest.TestCase):
             self.ns['finalize']()
         self.assertEqual(self.posts, [])
 
+    def reporter(self):
+        # Execute exactly the base-only prefix embedded in the generated job.
+        os.environ['GITHUB_EVENT_NAME'] = 'pull_request'
+        namespace = {'__name__': 'reporter_test'}
+        with patch('sys.argv', ['-', 'report-prepare']):
+            exec(compile(SOURCE.split('\ndef finalize():')[0], 'embedded-reporter', 'exec'), namespace)
+        namespace.update(api=self.api, command=self.command)
+        return namespace
+
+    def test_reporter_rejects_write_api_before_starting_a_process(self):
+        os.environ['GITHUB_EVENT_NAME'] = 'pull_request'
+        namespace = {'__name__': 'reporter_test'}
+        with patch('sys.argv', ['-', 'report-prepare']):
+            exec(compile(SOURCE.split('\ndef finalize():')[0], 'embedded-reporter', 'exec'), namespace)
+        with patch('subprocess.check_output') as execute:
+            with self.assertRaisesRegex(RuntimeError, 'cannot write'):
+                namespace['api']('repos/example/project/check-runs', {'name': 'forbidden'})
+            execute.assert_not_called()
+
+    def test_reporter_fetches_only_objects_and_never_collects_hosted_or_publishes(self):
+        ns = self.reporter()
+        ns['prepare']()
+        self.assertEqual(self.posts, [])
+        self.assertFalse(any('/reviews?' in url or '/check-runs?' in url for url in self.calls))
+        args = subprocess.run.call_args.args[0]
+        self.assertIn('fetch', args)
+        self.assertIn(HEAD, args)
+        self.assertNotIn('checkout', args)
+        self.assertFalse((self.path / 'generic-hosted-evidence.json').exists())
+        self.assertNotIn('finalize', ns)
+
+    def test_reporter_summary_is_only_output_and_preserves_refusal(self):
+        source = (ROOT / 'genie/generic-evidence.ts').read_text().split(
+            'export const genericEvidenceReport = String.raw`', 1)[1].split('\n`', 1)[0]
+        summary = self.path / 'summary'
+        os.environ['GITHUB_STEP_SUMMARY'] = str(summary)
+        for decision, code in [('skip', 0), ('refuse', 1)]:
+            self.decision.update(decision=decision, summary='<script>unsafe</script>')
+            self.save_decision()
+            with self.assertRaises(SystemExit) as raised:
+                exec(compile(source, 'report-summary', 'exec'), {})
+            self.assertEqual(raised.exception.code, code)
+        self.assertIn('&lt;script&gt;', summary.read_text())
+        self.assertEqual(self.posts, [])
+
+    def test_reporter_incomplete_gate_cannot_look_successful(self):
+        source = (ROOT / 'genie/generic-evidence.ts').read_text().split(
+            'export const genericEvidenceReport = String.raw`', 1)[1].split('\n`', 1)[0]
+        os.environ.update(GITHUB_STEP_SUMMARY=str(self.path / 'summary'), GATE_OUTCOME='failure')
+        with self.assertRaises(SystemExit) as raised:
+            exec(compile(source, 'report-summary', 'exec'), {})
+        self.assertEqual(raised.exception.code, 1)
+
 
 def golden():
     fixture = ROOT / 'tests/fixtures/generic-evidence'
@@ -180,6 +233,17 @@ def golden():
             for step in job['steps']:
                 if 'run' in step:
                     step['run'] = step['run'].rstrip('\n')
+        reporter = actual['jobs'].pop('evidence-report')
+        assert reporter['if'] == "github.event_name == 'pull_request'"
+        assert reporter['continue-on-error'] == 'true'
+        assert reporter['permissions'] == {'contents': 'read'}
+        assert reporter['steps'][0]['with']['ref'] == '${{ github.event.pull_request.base.sha }}'
+        assert reporter['steps'][0]['with']['persist-credentials'] == 'false'
+        prepare = reporter['steps'][1]['run']
+        assert 'report-prepare' in prepare and '\ndef finalize():' not in prepare
+        assert 'gh release' not in prepare  # release is fetched by argv, never shell interpolation
+        assert '--hosted-evidence' not in reporter['steps'][2]['run']
+        assert reporter['steps'][3]['if'] == 'always()'
         expected = yaml.load((fixture / 'generic.yml').read_text(), Loader=yaml.BaseLoader)
         assert actual == expected, 'Generic generated workflow differs from semantic YAML golden'
 
