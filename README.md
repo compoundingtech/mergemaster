@@ -616,10 +616,15 @@ commands or setup, signs evidence, or writes statuses, checks or comments.
 Ignored `node_modules`-style inputs and scratch files are not executed or
 interpreted by this object-only reporter.
 
-The job requests only `contents: read` and sets `continue-on-error: true`.
+The job requests only `contents: read` and `pull-requests: read` and sets
+`continue-on-error: true`. The latter permission is required to recheck the live
+pull request in private repositories. Mocked API tests do not prove GitHub token
+authorization; the generated-workflow golden asserts both declared read scopes.
 Its only report surfaces are its step conclusion and an escaped job summary;
 it must **not** be configured as a required check. Missing, refused or unavailable
 evidence is informational failure, never authorization to skip a required lane.
+A policy-accepted `skip/reused` decision is informational success, preserving the
+gate's reuse summary without asserting fresh execution; `skip/satisfied` also succeeds.
 Unlike the required publisher, it does not gather hosted review/check evidence
 or accept a GitHub App token. Consumers retain their independent validation job
 and required-check policy. See `tests/fixtures/generic-evidence/` for composition.

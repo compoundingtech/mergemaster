@@ -229,7 +229,7 @@ export const genericEvidenceReporterJob = ({ check, checkout, runner = 'ubuntu-2
   'runs-on': runner,
   'timeout-minutes': 15,
   'continue-on-error': true,
-  permissions: { contents: 'read' },
+  permissions: { contents: 'read', 'pull-requests': 'read' },
   defaults: { run: { shell: 'bash' } },
   env: {
     CHECK: check,
@@ -270,7 +270,7 @@ try:
     assert decision['base'] == os.environ['BASE_SHA'] and decision['head'] == os.environ['HEAD_SHA']
     summary = json.dumps(decision, ensure_ascii=True, indent=2)
     success = (os.environ['GATE_OUTCOME'] == 'success'
-               and decision['decision'] == 'skip' and decision['outcome'] == 'satisfied')
+               and decision['decision'] == 'skip' and decision['outcome'] in ('satisfied', 'reused'))
 except (OSError, ValueError, KeyError, AssertionError):
     pass
 with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as output:
