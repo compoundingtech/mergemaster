@@ -42,6 +42,10 @@ The pool runner preserves Fractal's two-hour queue aging and free-tree waiter
 liveness rules. Kept cargo targets are tagged on creation and emptied above
 the 80 GB cap only when tagged or owned by the pool; untagged caller-owned
 targets remain untouched, and the cache tag alone never counts as a warm build.
+Waiting runs refresh the base's runner every ten minutes and hand over to a
+changed copy in the same process, preserving their ticket and start time.
+Tickets name their queue-rule version; waiters defer only to their own rules
+or newer, and never hand over after acquiring a tree.
 
 Readiness treats a cancelled run as no evidence unless a job it judged failed.
 Cancelled attempts do not count toward satisfied lines or hide real failures,
