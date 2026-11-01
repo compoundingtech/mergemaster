@@ -64,13 +64,7 @@ impl Derivation {
         let output = run(nix, git, &["derivation", "show", &path])?;
         ensure!(output.status.success(), "cannot inspect check derivation");
         let value: serde_json::Value = serde_json::from_slice(&output.stdout)?;
-        let outputs = value.get(&path).and_then(|v| v.get("outputs")).and_then(serde_json::Value::as_object).context("missing derivation outputs")?;
-        let outputs = outputs.iter().map(|(name, value)| {
-            let path = value.get("path").and_then(serde_json::Value::as_str).context("check requires static output paths")?;
-            ensure!(crate::gate::config::nix_store_path(path), "invalid derivation output");
-            Ok((name.clone(), path.to_owned()))
-        }).collect::<Result<BTreeMap<_, _>>>()?;
-        ensure!(!outputs.is_empty(), "check has no outputs");
+        let outputs = parse_outputs(&value, &path)?;
         Ok(Self { path, outputs, settings })
     }
     pub fn valid(&self, nix: &Path, git: &Path) -> Result<bool> {
@@ -133,4 +127,33 @@ mod tests {
         assert!(refuse_ignored(b"warning: ignoring the client-specified setting 'builders'").is_err());
         assert_eq!(url_source(Path::new("/repo/a #b"), "abc").unwrap(), "git+file:///repo/a%20%23b?rev=abc");
     }
+    #[test]
+    fn versioned_derivation_paths_normalize_without_accepting_escapes() {
+        let drv = "/nix/store/00000000000000000000000000000000-check.drv";
+        let output = "11111111111111111111111111111111-check";
+        let old = serde_json::json!({drv:{"outputs":{"out":{"path":format!("/nix/store/{output}")}}}});
+        let new = serde_json::json!({"version":4,"derivations":{(drv.trim_start_matches("/nix/store/")):{"outputs":{"out":{"path":output}}}}});
+        assert_eq!(parse_outputs(&old, drv).unwrap(), parse_outputs(&new, drv).unwrap());
+        let escape = serde_json::json!({drv:{"version":4,"outputs":{"out":{"path":"../escape"}}}});
+        assert!(parse_outputs(&escape, drv).is_err());
+    }
+}
+
+fn parse_outputs(value: &serde_json::Value, drv: &str) -> Result<BTreeMap<String, String>> {
+    let basename = drv.strip_prefix("/nix/store/").context("invalid derivation root")?;
+    ensure!(value.get("version").and_then(serde_json::Value::as_u64).is_none_or(|version| (1..=4).contains(&version)),
+        "unsupported derivation JSON envelope version");
+    let declarations = value.get("derivations").unwrap_or(value);
+    let declaration = declarations.get(drv).or_else(|| declarations.get(basename)).context("missing derivation declaration")?;
+    ensure!(declaration.get("version").and_then(serde_json::Value::as_u64).is_none_or(|version| (1..=4).contains(&version)),
+        "unsupported derivation JSON version");
+    let outputs = declaration.get("outputs").and_then(serde_json::Value::as_object).context("missing derivation outputs")?;
+    let outputs = outputs.iter().map(|(name, value)| {
+        let path = value.get("path").and_then(serde_json::Value::as_str).context("check requires static output paths")?;
+        let path = if path.starts_with("/nix/store/") { path.to_owned() } else { format!("/nix/store/{path}") };
+        ensure!(crate::gate::config::nix_store_path(&path), "invalid derivation output");
+        Ok((name.clone(), path))
+    }).collect::<Result<BTreeMap<_, _>>>()?;
+    ensure!(!outputs.is_empty(), "check has no outputs");
+    Ok(outputs)
 }
