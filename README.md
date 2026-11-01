@@ -475,6 +475,41 @@ blobs, independently of Git's stat cache and clean filters. Index entries marked
 `skip-worktree` or `assume-unchanged` are refused, even if their bytes match.
 The wrapper and signer share this check; it also applies to Git dependencies.
 
+BASE lanes may declare materialized workspace `inputs` and writable `scratch`:
+
+```json
+"inputs": {
+  "node_modules": {"name": "locked modules", "identity": "tree-sha256:<64 lowercase hex>"}
+},
+"scratch": [".build"]
+```
+
+These are lane fields in `lanes.json`, not operator configuration. Provision inputs
+before wrapping; the wrapper does not download or install them. `sha256:` binds a
+regular file's bytes. `tree-sha256:` binds a directory: SHA-256 of compact JSON
+`[1, rows]`, with rows `[relative_path, kind, digest]` sorted by UTF-8 path bytes.
+The root row has path `""`; kinds are `directory`, `file`, or `executable` (any
+execute bit). Directory digests are `""`; file digests are lowercase SHA-256.
+Empty directories are included. Symlinks and special entries are refused.
+
+Roots must be literal repository-relative paths without trailing slashes. They
+cannot overlap each other, tracked files (including ancestors), or Git metadata.
+Root ancestors cannot be symlinks. Scratch must start absent or empty; the wrapper
+creates it before execution. Only scratch may acquire output; its descendants
+must remain regular files/directories. Every other ignored or untracked entry,
+including empty directories, is refused. Inputs are measured before and after
+execution and independently by the signer before and after signing. These are
+cooperative byte checks, not an OS sandbox or protection from transient writes
+restored before measurement.
+
+Declarations bind signed inputs as `workspace_binding: "v2"` and
+`workspace_declaration_sha256`: SHA-256 of compact JSON `[2, inputs, scratch]`
+(input keys byte-sorted, artifact field order `name,identity`, scratch order
+preserved). The object-only verifier recomputes this digest from BASE policy;
+it never requires materializations in its checkout. With both declarations
+absent or empty, Lane serialization and expected inputs remain unchanged, so
+v0.1 evidence stays verifiable.
+
 The signing key must also be account-owned, mode 0600 and outside the consumer
 checkout. An optional `path` field supplies a trusted executable search path;
 otherwise the signer searches fixed system directories, not the caller's PATH.
@@ -485,7 +520,7 @@ repository with a closed environment, never the consumer's Git configuration.
 The signer independently reads the requested commit, BASE policy and environment
 digests, and owns the observation time and producer digest.
 
-A dirty checkout (including ignored files), moved HEAD, changed input,
+A dirty checkout (including undeclared ignored files), moved HEAD, changed input,
 toolchain drift, signing failure or publication failure is non-success.
 
 Nix artifacts use `nix:/nix/store/<32-character-store-hash>-<name>` (a literal
@@ -498,13 +533,67 @@ JSON `[path,narHash]` tuples sorted by path, with SHA-256 NAR hashes. Closure
 differences refuse signing. Existing SHA-256/Git artifact records remain valid;
 the object-only gate does not invoke Nix or provision artifacts.
 
-For any Nix artifact, BASE lane `argv[0]` must be absolute and resolve to an
+For a non-derivation lane using any Nix artifact, BASE lane `argv[0]` must be absolute and resolve to an
 executable inside a measured closure member. This is the required execution
 binding, checked independently by wrapper and signer; a mutable PATH launcher
 outside those closures is refused. Scripts, environment variables, subprocess
 selection and transitive runtime behavior remain the cooperative lane author's
 responsibility: this is measured evidence, not a sandbox. Put required runtimes
 in the declared closure and do not use ambient PATH to substitute dependencies.
+
+### Nix flake-check lanes
+
+Marker outputs are not executable runtime identities. A lane may instead declare
+`"nix_check": {"attribute": "checks.x86_64-linux.example", "required": "fresh"}`
+and `argv: ["/nix/store/<hash>-nix/bin/nix"]`. `required` defaults to `fresh`;
+`any` explicitly permits reuse. The executable's output root must itself be a
+`nix:` artifact in `environment.json`, provisioned at that exact store path on
+every signing host. Invoke `evidence wrap` without a trailing command; `--reuse`
+requests a realization without claiming fresh execution.
+
+Wrapper and signer independently evaluate the attribute from the exact committed
+HEAD using pure, Git-pinned flake evaluation, with import-from-derivation and lock
+updates disabled. Only static-output derivations are supported. The signed
+`nix_derivation` is the `.drv` store path: its hash covers build input derivations
+and sources, unlike a marker's runtime closure. `nix_outputs_sha256` hashes sorted
+compact JSON `[output_name, realized_path, narHash]` tuples.
+
+Both processes use an isolated temporary HOME/XDG configuration directory,
+`NIX_USER_CONF_FILES=/dev/null`, and controlled NIX_CONFIG plus explicit CLI
+settings. Flake configuration acceptance is disabled, pure evaluation enabled,
+and IFD disabled; candidate preferences and saved trusted settings cannot
+override those restrictions. `nix config show --json` independently verifies
+the effective settings. Execution pins `builders=""`, `build-hook=""` and
+`max-jobs=1`: remote dispatch cannot silently turn a check-mode rebuild into
+a normal remote realization. The store must be local, or `nix store info --json`
+must identify a **trusted daemon client**, so restricted overrides take effect.
+Untrusted daemon clients and any "ignoring the client-specified setting"
+diagnostic fail closed. A usable local builder is required; none is silently
+replaced by a remote builder. `nix_settings_sha256` binds the ordered setting
+pairs (accept-flake-config=false, pure-eval=true,
+allow-import-from-derivation=false, builders="", build-hook="", max-jobs=1);
+`nix_store` and `nix_daemon_trusted` bind the observed store/trust boundary.
+
+Fresh execution first realizes missing outputs, then **always** runs
+`nix build --rebuild --option substitute false <drv>^*`. Only that final execution
+is evidence, including when another client races or coalesces initial realization.
+Cold outputs can therefore build twice. Fresh lanes must have deterministic
+outputs: differing rebuild outputs fail the lane. `nix_execution` is `rebuild`
+(fresh), `reused` (cached/substituted/otherwise realized; never claimed fresh), or
+`failed` (no output or freshness assertion). `nix_command_mode` records the actual
+command's rebuild/reused shape, including when cold preparation fails.
+Failed cold builds and failed reused realizations are captured, signed and
+published with their nonzero status, without `nix_outputs_sha256`.
+The gate refuses reuse for `fresh`; `any` reports `execution_reused` with outcome
+`reused`, not a fresh-test outcome.
+
+The signed check command is the complete normalized argv actually executed,
+including the trusted executable, fixed evaluation/build flags, `.drv` path and
+execution flags, not an inert `nix build .#attribute` declaration.
+`nix_command_sha256` binds those argv bytes as compact JSON. The signer recomputes
+the argv from its independent evaluation; the read-only gate recomputes its shape
+from BASE plus signed derivation/mode without running Nix. The lane-definition
+digest continues binding the complete BASE attribute and freshness policy.
 
 A failing lane is still signed and published, then exits nonzero. Complete
 combined output is retained as a Git blob under
@@ -514,6 +603,40 @@ wrapper attestation, not hardware isolation from an operator able to invoke the
 signer. Existing Python evidence verification can read the same note, but
 consumer policies that require legacy `flake_lock_sha256` must not be applied
 to a generic environment lane.
+
+### Read-only informational reporter
+
+`genie/generic-evidence.ts` exports `genericEvidenceReporterJob({ check, checkout,
+runner? })` for `pull_request` workflows. The checkout action must be SHA-pinned;
+the fragment checks out the event's accepted BASE, never the candidate worktree.
+It downloads the verifier release declared by BASE's tool pin, verifies its
+digest and source/workflow attestation, and fetches HEAD and evidence refs as
+Git objects only. It never installs candidate dependencies, runs candidate
+commands or setup, signs evidence, or writes statuses, checks or comments.
+Ignored `node_modules`-style inputs and scratch files are not executed or
+interpreted by this object-only reporter.
+
+The job requests only `contents: read` and `pull-requests: read` and sets
+`continue-on-error: true`. The latter permission is required to recheck the live
+pull request in private repositories. Mocked API tests do not prove GitHub token
+authorization; the generated-workflow golden asserts both declared read scopes.
+Its only report surfaces are its step conclusion and an escaped job summary;
+it must **not** be configured as a required check. Missing, refused or unavailable
+evidence is informational failure, never authorization to skip a required lane.
+A policy-accepted `skip/reused` decision is informational success, preserving the
+gate's reuse summary without asserting fresh execution; `skip/satisfied` also succeeds.
+Unlike the required publisher, it does not gather hosted review/check evidence
+or accept a GitHub App token. Consumers retain their independent validation job
+and required-check policy. See `tests/fixtures/generic-evidence/` for composition.
+
+When a required BASE config blob (`tool-pin.json`, `lanes.json`,
+`environment.json` or `evidence-keys`) is absent, the gate emits
+`decision: "refuse"`, `outcome: "rejected"`, `reason: "config_missing"` with the
+missing path in its summary. Candidate config never fills the gap. Invalid JSON,
+symlinks, directories and Git/object failures remain errors without a decision,
+not `config_missing`. A missing tool pin also prevents the workflow bootstrap
+from acquiring a verifier; that bootstrap failure is reported as incomplete.
+
 
 ## Base-only generic required-check publisher
 

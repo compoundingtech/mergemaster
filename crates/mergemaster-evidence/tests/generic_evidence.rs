@@ -114,6 +114,80 @@ impl Fixture {
     }
 }
 
+fn materialized_fixture(script: &str) -> Fixture {
+    let mut f = Fixture::new("required_evidence", script);
+    f.write(".gitignore", "node_modules/\n.build/\nignored/\n");
+    let modules = f.root.path().join("modules");
+    fs::create_dir_all(modules.join("fixture")).unwrap();
+    fs::write(modules.join("fixture/index.js"), "fixture bytes\n").unwrap();
+    let digest = mergemaster_evidence::evidence::workspace::tree_digest(&modules).unwrap();
+    let mut policy: Value = serde_json::from_slice(&fs::read(f.repo.join(".mergemaster/lanes.json")).unwrap()).unwrap();
+    policy["lanes"][CHECK]["inputs"] = json!({"node_modules":{"name":"fixture modules","identity":format!("tree-sha256:{digest}")}});
+    policy["lanes"][CHECK]["scratch"] = json!([".build"]);
+    f.write(".mergemaster/lanes.json", policy.to_string());
+    f.base = f.commit();
+    f.head = f.base.clone();
+    f.write("node_modules/fixture/index.js", "fixture bytes\n");
+    f
+}
+
+#[test]
+fn workspace_binding_is_object_only_and_binds_the_base_declaration() {
+    use mergemaster_evidence::gate::config::{expected_inputs, load};
+    let f = materialized_fixture("printf ok");
+    let mut policy = load(&f.repo, &f.base).unwrap();
+    let expected = |lane: &mergemaster_evidence::gate::config::Lane|
+        expected_inputs(&f.repo, &f.head, CHECK, lane, &policy.environment, &policy.environment_bytes).unwrap();
+    let before = expected(&policy.policy.lanes[CHECK]);
+    assert_eq!(before["workspace_binding"], "v2");
+    assert_eq!(before["workspace_declaration_sha256"].len(), 64);
+    // Verification is independent of provisioned files, unlike wrapper/signer measurement.
+    fs::remove_dir_all(f.repo.join("node_modules")).unwrap();
+    assert_eq!(expected(&policy.policy.lanes[CHECK]), before);
+    let mut lane = policy.policy.lanes.remove(CHECK).unwrap();
+    lane.scratch = vec!["other-output".into()];
+    assert_ne!(expected(&lane)["workspace_declaration_sha256"], before["workspace_declaration_sha256"]);
+}
+
+#[test]
+fn materialized_modules_and_empty_scratch_are_lane_bound_end_to_end() {
+    let f = materialized_fixture("cat node_modules/fixture/index.js > .build/result; printf ok");
+    let output = f.wrap(None, None);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(fs::read(f.repo.join(".build/result")).unwrap(), b"fixture bytes\n");
+    assert_eq!(f.gate()["decision"], "skip");
+    assert!(f.python().status.success());
+    // A subsequent attempt cannot consume the previous attempt's output.
+    assert!(!f.wrap(None, None).status.success());
+    assert_eq!(fs::read(&f.counter).unwrap(), b"x");
+}
+
+#[test]
+fn undeclared_inputs_mutations_and_signer_time_tampering_refuse() {
+    for case in ["ignored", "untracked", "empty", "input", "scratch", "after", "outside", "signer"] {
+        let script = match case {
+            "after" => "printf mutated > node_modules/fixture/index.js",
+            "outside" => "mkdir -p ignored; printf output > ignored/result",
+            _ => "printf ok > .build/result",
+        };
+        let f = materialized_fixture(script);
+        match case {
+            "ignored" => f.write("ignored/input", "hidden"),
+            "untracked" => f.write("extra", "hidden"),
+            "empty" => fs::create_dir(f.repo.join("empty")).unwrap(),
+            "input" => f.write("node_modules/fixture/index.js", "changed"),
+            "scratch" => f.write(".build/old", "old"),
+            _ => {}
+        }
+        let signer = (case == "signer").then(|| json!([f.runtime, "-c",
+            "printf changed > node_modules/fixture/index.js; exec \"$@\"", "signer",
+            env!("CARGO_BIN_EXE_mergemaster"), "evidence", "sign", "--config", f.config]));
+        assert!(!f.wrap(signer, None).status.success(), "{case}");
+        assert!(f.refs().is_empty(), "{case}");
+        assert_eq!(f.counter.exists(), matches!(case, "after" | "outside" | "signer"), "{case}");
+    }
+}
+
 #[test]
 fn wrap_sign_publish_skip_and_input_mutation_cannot_reuse_evidence() {
     for mode in ["required_evidence", "optional_fallback"] {

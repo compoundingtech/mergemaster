@@ -173,9 +173,17 @@ pub fn decide(repo: &Path, check: &str, base: &str, head: &str, event: Option<&P
 fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path>, hosted: Option<&Path>) -> Result<Decision> {
     commit(repo, base)?;
     commit(repo, head)?;
-    let config = config::load(repo, base)?;
-    let lane = config.policy.lanes.get(check).context("unknown check")?;
     let tree = git::text(repo, &["rev-parse", &format!("{head}^{{tree}}")])?;
+    let config = match config::load(repo, base) {
+        Ok(config) => config,
+        Err(error) if error.is::<config::MissingConfig>() => return Ok(Decision {
+            version: 1, check: check.into(), base: base.into(), head: head.into(), tree,
+            decision: "refuse", outcome: "rejected", reason: "config_missing",
+            record: None, protected_paths: Vec::new(), summary: error.to_string(),
+        }),
+        Err(error) => return Err(error),
+    };
+    let lane = config.policy.lanes.get(check).context("unknown check")?;
     let mut decision = Decision { version: 1, check: check.into(), base: base.into(), head: head.into(), tree,
         decision: if lane.mode == "required_evidence" { "refuse" } else { "run" },
         outcome: "rejected", reason: "base_not_ancestor", record: None, protected_paths: Vec::new(), summary: String::new() };
@@ -267,9 +275,13 @@ fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path
     decision.outcome = "rejected";
     let statement = chosen.1;
     decision.reason = satisfy(&statement, check, head, &decision.tree, lane, &expected);
-    if decision.reason == "satisfied" {
+    if matches!(decision.reason, "satisfied" | "execution_reused") {
         decision.decision = "skip";
         decision.outcome = "satisfied";
+        if decision.reason == "execution_reused" {
+            decision.outcome = "reused";
+            decision.summary = "A trusted realization was reused; no fresh test execution is asserted.".into();
+        }
     } else if decision.reason == "degraded" { decision.outcome = "degraded"; }
     Ok(decision)
 }
@@ -304,12 +316,28 @@ fn satisfy(statement: &Statement, check: &str, head: &str, tree: &str, lane: &La
     let Fact::Tests { checks, inputs, .. } = &predicate.fact else { return "wrong_check" };
     let result = &checks[check];
     if result.exit_code != 0 { return "check_failed"; }
-    if result.command != lane.argv { return "wrong_command"; }
+    if lane.nix_check.is_some() {
+        let Some(drv) = inputs.get("nix_derivation") else { return "wrong_input" };
+        let Some(execution) = inputs.get("nix_execution") else { return "wrong_input" };
+        if inputs.get("nix_command_mode") != Some(execution)
+            || evidence::derivation::settings_digest().ok().as_ref() != inputs.get("nix_settings_sha256")
+            || !inputs.get("nix_store").is_some_and(|store| store.starts_with("local")
+                || (store.starts_with("daemon") && inputs.get("nix_daemon_trusted").map(String::as_str) == Some("true"))) { return "wrong_input"; }
+        let Ok(argv) = evidence::derivation::argv(&lane.argv[0], drv, execution) else { return "wrong_input" };
+        if result.command != argv { return "wrong_command"; }
+        if evidence::derivation::command_digest(&argv).ok().as_ref() != inputs.get("nix_command_sha256")
+            || !inputs.get("nix_outputs_sha256").is_some_and(|hash| hash.len() == 64 && hash.bytes().all(|c| c.is_ascii_hexdigit())) { return "wrong_input"; }
+    } else if result.command != lane.argv { return "wrong_command"; }
     if !inputs.get("wrapper_sha256").is_some_and(|value| value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())) ||
         !inputs.get("attempt").is_some_and(|value| value.parse::<u64>().is_ok_and(|n| n > 0)) { return "wrong_input"; }
     if inputs.get("workspace_clean").map(String::as_str) != Some("true") ||
         inputs.get("untracked_files").map(String::as_str) != Some("false") { return "workspace_dirty"; }
     if expected.iter().any(|(key, value)| inputs.get(key) != Some(value)) { return "wrong_input"; }
+    if let Some(check) = &lane.nix_check {
+        if inputs.get("nix_execution").map(String::as_str) == Some("reused") {
+            return if check.required == "any" { "execution_reused" } else { "fresh_execution_required" };
+        }
+    }
     "satisfied"
 }
 

@@ -63,7 +63,22 @@ pub struct Lane {
     pub remediation_argv: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_age_seconds: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nix_check: Option<NixCheck>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub inputs: BTreeMap<String, Artifact>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scratch: Vec<String>,
 }
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct NixCheck {
+    pub attribute: String,
+    #[serde(default = "fresh")]
+    pub required: String,
+}
+fn fresh() -> String { "fresh".into() }
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -144,10 +159,43 @@ fn decode<T: serde::de::DeserializeOwned>(bytes: &[u8], name: &str) -> Result<T>
     serde_json::from_slice(bytes).with_context(|| format!("invalid {name}"))
 }
 
+/// A required BASE declaration is absent, not malformed or unreadable.
+#[derive(Debug)]
+pub struct MissingConfig(pub &'static str);
+
+impl std::fmt::Display for MissingConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "BASE configuration missing: {}", self.0)
+    }
+}
+
+impl std::error::Error for MissingConfig {}
+
+#[cfg(test)]
+mod missing_config_tests {
+    #[test]
+    fn missing_config_keeps_a_distinct_error_type_and_path() {
+        let error = anyhow::Error::new(super::MissingConfig(".mergemaster/lanes.json"));
+        assert!(error.is::<super::MissingConfig>());
+        assert_eq!(error.to_string(), "BASE configuration missing: .mergemaster/lanes.json");
+        assert!(!anyhow::anyhow!("invalid lanes policy").is::<super::MissingConfig>());
+    }
+}
+
+fn config_blob(repo: &Path, base: &str, path: &'static str) -> Result<Vec<u8>> {
+    let literal = format!(":(literal){path}");
+    // A successful empty tree lookup is absence. Git failures, wrong object
+    // types, symlinks and malformed contents retain their original errors.
+    if git(repo, &["ls-tree", "-z", "--full-tree", base, "--", &literal])?.is_empty() {
+        return Err(MissingConfig(path).into());
+    }
+    blob(repo, base, path)
+}
+
 pub fn load(repo: &Path, base: &str) -> Result<Config> {
     ensure!(full_commit(base), "BASE must be a full commit ID");
     ensure!(text(repo, &["cat-file", "-t", base])?.trim() == "commit", "BASE is not a commit");
-    let pin: ToolPin = decode(&blob(repo, base, ".mergemaster/tool-pin.json")?, "tool pin")?;
+    let pin: ToolPin = decode(&config_blob(repo, base, ".mergemaster/tool-pin.json")?, "tool pin")?;
     ensure!(pin.version == 1 && pin.repository == "compoundingtech/mergemaster" && full_commit(&pin.revision), "unsupported tool pin");
     if let Some(release) = &pin.release {
         let version = release.version.strip_prefix('v').context("release version must start with v")?;
@@ -157,8 +205,8 @@ pub fn load(repo: &Path, base: &str) -> Result<Config> {
             && release.sha256.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
             "invalid release pin");
     }
-    let mut policy: Policy = decode(&blob(repo, base, ".mergemaster/lanes.json")?, "lanes policy")?;
-    let environment_bytes = blob(repo, base, ".mergemaster/environment.json")?;
+    let mut policy: Policy = decode(&config_blob(repo, base, ".mergemaster/lanes.json")?, "lanes policy")?;
+    let environment_bytes = config_blob(repo, base, ".mergemaster/environment.json")?;
     let environment: Environment = decode(&environment_bytes, "environment")?;
     validate_environment(&environment)?;
     ensure!(policy.version == 1 && policy.pull_request.same_repository
@@ -202,11 +250,18 @@ pub fn load(repo: &Path, base: &str) -> Result<Config> {
             ensure!(lane.approvers.is_empty() && lane.require_hosted.is_empty(),
                 "approval configuration requires human_approval policy");
         }
+        if let Some(check) = &lane.nix_check {
+            let parts: Vec<_> = check.attribute.split('.').collect();
+            ensure!(parts.len() == 3 && parts[0] == "checks"
+                && parts.iter().all(|part| !part.is_empty() && part.bytes().all(|c| c.is_ascii_alphanumeric() || b"_-".contains(&c)))
+                && matches!(check.required.as_str(), "fresh" | "any"), "invalid Nix check declaration");
+            ensure!(lane.argv.len() == 1 && Path::new(&lane.argv[0]).is_absolute(), "Nix check argv declares the absolute trusted nix executable only");
+        }
         ensure!(lane.environment.manifest == ".mergemaster/environment.json", "unsupported environment manifest");
         entries(repo, base, &lane.definition_paths)?;
         entries(repo, base, &lane.environment.paths)?;
     }
-    let keys = blob(repo, base, ".mergemaster/evidence-keys")?;
+    let keys = config_blob(repo, base, ".mergemaster/evidence-keys")?;
     validate_keys(&keys)?;
     Ok(Config { policy, environment, environment_bytes, keys })
 }
@@ -305,10 +360,16 @@ pub fn expected_inputs(repo: &Path, head: &str, check: &str, lane: &Lane,
     let environment_sha = hash(&(1, environment_bytes, &lane.environment.paths, environment_files))?;
     let toolchain_sha = hash(&(1, &environment.toolchain))?;
     let lane_sha = hash(&(1, check, lane, definition_files))?;
-    Ok(BTreeMap::from([
+    let mut inputs = BTreeMap::from([
         ("environment_sha256".to_owned(), environment_sha),
         ("toolchain_sha256".to_owned(), toolchain_sha),
         ("lane_definition_sha256".to_owned(), lane_sha),
         ("system".to_owned(), environment.system.clone()),
-    ]))
+    ]);
+    if !lane.inputs.is_empty() || !lane.scratch.is_empty() {
+        crate::evidence::workspace::validate(repo, head, lane)?;
+        inputs.insert("workspace_binding".into(), "v2".into());
+        inputs.insert("workspace_declaration_sha256".into(), hash(&(2, &lane.inputs, &lane.scratch))?);
+    }
+    Ok(inputs)
 }
