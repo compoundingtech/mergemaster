@@ -16,6 +16,7 @@ pub mod generic;
 pub mod signing;
 mod nix;
 pub(crate) mod derivation;
+pub mod workspace;
 mod ci_reattest;
 mod ci_transport;
 pub mod observers;
