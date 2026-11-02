@@ -2,6 +2,50 @@
 use anyhow::{Context, Result, ensure};
 use serde_json::Value;
 use std::borrow::Cow;
+use serde::{de::{DeserializeSeed, MapAccess, SeqAccess, Visitor}, Deserializer as _};
+use serde_json::value::RawValue;
+
+struct ReservedKey;
+impl<'de> DeserializeSeed<'de> for ReservedKey {
+    type Value = bool;
+    fn deserialize<D: serde::Deserializer<'de>>(self, d: D) -> Result<bool, D::Error> { d.deserialize_str(self) }
+}
+impl<'de> Visitor<'de> for ReservedKey {
+    type Value = bool;
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { f.write_str("object key") }
+    fn visit_str<E: serde::de::Error>(self, s: &str) -> Result<bool, E> { Ok(s == "$serde_json::private::Number") }
+}
+struct LiteralObjects;
+impl<'de> Visitor<'de> for LiteralObjects {
+    type Value = ();
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { f.write_str("literal object or array") }
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<(), A::Error> {
+        while let Some(reserved) = map.next_key_seed(ReservedKey)? {
+            if reserved { return Err(serde::de::Error::custom("reserved number object")); }
+            literal_objects(map.next_value::<&RawValue>()?).map_err(serde::de::Error::custom)?;
+        }
+        Ok(())
+    }
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<(), A::Error> {
+        while let Some(raw) = seq.next_element::<&RawValue>()? { literal_objects(raw).map_err(serde::de::Error::custom)?; }
+        Ok(())
+    }
+}
+fn literal_objects(raw: &RawValue) -> serde_json::Result<()> {
+    if matches!(raw.get().trim_start().as_bytes()[0], b'{' | b'[') {
+        serde_json::Deserializer::from_str(raw.get()).deserialize_any(LiteralObjects)?;
+    }
+    Ok(())
+}
+
+/// Retain literal object provenance across numeric decoding, before validating claims.
+pub fn decode(bytes: &[u8]) -> Result<Value> {
+    let raw: &RawValue = serde_json::from_slice(bytes)?;
+    let request = serde_json::from_str(raw.get())?; // Enforce the decoder's nesting limit first.
+    literal_objects(raw)?;
+    validate(&request)?;
+    Ok(request)
+}
 
 const REQUIRED: [&str; 7] = ["commit", "check", "command", "exit_code", "output_sha256", "change_id", "inputs"];
 const INPUTS: [&str; 5] = ["flake_lock_sha256", "toolchain_sha256", "wrapper_sha256", "system", "attempt"];
@@ -9,7 +53,36 @@ const INPUTS: [&str; 5] = ["flake_lock_sha256", "toolchain_sha256", "wrapper_sha
 // Python's regex `$` accepts a single final newline; `fullmatch` does not.
 fn end(value: &str) -> &str { value.strip_suffix('\n').unwrap_or(value) }
 fn token(value: &Value) -> Cow<'_, str> {
-    match value { Value::String(s) => Cow::Borrowed(s), Value::Number(n) => Cow::Owned(n.to_string()), _ => Cow::Borrowed("") }
+    match value { Value::String(s) => Cow::Borrowed(s), Value::Number(n) => Cow::Owned(number_token(n)), _ => Cow::Borrowed("") }
+}
+fn number_token(number: &serde_json::Number) -> String {
+    use std::fmt::Write;
+    let mut text = number.to_string();
+    if !text.contains(['.', 'e', 'E']) { if text == "-0" { text.remove(0); } return text; }
+    let value: f64 = text.parse().unwrap();
+    text.clear();
+    if value.is_infinite() { text.push_str(if value.is_sign_negative() { "-inf" } else { "inf" }); return text; }
+    write!(&mut text, "{value:e}").unwrap();
+    let e = text.rfind('e').unwrap();
+    let exponent: i32 = text[e + 1..].parse().unwrap();
+    // Python repr uses fixed notation at exponents -4..15, otherwise signed/padded exponents.
+    if !(-4..16).contains(&exponent) {
+        text.truncate(e + 1);
+        write!(&mut text, "{exponent:+03}").unwrap();
+    } else {
+        text.truncate(e);
+        text.retain(|c| c != '.');
+        let sign = usize::from(value.is_sign_negative());
+        if exponent < 0 {
+            text.insert_str(sign, "0.");
+            for _ in 0..-exponent - 1 { text.insert(sign + 2, '0'); }
+        } else {
+            let point = sign + exponent as usize + 1;
+            while text.len() <= point { text.push('0'); }
+            text.insert(point, '.');
+        }
+    }
+    text
 }
 fn hex(value: &str, size: usize) -> bool {
     value.len() == size && value.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
@@ -29,9 +102,8 @@ fn signature(value: &str) -> bool {
         && encoded.len() - payload.len() <= 2 && base64(payload)
 }
 
-/// Preserve the legacy signer's accepted request shape, including Nix output claims.
-/// This validates claims only; Git bindings and signing authority are checked separately.
-pub fn validate(request: &Value) -> Result<()> {
+// Git bindings and signing authority are checked separately.
+fn validate(request: &Value) -> Result<()> {
     let fields = request.as_object().context("request must be an object")?;
     ensure!(REQUIRED.iter().all(|key| fields.contains_key(*key))
         && fields.keys().all(|key| REQUIRED.contains(&key.as_str()) || key == "runner"), "unexpected or missing request keys");
@@ -126,21 +198,24 @@ base = dict(commit='a'*40, check='gate', command=['true', ''], exit_code=0,
             inputs=dict(flake_lock_sha256='c'*64, toolchain_sha256='d'*64,
                         wrapper_sha256='e'*64, system='x86_64-linux', attempt='1'))
 cases = []
-def add(label, request):
+def add(label, request, raw=None):
     try:
         signer.validate(request)
         valid = True
     except signer.Refused:
         valid = False
-    cases.append(dict(label=label, request=copy.deepcopy(request), valid=valid))
+    cases.append(dict(label=label, request_json=raw or json.dumps(request), valid=valid,
+                      numeric_check=str(request['check']) if isinstance(request, dict) and type(request.get('check')) in (int, float) else None))
 def change(label, path, value, source=base):
     request = copy.deepcopy(source)
-    parent = request
-    for key in path[:-1]:
-        parent = parent[key]
+    parent = request if len(path) == 1 else request[path[0]]
     parent[path[-1]] = value
     add(label, request)
 add('wrapper', base)
+change('number-object', ['exit_code'], {'$serde_json::private::Number':'0'})
+for spelling in ['10000000000000000.0', '-0', '-0.0', '1e16', '1.5', '1.0', '1e-5', '0.0001', '1e-4', '1e-6', '1e1000', '1'+('0'*40), '1'+('0'*64)]:
+    raw = json.dumps(base).replace('"gate"', spelling, 1)
+    add('numeric-check-'+spelling, json.loads(raw), raw)
 for field, values in {
     'commit': ['a'*64, 'a'*40+'\n', 'A'*40, 'a'*39, None],
     'check': ['0', 12, 'a'*64, 'a\n', 'A', 'a/b', 'a'*65],
@@ -150,8 +225,7 @@ for field, values in {
     'change_id': ['', ' \u001c', 'é'*199, 'é'*200, None],
     'runner': ['wrapper', 'nix', 'unknown', None],
 }.items():
-    for index, value in enumerate(values):
-        change(f'{field}-{index}', [field], value)
+    for value in values: change(f'{field}-{len(cases)}', [field], value)
 add('non-object', [])
 request = copy.deepcopy(base); request['tier'] = 'full'; add('extra-top', request)
 for field in base:
@@ -168,8 +242,7 @@ for key, values in {
     'flake_lock_sha256': ['x', 'a'*64+'\n'],
     'run_id': ['123', '', 1], 'Bad': ['x'], 'valid\n': ['x'],
 }.items():
-    for index, value in enumerate(values):
-        change(f'input-{key}-{index}', ['inputs', key], value)
+    for value in values: change(f'input-{key}-{len(cases)}', ['inputs', key], value)
 request = copy.deepcopy(base); request['inputs'].update({f'x{i}':'v' for i in range(36)}); add('too-many-inputs', request)
 nix = copy.deepcopy(base)
 nix.update(runner='nix', command=['nix', 'build', '.#checks.x86_64-linux.gate'])
@@ -189,8 +262,7 @@ for key, values in {
     'nix_signatures': ['', 'cache:AAA===', ':AAA', 'cache:AAA\n', 'a:AA,b:BB'],
     'nix_unsigned': ['true'], 'nix_key_id': ['other'],
 }.items():
-    for index, value in enumerate(values):
-        change(f'nix-{key}-{index}', ['inputs', key], value, nix)
+    for value in values: change(f'nix-{key}-{len(cases)}', ['inputs', key], value, nix)
 for command in [['sh','-c','true'], ['nix','build','.#checks.x86_64-linux.other'],
                 ['nix','build','.#checks.x/../gate'], ['nix','build','.#checks.x86_64-linux.gate','extra']]:
     change('nix-command', ['command'], command, nix)
@@ -199,8 +271,7 @@ for value in [','.join(refs), ','.join(reversed(refs)), ','.join([refs[0]]*2)]:
     change('nix-references', ['inputs','references'], value, nix)
 unsigned = copy.deepcopy(nix); unsigned['inputs'].update(nix_signatures='none', nix_unsigned='true', nix_key_id='none'); add('nix-unsigned', unsigned)
 multiple = copy.deepcopy(nix); multiple['inputs'].update(nix_signatures='a:AA,b:BB', nix_key_id='a'); add('nix-multiple-keys', multiple)
-failed = copy.deepcopy(nix); failed['exit_code'] = 1
-add('failed-output', failed)
+failed = copy.deepcopy(nix); failed['exit_code'] = 1; add('failed-output', failed)
 for field in ['out_path', 'nar_hash', 'nar_size', 'references', 'nix_signatures']:
     del failed['inputs'][field]
 add('failed-no-output', failed)
@@ -212,7 +283,12 @@ json.dump(cases, sys.stdout)
         let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
         assert!(cases.len() > 100);
         for case in &cases {
-            assert_eq!(super::validate(&case["request"]).is_ok(), case["valid"].as_bool().unwrap(), "{}", case["label"]);
+            let raw = case["request_json"].as_str().unwrap();
+            assert_eq!(super::decode(raw.as_bytes()).is_ok(), case["valid"].as_bool().unwrap(), "{}", case["label"]);
+            if let Some(expected) = case["numeric_check"].as_str() {
+                let request: Value = serde_json::from_str(raw).unwrap();
+                assert_eq!(super::token(&request["check"]), expected, "{}", case["label"]);
+            }
         }
         eprintln!("{} legacy request cases matched the Python oracle", cases.len());
     }

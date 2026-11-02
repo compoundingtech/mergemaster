@@ -40,7 +40,7 @@ libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 # Fractal enables this through workspace feature unification; preserve CLI JSON bytes.
 # Legacy exit codes are Python integers; preserve them without rounding through f64.
-serde_json = { version = "1", features = ["preserve_order", "arbitrary_precision"] }
+serde_json = { version = "1", features = ["preserve_order", "arbitrary_precision", "raw_value"] }
 sha2 = "0.10"
 tempfile = "3"
 unicode-normalization = "0.1"
