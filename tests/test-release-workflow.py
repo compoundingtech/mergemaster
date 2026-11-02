@@ -52,8 +52,11 @@ class ReleaseWorkflowTests(unittest.TestCase):
     def test_version_tag_validation(self):
         command = script('Validate release tag')
         for tag in ('v0.1.0', 'v1.2.3', 'v100.20.300'):
-            with self.subTest(tag=tag):
-                result = subprocess.run(['bash', '-c', command],
+            with self.subTest(tag=tag), tempfile.TemporaryDirectory() as directory:
+                manifest = Path(directory) / 'crates/mergemaster-evidence/Cargo.toml'
+                manifest.parent.mkdir(parents=True)
+                manifest.write_text(f'[package]\nversion = "{tag[1:]}"\n')
+                result = subprocess.run(['bash', '-c', command], cwd=directory,
                                         env=dict(os.environ, RELEASE_TAG=tag),
                                         capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -65,6 +68,24 @@ class ReleaseWorkflowTests(unittest.TestCase):
                                         capture_output=True)
                 self.assertNotEqual(result.returncode, 0)
         self.assertIn("if: github.event_name == 'push'", job('build'))
+        build = job('build')
+        self.assertLess(build.index('uses: actions/checkout@'),
+                        build.index('name: Validate release tag'))
+
+    def test_version_tag_must_match_package_version(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / 'crates/mergemaster-evidence/Cargo.toml'
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text('[package]\nversion = "0.2.0"\n')
+            for tag, expected in [('v0.2.0', 0), ('v0.1.0', 1)]:
+                with self.subTest(tag=tag):
+                    result = subprocess.run(['bash', '-c', script('Validate release tag')],
+                                            cwd=directory,
+                                            env=dict(os.environ, RELEASE_TAG=tag),
+                                            capture_output=True)
+                    self.assertEqual(result.returncode, expected, result.stderr)
+                    if expected:
+                        self.assertIn(b'does not match package version 0.2.0', result.stderr)
 
     def test_native_musl_builds_are_locked_and_smoke_tested(self):
         build = job('build')
