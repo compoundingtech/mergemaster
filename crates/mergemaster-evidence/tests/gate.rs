@@ -736,21 +736,24 @@ fn protected_aliases_and_symlink_replacements_never_skip() {
 }
 
 #[test]
-fn merge_commits_anywhere_in_candidate_history_refuse() {
-    for at_tip in [true, false] {
+fn foreign_merges_anywhere_in_candidate_history_refuse() {
+    for (at_tip, octopus) in [(true, false), (false, false), (true, true)] {
         let mut f = Fixture::new();
         let side = f.git(&["commit-tree", &f.tree, "-p", &f.base, "-m", "side"], b"");
-        let merge = f.git(&["commit-tree", &f.tree, "-p", &f.head, "-p", &side, "-m", "merge"], b"");
+        let mut parents = vec!["commit-tree", &f.tree, "-p", &f.head];
+        if octopus { parents.extend(["-p", &f.base]); }
+        parents.extend(["-p", &side, "-m", "merge"]);
+        let merge = f.git(&parents, b"");
         f.git(&["update-ref", "HEAD", &merge], b"");
         f.head = merge;
         if !at_tip { f.refresh_head(); }
         f.note(&f.statement(), &f.key, "tree");
-        assert_eq!(f.decision(&[])["reason"], "merge_history");
+        assert_eq!(f.decision(&[])["reason"], "foreign_merge");
     }
 }
 
 #[test]
-fn optional_fallback_merge_history_refuses_and_lists_protected_edits() {
+fn optional_fallback_foreign_merge_refuses_and_lists_protected_edits() {
     for protected in [false, true] {
         let mut f = Fixture::new();
         f.write(".mergemaster/lanes.json", Fixture::policy("optional_fallback").to_string());
@@ -763,7 +766,7 @@ fn optional_fallback_merge_history_refuses_and_lists_protected_edits() {
         f.head = merge;
         let decision = f.decision(&[]);
         assert_eq!(decision["decision"], "refuse");
-        assert_eq!(decision["reason"], "merge_history");
+        assert_eq!(decision["reason"], "foreign_merge");
         assert_eq!(decision["protected_paths"], if protected {
             json!([".github/workflows/evidence.yml"])
         } else { json!([]) });
@@ -877,7 +880,7 @@ fn push_reuses_signed_tree_for_squash_and_merge_but_pr_default_is_unchanged() {
     for merge in [false, true] {
         let f = push_fixture(merge);
         let pr = f.decision(&[]);
-        assert_eq!(pr["reason"], if merge { "merge_history" } else { "wrong_commit" });
+        assert_eq!(pr["reason"], if merge { "foreign_merge" } else { "wrong_commit" });
         assert_ne!(pr["decision"], "skip");
         let push = f.push("refs/heads/main", &f.head, &f.head);
         assert_eq!(push["decision"], "skip", "{push}");
@@ -954,4 +957,140 @@ fn push_keeps_binding_validation_and_newest_failure_selection() {
         assert_eq!(decision["decision"], "refuse", "{decision}");
         assert_eq!(decision["reason"], reason);
     }
+}
+
+fn base_merge_fixture(protected_resolution: bool) -> Fixture {
+    let mut f = Fixture::new();
+    let base_tree = f.git(&["rev-parse", &format!("{}^{{tree}}", f.base)], b"");
+    let main_one = f.git(&["commit-tree", &base_tree, "-p", &f.base], b"main advance\n");
+    let carry = f.git(&["commit-tree", &f.tree, "-p", &f.head, "-p", &main_one], b"carry main\n");
+    f.base = f.git(&["commit-tree", &base_tree, "-p", &main_one], b"main advance again\n");
+    if protected_resolution {
+        let policy = f.git(&["show", "HEAD:.mergemaster/lanes.json"], b"");
+        f.write(".mergemaster/lanes.json", format!("{policy}\n"));
+        f.git(&["add", "-A"], b"");
+        f.tree = f.git(&["write-tree"], b"");
+    }
+    f.head = f.git(&["commit-tree", &f.tree, "-p", &carry, "-p", &f.base], b"resolve main merge\n");
+    f.git(&["checkout", "-q", "--detach", &f.head], b"");
+    f
+}
+
+#[test]
+fn protected_base_merges_accept_older_and_current_base_parents() {
+    for at_tip in [true, false] {
+        let mut f = base_merge_fixture(false);
+        if !at_tip { f.refresh_head(); }
+        f.note(&f.statement(), &f.key, "tree");
+        let value = f.decision(&[]);
+        assert_eq!(value["decision"], "skip", "{value}");
+        assert_eq!(value["reason"], "satisfied");
+    }
+}
+
+#[test]
+fn merge_resolution_cannot_hide_protected_policy_edits() {
+    let f = base_merge_fixture(true);
+    // Neither parent contains this resolution-only policy edit.
+    for parent in ["HEAD^1", "HEAD^2"] {
+        assert!(!f.git(&["diff", "--name-only", parent, "HEAD", "--", ".mergemaster/lanes.json"], b"").is_empty());
+    }
+    f.note(&f.statement(), &f.key, "tree");
+    let value = f.decision(&[]);
+    assert_eq!(value["decision"], "refuse", "{value}");
+    assert_eq!(value["reason"], "protected_paths");
+    assert_eq!(value["protected_paths"], json!([".mergemaster/lanes.json"]));
+}
+
+#[test]
+fn linear_pull_request_history_still_uses_exact_head_evidence() {
+    let f = Fixture::new();
+    f.note(&f.statement(), &f.key, "tree");
+    assert_eq!(f.decision(&[])["decision"], "skip");
+}
+
+#[test]
+fn merge_resolution_lane_definition_requires_final_tree_measurement() {
+    let mut f = base_merge_fixture(false);
+    let mut stale = f.statement();
+    let first_parent = f.git(&["rev-parse", "HEAD^1"], b"");
+    f.write("tools/graph", "changed only by merge resolution\n");
+    f.git(&["add", "-A"], b"");
+    f.tree = f.git(&["write-tree"], b"");
+    f.head = f.git(&["commit-tree", &f.tree, "-p", &first_parent, "-p", &f.base], b"resolve command\n");
+    f.git(&["checkout", "-q", "--detach", &f.head], b"");
+    stale["subject"][0]["name"] = json!(f.head);
+    stale["subject"][0]["digest"]["gitTree"] = json!(f.tree);
+    f.note(&stale, &f.key, "tree");
+    assert_eq!(f.decision(&[])["reason"], "wrong_input");
+    f.note(&f.statement(), &f.key, "tree");
+    assert_eq!(f.decision(&[])["decision"], "skip");
+}
+
+fn merge_graph_decision(f: &mut Fixture, parents: &[String]) -> Value {
+    let mut args = vec!["commit-tree", &f.tree];
+    for parent in parents { args.extend(["-p", parent.as_str()]); }
+    f.head = f.git(&args, b"merge graph candidate\n");
+    f.git(&["checkout", "-q", "--detach", &f.head], b"");
+    f.note(&f.statement(), &f.key, "tree");
+    f.decision(&[])
+}
+
+#[test]
+fn merge_graph_parent_order_cannot_trust_a_foreign_second_parent() {
+    for base_first in [true, false] {
+        let mut f = Fixture::new();
+        let parents = if base_first {
+            [f.base.clone(), f.head.clone()]
+        } else {
+            [f.head.clone(), f.base.clone()]
+        };
+        let value = merge_graph_decision(&mut f, &parents);
+        assert_eq!(value["decision"], if base_first { "refuse" } else { "skip" }, "{value}");
+        assert_eq!(value["reason"], if base_first { "foreign_merge" } else { "satisfied" });
+    }
+}
+
+#[test]
+fn merge_graph_criss_cross_uses_accepted_base_ancestry_not_one_merge_base() {
+    for accepted_cross in [true, false] {
+        let mut f = Fixture::new();
+        let left = f.head.clone();
+        let right = f.git(&["commit-tree", &f.tree, "-p", &f.base], b"right fork\n");
+        let left_cross = f.git(&["commit-tree", &f.tree, "-p", &left, "-p", &right], b"left cross\n");
+        let right_cross = f.git(&["commit-tree", &f.tree, "-p", &right, "-p", &left], b"right cross\n");
+        let bases = f.git(&["merge-base", "--all", &left_cross, &right_cross], b"");
+        let actual: std::collections::BTreeSet<_> = bases.lines().collect();
+        assert_eq!(actual, std::collections::BTreeSet::from([left.as_str(), right.as_str()]));
+        f.base = if accepted_cross { right_cross.clone() } else { left };
+        let value = merge_graph_decision(&mut f, &[left_cross, right_cross]);
+        assert_eq!(value["decision"], if accepted_cross { "skip" } else { "refuse" }, "{value}");
+        assert_eq!(value["reason"], if accepted_cross { "satisfied" } else { "foreign_merge" });
+    }
+}
+
+#[test]
+fn merge_graph_accepts_a_base_that_is_itself_a_merge() {
+    let mut f = Fixture::new();
+    let root = f.base.clone();
+    let base_tree = f.git(&["rev-parse", &format!("{root}^{{tree}}")], b"");
+    let side = f.git(&["commit-tree", &base_tree, "-p", &root], b"accepted main side\n");
+    f.base = f.git(&["commit-tree", &base_tree, "-p", &root, "-p", &side], b"accepted main merge\n");
+    assert_eq!(f.git(&["rev-list", "--parents", "-n", "1", &f.base], b"").split_whitespace().count(), 3);
+    let parents = [f.head.clone(), f.base.clone()];
+    let value = merge_graph_decision(&mut f, &parents);
+    assert_eq!(value["decision"], "skip", "{value}");
+}
+
+#[test]
+fn merge_graph_all_trusted_non_first_octopus_parents_are_accepted() {
+    let mut f = Fixture::new();
+    let root = f.base.clone();
+    let base_tree = f.git(&["rev-parse", &format!("{root}^{{tree}}")], b"");
+    let older = f.git(&["commit-tree", &base_tree, "-p", &root], b"older main\n");
+    f.base = f.git(&["commit-tree", &base_tree, "-p", &older], b"current main\n");
+    let parents = [f.head.clone(), root, older, f.base.clone()];
+    let value = merge_graph_decision(&mut f, &parents);
+    assert_eq!(f.git(&["rev-list", "--parents", "-n", "1", &f.head], b"").split_whitespace().count(), 5);
+    assert_eq!(value["decision"], "skip", "{value}");
 }

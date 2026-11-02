@@ -247,10 +247,23 @@ fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path
             decision.protected_paths.push(path.to_owned());
         }
     }
-    if !push && !git::text(repo, &["rev-list", "--min-parents=2", &format!("{base}..{head}")])?.is_empty() {
-        decision.decision = "refuse";
-        decision.reason = "merge_history";
-        return Ok(decision);
+    if !push {
+        let merges = git::text(repo, &["rev-list", "--min-parents=2", "--parents", &format!("{base}..{head}")])?;
+        for merge in merges.lines() {
+            for parent in merge.split_whitespace().skip(2) {
+                if parent == base { continue; }
+                let relation = git::command(repo).args(["merge-base", "--is-ancestor", parent, base]).output()?;
+                match relation.status.code() {
+                    Some(0) => {},
+                    Some(1) => {
+                        decision.decision = "refuse";
+                        decision.reason = "foreign_merge";
+                        return Ok(decision);
+                    },
+                    _ => anyhow::bail!("merge parent ancestry unavailable: {}", String::from_utf8_lossy(&relation.stderr)),
+                }
+            }
+        }
     }
     if !decision.protected_paths.is_empty() && (push || lane.protected_edits == "reject") {
         decision.decision = "refuse";
