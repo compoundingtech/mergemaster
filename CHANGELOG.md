@@ -4,9 +4,6 @@
 
 ### Added
 
-- Native `mergemaster evidence keygen` provisions account-local signing keys and
-  prints enrollment lines, preserving the copied script's provisioning contract.
-
 - `nix:` artifact identities bind sorted store-path/NAR-hash closures, measured
   independently by the wrapper and signer. Executable lanes run a tool from the
   measured closure.
