@@ -15,6 +15,7 @@ pub mod cli;
 pub mod generic;
 pub mod signing;
 pub mod keygen;
+pub mod legacy_request;
 mod nix;
 pub(crate) mod derivation;
 pub mod workspace;
