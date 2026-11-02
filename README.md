@@ -25,6 +25,30 @@ cargo test --workspace
 cargo run -- evidence --help
 ```
 
+## Provision a signing account
+
+Run as the non-root account that will own the key, using a public alias rather
+than a real host or account name. Provisioning is non-interactive:
+
+```sh
+mergemaster evidence keygen --name build-one --level host > enrollment.txt
+# Special accounts may explicitly override the account home:
+mergemaster evidence keygen --name signer-one --level agent --home /absolute/account/home
+```
+
+The command creates a private ed25519 key, bare scratch repository and signer
+configuration under `~/.config/st`. It prints only the allowed-signers enrollment
+line on stdout; diagnostics go to stderr. Submit that line to `.st/evidence-keys`
+by pull request. Repeating the same invocation preserves the key and configuration;
+conflicting configuration, unsafe ownership/modes and symlink targets are refused.
+The native command requires Git and OpenSSH, not Python. `scripts/evidence-keygen`
+remains unchanged for existing script consumers and as an independent parity oracle;
+it does not require an installed native binary.
+
+The focused parity check runs every assertion in `scripts/evidence-keygen-test`
+against both implementations, plus cross-implementation reuse and refusal cases:
+`nix develop -c cargo test -p mergemaster-evidence --test keygen` (non-root).
+
 ## Copied evidence scripts
 
 The evidence scripts and their self-tests originate from

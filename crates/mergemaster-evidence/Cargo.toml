@@ -26,12 +26,17 @@ path = "tests/workspace_inputs.rs"
 name = "generic_evidence"
 path = "tests/generic_evidence.rs"
 
+[[test]]
+name = "keygen"
+path = "tests/keygen.rs"
+
 [dependencies]
 anyhow = "1"
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 clap = { version = "4", features = ["derive", "env"] }
 hex = "0.4"
+libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 # Fractal enables this through workspace feature unification; preserve CLI JSON bytes.
 serde_json = { version = "1", features = ["preserve_order"] }

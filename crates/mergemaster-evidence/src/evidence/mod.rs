@@ -14,6 +14,7 @@ use std::{
 pub mod cli;
 pub mod generic;
 pub mod signing;
+pub mod keygen;
 mod nix;
 pub(crate) mod derivation;
 pub mod workspace;
