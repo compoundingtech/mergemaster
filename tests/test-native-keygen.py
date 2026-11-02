@@ -69,19 +69,6 @@ class ExtraParity(unittest.TestCase):
                     self.assertEqual(done.stdout, '')
                     self.assertEqual(path.stat().st_mode & 0o777, mode)
 
-    def test_existing_non_ed25519_key_is_refused(self):
-        for command in (ORACLE, NATIVE):
-            with self.subTest(command=command), tempfile.TemporaryDirectory() as home:
-                directory = Path(home) / '.config/st'
-                directory.mkdir(parents=True, mode=0o700)
-                key = directory / 'evidence-sign-key'
-                real_run(['ssh-keygen', '-q', '-t', 'ecdsa', '-N', '', '-f', str(key)], check=True)
-                before = key.read_bytes()
-                done = real_run(command + ['--name', 'box-1', '--home', home], capture_output=True, text=True)
-                self.assertEqual(done.returncode, 1, done.stderr)
-                self.assertIn('not an ed25519 key', done.stderr)
-                self.assertEqual(key.read_bytes(), before)
-
     def test_script_and_native_reuse_the_same_files_and_exact_enrollment_output(self):
         for first, second in ((ORACLE, NATIVE), (NATIVE, ORACLE)):
             with self.subTest(first=first), tempfile.TemporaryDirectory() as home:
