@@ -16,6 +16,7 @@ pub mod generic;
 pub mod signing;
 pub mod keygen;
 pub mod legacy_request;
+mod legacy_json;
 mod nix;
 pub(crate) mod derivation;
 pub mod workspace;
