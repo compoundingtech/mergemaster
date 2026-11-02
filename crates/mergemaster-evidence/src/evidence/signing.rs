@@ -173,17 +173,26 @@ pub(super) fn tracked_clean(repo: &Path) -> Result<bool> {
     Ok(git::git(repo, &["status", "--porcelain=v1", "--untracked-files=no", "--ignore-submodules=none"])?.is_empty())
 }
 
+/// File-level trust rules match the legacy signer. Directory validation remains
+/// separate: a safe parent does not make a writable tool safe.
+fn trusted_file_mode(path: &Path, mode: u32, uid: u32) -> Result<()> {
+    ensure!(mode & 0o170000 == 0o100000, "trusted tool is not a regular file");
+    if path.starts_with("/nix/store") {
+        ensure!(mode & 0o222 == 0, "tool has a write bit in the Nix store");
+    } else {
+        ensure!(uid == 0, "tool is not owned by root");
+        ensure!(mode & 0o022 == 0, "tool is writable by group or others");
+    }
+    ensure!(mode & 0o100 != 0, "tool is not executable by its owner");
+    Ok(())
+}
+
 fn trusted_file(path: &Path) -> Result<PathBuf> {
     let path = std::fs::canonicalize(path)?;
     #[cfg(unix)] {
         use std::os::unix::fs::MetadataExt;
         let metadata = std::fs::metadata(&path)?;
-        ensure!(metadata.is_file() && metadata.mode() & 0o100 != 0, "trusted tool must be executable");
-        if path.starts_with("/nix/store") {
-            ensure!(metadata.mode() & 0o222 == 0, "mutable Nix tool");
-        } else {
-            ensure!(metadata.uid() == 0 && metadata.mode() & 0o022 == 0, "tool must be root-owned and closed to other writers");
-        }
+        trusted_file_mode(&path, metadata.mode(), metadata.uid())?;
         let mut parent = path.parent();
         while let Some(directory) = parent {
             let metadata = std::fs::metadata(directory)?;
@@ -198,14 +207,17 @@ fn trusted_file(path: &Path) -> Result<PathBuf> {
     Ok(path)
 }
 
-fn find_tool(config: &SignConfig, name: &str) -> Result<PathBuf> {
-    let path = config.path.as_deref().unwrap_or("/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:/usr/bin:/bin");
+pub(super) fn trusted_tool(path: &str, name: &str) -> Result<PathBuf> {
     for directory in path.split(':') {
         ensure!(Path::new(directory).is_absolute(), "trusted PATH must contain only absolute directories");
         let candidate = Path::new(directory).join(name);
         if candidate.exists() { return trusted_file(&candidate); }
     }
     anyhow::bail!("trusted tool missing: {name}")
+}
+
+fn find_tool(config: &SignConfig, name: &str) -> Result<PathBuf> {
+    trusted_tool(config.path.as_deref().unwrap_or("/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:/usr/bin:/bin"), name)
 }
 
 fn tools(config: &SignConfig) -> Result<(PathBuf, PathBuf)> {
@@ -316,4 +328,43 @@ pub fn run_worker(args: SignArgs) -> Result<()> {
     super::workspace::verify(&request.repo, &request.head, lane, false)?;
     println!("{}", serde_json::to_string(&Response { record, bundle: STANDARD.encode(std::fs::read(bundle)?), note_ref })?);
     Ok(())
+}
+
+#[cfg(test)]
+mod hardening_tests {
+    use super::*;
+
+    #[test]
+    fn tool_file_hardening_matches_legacy_oracle() {
+        let python = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/evidence-sign");
+        let cases = [
+            ("x", 0o100755, 0), ("x", 0o100555, 0), ("x", 0o100755, 1000),
+            ("x", 0o100775, 0), ("x", 0o100757, 0), ("x", 0o100777, 1000),
+            ("/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-git/bin/git", 0o100555, 65534),
+            ("/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-git/bin/git", 0o100555, 0),
+            ("/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-git/bin/git", 0o100755, 0),
+            ("/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-git/bin/git", 0o100775, 65534),
+            ("/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-git/bin/git", 0o100444, 0),
+            ("/nix/store-lookalike/git", 0o100555, 65534),
+            ("x", 0o040755, 0), ("x", 0o120777, 0), ("x", 0o100644, 0),
+        ];
+        let mut child = Command::new("python3").args(["-I", "-c", r#"
+import importlib.machinery, importlib.util, json, sys, types
+loader = importlib.machinery.SourceFileLoader('oracle', sys.argv[1])
+spec = importlib.util.spec_from_loader(loader.name, loader)
+signer = importlib.util.module_from_spec(spec)
+loader.exec_module(signer)
+cases = json.load(sys.stdin)
+json.dump([signer.unsafe_file(p, types.SimpleNamespace(st_mode=m, st_uid=u)) is None
+           for p, m, u in cases], sys.stdout)
+"#]).arg(python).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        serde_json::to_writer(child.stdin.take().unwrap(), &cases).unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success());
+        let accepted: Vec<bool> = serde_json::from_slice(&output.stdout).unwrap();
+        for ((path, mode, uid), expected) in cases.into_iter().zip(accepted) {
+            assert_eq!(trusted_file_mode(Path::new(path), mode, uid).is_ok(), expected,
+                "{path} mode={mode:o} uid={uid}");
+        }
+    }
 }
