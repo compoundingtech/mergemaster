@@ -21,6 +21,7 @@ pub mod workspace;
 mod ci_reattest;
 mod ci_transport;
 pub mod observers;
+pub mod producer_proof;
 #[cfg(test)]
 mod tests;
 

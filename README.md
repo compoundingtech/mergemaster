@@ -25,6 +25,22 @@ cargo test --workspace
 cargo run -- evidence --help
 ```
 
+## Producer receipt verification
+
+`evidence::producer_proof::verify` authenticates a canonical v1 receipt using an
+RS256 GitHub OIDC JWT whose exact string audience commits to the receipt SHA-256.
+It checks expiry, repository/run/attempt/check-run identity, immutable reusable
+workflow identity, and independently supplied BASE/tree/recipe/artifact bindings.
+Receipts reject unknown/duplicate fields, noncanonical JSON and undeclared
+action-key backends. Payload results remain producer assertions, not proof that
+hostile candidate code tested honestly.
+
+This library API does not fetch GitHub metadata, grant gate trust or access a
+signing key. Its caller must obtain expectations from protected policy, Git and
+authenticated attempt-specific APIs, and keys only from GitHub's fixed issuer
+JWKS endpoint. Candidate artifacts cannot supply either. Focused refusal tests:
+`nix develop -c cargo test -p mergemaster-evidence --lib producer_proof`.
+
 ## Provision a signing account
 
 Run as the non-root account that will own the key, using a public alias rather

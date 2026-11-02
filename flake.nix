@@ -17,7 +17,7 @@
       forAllSystems = nixpkgs.lib.genAttrs systems;
       scriptInputs = pkgs: with pkgs; [
         effect-utils.packages.${pkgs.stdenv.hostPlatform.system}.genie
-        (python3.withPackages (packages: [ packages.pyyaml ])) git openssh bash coreutils findutils gnugrep gnused gawk nix
+        (python3.withPackages (packages: [ packages.pyyaml ])) git openssh openssl bash coreutils findutils gnugrep gnused gawk nix
         nodejs typescript oxfmt
         gnutar gzip bzip2 xz zstd jq curl diffutils util-linux procps which time
       ];
@@ -28,7 +28,7 @@
           version = "0.3.0";
           src = pkgs.lib.cleanSource self;
           cargoLock.lockFile = ./Cargo.lock;
-          nativeCheckInputs = [ pkgs.git pkgs.openssh pkgs.coreutils pkgs.python3 ];
+          nativeCheckInputs = [ pkgs.git pkgs.openssh pkgs.openssl pkgs.coreutils pkgs.python3 ];
           preCheck = ''
             export HOME="$TMPDIR/home"
             mkdir -p "$HOME"
