@@ -26,6 +26,10 @@ path = "tests/workspace_inputs.rs"
 name = "generic_evidence"
 path = "tests/generic_evidence.rs"
 
+[[test]]
+name = "keygen"
+path = "tests/keygen.rs"
+
 [dependencies]
 anyhow = "1"
 base64 = "0.22"

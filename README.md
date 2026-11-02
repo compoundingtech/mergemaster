@@ -45,6 +45,10 @@ The native command requires Git and OpenSSH, not Python. `scripts/evidence-keyge
 remains unchanged for existing script consumers and as an independent parity oracle;
 it does not require an installed native binary.
 
+The focused parity check runs every assertion in `scripts/evidence-keygen-test`
+against both implementations, plus cross-implementation reuse and refusal cases:
+`nix develop -c cargo test -p mergemaster-evidence --test keygen` (non-root).
+
 ## Copied evidence scripts
 
 The evidence scripts and their self-tests originate from

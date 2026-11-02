@@ -131,3 +131,17 @@ fn provision(args: KeygenArgs) -> Result<()> {
     eprintln!("List the printed line in .st/evidence-keys with a pull request.");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn another_owner_is_refused_without_changing_the_directory() {
+        use std::os::unix::fs::MetadataExt;
+        let directory = tempfile::tempdir().unwrap();
+        let before = directory.path().metadata().unwrap();
+        let error = super::require(directory.path(), true, None, before.uid() + 1).unwrap_err();
+        assert!(error.to_string().contains("belongs to another user"));
+        let after = directory.path().metadata().unwrap();
+        assert_eq!((before.uid(), before.mode()), (after.uid(), after.mode()));
+    }
+}
