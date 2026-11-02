@@ -1026,3 +1026,71 @@ fn merge_resolution_lane_definition_requires_final_tree_measurement() {
     f.note(&f.statement(), &f.key, "tree");
     assert_eq!(f.decision(&[])["decision"], "skip");
 }
+
+fn merge_graph_decision(f: &mut Fixture, parents: &[String]) -> Value {
+    let mut args = vec!["commit-tree", &f.tree];
+    for parent in parents { args.extend(["-p", parent.as_str()]); }
+    f.head = f.git(&args, b"merge graph candidate\n");
+    f.git(&["checkout", "-q", "--detach", &f.head], b"");
+    f.note(&f.statement(), &f.key, "tree");
+    f.decision(&[])
+}
+
+#[test]
+fn merge_graph_parent_order_cannot_trust_a_foreign_second_parent() {
+    for base_first in [true, false] {
+        let mut f = Fixture::new();
+        let parents = if base_first {
+            [f.base.clone(), f.head.clone()]
+        } else {
+            [f.head.clone(), f.base.clone()]
+        };
+        let value = merge_graph_decision(&mut f, &parents);
+        assert_eq!(value["decision"], if base_first { "refuse" } else { "skip" }, "{value}");
+        assert_eq!(value["reason"], if base_first { "foreign_merge" } else { "satisfied" });
+    }
+}
+
+#[test]
+fn merge_graph_criss_cross_uses_accepted_base_ancestry_not_one_merge_base() {
+    for accepted_cross in [true, false] {
+        let mut f = Fixture::new();
+        let left = f.head.clone();
+        let right = f.git(&["commit-tree", &f.tree, "-p", &f.base], b"right fork\n");
+        let left_cross = f.git(&["commit-tree", &f.tree, "-p", &left, "-p", &right], b"left cross\n");
+        let right_cross = f.git(&["commit-tree", &f.tree, "-p", &right, "-p", &left], b"right cross\n");
+        let bases = f.git(&["merge-base", "--all", &left_cross, &right_cross], b"");
+        let actual: std::collections::BTreeSet<_> = bases.lines().collect();
+        assert_eq!(actual, std::collections::BTreeSet::from([left.as_str(), right.as_str()]));
+        f.base = if accepted_cross { right_cross.clone() } else { left };
+        let value = merge_graph_decision(&mut f, &[left_cross, right_cross]);
+        assert_eq!(value["decision"], if accepted_cross { "skip" } else { "refuse" }, "{value}");
+        assert_eq!(value["reason"], if accepted_cross { "satisfied" } else { "foreign_merge" });
+    }
+}
+
+#[test]
+fn merge_graph_accepts_a_base_that_is_itself_a_merge() {
+    let mut f = Fixture::new();
+    let root = f.base.clone();
+    let base_tree = f.git(&["rev-parse", &format!("{root}^{{tree}}")], b"");
+    let side = f.git(&["commit-tree", &base_tree, "-p", &root], b"accepted main side\n");
+    f.base = f.git(&["commit-tree", &base_tree, "-p", &root, "-p", &side], b"accepted main merge\n");
+    assert_eq!(f.git(&["rev-list", "--parents", "-n", "1", &f.base], b"").split_whitespace().count(), 3);
+    let parents = [f.head.clone(), f.base.clone()];
+    let value = merge_graph_decision(&mut f, &parents);
+    assert_eq!(value["decision"], "skip", "{value}");
+}
+
+#[test]
+fn merge_graph_all_trusted_non_first_octopus_parents_are_accepted() {
+    let mut f = Fixture::new();
+    let root = f.base.clone();
+    let base_tree = f.git(&["rev-parse", &format!("{root}^{{tree}}")], b"");
+    let older = f.git(&["commit-tree", &base_tree, "-p", &root], b"older main\n");
+    f.base = f.git(&["commit-tree", &base_tree, "-p", &older], b"current main\n");
+    let parents = [f.head.clone(), root, older, f.base.clone()];
+    let value = merge_graph_decision(&mut f, &parents);
+    assert_eq!(f.git(&["rev-list", "--parents", "-n", "1", &f.head], b"").split_whitespace().count(), 5);
+    assert_eq!(value["decision"], "skip", "{value}");
+}
