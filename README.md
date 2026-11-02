@@ -725,6 +725,13 @@ this fragment; no App or ruleset is created by this PR.
 
 ## Release binaries and retained Graph-shaped proof
 
+Version 0.3.0 adds explicit push-mode reuse of exact signed trees and permits
+pull-request merges from accepted BASE ancestry. Push lanes require explicit
+event opt-in; `foreign_merge` rejects unrelated merge parents, while push
+refusals distinguish mismatched trees, disallowed events, non-default branches,
+stale pushes and missing/wrong parent BASE. See [CHANGELOG.md](CHANGELOG.md) for
+release notes and the contracts above for bootstrap and trust requirements.
+
 `.github/workflows/release.yml` builds native Linux x86_64 and aarch64 musl
 executables on GitHub-hosted runners. A pushed `vX.Y.Z` tag publishes
 `mergemaster-x86_64-unknown-linux-musl`,
