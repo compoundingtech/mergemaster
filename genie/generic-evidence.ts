@@ -31,6 +31,7 @@ def command(*args):
 
 
 def api(endpoint, payload=None):
+    require(payload is None or not report_only, 'reporter cannot write GitHub APIs')
     args = ['gh', 'api', '--hostname', 'github.com', '-H', 'Accept: application/vnd.github+json',
             '-H', 'X-GitHub-Api-Version: 2022-11-28', endpoint]
     if payload is not None:
@@ -52,7 +53,9 @@ def pages(endpoint, key=None):
 
 repository = os.environ['GITHUB_REPOSITORY']
 require(re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository), 'invalid repository')
-require(os.environ['GITHUB_EVENT_NAME'] == 'pull_request_target', 'publisher requires pull_request_target')
+report_only = len(sys.argv) > 1 and sys.argv[1] == 'report-prepare'
+require(os.environ['GITHUB_EVENT_NAME'] == ('pull_request' if report_only else 'pull_request_target'),
+        'unexpected evidence workflow event')
 event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
 pull = event['pull_request']
 number = pull['number']
@@ -106,6 +109,8 @@ def prepare():
                    check=True, env=dict(os.environ, GIT_TERMINAL_PROMPT='0', GIT_CONFIG_COUNT='1',
                    GIT_CONFIG_KEY_0='http.https://github.com/.extraheader',
                    GIT_CONFIG_VALUE_0='AUTHORIZATION: basic ' + authorization))
+    if report_only:
+        return  # Reporter has contents:read only; no hosted API evidence or publication.
     reviews = pages(f'{root}/pulls/{number}/reviews')
     checks = pages(f'{root}/commits/{head}/check-runs?filter=all', 'check_runs')
     joined = []
@@ -216,3 +221,62 @@ export const genericEvidenceRequiredJob = ({ check, checkout, runner = 'ubuntu-2
     }, run: publisherScript('finalize') },
   ],
 })
+
+/** Informational only: never configure this job as a required check. */
+export const genericEvidenceReporterJob = ({ check, checkout, runner = 'ubuntu-24.04' }: Omit<GenericEvidenceOptions, 'appTokenStep'>): WorkflowObject => ({
+  name: 'generic-evidence-reporter',
+  if: "github.event_name == 'pull_request'",
+  'runs-on': runner,
+  'timeout-minutes': 15,
+  'continue-on-error': true,
+  permissions: { contents: 'read', 'pull-requests': 'read' },
+  defaults: { run: { shell: 'bash' } },
+  env: {
+    CHECK: check,
+    BASE_SHA: '${{ github.event.pull_request.base.sha }}',
+    HEAD_SHA: '${{ github.event.pull_request.head.sha }}',
+    GH_TOKEN: '${{ github.token }}',
+    GITHUB_TOKEN: '${{ github.token }}',
+    GH_PROMPT_DISABLED: '1',
+  },
+  steps: [
+    { name: 'Check out accepted base only', uses: checkout, with: {
+      ref: '${{ github.event.pull_request.base.sha }}', 'persist-credentials': false, 'fetch-depth': 0,
+    } },
+    // Deliberately exclude finalize (and its write API) from the reporter script.
+    { name: 'Fetch BASE-pinned verifier and candidate objects only', run:
+      `python3 - report-prepare <<'GENERIC_EVIDENCE_PY'\n${genericEvidencePublisher.split('\ndef finalize():')[0]}\nprepare()\nGENERIC_EVIDENCE_PY` },
+    { name: 'Evaluate without executing candidate source', id: 'gate', run: [
+      '"$RUNNER_TEMP/generic-evidence-release/mergemaster-x86_64-unknown-linux-musl" gate',
+      '  --check "$CHECK" --base "$BASE_SHA" --head "$HEAD_SHA"',
+      '  --event-file "$GITHUB_EVENT_PATH" --format json',
+      '  > "$RUNNER_TEMP/generic-evidence-decision.json"',
+    ].join(' \\\n') },
+    { name: 'Report informational decision', if: 'always()', env: {
+      GATE_OUTCOME: '${{ steps.gate.outcome }}',
+    }, run: `python3 - <<'GENERIC_REPORT_PY'\n${genericEvidenceReport}\nGENERIC_REPORT_PY` },
+  ],
+})
+
+export const genericEvidenceReport = String.raw`import json
+import os
+from pathlib import Path
+
+success = False
+summary = 'Verifier did not complete; evidence is not accepted.'
+try:
+    decision = json.loads((Path(os.environ['RUNNER_TEMP']) / 'generic-evidence-decision.json').read_text())
+    assert decision['version'] == 1 and decision['check'] == os.environ['CHECK']
+    assert decision['base'] == os.environ['BASE_SHA'] and decision['head'] == os.environ['HEAD_SHA']
+    summary = json.dumps(decision, ensure_ascii=True, indent=2)
+    success = (os.environ['GATE_OUTCOME'] == 'success'
+               and decision['decision'] == 'skip' and decision['outcome'] in ('satisfied', 'reused'))
+except (OSError, ValueError, KeyError, AssertionError):
+    pass
+with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as output:
+    # Escape Markdown/HTML supplied through policy/check names or diagnostic text.
+    import html
+    output.write('## Informational evidence report (not required)\n\n<pre>'
+                 + html.escape(summary) + '</pre>\n')
+raise SystemExit(0 if success else 1)
+`

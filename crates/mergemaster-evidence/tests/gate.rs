@@ -241,6 +241,61 @@ fn approval_evidence(f: &Fixture) -> Value {
 }
 
 #[test]
+fn missing_base_config_is_a_structured_refusal_even_if_head_supplies_it() {
+    for path in [".mergemaster/tool-pin.json", ".mergemaster/lanes.json",
+        ".mergemaster/environment.json", ".mergemaster/evidence-keys"] {
+        let mut f = Fixture::new();
+        let original = fs::read(f.repo.join(path)).unwrap();
+        f.git(&["rm", path], b"");
+        f.base = f.commit("base without configuration");
+        f.write(path, original);
+        f.refresh_head();
+        let output = f.root.path().join("outputs");
+        let decision = f.decision(&["--github-output", output.to_str().unwrap()]);
+        assert_eq!(decision["reason"], "config_missing");
+        assert_eq!(decision["decision"], "refuse");
+        assert_eq!(decision["outcome"], "rejected");
+        assert!(decision["summary"].as_str().unwrap().contains(path));
+        assert!(fs::read_to_string(output).unwrap().contains("refusal=config_missing\n"));
+        let error = load(&f.repo, &f.base).unwrap_err();
+        assert!(error.is::<mergemaster_evidence::gate::config::MissingConfig>());
+    }
+}
+
+#[test]
+fn invalid_base_config_is_not_misreported_as_missing() {
+    for kind in ["json", "directory", "symlink"] {
+        let mut f = Fixture::new();
+        let path = ".mergemaster/lanes.json";
+        f.git(&["rm", path], b"");
+        match kind {
+            "json" => f.write(path, "{invalid json"),
+            "directory" => f.write(&format!("{path}/child"), "not a blob"),
+            _ => std::os::unix::fs::symlink("environment.json", f.repo.join(path)).unwrap(),
+        }
+        f.base = f.commit("invalid base configuration");
+        f.refresh_head();
+        let error = load(&f.repo, &f.base).unwrap_err();
+        assert!(!error.is::<mergemaster_evidence::gate::config::MissingConfig>());
+        let result = f.gate(&[]);
+        assert!(!result.status.success());
+        assert!(result.stdout.is_empty());
+    }
+}
+
+#[test]
+fn read_only_gate_ignores_materialized_dependencies_and_scratch() {
+    let f = Fixture::new();
+    let before = f.decision(&[]);
+    f.write("node_modules/package/bin/postinstall", "must never execute");
+    f.write("scratch/observation.json", "not evidence");
+    f.write(".gitignore", "node_modules/\nscratch/\n");
+    let after = f.decision(&[]);
+    assert_eq!(before, after);
+    assert_eq!(fs::read_to_string(f.repo.join("scratch/observation.json")).unwrap(), "not evidence");
+}
+
+#[test]
 fn protected_human_approval_requires_exact_review_and_workflow_identity() {
     for case in ["valid", "missing", "stale_review", "stranger", "changes_requested", "dismissed",
         "failed", "pending", "stale_check", "stale_run", "renamed_workflow", "extra_validate",
@@ -381,13 +436,12 @@ fn base_keys_and_policy_cannot_be_replaced_by_head() {
 }
 
 #[test]
-fn malformed_or_missing_base_configuration_is_not_a_computed_decision() {
-    for case in ["unknown", "missing", "missing_field", "malformed", "version", "escape", "missing_path", "unsupported_adapter", "bad_environment", "bad_pin"] {
+fn malformed_base_configuration_is_not_a_computed_decision() {
+    for case in ["unknown", "missing_field", "malformed", "version", "escape", "missing_path", "unsupported_adapter", "bad_environment", "bad_pin"] {
         let mut f = Fixture::new();
         let mut policy = Fixture::policy("required_evidence");
         match case {
             "unknown" => policy["unknown"] = json!(true),
-            "missing" => { fs::remove_file(f.repo.join(".mergemaster/evidence-keys")).unwrap(); }
             "missing_field" => { policy["lanes"][CHECK].as_object_mut().unwrap().remove("argv"); }
             "malformed" => {}
             "version" => policy["version"] = json!(2),
