@@ -176,7 +176,7 @@ print((root / name).read_text())
             "head":{"sha":head,"repo":{"full_name":"fixture/repo"}},
             "base":{"ref":"main","repo":{"full_name":"fixture/repo"}}
         }).to_string()).unwrap();
-        fs::write(self.root.path().join("live-base"), json!({"object":{"sha":base}}).to_string()).unwrap();
+        fs::write(self.root.path().join("live-base"), json!({"default_branch":"main","object":{"sha":base}}).to_string()).unwrap();
     }
 
     fn gate(&self, extra: &[&str]) -> Output {
@@ -200,6 +200,14 @@ print((root / name).read_text())
         assert_eq!(value["tree"], self.tree);
         assert!(value["protected_paths"].is_array());
         value
+    }
+
+    fn push(&self, reference: &str, after: &str, live: &str) -> Value {
+        self.live_api(&self.head, live);
+        let event = self.root.path().join("push.json");
+        fs::write(&event, json!({"ref":reference,"after":after,
+            "repository":{"full_name":"fixture/repo"}}).to_string()).unwrap();
+        self.decision(&["--event", "push", "--event-file", event.to_str().unwrap()])
     }
 
     fn python(&self) -> Output {
@@ -843,5 +851,107 @@ fn immutable_ids_alone_are_not_a_local_live_authority() {
         assert!(!result.status.success());
         assert!(result.stdout.is_empty());
         assert!(!outputs.exists() || fs::read(outputs).unwrap().is_empty());
+    }
+}
+
+fn push_fixture(merge: bool) -> Fixture {
+    let mut f = Fixture::new();
+    f.git(&["checkout", "-q", "--detach", &f.base], b"");
+    let mut policy = Fixture::policy("required_evidence");
+    policy["lanes"][CHECK]["events"] = json!(["pull_request", "push"]);
+    f.write(".mergemaster/lanes.json", policy.to_string());
+    f.base = f.commit("accepted push policy");
+    f.write("source.txt", "candidate\n");
+    f.refresh_head();
+    f.note(&f.statement(), &f.key, "tree");
+    let mut args = vec!["commit-tree", &f.tree, "-p", &f.base];
+    if merge { args.extend(["-p", &f.head]); }
+    let main = f.git(&args, b"main integration\n");
+    f.head = main;
+    f.git(&["checkout", "-q", "--detach", &f.head], b"");
+    f
+}
+
+#[test]
+fn push_reuses_signed_tree_for_squash_and_merge_but_pr_default_is_unchanged() {
+    for merge in [false, true] {
+        let f = push_fixture(merge);
+        let pr = f.decision(&[]);
+        assert_eq!(pr["reason"], if merge { "merge_history" } else { "wrong_commit" });
+        assert_ne!(pr["decision"], "skip");
+        let push = f.push("refs/heads/main", &f.head, &f.head);
+        assert_eq!(push["decision"], "skip", "{push}");
+        assert_eq!(push["outcome"], "satisfied");
+    }
+}
+
+#[test]
+fn push_refuses_tree_mismatch_and_protected_policy_edits() {
+    for protected in [false, true] {
+        let mut f = push_fixture(false);
+        if protected {
+            let policy = f.git(&["show", "HEAD:.mergemaster/lanes.json"], b"");
+            f.write(".mergemaster/lanes.json", format!("{policy}\n"));
+        } else {
+            f.write("source.txt", "different tree\n");
+        }
+        f.git(&["add", "-A"], b"");
+        f.tree = f.git(&["write-tree"], b"");
+        f.head = f.git(&["commit-tree", &f.tree, "-p", &f.base], b"changed integration\n");
+        f.git(&["checkout", "-q", "--detach", &f.head], b"");
+        let value = f.push("refs/heads/main", &f.head, &f.head);
+        assert_eq!(value["decision"], "refuse", "{value}");
+        assert_eq!(value["reason"], if protected { "protected_paths" } else { "tree_mismatch" });
+    }
+}
+
+#[test]
+fn push_requires_opt_in_default_branch_and_current_live_sha() {
+    let f = Fixture::new();
+    f.note(&f.statement(), &f.key, "tree");
+    assert_eq!(f.push("refs/heads/main", &f.head, &f.head)["reason"], "event_not_allowed");
+    let f = push_fixture(false);
+    for (reference, after, live, reason) in [
+        ("refs/heads/topic", &f.head, &f.head, "not_default_branch"),
+        ("refs/heads/main", &f.base, &f.head, "stale_push"),
+        ("refs/heads/main", &f.head, &f.base, "stale_push"),
+    ] {
+        let value = f.push(reference, after, live);
+        assert_eq!(value["decision"], "refuse", "{value}");
+        assert_eq!(value["reason"], reason);
+    }
+}
+
+#[test]
+fn push_requires_a_first_parent_and_exact_parent_base() {
+    let mut f = push_fixture(false);
+    let parent = f.base.clone();
+    f.base = f.head.clone();
+    assert_eq!(f.push("refs/heads/main", &f.head, &f.head)["reason"], "base_not_parent");
+    f.base = parent;
+    let root = f.git(&["rev-list", "--max-parents=0", &f.head], b"");
+    f.head = root;
+    f.tree = f.git(&["rev-parse", &format!("{}^{{tree}}", f.head)], b"");
+    assert_eq!(f.push("refs/heads/main", &f.head, &f.head)["reason"], "no_parent");
+}
+
+#[test]
+fn push_keeps_binding_validation_and_newest_failure_selection() {
+    for (field, value, reason) in [
+        ("lane_definition_sha256", "wrong", "wrong_input"),
+        ("workspace_clean", "false", "workspace_dirty"),
+        ("exit_code", "1", "check_failed"),
+    ] {
+        let f = push_fixture(false);
+        let mut statement = f.statement();
+        if field == "exit_code" {
+            statement["predicate"]["observed"]["checks"][CHECK][field] = json!(1);
+        } else {
+            statement["predicate"]["observed"]["inputs"][field] = json!(value);
+        }
+        f.note(&statement, &f.key, "tree");
+        let decision = f.push("refs/heads/main", &f.head, &f.head);
+        assert_eq!(decision["decision"], "refuse", "{decision}");
+        assert_eq!(decision["reason"], reason);
     }
 }

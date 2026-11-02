@@ -341,8 +341,8 @@ fields are ordered `runtime`, `dependencies`; artifacts are `name`, `identity`.
 Lane struct fields follow the example, then `max_age_seconds` if present.
 The environment declaration is ordered `manifest`, `paths`. Dependency map
 keys are byte-sorted. Environment bytes are preserved exactly, including
-whitespace. These hashes supplement exact signed commit and tree identity;
-they never permit cross-tree evidence reuse.
+whitespace. Pull-request mode requires exact signed commit and tree identity.
+Explicit push mode below permits commit transfer only for identical trees.
 
 `skip/satisfied` means trusted evidence covers the exact lane, not a skipped
 required GitHub job. `refuse` must fail the required check; `run` must execute
@@ -390,6 +390,40 @@ This does not authenticate a GitHub event. With an event, the trusted
 the live PR head and base branch immediately before emitting a decision.
 Author allowlists additionally require opener, actor, triggering actor and every
 branch commit's exact author/committer identities.
+
+### Main-push tree-equality evidence
+
+`gate --event push` explicitly allows a signed PR-head observation to satisfy a
+default-branch push with the **same Git tree**, including squash and merge
+commits. The default remains `pull_request`, with exact commit matching and its
+existing merge-history refusal. BASE lanes must opt in with
+`"events": ["pull_request", "push"]`; PR author policy does not authorize pushes.
+
+Use a read-only, parent-owned bootstrap: load the verifier pin, keys and lane
+policy from the main commit's **first parent**, never from the pushed candidate.
+Fetch the main commit, its parent and evidence Git objects without executing
+candidate source. For example, after provisioning the BASE-pinned verifier:
+
+```sh
+git fetch origin 'refs/notes/evidence/*:refs/notes/evidence/*' \
+  'refs/tags/evidence/*:refs/tags/evidence/*'
+BASE="$(git rev-parse "$GITHUB_SHA^1")"
+mergemaster gate --event push --check example --base "$BASE" \
+  --head "$GITHUB_SHA" --event-file "$GITHUB_EVENT_PATH" --format json
+```
+
+Evidence is indexed by tree in `refs/notes/evidence/<tree>/<record>` (or retained
+evidence tags); the signed subject identifies its original commit. No PR lookup
+or mutable PR association is needed. The gate recomputes every lane, environment
+and workspace binding from accepted BASE policy and the main tree. Existing
+signature, trust, age, newest-failure and freshness/reuse requirements still
+apply. Protected edits are refused even with human-approval policy.
+
+A push event file and authenticated GitHub read access are required. Immediately
+before decision publication, the gate checks the live repository default branch
+and requires event `after`, requested HEAD and the live branch SHA to agree.
+Refusal reasons include `tree_mismatch`, `event_not_allowed`,
+`not_default_branch`, `stale_push`, `no_parent` and `base_not_parent`.
 
 ### Protected edits with human approval
 
