@@ -80,7 +80,7 @@ fn configuration(path: &Path, repo: &Path) -> Result<SignConfig> {
     Ok(config)
 }
 
-fn hash_file(path: &Path) -> Result<String> {
+pub(super) fn hash_file(path: &Path) -> Result<String> {
     let mut file = std::fs::File::open(path)?;
     let mut digest = Sha256::new();
     let mut buffer = [0u8; 65536];
@@ -138,6 +138,10 @@ pub fn measure_toolchain(repo: &Path, environment: &config::Environment, path: &
 }
 
 pub fn clean(repo: &Path) -> Result<bool> {
+    Ok(tracked_clean(repo)? && super::workspace::declared_only(repo, &[])?)
+}
+
+pub(super) fn tracked_clean(repo: &Path) -> Result<bool> {
     // Status alone trusts index flags and stat caches; execution uses filesystem bytes.
     let entries = git::git(repo, &["ls-files", "-v", "-z"])?;
     if entries.split(|b| *b == 0).filter(|entry| !entry.is_empty())
@@ -165,8 +169,8 @@ pub fn clean(repo: &Path) -> Result<bool> {
         let committed = git::git(repo, &["cat-file", "blob", object])?;
         if actual != hex::encode(Sha256::digest(committed)) { return Ok(false); }
     }
-    // Ignored/untracked files are inputs too, and staged changes must also refuse.
-    Ok(git::git(repo, &["status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching", "--ignore-submodules=none"])?.is_empty())
+    // Staged changes are forbidden even when working bytes match HEAD.
+    Ok(git::git(repo, &["status", "--porcelain=v1", "--untracked-files=no", "--ignore-submodules=none"])?.is_empty())
 }
 
 fn trusted_file(path: &Path) -> Result<PathBuf> {
@@ -260,9 +264,10 @@ pub fn run_worker(args: SignArgs) -> Result<()> {
             .map(|directory| directory.join(name)).find(|path| path.is_file()).context("worker tool missing")?;
         ensure!(std::fs::canonicalize(selected)? == expected, "worker must use trusted tools");
     }
-    ensure!(git::text(&request.repo, &["rev-parse", "HEAD"])? == request.head && clean(&request.repo)?, "signer requires exact clean HEAD");
+    ensure!(git::text(&request.repo, &["rev-parse", "HEAD"])? == request.head, "signer requires exact HEAD");
     let policy = config::load(&request.repo, &request.base)?;
     let lane = policy.policy.lanes.get(&request.check).context("unknown lane")?;
+    super::workspace::verify(&request.repo, &request.head, lane, false)?;
     let nix_check = derivation(&request.repo, &request.head, lane, &policy.environment, &args.config)?;
     if let Some((derivation, nix, _)) = &nix_check {
         let execution = request.inputs.get("nix_execution").context("missing Nix execution mode")?;
@@ -308,7 +313,7 @@ pub fn run_worker(args: SignArgs) -> Result<()> {
     git::git(scratch.path(), &["update-ref", &note_ref, &record])?;
     let bundle = scratch.path().join("record.bundle");
     git::git(scratch.path(), &["bundle", "create", bundle.to_str().context("bundle path")?, &note_ref])?;
-    ensure!(git::text(&request.repo, &["rev-parse", "HEAD"])? == request.head && clean(&request.repo)?, "HEAD/workspace changed during signing");
+    super::workspace::verify(&request.repo, &request.head, lane, false)?;
     println!("{}", serde_json::to_string(&Response { record, bundle: STANDARD.encode(std::fs::read(bundle)?), note_ref })?);
     Ok(())
 }

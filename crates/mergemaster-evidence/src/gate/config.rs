@@ -65,6 +65,10 @@ pub struct Lane {
     pub max_age_seconds: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nix_check: Option<NixCheck>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub inputs: BTreeMap<String, Artifact>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scratch: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -323,10 +327,16 @@ pub fn expected_inputs(repo: &Path, head: &str, check: &str, lane: &Lane,
     let environment_sha = hash(&(1, environment_bytes, &lane.environment.paths, environment_files))?;
     let toolchain_sha = hash(&(1, &environment.toolchain))?;
     let lane_sha = hash(&(1, check, lane, definition_files))?;
-    Ok(BTreeMap::from([
+    let mut inputs = BTreeMap::from([
         ("environment_sha256".to_owned(), environment_sha),
         ("toolchain_sha256".to_owned(), toolchain_sha),
         ("lane_definition_sha256".to_owned(), lane_sha),
         ("system".to_owned(), environment.system.clone()),
-    ]))
+    ]);
+    if !lane.inputs.is_empty() || !lane.scratch.is_empty() {
+        crate::evidence::workspace::validate(repo, head, lane)?;
+        inputs.insert("workspace_binding".into(), "v2".into());
+        inputs.insert("workspace_declaration_sha256".into(), hash(&(2, &lane.inputs, &lane.scratch))?);
+    }
+    Ok(inputs)
 }

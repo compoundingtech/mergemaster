@@ -29,12 +29,6 @@ pub struct WrapArgs {
     pub command: Vec<String>,
 }
 
-fn clean(repo: &Path, head: &str) -> Result<()> {
-    ensure!(git::text(repo, &["rev-parse", "HEAD"])? == head, "HEAD changed during evidence collection");
-    ensure!(super::signing::clean(repo)?,
-        "evidence requires exact committed workspace bytes and no hidden, untracked or ignored inputs");
-    Ok(())
-}
 
 fn input_git(repo: &Path, args: &[&str], input: &[u8]) -> Result<String> {
     let mut child = git::command(repo).args(args).stdin(Stdio::piped())
@@ -67,7 +61,7 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     ensure!(lane.nix_check.is_some() || (!args.reuse && args.command == lane.argv), "command must exactly equal BASE lane argv");
     let signer: Vec<String> = serde_json::from_str(&args.signer).context("--signer must be a JSON argv array")?;
     ensure!(!signer.is_empty() && !signer[0].is_empty() && signer.iter().all(|arg| !arg.contains('\0')), "invalid signer argv");
-    clean(&repo, &head)?;
+    super::workspace::verify(&repo, &head, lane, true)?;
     let mut inputs = config::expected_inputs(&repo, &head, &args.check, lane, &policy.environment, &policy.environment_bytes)?;
     inputs.extend(measure_toolchain(&repo, &policy.environment, &args.config, &args.command, lane.nix_check.is_none())?);
     let nix_check = super::signing::derivation(&repo, &head, lane, &policy.environment, &args.config)?;
@@ -114,7 +108,7 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     let output_sha256 = hex::encode(Sha256::digest(&output));
     let blob = input_git(&repo, &["hash-object", "-w", "--stdin"], &output)?;
     git::git(&repo, &["update-ref", &format!("refs/evidence-output/{output_sha256}"), &blob])?;
-    clean(&repo, &head)?;
+    super::workspace::verify(&repo, &head, lane, false)?;
     let closures = measure_toolchain(&repo, &policy.environment, &args.config, &command, lane.nix_check.is_none())?;
     ensure!(closures.iter().all(|(key, value)| inputs.get(key) == Some(value)), "Nix closure changed during execution");
     let after = config::expected_inputs(&repo, &head, &args.check, lane, &policy.environment, &policy.environment_bytes)?;
@@ -152,7 +146,7 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     let bundle_path = bundle.path().to_str().context("bundle path is not UTF-8")?;
     git::git(&repo, &["bundle", "unbundle", bundle_path])?;
     ensure!(git::text(&repo, &["cat-file", "-t", &response.record])? == "commit", "signer record is not a commit");
-    clean(&repo, &head)?;
+    super::workspace::verify(&repo, &head, lane, false)?;
     git::git(&repo, &["update-ref", &response.note_ref, &response.record])?;
     // Publication deliberately targets origin, never an argv/HEAD-provided remote.
     // Local file transport supports bare integration fixtures; SSH remains normal account auth.
