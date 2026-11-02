@@ -92,6 +92,11 @@ fn provision(args: KeygenArgs) -> Result<()> {
             "HOME ({}) is not this account's home ({}); pass --home DIR to mean another", home.display(), recorded.display());
         home
     };
+    // Match pathlib lexically: discard "."/empty components, not ".." or symlinks.
+    let spelling = home.as_os_str().as_bytes();
+    let mut normalized = PathBuf::from(if spelling.starts_with(b"//") && !spelling.starts_with(b"///") { "//" } else { "/" });
+    normalized.extend(home.components().skip(1));
+    let home = normalized;
     let directory = home.join(".config/st");
     let key = directory.join("evidence-sign-key");
     let scratch = directory.join("evidence-sign-scratch.git");

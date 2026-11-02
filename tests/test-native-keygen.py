@@ -70,9 +70,10 @@ class ExtraParity(unittest.TestCase):
                     self.assertEqual(path.stat().st_mode & 0o777, mode)
 
     def test_script_and_native_reuse_the_same_files_and_exact_enrollment_output(self):
-        for first, second in ((ORACLE, NATIVE), (NATIVE, ORACLE)):
+        for first, second, prefix, suffix in ((a, b, p, s) for a, b in ((ORACLE, NATIVE), (NATIVE, ORACLE)) for p, s in (('', ''), ('', '/.'), ('', '//'), ('/', ''), ('//', ''), ('', '/nested/..'))):
             with self.subTest(first=first), tempfile.TemporaryDirectory() as home:
-                args = ['--name', 'box-1', '--home', home]
+                (Path(home) / 'nested').mkdir()
+                args = ['--name', 'box-1', '--home', prefix + home + suffix]
                 before = real_run(first + args, capture_output=True, text=True)
                 self.assertEqual(before.returncode, 0, before.stderr)
                 directory = Path(home) / '.config/st'
