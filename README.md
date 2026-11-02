@@ -41,6 +41,13 @@ authenticated attempt-specific APIs, and keys only from GitHub's fixed issuer
 JWKS endpoint. Candidate artifacts cannot supply either. Focused refusal tests:
 `nix develop -c cargo test -p mergemaster-evidence --lib producer_proof`.
 
+JWT cryptography uses jsonwebtoken's supported AWS-LC backend; receipt verification
+still permits **only RS256**, regardless of the backend's other algorithms.
+This avoids the RustCrypto `rsa` dependency and its unused EC/Ed25519/HMAC crates.
+AWS-LC requires a native C/C++ compiler; its default non-FIPS build does not
+require CMake, Go or bindgen ([build requirements](https://docs.rs/aws-lc-rs/1.18.1/aws_lc_rs/#build)).
+No custom cryptographic provider or additional accepted JWT algorithm is introduced.
+
 ## Provision a signing account
 
 Run as the non-root account that will own the key, using a public alias rather
