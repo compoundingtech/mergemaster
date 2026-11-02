@@ -22,6 +22,22 @@ code, restores executable candidate caches, evaluates candidate build definition
 or executes extracted artifacts. It independently resolves Git objects and BASE
 policy; downloading a manifest does not make its assertions authoritative.
 
+### Lane-definition change routing
+
+Lane-definition changes require a person-operated signer's record; automated
+attestation never covers a lane whose definition differs between BASE and
+candidate. Other lanes in this profile use the BASE-only automated attestation.
+
+The gate independently compares the canonical definition manifests at BASE and
+candidate, including declared paths, content and executable modes; a candidate
+claim hash is not the comparison authority. For a changed lane, records from the
+automated tier are ineligible with `definition_changed_requires_person_tier`.
+Only a BASE-designated person-operated principal may authorize that changed
+candidate definition, with all normal signature/tree/recipe checks still in force.
+Do not infer person operation from an arbitrary non-automated key. The signer also
+refuses automated coverage of changed definitions; the gate repeats the check
+even if an automated signature is otherwise valid.
+
 ## Authenticated identity and artifact boundary
 
 GitHub OIDC supplies repository IDs, run ID, run attempt, event, workflow identity
@@ -190,7 +206,8 @@ Stable refusal codes: `oidc_invalid`, `identity_unbound`, `foreign_run`,
 `wrong_attempt`, `wrong_job`, `wrong_recipe`, `tree_mismatch`, `source_unbound`,
 `artifact_unbound`, `artifact_digest_mismatch`, `action_keys_unbound`,
 `payload_failed`, `signer_policy_mismatch`, `signing_unavailable`,
-`event_not_allowed`, `stale_merge_group`, and existing `protected_paths`.
+`event_not_allowed`, `stale_merge_group`,
+`definition_changed_requires_person_tier`, and existing `protected_paths`.
 Unsupported/missing provider authorization refuses; no local-key fallback.
 Transport failures and malformed configuration remain errors, not satisfaction.
 
