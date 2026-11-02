@@ -93,7 +93,7 @@ fn extract_source(archive: &Path, destination: &Path, size: u64, expected: &str)
         "source ZIP member set mismatch"
     );
     for index in 0..zipped.len() {
-        let entry = zipped.by_index(index)?;
+        let entry = zipped.by_index_raw(index)?;
         let limit = match entry.name_raw() {
             b"receipt.json" => 65536,
             b"source.pack" => 128 * 1024 * 1024,
