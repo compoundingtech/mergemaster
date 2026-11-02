@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use std::{io::Write, process::{Command, Stdio}, sync::LazyLock};
 
 // Ephemeral test-only RSA key: never written to disk, never used for signing records.
-static KEY: LazyLock<(EncodingKey, JwkSet)> = LazyLock::new(|| {
+static KEY: LazyLock<(EncodingKey, JwkSet, Vec<u8>)> = LazyLock::new(|| {
         let private = Command::new("openssl").args(["genrsa", "2048"]).output().unwrap();
         assert!(private.status.success());
         let mut public = Command::new("openssl").args(["rsa", "-modulus", "-noout"])
@@ -16,10 +16,15 @@ static KEY: LazyLock<(EncodingKey, JwkSet)> = LazyLock::new(|| {
         let modulus = String::from_utf8(public.stdout).unwrap();
         let n = URL_SAFE_NO_PAD.encode(hex::decode(modulus.trim().strip_prefix("Modulus=").unwrap()).unwrap());
         let jwks = serde_json::from_value(json!({"keys":[{"kty":"RSA","kid":"test","alg":"RS256","use":"sig","n":n,"e":"AQAB"}]})).unwrap();
-        (EncodingKey::from_rsa_pem(&private.stdout).unwrap(), jwks)
+        let mut pem = Command::new("openssl").args(["pkey", "-pubout"])
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        pem.stdin.take().unwrap().write_all(&private.stdout).unwrap();
+        let pem = pem.wait_with_output().unwrap();
+        assert!(pem.status.success());
+        (EncodingKey::from_rsa_pem(&private.stdout).unwrap(), jwks, pem.stdout)
 });
 
-fn key() -> &'static (EncodingKey, JwkSet) { &KEY }
+fn key() -> &'static (EncodingKey, JwkSet, Vec<u8>) { &KEY }
 
 fn fixture() -> (Receipt, Expected, Value) {
     let hash = "a".repeat(64);
@@ -94,8 +99,17 @@ fn producer_proof_refuses_forgery_expiry_and_unbound_job_or_workflow() {
     assert!(verify(&bytes, &token(&claims), &JwkSet { keys: vec![] }, &expected).is_err());
     let duplicate = JwkSet { keys: vec![key().1.keys[0].clone(), key().1.keys[0].clone()] };
     assert!(verify(&bytes, &token(&claims), &duplicate, &expected).is_err());
-    let wrong_alg = encode(&Header::new(Algorithm::HS256), &claims, &EncodingKey::from_secret(b"not-a-github-key")).unwrap();
+    let mut hs_header = Header::new(Algorithm::HS256);
+    hs_header.kid = Some("test".into());
+    let wrong_alg = encode(&hs_header, &claims, &EncodingKey::from_secret(&key().2)).unwrap();
     assert!(verify(&bytes, &wrong_alg, &key().1, &expected).is_err());
+    let none = format!("{}.{}.", URL_SAFE_NO_PAD.encode(br#"{"alg":"none","kid":"test","typ":"JWT"}"#),
+        URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap()));
+    assert!(verify(&bytes, &none, &key().1, &expected).is_err());
+    let mut unknown_header = Header::new(Algorithm::RS256);
+    unknown_header.kid = Some("unknown".into());
+    let unknown = encode(&unknown_header, &claims, &key().0).unwrap();
+    assert!(verify(&bytes, &unknown, &key().1, &expected).is_err());
     let mut policy = expected.clone();
     policy.action_backends.push("buck2".into());
     assert!(verify(&bytes, &token(&claims), &key().1, &policy).is_err());
