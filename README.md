@@ -693,6 +693,8 @@ executables on GitHub-hosted runners. A pushed `vX.Y.Z` tag publishes
 build-provenance attestations for all three assets. Builds use locked Cargo
 dependencies and reject an ELF interpreter or dynamic shared-library dependency.
 Git and OpenSSH remain runtime prerequisites for evidence operations.
+Before building a pushed tag, the workflow requires `vX.Y.Z` to match the
+`package.version` in `crates/mergemaster-evidence/Cargo.toml` exactly.
 
 Pull requests and `workflow_dispatch` build both architectures and assemble
 checksums but cannot attest or publish, even when dispatch targets a tag.
