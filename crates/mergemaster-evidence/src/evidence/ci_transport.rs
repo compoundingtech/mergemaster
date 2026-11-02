@@ -1,5 +1,5 @@
 //! Selector-only CI entry point for a protected profile. Configuration is in its private HOME.
-//! The profile's PATH supplies installed Git, gh, Python and timeout; never checkout tools.
+//! The profile's PATH supplies installed Git, gh and timeout; never checkout tools.
 use super::{observers::*, *};
 use base64::Engine as _;
 use serde_json::Value;
@@ -69,33 +69,65 @@ impl Github {
     }
 }
 
-// Only two regular files, no extraction of names supplied by an archive. All ZIP bytes are
-// authenticated before parsing; limits precede decompression and index-pack sees only pack bytes.
-const EXTRACT: &str = r#"
-import hashlib, json, pathlib, shutil, stat, sys, zipfile
-archive, destination = map(pathlib.Path, sys.argv[1:3])
-size, expected = int(sys.argv[3]), sys.argv[4]
-if archive.stat().st_size != size:
-    raise ValueError('source ZIP byte length mismatch')
-with archive.open('rb') as stream:
-    if hashlib.file_digest(stream, 'sha256').hexdigest() != expected:
-        raise ValueError('source ZIP digest mismatch')
-with zipfile.ZipFile(archive) as zipped:
-    entries = zipped.infolist()
-    if len(entries) != 2 or {entry.filename for entry in entries} != {'receipt.json', 'source.pack'}:
-        raise ValueError('source ZIP member set mismatch')
-    for entry in entries:
-        mode = entry.external_attr >> 16
-        if entry.is_dir() or stat.S_IFMT(mode) not in (0, stat.S_IFREG) or entry.flag_bits & 1:
-            raise ValueError('source ZIP member type mismatch')
-        limit = 65536 if entry.filename == 'receipt.json' else 128 * 1024 * 1024
-        if entry.file_size > limit:
-            raise ValueError('source ZIP member exceeds bound')
-    destination.mkdir(mode=0o700, exist_ok=False)
-    for name in ('receipt.json', 'source.pack'):
-        with zipped.open(name) as source, (destination / name).open('xb') as target:
-            shutil.copyfileobj(source, target, length=65536)
-"#;
+// Authenticate the complete ZIP before parsing, then write only fixed names into a new,
+// private directory. Validate every member before creating any extracted file.
+fn extract_source(archive: &Path, destination: &Path, size: u64, expected: &str) -> Result<()> {
+    use std::io::{Read, Seek};
+    use std::os::unix::fs::{DirBuilderExt, FileExt};
+    let mut source = std::fs::File::open(archive)?;
+    ensure!(source.metadata()?.len() == size, "source ZIP byte length mismatch");
+    let mut digest = sha2::Sha256::new();
+    let mut buffer = [0; 65536];
+    loop {
+        let count = source.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        digest.update(&buffer[..count]);
+    }
+    ensure!(hex::encode(digest.finalize()) == expected, "source ZIP digest mismatch");
+    source.rewind()?;
+    let mut zipped = zip::ZipArchive::new(&source)?;
+    ensure!(
+        zipped.len() == 2 && !zipped.has_duplicate_names(),
+        "source ZIP member set mismatch"
+    );
+    for index in 0..zipped.len() {
+        let entry = zipped.by_index_raw(index)?;
+        let limit = match entry.name_raw() {
+            b"receipt.json" => 65536,
+            b"source.pack" => 128 * 1024 * 1024,
+            _ => bail!("source ZIP member set mismatch"),
+        };
+        let kind = (entry.external_attributes() >> 16) & 0o170000;
+        ensure!(
+            !entry.is_dir() && matches!(kind, 0 | 0o100000) && !entry.encrypted(),
+            "source ZIP member type mismatch"
+        );
+        ensure!(entry.size() <= limit, "source ZIP member exceeds bound");
+        // Positioned reads leave the ZIP reader's shared file cursor untouched.
+        let mut header = [0; 30];
+        source.read_exact_at(&mut header, entry.header_start())?;
+        let name_length = usize::from(u16::from_le_bytes([header[26], header[27]]));
+        ensure!(name_length == entry.name_raw().len(), "source ZIP local name mismatch");
+        let mut local_name = [0; 12]; // Only the two fixed names above are accepted.
+        source.read_exact_at(&mut local_name[..name_length], entry.header_start() + 30)?;
+        ensure!(&local_name[..name_length] == entry.name_raw(), "source ZIP local name mismatch");
+    }
+    std::fs::DirBuilder::new().mode(0o700).create(destination)?;
+    for name in ["receipt.json", "source.pack"] {
+        let mut entry = zipped.by_name(name)?;
+        let declared = entry.size();
+        let mut target = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(destination.join(name))?;
+        // A forged central-directory size cannot make decompression exceed its bound.
+        let copied = std::io::copy(&mut entry.by_ref().take(declared + 1), &mut target)?;
+        ensure!(copied == declared, "source ZIP member byte length mismatch");
+    }
+    Ok(())
+}
 
 /// Numeric selectors only. No caller-provided repository, path, verdict, statement or key.
 pub fn observe_ci(run: u64, attempt: u64, artifact: u64, predecessors: &[String]) -> Result<Value> {
@@ -206,17 +238,7 @@ pub fn observe_ci(run: u64, attempt: u64, artifact: u64, predecessors: &[String]
         .status()?;
     ensure!(status.success(), "source artifact transfer unavailable");
     let destination = scratch.path().join("verified");
-    let status = Command::new("python3")
-        .args(["-c", EXTRACT])
-        .arg(&archive)
-        .arg(&destination)
-        .arg(size.to_string())
-        .arg(hash)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()?;
-    ensure!(status.success(), "source artifact verification failed");
+    extract_source(&archive, &destination, size, &hash)?;
     let receipt: SourceReceipt =
         serde_json::from_slice(&std::fs::read(destination.join("receipt.json"))?)?;
     let pack = std::fs::read(destination.join("source.pack"))?;
@@ -406,4 +428,107 @@ fn fetch_source(repo: &Path, repository: &str, revisions: &[&str]) -> Result<()>
         "accepted baseline/platform source unavailable"
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod archive_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn archive(root: &Path, case: &str) -> PathBuf {
+        let path = root.join("source.zip");
+        let status = Command::new("python3").args(["-c", r#"
+import pathlib, stat, struct, sys, warnings, zipfile
+path, case = pathlib.Path(sys.argv[1]), sys.argv[2]
+names = ['receipt.json', 'source.pack']
+if case in ('../escape', '/absolute', 'nested/receipt.json', 'receipt.json/'):
+    names[0] = case
+if case == 'duplicate':
+    names[1] = names[0]
+with warnings.catch_warnings(), zipfile.ZipFile(path, 'w') as archive:
+    warnings.simplefilter('ignore')
+    for name in names + (['extra'] if case == 'extra' else ['receipt.json'] if case == 'duplicate_extra' else []):
+        info = zipfile.ZipInfo(name)
+        info.create_system = 3
+        kind = {'symlink': stat.S_IFLNK, 'fifo': stat.S_IFIFO,
+                'device': stat.S_IFCHR, 'directory': stat.S_IFDIR}.get(case, stat.S_IFREG)
+        info.external_attr = (kind | 0o600) << 16
+        info.compress_type = {'deflate': zipfile.ZIP_DEFLATED, 'bzip2': zipfile.ZIP_BZIP2,
+                              'lzma': zipfile.ZIP_LZMA}.get(case, zipfile.ZIP_STORED)
+        archive.writestr(info, b'\x00\xff\r\npayload' if name == 'source.pack' else b'{}\n')
+data = bytearray(path.read_bytes())
+central = data.index(b'PK\x01\x02')
+if case == 'encrypted':
+    struct.pack_into('<H', data, 6, 1)
+    struct.pack_into('<H', data, central + 8, 1)
+if case in ('receipt_limit', 'pack_limit', 'forged_size'):
+    if case == 'pack_limit':
+        central = data.index(b'PK\x01\x02', central + 4)
+    size = {'receipt_limit': 65537, 'pack_limit': 128*1024*1024+1, 'forged_size': 1}[case]
+    struct.pack_into('<I', data, central + 24, size)
+if case == 'crc':
+    data[30 + len(names[0])] ^= 1
+if case == 'local_name':
+    data[30] ^= 32
+if case == 'local_name_length':
+    struct.pack_into('<H', data, 26, len(names[0]) - 1)
+if case == 'truncated':
+    del data[-12:]
+path.write_bytes(data)
+if case in ('local_name', 'local_name_length'):
+    with zipfile.ZipFile(path) as archive:
+        try:
+            archive.read('receipt.json')
+        except zipfile.BadZipFile:
+            pass
+        else:
+            raise AssertionError('Python oracle accepted mismatched local name')
+"#]).arg(&path).arg(case).status().unwrap();
+        assert!(status.success());
+        path
+    }
+
+    fn extract(path: &Path, destination: &Path) -> Result<()> {
+        let bytes = std::fs::read(path)?;
+        extract_source(path, destination, bytes.len() as u64, &hex::encode(sha2::Sha256::digest(&bytes)))
+    }
+
+    #[test]
+    fn archive_bytes_match_python_for_all_legacy_compression_methods() {
+        for case in ["stored", "deflate", "bzip2", "lzma"] {
+            let root = tempfile::tempdir().unwrap();
+            let path = archive(root.path(), case);
+            let destination = root.path().join("verified");
+            extract(&path, &destination).unwrap();
+            assert_eq!(std::fs::read(destination.join("receipt.json")).unwrap(), b"{}\n");
+            assert_eq!(std::fs::read(destination.join("source.pack")).unwrap(), b"\x00\xff\r\npayload");
+            assert_eq!(destination.metadata().unwrap().permissions().mode() & 0o777, 0o700);
+            assert!(extract(&path, &destination).is_err(), "never reuse a destination");
+        }
+    }
+
+    #[test]
+    fn archive_rejects_adversarial_members_and_corruption() {
+        for case in ["../escape", "/absolute", "nested/receipt.json", "receipt.json/",
+            "duplicate", "duplicate_extra", "extra", "symlink", "fifo", "device", "directory", "encrypted",
+            "receipt_limit", "pack_limit", "forged_size", "crc", "truncated", "local_name", "local_name_length"] {
+            let root = tempfile::tempdir().unwrap();
+            let path = archive(root.path(), case);
+            let destination = root.path().join("verified");
+            assert!(extract(&path, &destination).is_err(), "accepted {case}");
+            assert!(!root.path().join("escape").exists());
+        }
+    }
+
+    #[test]
+    fn archive_authentication_precedes_parsing_or_writes() {
+        let root = tempfile::tempdir().unwrap();
+        let path = archive(root.path(), "stored");
+        let destination = root.path().join("verified");
+        let bytes = std::fs::read(&path).unwrap();
+        let hash = hex::encode(sha2::Sha256::digest(&bytes));
+        assert!(extract_source(&path, &destination, bytes.len() as u64 + 1, &hash).is_err());
+        assert!(extract_source(&path, &destination, bytes.len() as u64, &"0".repeat(64)).is_err());
+        assert!(!destination.exists());
+    }
 }
