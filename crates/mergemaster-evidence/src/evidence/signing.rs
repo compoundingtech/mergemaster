@@ -348,7 +348,7 @@ mod hardening_tests {
             ("/nix/store-lookalike/git", 0o100555, 65534),
             ("x", 0o040755, 0), ("x", 0o120777, 0), ("x", 0o100644, 0),
         ];
-        let mut child = Command::new("python3").args(["-I", "-c", r#"
+        let mut child = Command::new("python3").args(["-I", "-B", "-c", r#"
 import importlib.machinery, importlib.util, json, sys, types
 loader = importlib.machinery.SourceFileLoader('oracle', sys.argv[1])
 spec = importlib.util.spec_from_loader(loader.name, loader)
