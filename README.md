@@ -363,7 +363,7 @@ The JSON result contains `version`, `check`, `base`, `head`, `tree`, `decision`,
 optional-fallback lanes. A BASE-authorized `human_approval` policy permits the
 explicit review/hosted-check path described below; agent signatures alone
 never authorize protected changes.
-The stable reason codes are `satisfied`, `base_not_ancestor`, `merge_history`, `protected_paths`,
+The stable reason codes are `satisfied`, `base_not_ancestor`, `foreign_merge`, `protected_paths`,
 `ineligible_event`, `no_record`, `invalid_record`, `untrusted_signer`,
 `wrong_check`, `stale_tree`, `degraded`, `untrusted_tier`, `wrong_commit`,
 `untrusted_level`, `future_dated`, `too_old`, `check_failed`, `wrong_command`,
@@ -371,9 +371,14 @@ The stable reason codes are `satisfied`, `base_not_ancestor`, `merge_history`, `
 `hosted_check_missing`, and `human_approval_satisfied`. Consumers branch on these codes, not
 diagnostic prose. Malformed configuration or unavailable Git plumbing is an
 error, not a computed satisfaction result.
-Merge commits anywhere in `BASE..HEAD` always refuse, including optional-fallback
-lanes. The `merge_history` reason takes precedence over protected edits, but
-`protected_paths` still lists every touched protected path. Protected comparisons
+In pull-request mode, every merge in `BASE..HEAD` is allowed only when **all
+non-first parents are ancestors of accepted BASE**. This permits carries of the
+protected base branch, including older base tips, but not side-branch merges.
+Any other merge returns `foreign_merge`, including optional-fallback lanes;
+this reason takes precedence over protected edits, while `protected_paths`
+still lists every touched protected path. Policy protection uses the complete
+BASE→HEAD tree diff, and lane/environment bindings use the final HEAD tree:
+conflict-resolution edits cannot disappear inside a per-commit walk. Protected comparisons
 use Unicode NFKC normalization and lowercase component matching, including ancestor
 replacement paths; signatures cannot authorize replacing a protected root with
 a symlink. Live head/base movement or unavailable live authority is an error,
@@ -395,8 +400,8 @@ branch commit's exact author/committer identities.
 
 `gate --event push` explicitly allows a signed PR-head observation to satisfy a
 default-branch push with the **same Git tree**, including squash and merge
-commits. The default remains `pull_request`, with exact commit matching and its
-existing merge-history refusal. BASE lanes must opt in with
+commits. The default remains `pull_request`, with exact commit matching and the
+protected-base merge restriction above. BASE lanes must opt in with
 `"events": ["pull_request", "push"]`; PR author policy does not authorize pushes.
 
 Use a read-only, parent-owned bootstrap: load the verifier pin, keys and lane
