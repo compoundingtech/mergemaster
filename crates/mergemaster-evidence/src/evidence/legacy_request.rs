@@ -132,7 +132,7 @@ def add(label, request):
         valid = True
     except signer.Refused:
         valid = False
-    cases.append(dict(label=label, request=request, valid=valid))
+    cases.append(dict(label=label, request=copy.deepcopy(request), valid=valid))
 def change(label, path, value, source=base):
     request = copy.deepcopy(source)
     parent = request
@@ -211,8 +211,9 @@ json.dump(cases, sys.stdout)
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
         let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
         assert!(cases.len() > 100);
-        for case in cases {
+        for case in &cases {
             assert_eq!(super::validate(&case["request"]).is_ok(), case["valid"].as_bool().unwrap(), "{}", case["label"]);
         }
+        eprintln!("{} legacy request cases matched the Python oracle", cases.len());
     }
 }
