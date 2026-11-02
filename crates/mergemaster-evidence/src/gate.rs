@@ -17,6 +17,8 @@ pub struct Args {
     #[arg(long)] pub check: String,
     #[arg(long)] pub base: String,
     #[arg(long)] pub head: String,
+    #[arg(long, default_value = "pull_request", value_parser = ["pull_request", "push"])]
+    pub event: String,
     #[arg(long)] pub event_file: Option<PathBuf>,
     #[arg(long)] pub hosted_evidence: Option<PathBuf>,
     #[arg(long, value_parser = ["json"])] pub format: String,
@@ -55,12 +57,18 @@ pub struct Decision {
 
 pub fn run(args: Args) -> Result<()> {
     let repo = std::env::current_dir()?;
-    let live = Live::read(&repo, &args.base, &args.head, args.event_file.as_deref())?;
-    let decision = compute(&repo, &args.check, &args.base, &args.head, args.event_file.as_deref(), args.hosted_evidence.as_deref())?;
-    let json = serde_json::to_string(&decision)?;
+    let push = args.event == "push";
+    let live = Live::read(&repo, &args.base, &args.head, args.event_file.as_deref(), push)?;
+    let mut decision = compute(&repo, &args.check, &args.base, &args.head, args.event_file.as_deref(), args.hosted_evidence.as_deref(), push)?;
     let mut output = args.github_output.map(|path|
         std::fs::OpenOptions::new().append(true).create(true).open(path)).transpose()?;
-    live.recheck(&repo, &args.base, &args.head)?;
+    if let Some(reason) = live.recheck(&repo, &args.base, &args.head)? {
+        decision.decision = "refuse";
+        decision.outcome = "rejected";
+        decision.reason = reason;
+        decision.record = None;
+    }
+    let json = serde_json::to_string(&decision)?;
     if let Some(output) = output.as_mut() {
         // No decision outputs are written until the mutable authorities are rechecked.
         writeln!(output, "skip={}\nrecord={}\noutcome={}\nrefuse={}\nrefusal={}",
@@ -88,16 +96,22 @@ fn commit(repo: &Path, value: &str) -> Result<()> {
 enum Live {
     Local { head: String, head_ref: String, refs: String },
     Github { repository: String, number: u64, base_ref: String },
+    Push { repository: String, reference: String, after: String },
 }
 
 impl Live {
-    fn read(repo: &Path, base: &str, head: &str, event: Option<&Path>) -> Result<Self> {
+    fn read(repo: &Path, base: &str, head: &str, event: Option<&Path>, push: bool) -> Result<Self> {
         if let Some(path) = event {
             let event: serde_json::Value = serde_json::from_slice(&std::fs::read(path)?)?;
             let repository = std::env::var("GITHUB_REPOSITORY").context("trusted repository required")?;
             ensure!(repository.split('/').count() == 2 && repository.split('/').all(|part|
                 !part.is_empty() && part.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))),
                 "invalid trusted repository");
+            if push {
+                return Ok(Self::Push { repository,
+                    reference: event["ref"].as_str().unwrap_or_default().into(),
+                    after: event["after"].as_str().unwrap_or_default().into() });
+            }
             let number = event.pointer("/pull_request/number").or_else(|| event.get("number"))
                 .and_then(serde_json::Value::as_u64).filter(|n| *n > 0).context("PR number required")?;
             let base_ref = event.pointer("/pull_request/base/ref")
@@ -117,7 +131,7 @@ impl Live {
         git::text(repo, &["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/", "refs/remotes/"])
     }
 
-    fn recheck(&self, repo: &Path, base: &str, head: &str) -> Result<()> {
+    fn recheck(&self, repo: &Path, base: &str, head: &str) -> Result<Option<&'static str>> {
         match self {
             Self::Local { head: initial, head_ref, refs } => {
                 ensure!(git::text(repo, &["rev-parse", "HEAD"])? == *initial &&
@@ -136,8 +150,18 @@ impl Live {
                 ensure!(branch.pointer("/object/sha").and_then(serde_json::Value::as_str) == Some(base),
                     "live base tip changed");
             }
+            Self::Push { repository, reference, after } => {
+                let metadata = Self::api(repo, &format!("repos/{repository}"))?;
+                let branch = metadata["default_branch"].as_str().context("live default branch required")?;
+                if reference != &format!("refs/heads/{branch}") { return Ok(Some("not_default_branch")); }
+                let encoded: String = branch.bytes().map(|b| format!("%{b:02X}")).collect();
+                let tip = Self::api(repo, &format!("repos/{repository}/git/ref/heads/{encoded}"))?;
+                if after != head || tip.pointer("/object/sha").and_then(serde_json::Value::as_str) != Some(head) {
+                    return Ok(Some("stale_push"));
+                }
+            }
         }
-        Ok(())
+        Ok(None)
     }
 
     fn api(repo: &Path, endpoint: &str) -> Result<serde_json::Value> {
@@ -164,13 +188,13 @@ impl Live {
 }
 
 pub fn decide(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path>) -> Result<Decision> {
-    let live = Live::read(repo, base, head, event)?;
-    let decision = compute(repo, check, base, head, event, None)?;
-    live.recheck(repo, base, head)?;
+    let live = Live::read(repo, base, head, event, false)?;
+    let decision = compute(repo, check, base, head, event, None, false)?;
+    let _ = live.recheck(repo, base, head)?;
     Ok(decision)
 }
 
-fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path>, hosted: Option<&Path>) -> Result<Decision> {
+fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path>, hosted: Option<&Path>, push: bool) -> Result<Decision> {
     commit(repo, base)?;
     commit(repo, head)?;
     let tree = git::text(repo, &["rev-parse", &format!("{head}^{{tree}}")])?;
@@ -187,6 +211,27 @@ fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path
     let mut decision = Decision { version: 1, check: check.into(), base: base.into(), head: head.into(), tree,
         decision: if lane.mode == "required_evidence" { "refuse" } else { "run" },
         outcome: "rejected", reason: "base_not_ancestor", record: None, protected_paths: Vec::new(), summary: String::new() };
+    if !lane.events.iter().any(|event| event == if push { "push" } else { "pull_request" }) {
+        decision.reason = "event_not_allowed";
+        return Ok(decision);
+    }
+    if push {
+        let parents = git::text(repo, &["rev-list", "--parents", "-n", "1", head])?;
+        let Some(parent) = parents.split_whitespace().nth(1) else {
+            decision.reason = "no_parent";
+            return Ok(decision);
+        };
+        if parent != base { decision.reason = "base_not_parent"; return Ok(decision); }
+        let payload: serde_json::Value = match event {
+            Some(path) => serde_json::from_slice(&std::fs::read(path)?)?,
+            None => { decision.reason = "event_not_allowed"; return Ok(decision); }
+        };
+        if payload.pointer("/repository/full_name").and_then(serde_json::Value::as_str)
+            != std::env::var("GITHUB_REPOSITORY").ok().as_deref() {
+            decision.reason = "event_not_allowed";
+            return Ok(decision);
+        }
+    }
     let relation = git::command(repo).args(["merge-base", "--is-ancestor", base, head]).output()?;
     match relation.status.code() {
         Some(0) => {},
@@ -202,17 +247,17 @@ fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path
             decision.protected_paths.push(path.to_owned());
         }
     }
-    if !git::text(repo, &["rev-list", "--min-parents=2", &format!("{base}..{head}")])?.is_empty() {
+    if !push && !git::text(repo, &["rev-list", "--min-parents=2", &format!("{base}..{head}")])?.is_empty() {
         decision.decision = "refuse";
         decision.reason = "merge_history";
         return Ok(decision);
     }
-    if !decision.protected_paths.is_empty() && lane.protected_edits == "reject" {
+    if !decision.protected_paths.is_empty() && (push || lane.protected_edits == "reject") {
         decision.decision = "refuse";
         decision.reason = "protected_paths";
         return Ok(decision);
     }
-    if !eligible(repo, base, head, event, &config, lane)? {
+    if !push && !eligible(repo, base, head, event, &config, lane)? {
         decision.reason = "ineligible_event";
         return Ok(decision);
     }
@@ -236,11 +281,11 @@ fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path
     let mut keys = tempfile::NamedTempFile::new()?;
     keys.write_all(&config.keys)?;
     keys.flush()?;
-    let (records, malformed) = records(repo, &decision.tree)?;
+    let (records, malformed, other_tree) = records(repo, &decision.tree)?;
     let mut candidates = Vec::new();
     decision.outcome = "no_note";
-    decision.reason = if malformed { "invalid_record" } else { "no_record" };
-    if malformed { decision.outcome = "rejected"; }
+    decision.reason = if malformed { "invalid_record" } else if push && other_tree { "tree_mismatch" } else { "no_record" };
+    if malformed || (push && other_tree) { decision.outcome = "rejected"; }
     for id in records {
         let mut command = Command::new(std::env::current_exe()?);
         git::sanitize(&mut command);
@@ -253,7 +298,7 @@ fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path
         }
         let statement: Statement = serde_json::from_slice(&output.stdout).context("signature worker output")?;
         if statement.subject[0].digest.get("gitTree") != Some(&decision.tree) {
-            decision.reason = "stale_tree";
+            decision.reason = if push { "tree_mismatch" } else { "stale_tree" };
             decision.outcome = "rejected";
             continue;
         }
@@ -274,7 +319,7 @@ fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path
     decision.record = Some(chosen.0);
     decision.outcome = "rejected";
     let statement = chosen.1;
-    decision.reason = satisfy(&statement, check, head, &decision.tree, lane, &expected);
+    decision.reason = satisfy(&statement, check, head, &decision.tree, lane, &expected, push);
     if matches!(decision.reason, "satisfied" | "execution_reused") {
         decision.decision = "skip";
         decision.outcome = "satisfied";
@@ -301,11 +346,11 @@ fn failed(statement: &Statement, check: &str) -> bool {
 }
 
 fn satisfy(statement: &Statement, check: &str, head: &str, tree: &str, lane: &Lane,
-    expected: &std::collections::BTreeMap<String, String>) -> &'static str {
+    expected: &std::collections::BTreeMap<String, String>, push: bool) -> &'static str {
     let predicate = &statement.predicate;
     if predicate.tier == TrustTier::Degraded { return "degraded"; }
     if predicate.tier != TrustTier::Full { return "untrusted_tier"; }
-    if statement.subject[0].name != head { return "wrong_commit"; }
+    if (!push && statement.subject[0].name != head) || (push && !oid(&statement.subject[0].name)) { return "wrong_commit"; }
     if statement.subject[0].digest.get("gitTree").map(String::as_str) != Some(tree) { return "stale_tree"; }
     let principal = predicate.signer.as_deref().unwrap_or("");
     if !lane.trust_levels.iter().any(|level| level == principal.split('/').next().unwrap_or("")) { return "untrusted_level"; }
@@ -341,10 +386,11 @@ fn satisfy(statement: &Statement, check: &str, head: &str, tree: &str, lane: &La
     "satisfied"
 }
 
-fn records(repo: &Path, tree: &str) -> Result<(BTreeSet<String>, bool)> {
+fn records(repo: &Path, tree: &str) -> Result<(BTreeSet<String>, bool, bool)> {
     let refs = git::text(repo, &["for-each-ref", "--format=%(refname) %(objectname)", "refs/notes/evidence/", "refs/tags/evidence/"])?;
     let mut found = BTreeSet::new();
     let mut malformed = false;
+    let mut other_tree = false;
     for line in refs.lines() {
         let (name, value) = line.split_once(' ').context("evidence ref listing")?;
         let suffix = name.strip_prefix("refs/notes/evidence/").or_else(|| name.strip_prefix("refs/tags/evidence/")).context("evidence namespace")?;
@@ -352,12 +398,14 @@ fn records(repo: &Path, tree: &str) -> Result<(BTreeSet<String>, bool)> {
         let id = match parts.as_slice() {
             [id] if name.starts_with("refs/notes/") => *id,
             [scope, id] if *scope == tree => *id,
+            // Namespace hints affect only the refusal diagnostic, never authority.
+            [scope, _] if oid(scope) => { other_tree = true; continue; },
             _ => continue,
         };
         if !oid(id) || id != value { malformed = true; continue; }
         found.insert(id.to_owned());
     }
-    Ok((found, malformed))
+    Ok((found, malformed, other_tree))
 }
 
 fn eligible(repo: &Path, base: &str, head: &str, event: Option<&Path>, config: &Config, lane: &Lane) -> Result<bool> {
