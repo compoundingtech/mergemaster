@@ -13,7 +13,7 @@ impl<'de> DeserializeSeed<'de> for ReservedKey {
 impl<'de> Visitor<'de> for ReservedKey {
     type Value = bool;
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { f.write_str("object key") }
-    fn visit_str<E: serde::de::Error>(self, s: &str) -> Result<bool, E> { Ok(s == "$serde_json::private::Number") }
+    fn visit_str<E: serde::de::Error>(self, s: &str) -> Result<bool, E> { Ok(s.starts_with("$serde_json::private::")) }
 }
 struct LiteralObjects;
 impl<'de> Visitor<'de> for LiteralObjects {
@@ -212,7 +212,8 @@ def change(label, path, value, source=base):
     parent[path[-1]] = value
     add(label, request)
 add('wrapper', base)
-change('number-object', ['exit_code'], {'$serde_json::private::Number':'0'})
+for key in ['$serde_json::private::Number', '$serde_json::private::RawValue', r'\u0024serde_json::private::RawValue', '$serde_json::private::Future']:
+    raw = json.dumps(base).replace('"exit_code": 0', '"exit_code": {"'+key+'": "0"}'); add('private-object-'+key, json.loads(raw), raw)
 for spelling in ['10000000000000000.0', '-0', '-0.0', '1e16', '1.5', '1.0', '1e-5', '0.0001', '1e-4', '1e-6', '1e1000', '1'+('0'*40), '1'+('0'*64)]:
     raw = json.dumps(base).replace('"gate"', spelling, 1)
     add('numeric-check-'+spelling, json.loads(raw), raw)
