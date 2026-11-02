@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+"""Real local history contracts for the report-only origin drift inventory."""
+import importlib.machinery
+import importlib.util
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parent.parent
+loader = importlib.machinery.SourceFileLoader('parity_drift', str(ROOT / 'scripts/parity-drift'))
+spec = importlib.util.spec_from_loader(loader.name, loader)
+drift = importlib.util.module_from_spec(spec)
+loader.exec_module(drift)
+
+
+class DriftTest(unittest.TestCase):
+    def setUp(self):
+        scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(scratch.cleanup)
+        self.root = Path(scratch.name)
+        self.repo = self.root / 'repo'
+        self.repo.mkdir()
+        self.env = dict(os.environ, GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_SYSTEM='/dev/null',
+                        GIT_CONFIG_COUNT='0', GIT_AUTHOR_NAME='Fixture', GIT_COMMITTER_NAME='Fixture',
+                        GIT_AUTHOR_EMAIL='fixture@example.invalid', GIT_COMMITTER_EMAIL='fixture@example.invalid')
+        self.git('init', '-q')
+        self.git('config', 'core.hooksPath', '/dev/null')
+        self.base = self.commit('scripts/st-test', 'baseline')
+        self.provenance = self.root / 'scripts/PROVENANCE'
+        self.provenance.parent.mkdir()
+        self.provenance.write_text(f'# Commit: {self.base}\nscripts/st-test\told\tnew\n')
+
+    def git(self, *args):
+        return subprocess.check_output(['git', '-C', str(self.repo), *args], env=self.env, text=True).strip()
+
+    def commit(self, path, content):
+        target = self.repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)
+        self.git('add', path)
+        self.git('-c', 'commit.gpgsign=false', 'commit', '-qm', content)
+        return self.git('rev-parse', 'HEAD')
+
+    def run_guard(self, *args):
+        result = subprocess.run(['python3', str(ROOT / 'scripts/parity-drift'),
+                                 '--fractal-repo', str(self.repo), '--provenance', str(self.provenance), *args],
+                                env=self.env, capture_output=True, text=True)
+        if result.returncode in (0, 1) and result.stdout:
+            # In particular, --diff-merges must not leak patch text into the
+            # commits array. Check every row, including merge-only resolutions.
+            for row in json.loads(result.stdout)['commits']:
+                self.assertRegex(row, r'^[0-9a-f]{40} [^\r\n]+$')
+        return result
+
+    def test_clean_history_and_unmapped_changes(self):
+        self.commit('unrelated', 'not evidence')
+        out = self.run_guard()
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(json.loads(out.stdout)['commits'], [])
+
+    def test_mapped_drift_reports_and_can_fail_without_changing_report(self):
+        head = self.commit('scripts/st-test', 'new behavior')
+        strict = self.run_guard()
+        advisory = self.run_guard('--report-only')
+        self.assertEqual(strict.returncode, 1, strict.stderr)
+        self.assertEqual(advisory.returncode, 0, advisory.stderr)
+        self.assertEqual(strict.stdout, advisory.stdout)
+        self.assertEqual(json.loads(strict.stdout)['commits'], [head + ' new behavior'])
+
+    def test_newest_port_sets_watermark_but_fixture_and_rust_origins_remain_mapped(self):
+        port = self.commit('scripts/st-test', 'ported')
+        with self.provenance.open('a') as stream:
+            stream.write(f'# Port: {port}\n')
+        fixture = self.root / 'tests/fixtures/fractal/PROVENANCE'
+        fixture.parent.mkdir(parents=True)
+        fixture.write_text('original_path\tsource_git_blob\n.st/policy.json\told\n')
+        policy = self.commit('.st/policy.json', 'policy')
+        rust = self.commit('crates/fractal-kernel/src/evidence/mod.rs', 'rust')
+        out = self.run_guard()
+        self.assertEqual(out.returncode, 1, out.stderr)
+        result = json.loads(out.stdout)
+        self.assertEqual(result['ported_through'], port)
+        self.assertEqual(result['commits'], [policy + ' policy', rust + ' rust'])
+
+    def test_every_committed_manifest_origin_is_watched(self):
+        provenance = ROOT / 'scripts/PROVENANCE'
+        _, watched = drift.inventory(provenance)
+        fixtures = list((ROOT / 'tests/fixtures/fractal').rglob('*PROVENANCE'))
+        self.assertGreater(len(fixtures), 0, 'fixture origin manifests must be provisioned in the CI sandbox')
+        self.assertTrue({'PROVENANCE', 'infrastructure-PROVENANCE'} <= {path.name for path in fixtures},
+                        'both committed fixture inventories must be present')
+        manifests = [provenance, *fixtures]
+        for manifest in manifests:
+            checked = 0
+            for line in manifest.read_text().splitlines():
+                if '\t' in line and not line.startswith(('#', 'path\t', 'original_path\t')):
+                    with self.subTest(manifest=manifest.name, path=line.split('\t')[0]):
+                        self.assertIn(line.split('\t')[0], watched)
+                    checked += 1
+            self.assertGreater(checked, 0, f'{manifest} must contain checked origin rows')
+
+    def test_infrastructure_and_nested_fixture_manifest_origins_report_drift(self):
+        fixtures = self.root / 'tests/fixtures/fractal'
+        (fixtures / 'nested').mkdir(parents=True)
+        (fixtures / 'infrastructure-PROVENANCE').write_text(
+            'original_path\tgit_blob_sha1\nscripts/script_process.py\told\n')
+        (fixtures / 'nested/other-PROVENANCE').write_text(
+            'original_path\tgit_blob_sha1\n.st/other.json\told\n')
+        helper = self.commit('scripts/script_process.py', 'helper')
+        other = self.commit('.st/other.json', 'other fixture')
+        out = self.run_guard()
+        self.assertEqual(out.returncode, 1, out.stderr)
+        self.assertEqual(json.loads(out.stdout)['commits'], [helper + ' helper', other + ' other fixture'])
+
+    def test_merged_branch_changes_are_reported_even_when_merge_discards_them(self):
+        side = self.commit('scripts/st-test', 'side change')
+        tree = self.git('rev-parse', self.base + '^{tree}')
+        main = self.git('commit-tree', tree, '-p', self.base, '-m', 'main line')
+        merge = self.git('commit-tree', tree, '-p', main, '-p', side, '-m', 'discard side')
+        out = self.run_guard('--ref', merge)
+        self.assertEqual(out.returncode, 1, out.stderr)
+        self.assertIn(side + ' side change', json.loads(out.stdout)['commits'])
+
+    def test_merge_only_resolution_is_reported(self):
+        side = self.commit('unrelated', 'side line')
+        main = self.git('commit-tree', self.git('rev-parse', self.base + '^{tree}'),
+                        '-p', self.base, '-m', 'main line')
+        self.commit('scripts/st-test', 'merge-only content')
+        merge = self.git('commit-tree', self.git('rev-parse', 'HEAD^{tree}'),
+                         '-p', main, '-p', side, '-m', 'merge resolution')
+        out = self.run_guard('--ref', merge)
+        self.assertEqual(out.returncode, 1, out.stderr)
+        self.assertIn(merge + ' merge resolution', json.loads(out.stdout)['commits'])
+
+    def test_missing_or_nonancestor_watermark_is_not_clean_even_in_report_only(self):
+        self.provenance.write_text('# Commit: ' + '0' * 40 + '\nscripts/st-test\told\tnew\n')
+        self.assertNotEqual(self.run_guard('--report-only').returncode, 0)
+        self.provenance.write_text('scripts/st-test\told\tnew\n')
+        self.assertNotEqual(self.run_guard('--report-only').returncode, 0)
+        self.provenance.write_text(f'# Commit: {self.base}\n')
+        self.assertNotEqual(self.run_guard('--report-only').returncode, 0)
+
+
+if __name__ == '__main__':
+    unittest.main()

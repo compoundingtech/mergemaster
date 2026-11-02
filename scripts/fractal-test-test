@@ -368,12 +368,14 @@ class PoolTreeTest(unittest.TestCase):
 
 
 class GovernedTest(unittest.TestCase):
-    """A building check runs in builds.slice unless its caller's own cgroup is already under a memory and a CPU limit."""
+    """A building check stays inside a kernel-verified build, lane or gate-slot cap; otherwise it takes builds.slice."""
 
     LANE = 'user.slice/user-1000.slice/user@1000.service/app.slice/app-lanes.slice/app-lanes-seat_1_0a1b2c3d4e5f.slice/st3-seat-1-0.scope'
     BUILDS = 'user.slice/user-1000.slice/user@1000.service/builds.slice/run-p1-i1.scope'
     SEAT = 'user.slice/user-1000.slice/user@1000.service/app.slice/st3-seat-1-0.scope'
     LANE_SLICE = 'app-lanes-seat_1_0a1b2c3d4e5f.slice'
+    GATE = 'user.slice/user-1000.slice/user@1000.service/app.slice/app-capped.slice/gate-slot-gate-123-456.scope'
+    HEAVY = 'user.slice/user-1000.slice/user@1000.service/app.slice/app-capped.slice/app-capped-heavy.slice/gate-slot-heavy-123.scope'
 
     def tree(self, tmp, leaf, limits):
         """A cgroup v2 tree under TMP whose every level is unlimited but the ones LIMITS names ({level: (memory.max, cpu.max)})."""
@@ -403,9 +405,38 @@ class GovernedTest(unittest.TestCase):
         self.assertIn('--slice=builds.slice', governed, why)
         self.assertEqual(governed[-1], 'check')
 
+    def assert_in_place(self, governed, why):
+        self.assertEqual(governed, ['check'], why)
+
     def test_a_capped_lane_or_build_scope_runs_in_place(self):
         self.assertEqual(self.governed_in(self.LANE, {self.LANE_SLICE: ('268435456', '100000 100000')}), ['check'])
         self.assertEqual(self.governed_in(self.BUILDS, {'builds.slice': ('34359738368', '1000000 100000')}), ['check'])
+
+    def test_a_memory_capped_gate_slot_and_its_descendants_run_in_place(self):
+        limits = {'app-capped-heavy.slice': ('17179869184', 'max 100000')}
+        self.assert_in_place(self.governed_in(self.HEAVY, limits), 'shared heavy memory cap, no CPU quota')
+        self.assert_in_place(self.governed_in(self.HEAVY + '/child', limits), 'descendant of heavy scope')
+        self.assert_in_place(self.governed_in(self.GATE, {'gate-slot-gate-123-456.scope': ('10737418240', None)}),
+                             'scope memory cap, no CPU controller')
+        self.assert_in_place(self.governed_in(self.GATE, {'app-capped.slice': ('17179869184', 'max 100000')}),
+                             'approved parent memory cap')
+        self.assert_in_place(self.governed_in(self.HEAVY, {'app-capped.slice': ('17179869184', 'max 100000')}),
+                             'heavy scope inherits the approved outer slice cap')
+
+    def test_gate_slot_names_and_environment_without_the_right_memory_cap_do_not_count(self):
+        self.assert_scoped(self.governed_in(self.HEAVY, {}), 'scope name without a cap')
+        markers = {'GATE_SLOT_ADMITTED': '1', 'GATE_SLOT_SCOPE_UNIT': 'gate-slot-heavy-123.scope', 'BUILDS_SLICE_ACTIVE': '1'}
+        self.assert_scoped(self.governed_in(self.SEAT, {}, markers), 'environment alone')
+        self.assert_scoped(self.governed_in(self.HEAVY, {'app.slice': ('17179869184', 'max 100000')}),
+                           'limit above the app-capped anchor')
+        self.assert_scoped(self.governed_in(self.HEAVY, {'app-capped-heavy.slice': (None, '100000 100000')}),
+                           'CPU alone without a memory controller')
+        misplaced = self.HEAVY.replace('app-capped.slice/', '')
+        self.assert_scoped(self.governed_in(misplaced, {'app-capped-heavy.slice': ('17179869184', 'max 100000')}),
+                           'heavy slice outside app-capped.slice')
+        daemon = self.SEAT.rsplit('/', 1)[0] + '/smalltalk.service'
+        self.assert_scoped(self.governed_in(daemon, {'smalltalk.service': ('9663676416', '100000 100000')}),
+                           'daemon memory cap is not a build cap')
 
     def test_an_uncapped_caller_is_scoped_whatever_its_name_or_environment_says(self):
         self.assert_scoped(self.governed_in(self.SEAT, {}, {'BUILDS_SLICE_ACTIVE': '1'}), 'environment')
@@ -1113,12 +1144,15 @@ class StTest(unittest.TestCase):
         with mock.patch.object(st_test, 'BUILDS', frozenset({'demo'})):
             self.assertEqual(self.run_st_test('--check', 'demo', command=command)[0], 0)
             target = self.pool() / 'target-0'
+            self.assertTrue((target / 'CACHEDIR.TAG').is_file())  # st-test made it before cargo ran, so it tags it as cargo would
             (target / 'junk').write_bytes(b'x' * 4096)
             with mock.patch.object(st_test, 'TARGET_MAX_GB', 1e-9):
-                self.assertEqual(self.run_st_test('--check', 'demo', command=command)[0], 0)
-                self.assertTrue((target / 'junk').exists())  # not a directory cargo made: never emptied
-                (target / 'CACHEDIR.TAG').write_text('Signature: 8a477f597d28d172789f06886806bc55\n')
-                self.assertEqual(self.run_st_test('--check', 'demo', command=command)[0], 0)  # cargo's, past the cap: emptied
+                self.assertEqual(self.run_st_test('--check', 'demo', command=command)[0], 0)  # past the cap: emptied
+                self.assertFalse((target / 'junk').exists())
+                self.assertTrue((target / 'CACHEDIR.TAG').is_file())  # and tagged again, so the next run can empty it too
+                (target / 'CACHEDIR.TAG').unlink()  # a pool target from before st-test tagged its targets
+                (target / 'junk').write_bytes(b'x' * 4096)
+                self.assertEqual(self.run_st_test('--check', 'demo', command=command)[0], 0)  # the pool's own: emptied, tag or none
             self.assertFalse((target / 'junk').exists())
             self.assertEqual(self.run_st_test('--check', 'demo', command=command, extra_env={'ST_EVIDENCE_TARGET': 'off'})[0], 0)
             self.assertEqual(self.run_st_test('--check', 'demo', command=command, extra_env={'CARGO_TARGET_DIR': '/elsewhere'})[0], 0)
@@ -1126,6 +1160,37 @@ class StTest(unittest.TestCase):
             self.assertEqual(self.run_st_test('--check', 'demo', command=command, extra_env={'ST_EVIDENCE_TARGET': str(shared)})[0], 0)
         self.assertEqual(self.run_st_test('--check', 'demo', command=command)[0], 0)  # builds nothing: no kept target
         self.assertEqual(seen.read_text().split(), [str(target)] * 3 + ['none', '/elsewhere', str(shared), 'none'])
+
+    def test_a_tagless_target_the_caller_made_is_never_emptied(self):
+        """ST_EVIDENCE_TARGET naming a directory st-test did not make, without cargo's tag, is left alone however big it is."""
+        self.commit('b.txt', 'two')
+        mine = self.home / 'mine'
+        mine.mkdir()
+        (mine / 'junk').write_bytes(b'x' * 4096)
+        with mock.patch.object(st_test, 'BUILDS', frozenset({'demo'})), mock.patch.object(st_test, 'TARGET_MAX_GB', 1e-9):
+            self.assertEqual(self.run_st_test('--check', 'demo', command=['true'], extra_env={'ST_EVIDENCE_TARGET': str(mine)})[0], 0)
+        self.assertTrue((mine / 'junk').exists())
+        self.assertFalse((mine / 'CACHEDIR.TAG').exists())  # nor tagged: st-test tags only a directory it creates
+
+    def test_only_a_path_inside_the_pool_directory_is_the_pools_own(self):
+        """The pool's own targets are known by resolved path, not by a name prefix: the default shared target ~/.cache/st-test-target
+        starts like the pool directory ~/.cache/st-test, and a symlink or .. can point out of it. None of those is emptied untagged."""
+        pool = self.home / '.cache/st-test'
+        own = pool / 'pools/o-1/target-0'
+        own.mkdir(parents=True)
+        outside = self.home / '.cache/st-test-target'
+        outside.mkdir()
+        (outside / 'junk').write_bytes(b'x' * 4096)
+        link = pool / 'pools/o-1/target-9'
+        link.symlink_to(outside)
+        with mock.patch.dict(st_test.POOL_SETTINGS, {}, clear=True), mock.patch.dict(os.environ, {'HOME': str(self.home)}):
+            self.assertTrue(st_test.in_pool(own))
+            for path in (outside, pool / '..' / 'st-test-target', link, self.home):
+                self.assertFalse(st_test.in_pool(path), path)
+            with mock.patch.object(st_test, 'TARGET_MAX_GB', 1e-9):
+                for path in (outside, link):
+                    st_test.trim(path, owned=st_test.in_pool(path))
+        self.assertTrue((outside / 'junk').exists())
 
     def test_every_run_reuses_the_same_tree_path_and_finds_it_clean(self):
         self.commit('b.txt', 'two')
@@ -2593,6 +2658,58 @@ class PoolQueue(unittest.TestCase):
         self.assertEqual(got[0][0], 0)
         got[0][1].close()
 
+    def test_a_best_ticket_that_never_takes_the_free_tree_does_not_stop_the_next_waiter(self):
+        queue = self.root / 'queue'
+        queue.mkdir(parents=True)
+        stuck = queue / f'003.{time.time_ns():019d}.{os.getpid()}'            # alive, best in this waiter's order, and never going to try a tree (an old copy deferring to us)
+        stuck.touch()
+        got = []
+        began = time.monotonic()
+        with mock.patch.object(st_test, 'TREE_FREE_FALLBACK_SECONDS', 1.5), contextlib.redirect_stderr(io.StringIO()):
+            worse = threading.Thread(target=lambda: got.append(st_test.acquire_tree(self.root, 1, rank=50)))
+            worse.start()
+            time.sleep(0.8)
+            self.assertEqual(got, [])                                           # the tree is free but not yet for the fallback time
+            worse.join(8)
+        self.assertEqual(len(got), 1)                                           # within the fallback time plus a poll or two the next waiter has it
+        self.assertLess(time.monotonic() - began, 6)
+        self.assertGreaterEqual(time.monotonic() - began, 1.5)
+        got[0][1].close()
+
+    def test_the_fallback_never_takes_a_tree_that_is_in_use(self):
+        queue = self.root / 'queue'
+        queue.mkdir(parents=True)
+        (queue / f'003.{time.time_ns():019d}.{os.getpid()}').touch()
+        holder = open(self.root / 'tree-0.lock', 'w')
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        self.addCleanup(holder.close)
+        got = []
+        with mock.patch.object(st_test, 'TREE_FREE_FALLBACK_SECONDS', 0.5), contextlib.redirect_stderr(io.StringIO()):
+            worse = threading.Thread(target=lambda: got.append(st_test.acquire_tree(self.root, 1, rank=50)), daemon=True)
+            worse.start()
+            time.sleep(2.5)
+            self.assertEqual(got, [])                                           # tree-0 is held, so the flock refuses however long the wait
+            holder.close()
+            worse.join(8)
+        self.assertEqual(len(got), 1)
+        got[0][1].close()
+
+    def test_the_fallback_waits_for_a_build_slot_like_the_head_does(self):
+        queue = self.root / 'queue'
+        queue.mkdir(parents=True)
+        (queue / f'003.{time.time_ns():019d}.{os.getpid()}').touch()
+        ready = [False]
+        got = []
+        with mock.patch.object(st_test, 'TREE_FREE_FALLBACK_SECONDS', 0.5), contextlib.redirect_stderr(io.StringIO()):
+            worse = threading.Thread(target=lambda: got.append(st_test.acquire_tree(self.root, 1, rank=50, slot_ready=lambda: (ready[0], 'no slot'))), daemon=True)
+            worse.start()
+            time.sleep(2.5)
+            self.assertEqual(got, [])                                           # free for longer than the fallback time, but a build would wait for a slot
+            ready[0] = True
+            worse.join(8)
+        self.assertEqual(len(got), 1)
+        got[0][1].close()
+
     def test_a_waiter_sees_a_tree_the_pool_gains_while_it_waits(self):
         self.root.mkdir(parents=True)
         holder = open(self.root / 'tree-0.lock', 'w')
@@ -2614,7 +2731,7 @@ class PoolQueue(unittest.TestCase):
         queue.mkdir()
         now = 10_000 * 10**9
         live = os.getpid()
-        names = {'old-50': f'050.{now - 200 * 60 * 10**9:019d}.{live}',   # 200 minutes: aged to the floor, 5
+        names = {'old-50': f'050.{now - 100 * 60 * 10**9:019d}.{live}',   # 100 minutes (inside the 2 hour maximum wait): aged to the floor, 5
                  'p0': f'003.{now - 10**9:019d}.{live}',                  # under the floor: never aged, always first
                  'new-12': f'012.{now - 10**9:019d}.{live}',
                  'young-50': f'050.{now - 5 * 60 * 10**9:019d}.{live}',  # 5 minutes: 48
@@ -2625,6 +2742,46 @@ class PoolQueue(unittest.TestCase):
             order = [name for _, _, name in st_test.tree_queue(queue, now)]
         self.assertEqual(order, [names['p0'], names['old-50'], names['new-12'], names['young-50']])
         self.assertFalse((queue / names['dead']).exists())
+
+    def test_a_stream_of_rank_3_tickets_cannot_hold_a_rank_50_ticket_past_the_maximum_wait(self):
+        queue = Path(self.tmp.name) / 'queue-max-wait'
+        queue.mkdir()
+        live = os.getpid()
+        limit = st_test.PRIORITY_MAX_WAIT_SECONDS * 10**9
+        start = 10_000_000 * 10**9
+        starved = f'050.{start - 1:019d}.{live}'                                  # one nanosecond older than the first rank-3 ticket: no tie
+        (queue / starved).touch()
+        with mock.patch.object(st_test, 'process_started_ns', return_value=None):
+            for minute in range(0, 200):                                         # a new rank-3 ticket every minute for more than three hours
+                now = start + minute * 60 * 10**9
+                fresh = f'003.{now:019d}.{live}'
+                (queue / fresh).touch()
+                order = [name for _, _, name in st_test.tree_queue(queue, now)]
+                if now - (start - 1) < limit:
+                    self.assertNotEqual(order[0], starved, minute)                # inside the limit the ranks decide
+                else:
+                    self.assertEqual(order[0], starved, minute)                   # at the limit the old ticket is first, ahead of every younger rank-3 ticket
+                    break
+            else:
+                self.fail('the rank-50 ticket never reached the front')
+        self.assertGreaterEqual(minute * 60, st_test.PRIORITY_MAX_WAIT_SECONDS)
+
+    def test_tickets_past_the_maximum_wait_go_first_and_oldest_first_among_themselves(self):
+        queue = Path(self.tmp.name) / 'queue-overdue'
+        queue.mkdir()
+        live = os.getpid()
+        now = 10_000_000 * 10**9
+        limit = st_test.PRIORITY_MAX_WAIT_SECONDS * 10**9
+        names = {'overdue-3-older': f'003.{now - limit - 5 * 10**9:019d}.{live}',
+                 'overdue-50': f'050.{now - limit - 2 * 10**9:019d}.{live}',
+                 'overdue-12-newest': f'012.{now - limit:019d}.{live}',
+                 'p0-young': f'003.{now - 10**9:019d}.{live}',
+                 'young-50': f'050.{now - 60 * 10**9:019d}.{live}'}
+        for name in names.values():
+            (queue / name).touch()
+        with mock.patch.object(st_test, 'process_started_ns', return_value=None):
+            order = [name for _, _, name in st_test.tree_queue(queue, now)]
+        self.assertEqual(order, [names['overdue-3-older'], names['overdue-50'], names['overdue-12-newest'], names['p0-young'], names['young-50']])
 
     def test_a_ticket_whose_pid_was_reused_by_a_younger_process_is_dropped(self):
         queue = self.root / 'queue'

@@ -27,13 +27,32 @@ cargo run -- evidence --help
 
 ## Copied evidence scripts
 
-The evidence scripts and their self-tests are copied byte-for-byte from
+The evidence scripts and their self-tests originate from
 `compoundingtech/fractal` commit
-`e83871ec919f95b3b3e2a9a1cd211c2ac37babda`. Their original Fractal configuration
-paths, command names and defaults are intentionally unchanged; this extraction
-does not make the scripts general-purpose replacements for the Rust CLI.
+`e83871ec919f95b3b3e2a9a1cd211c2ac37babda`, with individually recorded upstream
+ports in `scripts/PROVENANCE`. Their original Fractal configuration paths, command
+names and defaults are intentionally unchanged; this extraction does not make
+the scripts general-purpose replacements for the Rust CLI. The runner recognizes
+kernel-verified gate-slot memory caps without moving the check out of its
+admitted scope; build and seat-lane caps still require memory and CPU limits.
 The accompanying systemd service and timer files are shipped as source only:
 the flake does not install, enable or run them.
+
+The pool runner preserves Fractal's two-hour queue aging and free-tree waiter
+liveness rules. Kept cargo targets are tagged on creation and emptied above
+the 80 GB cap only when tagged or owned by the pool; untagged caller-owned
+targets remain untouched, and the cache tag alone never counts as a warm build.
+
+Readiness treats a cancelled run as no evidence unless a job it judged failed.
+Cancelled attempts do not count toward satisfied lines or hide real failures,
+and are reported separately as `cancelled_runs`. Timeouts still count as failures.
+
+The legacy verifier selects the newest pass that validates. It passes over only
+passes from a level accepted by no kind of the check, or carrying another tree's
+lane definition; every other validation rule still applies. A later failure
+(within the clock-skew margin) refuses regardless of its level or lane definition.
+With no valid pass, the newest record decides as before. Results include
+`decided_by` and `skipped_newer` so the decision can be audited.
 
 Run the script suite independently:
 
@@ -63,14 +82,35 @@ paths as `MERGEMASTER_FRACTAL_FIXTURE` and `MERGEMASTER_EFFECT_UTILS`.
 The external `effect-utils` source is linked as untracked sandbox environment,
 matching Fractal's `ci-sparse-tree --link repos` behavior.
 
+### Upstream parity reporting
+
+`python3 scripts/parity-drift --fractal-repo PATH --ref origin/main --report-only`
+lists commits touching mapped origin paths after the last `# Port:`
+SHA in `scripts/PROVENANCE` (or the extraction SHA before any ports). Watched
+paths include every fixture origin manifest, including infrastructure helpers.
+Full-history traversal retains merged branch changes even when a merge discards
+them, and includes merge-only resolutions relative to each merge's first parent.
+Each entry in the JSON `commits` array is one full SHA and subject, not patch text.
+The scheduled **Fractal parity drift** workflow reports every six hours without
+blocking CI or changing evidence policy. It reads history only, never upstream
+scripts. Omit `--report-only` to return exit 1 when newer commits exist; invalid
+history or a missing watermark is an error in either mode.
+
+This is a newer-commit alarm, not proof of complete parity: older unported
+commits remain in the cutover inventory. Record each port's upstream SHA,
+scope, applied-hunk SHA256 and any conflict resolutions in `scripts/PROVENANCE`.
+The destination blob column reflects the resulting copies; the original source
+blob column remains the extraction receipt.
+
 ### Advancing the Fractal fixture pin
 
 1. Change `inputs.fractal-fixture.url` in `flake.nix` to the reviewed full
    Fractal commit SHA, then run `nix flake update fractal-fixture`.
 2. Compare every moving path against the new source commit's Git blob
    (`git ls-tree -r <source-sha> -- scripts`), update the as-is copies where
-   needed, and regenerate `scripts/PROVENANCE`. Every source/destination blob
-   pair must remain equal; do not patch a moving script to accommodate a test.
+   needed, and regenerate `scripts/PROVENANCE`. Differences must be accounted
+   for by recorded upstream ports and explicit conflict resolutions; do not
+   patch a moving script merely to accommodate a test.
 3. Review the small committed fixtures against the new source, update their
    `PROVENANCE` and `infrastructure-PROVENANCE` (including the documentation
    section's source range), and check that source-selected layout witnesses

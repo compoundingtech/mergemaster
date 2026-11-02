@@ -1,9 +1,69 @@
 # Source: compoundingtech/fractal
 # Commit: e83871ec919f95b3b3e2a9a1cd211c2ac37babda
-# Scripts copied as-is except the documented upstream patch below; Git blob SHA-1 hashes (not file SHA-1 hashes).
+# Scripts copied as-is except the documented upstream patches below; Git blob SHA-1 hashes (not file SHA-1 hashes).
 # scripts/fractal-test-test: apply the fixture maintenance-isolation patch from
 # https://github.com/compoundingtech/fractal/pull/4398 (5f995f26e5).
-# The source_blob column remains the original import; mergemaster_blob includes this patch.
+# The source_blob column remains the original import; mergemaster_blob includes applied patches.
+# Port: 64351934f2f637f63f44d1f5d72563414135a3cc
+# Scope: scripts/st-test scripts/fractal-test-test; two-hour queue aging.
+# Upstream hunks SHA256: 368ffaff939aecc9bb91e7979a4f273d4fb7ab63aca501c609b34e7614743336
+# Applied hunks SHA256: 368ffaff939aecc9bb91e7979a4f273d4fb7ab63aca501c609b34e7614743336
+# Conflict resolutions: none.
+# Port: 070a825080ae70d4261b32642bb23b58e9a017ca
+# Scope: scripts/st-test scripts/fractal-test-test; free-tree waiter liveness.
+# Upstream hunks SHA256: fbe09163843378c51b37c375565b4593a5652df6160ae7f04134150043195cf4
+# Applied hunks SHA256: 5881b4c4424c28e792c6a7cf193957b93c5458147c616a02fb0c58ea5aa467cc
+# Conflict resolutions: no code changes; difflib aligns the repeated test-tail
+# got[0][1].close() and blank line at the opposite insertion boundary.
+# Port: c99f654509554d5fd68b9c353b505f0cb11624f2
+# Scope: scripts/st-test scripts/fractal-test-test; pool target cap ownership.
+# Upstream hunks SHA256: adce56274ce34c7ab62e9111e980cfa7a6165463be2c86f015b0c89d92d6e329
+# Applied hunks SHA256: adce56274ce34c7ab62e9111e980cfa7a6165463be2c86f015b0c89d92d6e329
+# Conflict resolutions: none. Fractal-owned operator docs/release notes are not copied scripts.
+# Port: 69bc591617295433266024196316550550b039cd
+# Scope: scripts/evidence-flip-ready-test
+# Upstream and applied hunks SHA256: 692ad8d8ac29f7e00a2e55a90c8c2db539d790cab2d9a7aaa49743dadc1f0768
+# Port: 5676100174c2bb4fae21a898123d8be8eef270d5
+# Scope: scripts/evidence-verify-test (classify-risk-test is not extracted).
+# Upstream and applied hunks SHA256: f084f449684ac134aac492b42ba77dad56e782b18d225cc9d8e046918b6d1634
+# Port: 1df972d6a058ef093b8e9cb9a7ffa6352e26ea16
+# Scope: scripts/evidence-verify-test
+# Upstream and applied hunks SHA256: f8c2959e41538cf700dedcaa4e81f1521981c664ee8d206215c7fff0dedbfaff
+# Port: 33d766f50ae69a142a5e82221533191b074e325f
+# Scope: scripts/evidence-flip-ready scripts/evidence-flip-ready-test
+# Upstream and applied hunks SHA256: 2c2cc7c7aa0be1304a37ab22fd9f9385671207714c69aa9f3b4fbcc27a925fac
+# Conflict resolutions: none for all four ports; scoped hunks are unchanged.
+# Port: e59b2b60a5cef23a24861f9b6af151bc54c959c1
+# Scope: scripts/evidence-verify scripts/evidence-verify-test; newest-valid-pass parity.
+# Upstream hunks SHA256: aebac02d3f1da2208a8514864c1fe62154f94e3bc5ff447aab1412a922a89f8d
+# Applied hunks SHA256: aebac02d3f1da2208a8514864c1fe62154f94e3bc5ff447aab1412a922a89f8d
+# Conflict resolutions: none; production and test hunks are unchanged.
+# Hunk digest: per Scope path in listed order, append path + newline, then
+# difflib.unified_diff(before.splitlines(True), after.splitlines(True), n=0)
+# excluding ---/+++/@@ headers; SHA256 of concatenated UTF-8 bytes.
+# Port: f257a6fe63a3557cd33fbecb085b1b6453065d4e
+# Scope: scripts/st-test scripts/fractal-test-test; upstream PR #4554.
+# Upstream hunks SHA256: c5a04b8b4b5778ebe8a473b6ec3d106df7aaca2e420752d6dee0ae52cc52d93b
+# Applied hunks SHA256: fb99cc81fab7f0045abb6ad72702b43812f03c5073c746767cd4ef29b3ac7be3
+# Conflict resolutions: governed docstring stops at the older boundary; add
+# assert_in_place as assertEqual(['check']) because the newer lane-env fixture helper is not ported.
+# Port: 2b44911249f5e42c817beb5cd9b558b2f1f8b297
+# Scope: scripts/st-test scripts/fractal-test-test; upstream PR #4554 follow-up.
+# Upstream hunks SHA256: fce289c2c5cd1a2c31cd5cd8f4b1ff866e6e253a65b22d0af48f3b5c57631da5
+# Applied hunks SHA256: fce289c2c5cd1a2c31cd5cd8f4b1ff866e6e253a65b22d0af48f3b5c57631da5
+# Conflict resolutions: none.
+# Hunk digest: per Scope path in listed order, append path + newline, then
+# difflib.unified_diff(before.splitlines(True), after.splitlines(True), n=0)
+# excluding ---/+++/@@ headers; SHA256 of concatenated UTF-8 bytes.
+# Combined applied hunks SHA256 (against main 88fc59191947de80200cd186b4c3f4a6053fb11d):
+# f912db8749a298e566f8ffcb76748a27cd23766c1bd3be1cf7babf0e58a42f04
+# Port lines are an ordered watermark for newer-commit scans, not an assertion
+# that every older commit has been ported; older backlog remains separately inventoried.
+# Port: 572ee5dee7b55e5959a9ed350018372390797f9f
+# Scope: scripts/evidence-verify scripts/evidence-verify-test; upstream PR #4643.
+# Upstream hunks SHA256: 057c7db10dbcb2a1e7b721ffd6b0b7b67bace2aa6b111be70b8997c4b3bc8b94
+# Applied hunks SHA256: 057c7db10dbcb2a1e7b721ffd6b0b7b67bace2aa6b111be70b8997c4b3bc8b94
+# Conflict resolutions: none; obsolete preferred passes are excluded before validation.
 path	source_blob	mergemaster_blob
 scripts/ci-evidence-gate	4400fdf73ad4d572e1437286c1088965e1de964c	4400fdf73ad4d572e1437286c1088965e1de964c
 scripts/ci-evidence-gate-test	9927e0b3d6e095f8d7c1e8485cb441fa178caeb1	9927e0b3d6e095f8d7c1e8485cb441fa178caeb1
@@ -21,8 +81,8 @@ scripts/ci-evidence-source	bc2c6547366bf804397959045c78f50f4484a767	bc2c6547366b
 scripts/ci-evidence-source-test	b75b580fd63ae46ba22e24227599e0fc2a7d9053	b75b580fd63ae46ba22e24227599e0fc2a7d9053
 scripts/ci-signed-tree	0939b74bdc4c18220001cb2f6c2d613c0a187fc3	0939b74bdc4c18220001cb2f6c2d613c0a187fc3
 scripts/ci-signed-tree-test	078b3eb80da7cbfdcc1e3a592bc25498ff4a4cba	078b3eb80da7cbfdcc1e3a592bc25498ff4a4cba
-scripts/evidence-flip-ready	65b40aed05785194e50784e3f540d9cb46a98687	65b40aed05785194e50784e3f540d9cb46a98687
-scripts/evidence-flip-ready-test	ef720b5192db3870db404c29ab8a927f8bef3568	ef720b5192db3870db404c29ab8a927f8bef3568
+scripts/evidence-flip-ready	65b40aed05785194e50784e3f540d9cb46a98687	37b23f2d03576ae06850f7bf76165bc752f4f206
+scripts/evidence-flip-ready-test	ef720b5192db3870db404c29ab8a927f8bef3568	675ec53a5a480ed75cafdc9f9350199524540848
 scripts/evidence-gc	a314f2d603337539e9ccb42e9afad86943018995	a314f2d603337539e9ccb42e9afad86943018995
 scripts/evidence-gc-test	d8b4b2c709b2b56824b4ce00b360352da3fc6da8	d8b4b2c709b2b56824b4ce00b360352da3fc6da8
 scripts/evidence-gc-timer	6a34d078be82be20c19d9131851d447e33fca698	6a34d078be82be20c19d9131851d447e33fca698
@@ -65,16 +125,16 @@ scripts/evidence-sign	288b9c2ca9ba7e4f909dd4656df52ae30c9a8914	288b9c2ca9ba7e4f9
 scripts/evidence-sign-hardening-test	6889e6c38273dc85ede41668e622af5b7f8b541f	6889e6c38273dc85ede41668e622af5b7f8b541f
 scripts/evidence-skip-report	c7d43b6b813b79b283c0b77f8689ecffc0b1e9a5	c7d43b6b813b79b283c0b77f8689ecffc0b1e9a5
 scripts/evidence-skip-report-test	49c58386ec3312a18b623b29936b1f7ea80d9f88	49c58386ec3312a18b623b29936b1f7ea80d9f88
-scripts/evidence-verify	478118e3b9b595a0d6267492749c96c4225f83c2	478118e3b9b595a0d6267492749c96c4225f83c2
-scripts/evidence-verify-test	d4bd2f008a91c0d5209b097e495a804b222ee14e	d4bd2f008a91c0d5209b097e495a804b222ee14e
+scripts/evidence-verify	478118e3b9b595a0d6267492749c96c4225f83c2	5ed6ade05b64b65825d4f6e6da812db1263c6148
+scripts/evidence-verify-test	d4bd2f008a91c0d5209b097e495a804b222ee14e	43015334ab96287f17588bf5602a6fb52af4983a
 scripts/evidence-wrap	9b0735473bc8f319093092b26421aed9c3df98cf	9b0735473bc8f319093092b26421aed9c3df98cf
 scripts/evidence-wrap-test	4c871cd463a6a57357277b94cb1f5d9ef0af838b	4c871cd463a6a57357277b94cb1f5d9ef0af838b
 scripts/evidence_test_support.py	3590f507364ac813bed170e490149c25561fa2d5	3590f507364ac813bed170e490149c25561fa2d5
 scripts/fractal-test	08a31a9ab85b195c71387a8021cc85d383de75e8	08a31a9ab85b195c71387a8021cc85d383de75e8
 scripts/fractal-test-report	5bc77bf53ec47d0e580d5e4c26e20cb24a0b3f16	5bc77bf53ec47d0e580d5e4c26e20cb24a0b3f16
 scripts/fractal-test-report-test	616e9248c0a584b40590a7682242df337f7dbf93	616e9248c0a584b40590a7682242df337f7dbf93
-scripts/fractal-test-test	608abec5c3044afa1066e39b4ff703be5249b20d	6ea3a386b3d5455f3d7e2e6371ac17dcb5499559
+scripts/fractal-test-test	608abec5c3044afa1066e39b4ff703be5249b20d	f9070587d4358eb4acd052835cb7618b63a1aba7
 scripts/install-git-hooks	5655c13c85772ff65aa7aecfd78326ffd033cd10	5655c13c85772ff65aa7aecfd78326ffd033cd10
 scripts/lane-definition-closure	cee51d7d65d375eb6f5559b403e5acc4eb2f7f5c	cee51d7d65d375eb6f5559b403e5acc4eb2f7f5c
 scripts/lane-definition-closure-test	8ac1eca3d95a681667134167883606fddb73dc58	8ac1eca3d95a681667134167883606fddb73dc58
-scripts/st-test	eb8f6c8b7dc1b58096595330d2ebfe6368973400	eb8f6c8b7dc1b58096595330d2ebfe6368973400
+scripts/st-test	eb8f6c8b7dc1b58096595330d2ebfe6368973400	fa27497f16f0a1d42c5235fe21b629457f577737
