@@ -26,6 +26,9 @@
 
 ### Fixed
 
+- Protected CI source archives are authenticated and safely extracted in Rust,
+  without a runtime Python interpreter.
+
 - Missing BASE configuration now returns an explicit `config_missing` refusal
   instead of an opaque Git plumbing error.
 - Copied evidence verification and queue-follow behavior track the upstream
