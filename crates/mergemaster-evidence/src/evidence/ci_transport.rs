@@ -73,7 +73,7 @@ impl Github {
 // private directory. Validate every member before creating any extracted file.
 fn extract_source(archive: &Path, destination: &Path, size: u64, expected: &str) -> Result<()> {
     use std::io::{Read, Seek};
-    use std::os::unix::fs::DirBuilderExt;
+    use std::os::unix::fs::{DirBuilderExt, FileExt};
     let mut source = std::fs::File::open(archive)?;
     ensure!(source.metadata()?.len() == size, "source ZIP byte length mismatch");
     let mut digest = sha2::Sha256::new();
@@ -87,7 +87,7 @@ fn extract_source(archive: &Path, destination: &Path, size: u64, expected: &str)
     }
     ensure!(hex::encode(digest.finalize()) == expected, "source ZIP digest mismatch");
     source.rewind()?;
-    let mut zipped = zip::ZipArchive::new(source)?;
+    let mut zipped = zip::ZipArchive::new(&source)?;
     ensure!(
         zipped.len() == 2 && !zipped.has_duplicate_names(),
         "source ZIP member set mismatch"
@@ -105,6 +105,14 @@ fn extract_source(archive: &Path, destination: &Path, size: u64, expected: &str)
             "source ZIP member type mismatch"
         );
         ensure!(entry.size() <= limit, "source ZIP member exceeds bound");
+        // Positioned reads leave the ZIP reader's shared file cursor untouched.
+        let mut header = [0; 30];
+        source.read_exact_at(&mut header, entry.header_start())?;
+        let name_length = usize::from(u16::from_le_bytes([header[26], header[27]]));
+        ensure!(name_length == entry.name_raw().len(), "source ZIP local name mismatch");
+        let mut local_name = [0; 12]; // Only the two fixed names above are accepted.
+        source.read_exact_at(&mut local_name[..name_length], entry.header_start() + 30)?;
+        ensure!(&local_name[..name_length] == entry.name_raw(), "source ZIP local name mismatch");
     }
     std::fs::DirBuilder::new().mode(0o700).create(destination)?;
     for name in ["receipt.json", "source.pack"] {
@@ -460,9 +468,21 @@ if case in ('receipt_limit', 'pack_limit', 'forged_size'):
     struct.pack_into('<I', data, central + 24, size)
 if case == 'crc':
     data[30 + len(names[0])] ^= 1
+if case == 'local_name':
+    data[30] ^= 32
+if case == 'local_name_length':
+    struct.pack_into('<H', data, 26, len(names[0]) - 1)
 if case == 'truncated':
     del data[-12:]
 path.write_bytes(data)
+if case in ('local_name', 'local_name_length'):
+    with zipfile.ZipFile(path) as archive:
+        try:
+            archive.read('receipt.json')
+        except zipfile.BadZipFile:
+            pass
+        else:
+            raise AssertionError('Python oracle accepted mismatched local name')
 "#]).arg(&path).arg(case).status().unwrap();
         assert!(status.success());
         path
@@ -491,7 +511,7 @@ path.write_bytes(data)
     fn archive_rejects_adversarial_members_and_corruption() {
         for case in ["../escape", "/absolute", "nested/receipt.json", "receipt.json/",
             "duplicate", "duplicate_extra", "extra", "symlink", "fifo", "device", "directory", "encrypted",
-            "receipt_limit", "pack_limit", "forged_size", "crc", "truncated"] {
+            "receipt_limit", "pack_limit", "forged_size", "crc", "truncated", "local_name", "local_name_length"] {
             let root = tempfile::tempdir().unwrap();
             let path = archive(root.path(), case);
             let destination = root.path().join("verified");
