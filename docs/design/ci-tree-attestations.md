@@ -60,17 +60,17 @@ timestamps, `attempt-2` suffixes and a manifest's self-reported IDs cannot fill
 this gap. Refuse absent digests; hash the downloaded archive before bounded,
 fixed-member extraction, and separately hash the manifest and logs.[4]
 
-### Producer proof proposal
+### Accepted producer proof v1
 
-A producer first uploads an immutable result artifact. It then emits a canonical
-receipt containing its artifact ID/digest and the record fields below. The job
+A producer first uploads an immutable result artifact. It then emits the canonical
+producer receipt specified below, excluding all signer-added fields. The job
 requests a GitHub OIDC JWT with the exact audience
 `urn:mergemaster:payload-receipt:v1:sha256:<receipt-sha256>` and uploads receipt
 plus JWT as a separate, untrusted transport artifact. No payload private signing
 key is introduced. Payload OIDC permissions must never authorize the SSH secret.
 
-This is a proposed protocol using GitHub's documented custom audience, **not** a
-GitHub-standard artifact attestation: the signed audience commits the job to
+This protocol uses GitHub's documented custom audience; it is **not** a
+GitHub-standard artifact attestation. The signed audience commits the job to
 these receipt bytes. GitHub does not validate the receipt's contents. Verify the
 JWT with the pinned GitHub issuer/JWKS, approved algorithm and key ID; require
 exact string audience, valid time bounds and expected claims. Canonical v1 JSON
@@ -107,6 +107,9 @@ missing bindings. Both keyless attestation and the proposed receipt need
 ## Signer credential options
 
 ### A. Namespace Vault secret and scoped OIDC federation
+Option A is closed. Reopen only after written provider confirmation of the
+single-object restriction and elimination of the bypass paths below.
+
 
 Namespace documents encrypted, versioned Vault secrets and object-specific
 `describe`/`reveal` grants. However, its runner workload tokens have broad default
@@ -123,22 +126,49 @@ or assigning a Restricted profile is not sufficient admission control.[8]
 No unsupported policy syntax or entitlement to enterprise controls is assumed.
 
 ### B. Default-branch `workflow_run` signer and GitHub environment secret
+Option B is chosen. The initial consumer is `compoundingtech/fractal`:
+environment `mergemaster-attestation`, secret `MERGEMASTER_ATTESTATION_KEY`.
+
 
 A signer workflow stored on the default branch handles `workflow_run: completed`.
 GitHub documents its SHA/ref as the default branch and permits this follow-up to
 use secrets even when the triggering payload could not. Fetch the triggering
-`workflow_run.id`, not the signer's own run ID; validate its workflow path/ID,
-head and exact attempt through the APIs. A workflow-name filter alone is not
-authorization. If the event lacks an authenticated attempt, do not substitute a
-racing latest attempt: require the producer proof's verified attempt.[9]
+`workflow_run.id`, not the signer's own run ID. Preflight obtains payload
+repository, workflow path/ID, event, `head_sha` and `run_attempt` from GitHub API
+metadata, never artifacts. Pin the API-selected attempt, fetch its exact run/jobs,
+and require the producer proof to match it. Recheck identity/attempt before signing;
+a racing rerun refuses rather than selecting a convenient receipt. A workflow-name
+filter alone is not authorization.[9]
 
-Store the SSH key only in a GitHub environment with a **Selected branches** rule
-exactly matching the actual default branch, with no tag rule, PR pattern or
-queue wildcard. Policies match the run's `GITHUB_REF`: a `workflow_run` signer
-qualifies; ordinary PR and `merge_group` refs do not. A candidate can reference
-the environment name but that does not bypass its deployment policy.[10]
+Store the SSH key only in that environment with **Selected branches: main**,
+Branch type only: no wildcards, tags, PR pattern or queue exception. Policies
+match the run's `GITHUB_REF`: a `workflow_run` signer qualifies; ordinary PR and
+`merge_group` refs do not. Merely referencing the environment does not bypass
+the deployment policy.[10]
 Do not use "Protected branches only": with no branch protections it permits all
 branches. Disable administrator bypass unless explicitly part of the trust model.
+
+| Job context | Environment policy outcome |
+| --- | --- |
+| Ordinary `pull_request` / PR merge ref | Denied |
+| `merge_group` / queue ref | Denied |
+| Candidate-executing Namespace payload | Must have no secret access |
+| Default-branch job | Eligible; BASE-trusted code |
+| `pull_request_target` / base-branch ref | Eligible; BASE-trusted code |
+| `workflow_run` signer / default-branch ref | Eligible after origin preflight |
+
+No `pull_request_target` workflow may exist in the consumer repository unless
+reviewed as BASE-trusted code. An environment rule alone does not reject a
+`workflow_run` from a fork/non-main origin: its own ref is still main.
+An unprivileged BASE-only preflight is mandatory, with `needs:` plus `if:` gating
+the environment-bearing job. Stage 1 allows only the approved payload workflow
+path/ID, triggered by same-repository `pull_request` or `merge_group` on
+`gh-readonly-queue/main/*`, with API head SHA equal to the expected candidate.
+Fork PRs, other workflows (including renamed/copied files), pushes and
+`workflow_dispatch` are refused before scheduling the protected job. A PR or
+queue candidate ref is not itself a forbidden controller origin.
+Secret presence in a BASE-code signer is acceptable; candidate code must never
+read it, and a disallowed origin must never receive a signed record.
 
 This is branch authorization, not workflow authorization: all default-branch
 workflows and especially `pull_request_target` are trusted code. They must not
@@ -149,30 +179,34 @@ not proof that the signer's SHA equals the payload's accepted BASE; bind both an
 require BASE's approved signer policy. Prefer a separate GitHub-hosted signer job
 for this option; Namespace may also host it if its other credential paths are safe.
 
-Option B has a documented branch/secret boundary and avoids the unconfirmed
-Namespace Vault policy. Environment availability still depends on the existing
-repository plan; no paid upgrade or stronger workflow-level isolation is implied.
-Both options require the same producer/run/artifact verification before signing.
+Option B avoids the unconfirmed Namespace Vault policy. Existing plan support
+for environment protection remains required; no paid upgrade or workflow-level
+isolation is implied. Both options require the same producer/run/artifact checks.
 
 ## Signed record and key lifecycle
 
-Keep the in-toto subject's commit and `gitTree` digest. Add a versioned CI binding
-claim with: repository/owner IDs; accepted BASE; candidate commit/tree; lane;
-BASE lane/environment/recipe digests; payload workflow path/revision; run ID,
-attempt, job ID and check-run ID; result artifact ID/archive digest; manifest,
-action-key-map and log digests; observed result; producer-proof digest; and signer
-workflow revision/run identity. Preserve existing clean-input and freshness
-contracts. A CI job that merely reuses a cached realization does not become a
-fresh Nix execution by being signed.
+Keep the in-toto subject's commit and `gitTree` digest and version the CI binding.
+The **producer receipt** carries: repository/owner IDs; accepted BASE; candidate
+commit/tree; lane; BASE lane/environment/recipe digests; payload workflow
+path/revision; producer run ID, attempt, job ID and check-run ID; result artifact
+ID/archive digest; manifest digest; action-key map; log digest; and claimed result.
+It cannot contain a digest of its own later-issued producer proof.
+
+The **signer adds**: verified producer-proof digest; action-key-map digest;
+independently observed job result and verification time; signer workflow
+path/revision, repository/run/attempt/job identity; and signing principal/key
+generation. Every producer claim is checked before inclusion. Preserve existing
+clean-input and freshness contracts: signing cached Nix output is not fresh execution.
 
 Use a dedicated SSH Ed25519 key, compatible with current Git-signed records.
 Enroll only its public key in accepted BASE under a new principal level such as
 `namespace/ci-v1`, separate from `agent/` and `host/`; lanes explicitly opt in to
 `namespace`. This is signer authorization, not a replacement for the existing
 `full`/`degraded`/`test` observation-quality field. Use one generation per key;
-never reuse a personal or developer-machine key. Keep private material out of
-logs, artifacts and caches; load it only in the isolated signer and remove its
-private temporary file on exit.
+never reuse a personal or developer-machine key. Generate the private key in
+memory on a trusted machine; provision it without a plaintext file or message.
+Load it into an ephemeral `ssh-agent` through stdin, addressed by its public key.
+No private-key file, log, artifact or cache is allowed; destroy the agent on exit.
 
 Rotation adds the new public generation to accepted BASE, updates the protected
 secret, proves a new attestation, then removes the old public key. Revocation
@@ -211,11 +245,19 @@ Stable refusal codes: `oidc_invalid`, `identity_unbound`, `foreign_run`,
 Unsupported/missing provider authorization refuses; no local-key fallback.
 Transport failures and malformed configuration remain errors, not satisfaction.
 
-First deliver signer verification and refusal tests for wrong tree, attempt,
-recipe and foreign run. Then exercise provider isolation and negative secret
-access from PR/queue jobs before report-only rollout. Enforce only after those
-proofs and live queue checks pass. Key provisioning is a separate administrator
-request; this design neither creates a secret nor authorizes deployment.
+1a delivers signer verification and refusal tests for wrong tree, attempt, recipe
+and foreign run first. Report-only rollout (1b) additionally requires real-run
+negative-access proofs for ordinary PR, merge-group and Namespace payload jobs.
+Preflight negatives include a fork PR, feature-branch push, branch dispatch,
+renamed/copied payload workflow, and receipt from another rerun attempt.
+Trusted/default-branch and reviewed `pull_request_target` rows are eligible, not
+negative-access expectations. Every signature binds the API-selected payload
+attempt. The signer never downloads candidate caches or executes artifacts:
+BASE code parses data only. Prove trusted in-memory key generation/provisioning
+and absence of the private key from files, logs and messages.
+
+Enforcement follows these proofs and live queue checks. Key provisioning is a
+separate administrator request; this design does not create a secret or authorize deployment.
 
 ## Sources
 
