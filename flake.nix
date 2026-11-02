@@ -25,7 +25,7 @@
         let pkgs = import nixpkgs { inherit system; };
         in pkgs.rustPlatform.buildRustPackage {
           pname = "mergemaster";
-          version = "0.1.0";
+          version = "0.2.0";
           src = pkgs.lib.cleanSource self;
           cargoLock.lockFile = ./Cargo.lock;
           nativeCheckInputs = [ pkgs.git pkgs.openssh pkgs.coreutils pkgs.python3 ];
