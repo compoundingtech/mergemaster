@@ -1,48 +1,11 @@
 //! Validation of the copied signer's request protocol, independent of signing authority.
 use anyhow::{Context, Result, ensure};
-use serde_json::Value;
+pub use super::legacy_json::Value;
 use std::borrow::Cow;
-use serde::{de::{DeserializeSeed, MapAccess, SeqAccess, Visitor}, Deserializer as _};
-use serde_json::value::RawValue;
 
-struct ReservedKey;
-impl<'de> DeserializeSeed<'de> for ReservedKey {
-    type Value = bool;
-    fn deserialize<D: serde::Deserializer<'de>>(self, d: D) -> Result<bool, D::Error> { d.deserialize_str(self) }
-}
-impl<'de> Visitor<'de> for ReservedKey {
-    type Value = bool;
-    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { f.write_str("object key") }
-    fn visit_str<E: serde::de::Error>(self, s: &str) -> Result<bool, E> { Ok(s.starts_with("$serde_json::private::")) }
-}
-struct LiteralObjects;
-impl<'de> Visitor<'de> for LiteralObjects {
-    type Value = ();
-    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { f.write_str("literal object or array") }
-    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<(), A::Error> {
-        while let Some(reserved) = map.next_key_seed(ReservedKey)? {
-            if reserved { return Err(serde::de::Error::custom("reserved number object")); }
-            literal_objects(map.next_value::<&RawValue>()?).map_err(serde::de::Error::custom)?;
-        }
-        Ok(())
-    }
-    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<(), A::Error> {
-        while let Some(raw) = seq.next_element::<&RawValue>()? { literal_objects(raw).map_err(serde::de::Error::custom)?; }
-        Ok(())
-    }
-}
-fn literal_objects(raw: &RawValue) -> serde_json::Result<()> {
-    if matches!(raw.get().trim_start().as_bytes()[0], b'{' | b'[') {
-        serde_json::Deserializer::from_str(raw.get()).deserialize_any(LiteralObjects)?;
-    }
-    Ok(())
-}
-
-/// Retain literal object provenance across numeric decoding, before validating claims.
+/// Decode legacy JSON with locally retained number lexemes, then validate claims.
 pub fn decode(bytes: &[u8]) -> Result<Value> {
-    let raw: &RawValue = serde_json::from_slice(bytes)?;
-    let request = serde_json::from_str(raw.get())?; // Enforce the decoder's nesting limit first.
-    literal_objects(raw)?;
+    let request = super::legacy_json::parse(bytes)?;
     validate(&request)?;
     Ok(request)
 }
@@ -53,15 +16,14 @@ const INPUTS: [&str; 5] = ["flake_lock_sha256", "toolchain_sha256", "wrapper_sha
 // Python's regex `$` accepts a single final newline; `fullmatch` does not.
 fn end(value: &str) -> &str { value.strip_suffix('\n').unwrap_or(value) }
 fn token(value: &Value) -> Cow<'_, str> {
-    match value { Value::String(s) => Cow::Borrowed(s), Value::Number(n) => Cow::Owned(number_token(n)), _ => Cow::Borrowed("") }
+    match value { Value::String(s) => Cow::Borrowed(s), Value::Number(n) => number_token(n), _ => Cow::Borrowed("") }
 }
-fn number_token(number: &serde_json::Number) -> String {
+fn number_token(number: &str) -> Cow<'_, str> {
     use std::fmt::Write;
-    let mut text = number.to_string();
-    if !text.contains(['.', 'e', 'E']) { if text == "-0" { text.remove(0); } return text; }
-    let value: f64 = text.parse().unwrap();
-    text.clear();
-    if value.is_infinite() { text.push_str(if value.is_sign_negative() { "-inf" } else { "inf" }); return text; }
+    if !number.contains(['.', 'e', 'E']) { return Cow::Borrowed(if number == "-0" { "0" } else { number }); }
+    let value: f64 = number.parse().unwrap();
+    let mut text = String::with_capacity(32);
+    if value.is_infinite() { text.push_str(if value.is_sign_negative() { "-inf" } else { "inf" }); return Cow::Owned(text); }
     write!(&mut text, "{value:e}").unwrap();
     let e = text.rfind('e').unwrap();
     let exponent: i32 = text[e + 1..].parse().unwrap();
@@ -82,7 +44,7 @@ fn number_token(number: &serde_json::Number) -> String {
             text.insert(point, '.');
         }
     }
-    text
+    Cow::Owned(text)
 }
 fn hex(value: &str, size: usize) -> bool {
     value.len() == size && value.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
@@ -119,10 +81,8 @@ fn validate(request: &Value) -> Result<()> {
     let command = request["command"].as_array().context("command must be a nonempty argument vector")?;
     ensure!(command.first().and_then(Value::as_str).is_some_and(|s| !s.is_empty())
         && command.iter().all(Value::is_string), "command must be a nonempty argument vector");
-    ensure!(request["exit_code"].as_number().is_some_and(|n| {
-        let integer = n.to_string();
-        integer.strip_prefix('-').unwrap_or(&integer).bytes().all(|c| c.is_ascii_digit())
-    }), "exit_code must be an integer");
+    ensure!(request["exit_code"].as_number().is_some_and(|n|
+        n.strip_prefix('-').unwrap_or(n).bytes().all(|c| c.is_ascii_digit())), "exit_code must be an integer");
     ensure!(hex(end(&token(&request["output_sha256"])), 64), "output_sha256 must be 64 lowercase hex digits");
     let change = request["change_id"].as_str().context("change_id must be a short nonempty string")?;
     ensure!(change.chars().take(200).count() < 200
@@ -145,7 +105,7 @@ fn validate(request: &Value) -> Result<()> {
     Ok(())
 }
 
-fn validate_nix(request: &Value, check: &str, command: &[Value], inputs: &serde_json::Map<String, Value>) -> Result<()> {
+fn validate_nix(request: &Value, check: &str, command: &[Value], inputs: &std::collections::BTreeMap<String, Value>) -> Result<()> {
     let input = |key: &str| inputs.get(key).and_then(Value::as_str).unwrap_or("");
     let system = command.get(2).and_then(Value::as_str).and_then(|s| s.strip_prefix(".#checks."))
         .and_then(|s| s.strip_suffix(check)).and_then(|s| s.strip_suffix('.')).and_then(|s| s.split_once('-'));
@@ -155,7 +115,7 @@ fn validate_nix(request: &Value, check: &str, command: &[Value], inputs: &serde_
             && os.bytes().all(|c| c.is_ascii_lowercase())), "a nix record must be: nix build .#checks.<system>.<check>");
     let drv = input("drv_path");
     ensure!(store(drv) && drv.ends_with(".drv"), "a nix record needs drv_path ending in .drv");
-    if request["exit_code"] != 0 {
+    if !matches!(request["exit_code"].as_number(), Some("0" | "-0")) {
         ensure!(["out_path", "nar_hash", "nar_size", "references", "nix_signatures"].iter().all(|key| !inputs.contains_key(*key)), "a failed nix build records no output path");
         return Ok(());
     }
@@ -287,7 +247,7 @@ json.dump(cases, sys.stdout)
             let raw = case["request_json"].as_str().unwrap();
             assert_eq!(super::decode(raw.as_bytes()).is_ok(), case["valid"].as_bool().unwrap(), "{}", case["label"]);
             if let Some(expected) = case["numeric_check"].as_str() {
-                let request: Value = serde_json::from_str(raw).unwrap();
+                let request = super::super::legacy_json::parse(raw.as_bytes()).unwrap();
                 assert_eq!(super::token(&request["check"]), expected, "{}", case["label"]);
             }
         }
