@@ -231,7 +231,7 @@ pub fn load(repo: &Path, base: &str) -> Result<Config> {
             && lane.remediation_argv.iter().all(|arg| !arg.contains('\0')), "invalid lane argv");
         ensure!(matches!(lane.mode.as_str(), "required_evidence" | "optional_fallback")
             && matches!(lane.protected_edits.as_str(), "reject" | "human_approval")
-            && !lane.events.is_empty() && lane.events.iter().all(|event| matches!(event.as_str(), "pull_request" | "push" | "merge_group"))
+            && !lane.events.is_empty() && lane.events.iter().all(|event| matches!(event.as_str(), "pull_request" | "push" | "merge_group" | "queue"))
             && lane.events.iter().collect::<std::collections::BTreeSet<_>>().len() == lane.events.len()
             && !lane.trust_levels.is_empty() && lane.trust_levels.iter().all(|level| matches!(level.as_str(), "agent" | "host"))
             && lane.max_age_seconds != Some(0), "unsupported lane policy");

@@ -265,6 +265,33 @@ trust-anchor and freshness requirements above remain prerequisites for enforceme
 Every Decision JSON includes additive `expectation_source: "caller"` for CLI/event
 expectations, including existing PR/push paths; its schema version remains 1.
 
+### Caller-bound non-GitHub queue reports
+
+`gate --event queue --base B --head M --check L --format json` supports
+dotfiles-merge report-only verification where GitHub merge queue is unavailable.
+Lane `events` must explicitly include `queue`. B and M must be full commit IDs;
+M must have exactly two parents, with B in either position. Invalid bindings or
+any `--event-file` refuse `source_unbound`. No live GitHub/ref authorization is
+performed: `expectation_source` is `caller` and `report_only` is true.
+
+BASE supplies configuration, keys, lane definitions and protected paths. Only
+verified evidence for the exact tree of M can satisfy the evidence evaluation;
+the signed subject may be a different commit with that same tree. Inputs,
+signer tier/level, command, cleanliness and age retain their ordinary checks.
+The JSON decision is always `refuse`, while outcome/reason retain the actual
+evidence result (including `satisfied`). GitHub outputs always have `skip=false`
+and `refuse=true`; this report never authorizes skipping a check or merging.
+Additive `signer`, `observed_at`, `age_seconds`, and `lane_definition_sha256`
+describe the selected verified statement, or are null when unavailable.
+
+Optional `--compare-head H` is valid only with `--event queue`. It reports
+`input_key_equal` by comparing BASE-defined lane/environment input identities
+for H and M, never the signer's declared inputs. Definition paths participate.
+`compared_record` reports the newest trusted, signature-verified full-tier lane
+observation for tree(H), with tree, signer, observed_at and age_seconds, or null.
+The comparison is diagnostic only, not a passing/freshness assertion: equal
+inputs across different trees never change decision, outcome or reason.
+
 
 ## Refusals and delivery gates
 

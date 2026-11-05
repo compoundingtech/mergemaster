@@ -221,6 +221,96 @@ print((root / name).read_text())
     }
 }
 
+fn queue_fixture() -> Fixture {
+    let mut f = Fixture::new();
+    let mut policy = Fixture::policy("required_evidence");
+    policy["lanes"][CHECK]["events"] = json!(["queue"]);
+    f.write(".mergemaster/lanes.json", policy.to_string());
+    f.base = f.commit("queue policy");
+    f.write("source.txt", "queue candidate\n");
+    f.refresh_head();
+    f.head = f.git(&["commit-tree", &f.tree, "-p", &f.base, "-p", &f.head, "-m", "queue"], b"");
+    f
+}
+
+#[test]
+fn queue_exact_tree_is_report_only_in_either_parent_order() {
+    let mut f = queue_fixture();
+    let statement = f.statement();
+    let record = f.note(&statement, &f.key, "tree");
+    let output = f.root.path().join("github-output");
+    for reverse in [false, true] {
+        if reverse {
+            let other = f.git(&["rev-parse", &format!("{}^2", f.head)], b"");
+            f.head = f.git(&["commit-tree", &f.tree, "-p", &other, "-p", &f.base, "-m", "reversed"], b"");
+        }
+        let d = f.decision(&["--event", "queue", "--github-output", output.to_str().unwrap()]);
+        assert_eq!(d["decision"], "refuse");
+        assert_eq!(d["reason"], "satisfied");
+        assert_eq!(d["outcome"], "satisfied");
+        assert_eq!(d["record"], record);
+        assert_eq!(d["report_only"], true);
+        assert_eq!(d["signer"], PRINCIPAL);
+        assert_eq!(d["observed_at"], statement["predicate"]["observed_at"]);
+        assert!(d["age_seconds"].is_i64());
+        assert_eq!(d["lane_definition_sha256"], statement["predicate"]["observed"]["inputs"]["lane_definition_sha256"]);
+    }
+    let output = fs::read_to_string(output).unwrap();
+    assert!(!output.contains("skip=true"));
+    assert!(output.contains("skip=false"));
+    assert!(output.contains("refuse=true"));
+}
+
+#[test]
+fn queue_requires_two_parents_bound_base_and_no_event_file() {
+    let mut f = queue_fixture();
+    assert_eq!(f.decision(&["--event", "queue", "--event-file", "unused"])["reason"], "source_unbound");
+    let original = f.head.clone();
+    f.head = f.git(&["commit-tree", &f.tree, "-p", &f.base, "-m", "one parent"], b"");
+    assert_eq!(f.decision(&["--event", "queue"])["reason"], "source_unbound");
+    let unrelated = f.git(&["commit-tree", &f.tree, "-m", "unrelated"], b"");
+    f.head = f.git(&["commit-tree", &f.tree, "-p", &original, "-p", &unrelated, "-m", "non-parent base"], b"");
+    assert_eq!(f.decision(&["--event", "queue"])["reason"], "source_unbound");
+}
+
+#[test]
+fn queue_requires_base_keys_and_lane_opt_in() {
+    let mut f = queue_fixture();
+    let mut policy = Fixture::policy("required_evidence");
+    f.write(".mergemaster/lanes.json", policy.to_string());
+    f.base = f.commit("no queue");
+    f.head = f.git(&["commit-tree", &f.tree, "-p", &f.base, "-p", &f.head, "-m", "queue"], b"");
+    assert_eq!(f.decision(&["--event", "queue"])["reason"], "event_not_allowed");
+    policy["lanes"][CHECK]["events"] = json!(["queue"]);
+    f.write(".mergemaster/lanes.json", policy.to_string());
+    fs::remove_file(f.repo.join(".mergemaster/evidence-keys")).unwrap();
+    f.base = f.commit("no keys");
+    assert_eq!(f.decision(&["--event", "queue"])["reason"], "config_missing");
+}
+
+#[test]
+fn queue_input_comparison_never_satisfies_a_different_tree() {
+    let mut f = queue_fixture();
+    let compared = f.head.clone();
+    let compared_tree = f.tree.clone();
+    f.note(&f.statement(), &f.key, "tree");
+    f.write("unrelated.txt", "not a lane input\n");
+    f.refresh_head();
+    f.head = f.git(&["commit-tree", &f.tree, "-p", &f.base, "-p", &f.head, "-m", "queue"], b"");
+    let d = f.decision(&["--event", "queue", "--compare-head", &compared]);
+    assert_eq!(d["input_key_equal"], true);
+    assert_eq!(d["compared_record"]["tree"], compared_tree);
+    assert_eq!(d["compared_record"]["signer"], PRINCIPAL);
+    assert_eq!(d["reason"], "no_record");
+    assert_eq!(d["decision"], "refuse");
+    assert!(d["record"].is_null());
+    f.write("tools/graph", "changed definition\n");
+    f.refresh_head();
+    f.head = f.git(&["commit-tree", &f.tree, "-p", &f.base, "-p", &f.head, "-m", "queue"], b"");
+    assert_eq!(f.decision(&["--event", "queue", "--compare-head", &compared])["input_key_equal"], false);
+    assert!(!f.gate(&["--compare-head", &compared]).status.success());
+}
+
 fn merge_group_fixture() -> Fixture {
     let mut f = Fixture::new();
     let mut policy = Fixture::policy("required_evidence");
