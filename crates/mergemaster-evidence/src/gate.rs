@@ -372,15 +372,19 @@ fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path
         }
         return Ok(decision);
     }
-    let expected = config::expected_inputs(repo, head, check, lane, &config.environment, &config.environment_bytes)?;
-    let mut keys = tempfile::NamedTempFile::new()?;
-    keys.write_all(&config.keys)?;
-    keys.flush()?;
     let (records, malformed, other_tree) = records(repo, &decision.tree)?;
     let mut candidates = Vec::new();
     decision.outcome = "no_note";
     decision.reason = if malformed { "invalid_record" } else if push && other_tree { "tree_mismatch" } else { "no_record" };
     if malformed || (push && other_tree) { decision.outcome = "rejected"; }
+    if records.is_empty() {
+        config::validate_candidate(repo, head, lane)?;
+        return Ok(decision);
+    }
+    let expected = config::expected_inputs(repo, head, check, lane, &config.environment, &config.environment_bytes)?;
+    let mut keys = tempfile::NamedTempFile::new()?;
+    keys.write_all(&config.keys)?;
+    keys.flush()?;
     for id in records {
         let mut command = Command::new(std::env::current_exe()?);
         git::sanitize(&mut command);

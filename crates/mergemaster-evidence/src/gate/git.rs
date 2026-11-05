@@ -1,6 +1,7 @@
 //! Read-only Git plumbing with ambient repository selectors and helpers disabled.
-use std::{env, path::Path, process::{Command, Stdio}};
+use std::{collections::{BTreeMap, BTreeSet}, env, io::{BufRead, BufReader, Read, Write}, path::Path, process::{Command, Stdio}};
 use anyhow::{Context, Result, ensure};
+use sha2::{Digest, Sha256};
 
 /// Also usable on the isolated evidence worker: its child Git processes inherit
 /// these overrides without changing this process's environment.
@@ -61,4 +62,53 @@ pub fn text(repo: &Path, args: &[&str]) -> Result<String> {
     let mut value = String::from_utf8(git(repo, args)?).context("Git output is not UTF-8")?;
     value.truncate(value.trim_end().len());
     Ok(value)
+}
+
+/// One request at a time bounds buffering and avoids pipe-capacity deadlocks.
+pub fn blob_digests(repo: &Path, ids: &BTreeSet<&str>) -> Result<BTreeMap<String, String>> {
+    blobs(repo, ids, true)
+}
+
+pub fn validate_blobs(repo: &Path, ids: &BTreeSet<&str>) -> Result<()> {
+    blobs(repo, ids, false).map(|_| ())
+}
+
+fn blobs(repo: &Path, ids: &BTreeSet<&str>, hash: bool) -> Result<BTreeMap<String, String>> {
+    let mut child = command(repo).args(["cat-file", if hash { "--batch" } else { "--batch-check" }])
+        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null())
+        .spawn().context("running trusted Git plumbing")?;
+    let result = (|| {
+        let mut input = child.stdin.take().context("Git batch stdin")?;
+        let mut output = BufReader::new(child.stdout.take().context("Git batch stdout")?);
+        let mut digests = BTreeMap::new();
+        for id in ids {
+            ensure!(super::config::full_commit(id), "invalid blob ID");
+            writeln!(input, "{id}")?;
+            input.flush()?;
+            let mut header = String::new();
+            output.read_line(&mut header)?;
+            let fields: Vec<_> = header.split_whitespace().collect();
+            ensure!(fields.len() == 3 && fields[0] == *id && fields[1] == "blob", "expected committed regular file");
+            let size: u64 = fields[2].parse().context("invalid Git blob size")?;
+            if !hash { continue; }
+            let mut bytes = (&mut output).take(size);
+            let mut digest = Sha256::new();
+            let mut buffer = [0; 8192];
+            loop {
+                let count = bytes.read(&mut buffer)?;
+                if count == 0 { break; }
+                digest.update(&buffer[..count]);
+            }
+            ensure!(bytes.limit() == 0, "truncated Git blob");
+            let mut newline = [0];
+            output.read_exact(&mut newline)?;
+            ensure!(newline == [b'\n'], "invalid Git blob terminator");
+            digests.insert((*id).to_owned(), hex::encode(digest.finalize()));
+        }
+        Ok(digests)
+    })();
+    if result.is_err() { let _ = child.kill(); }
+    let status = child.wait()?;
+    ensure!(status.success() || result.is_err(), "Git plumbing failed ({status})");
+    result
 }

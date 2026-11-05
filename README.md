@@ -726,6 +726,10 @@ missing path in its summary. Candidate config never fills the gap. Invalid JSON,
 symlinks, directories and Git/object failures remain errors without a decision,
 not `config_missing`. A missing tool pin also prevents the workflow bootstrap
 from acquiring a verifier; that bootstrap failure is reported as incomplete.
+Required configuration is validated before expanding lane paths. Each load
+lists the BASE tree once for all lanes; candidate manifests batch blob reads and
+reuse content digests for overlapping inputs. An exact-tree record miss still
+validates candidate input paths and objects, but does not hash their contents.
 
 
 ## Base-only generic required-check publisher

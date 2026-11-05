@@ -4,7 +4,7 @@ use anyhow::{Context, Result, ensure};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use super::git::{git, text};
+use super::git::{blob_digests, git, text, validate_blobs};
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -150,7 +150,9 @@ fn blob(repo: &Path, commit: &str, path: &str) -> Result<Vec<u8>> {
     let object = format!("{commit}:{path}");
     ensure!(text(repo, &["cat-file", "-t", &object])?.trim() == "blob", "expected committed regular file");
     // A blob may still be a symbolic link. Inspect its tree mode separately.
-    let entries = entries(repo, commit, &[path.to_owned()])?;
+    let literal = format!(":(literal){path}");
+    let tree = parse_tree(&git(repo, &["ls-tree", "-z", "--full-tree", commit, "--", &literal])?)?;
+    let entries = entries_from(&tree, &[path.to_owned()])?;
     ensure!(entries.len() == 1 && entries[0].0 == path && entries[0].1 != "120000", "expected regular file");
     git(repo, &["cat-file", "blob", &object])
 }
@@ -209,6 +211,8 @@ pub fn load(repo: &Path, base: &str) -> Result<Config> {
     let environment_bytes = config_blob(repo, base, ".mergemaster/environment.json")?;
     let environment: Environment = decode(&environment_bytes, "environment")?;
     validate_environment(&environment)?;
+    let keys = config_blob(repo, base, ".mergemaster/evidence-keys")?;
+    validate_keys(&keys)?;
     ensure!(policy.version == 1 && policy.pull_request.same_repository
         && policy.pull_request.base_relation == "ancestor" && !policy.lanes.is_empty(), "unsupported pull request policy");
     if let Authors::Allowlist { logins, git_authors, git_committers } = &policy.pull_request.authors {
@@ -218,7 +222,8 @@ pub fn load(repo: &Path, base: &str) -> Result<Config> {
             "invalid author allowlist");
     }
     for path in policy.protected_paths.iter().chain(&policy.bootstrap_paths) { validate_path(path)?; }
-    for path in &policy.bootstrap_paths { entries(repo, base, std::slice::from_ref(path))?; }
+    let tree = read_tree(repo, base)?;
+    for path in &policy.bootstrap_paths { entries_from(&tree, std::slice::from_ref(path))?; }
     for required in [".mergemaster/", ".github/workflows/", ".github/actions/"] {
         if !policy.protected_paths.iter().any(|path| path == required) { policy.protected_paths.push(required.to_owned()); }
     }
@@ -260,11 +265,9 @@ pub fn load(repo: &Path, base: &str) -> Result<Config> {
             ensure!(lane.argv.len() == 1 && Path::new(&lane.argv[0]).is_absolute(), "Nix check argv declares the absolute trusted nix executable only");
         }
         ensure!(lane.environment.manifest == ".mergemaster/environment.json", "unsupported environment manifest");
-        entries(repo, base, &lane.definition_paths)?;
-        entries(repo, base, &lane.environment.paths)?;
+        entries_from(&tree, &lane.definition_paths)?;
+        entries_from(&tree, &lane.environment.paths)?;
     }
-    let keys = config_blob(repo, base, ".mergemaster/evidence-keys")?;
-    validate_keys(&keys)?;
     Ok(Config { policy, environment, environment_bytes, keys })
 }
 
@@ -311,18 +314,31 @@ fn validate_environment(environment: &Environment) -> Result<()> {
 
 // Sorted by raw UTF-8 path bytes (the accepted path encoding); no checkout,
 // symlink following, submodule traversal, filters, shell or glob expansion.
-fn entries(repo: &Path, commit: &str, paths: &[String]) -> Result<Vec<(String, String, String)>> {
+type Tree = BTreeMap<Vec<u8>, Vec<u8>>;
+
+fn parse_tree(output: &[u8]) -> Result<Tree> {
+    output.split(|byte| *byte == 0).filter(|entry| !entry.is_empty()).map(|entry| {
+        let tab = entry.iter().position(|byte| *byte == b'\t').context("invalid Git tree entry")?;
+        Ok((entry[tab + 1..].to_vec(), entry[..tab].to_vec()))
+    }).collect()
+}
+
+fn read_tree(repo: &Path, commit: &str) -> Result<Tree> {
+    parse_tree(&git(repo, &["ls-tree", "-r", "-z", "--full-tree", commit])?)
+}
+
+fn entries_from(tree: &Tree, paths: &[String]) -> Result<Vec<(String, String, String)>> {
     ensure!(!paths.is_empty(), "input paths must not be empty");
     let mut files = BTreeMap::new();
     for path in paths {
         validate_path(path)?;
         let path = path.trim_end_matches('/');
-        let literal = format!(":(literal){path}");
-        let output = git(repo, &["ls-tree", "-r", "-z", "--full-tree", commit, "--", &literal])?;
         let mut found = false;
-        for entry in output.split(|byte| *byte == 0).filter(|entry| !entry.is_empty()) {
-            let entry = std::str::from_utf8(entry).context("input path is not UTF-8")?;
-            let (metadata, name) = entry.split_once('\t').context("invalid Git tree entry")?;
+        for (name, metadata) in tree.range(path.as_bytes().to_vec()..) {
+            if !name.starts_with(path.as_bytes()) { break; }
+            if name != path.as_bytes() && name.get(path.len()) != Some(&b'/') { continue; }
+            let name = std::str::from_utf8(name).context("input path is not UTF-8")?;
+            let metadata = std::str::from_utf8(metadata).context("invalid Git tree entry")?;
             let parts: Vec<_> = metadata.split(' ').collect();
             ensure!(parts.len() == 3 && parts[1] == "blob" && matches!(parts[0], "100644" | "100755"), "unsupported input type (symlink or submodule)");
             ensure!(name == path || name.strip_prefix(path).is_some_and(|suffix| suffix.starts_with('/')), "input path escaped declaration");
@@ -334,15 +350,44 @@ fn entries(repo: &Path, commit: &str, paths: &[String]) -> Result<Vec<(String, S
     Ok(files.into_iter().map(|(path, (mode, id))| (path, mode, id)).collect())
 }
 
-fn manifest(repo: &Path, head: &str, paths: &[String]) -> Result<Vec<(String, String, String)>> {
-    entries(repo, head, paths)?.into_iter().map(|(path, mode, id)| {
-        let bytes = git(repo, &["cat-file", "blob", &id])?;
-        Ok((path, mode, hex::encode(Sha256::digest(bytes))))
-    }).collect()
+#[cfg(test)]
+mod tree_tests {
+    use super::{entries_from, parse_tree};
+
+    #[test]
+    fn expansion_preserves_boundaries_modes_and_selected_path_encoding() {
+        let tree = parse_tree(b"100644 blob a\ttools/a\0\
+            100755 blob b\ttools/b\0\
+            120000 blob c\ttools-link\0\
+            100644 blob d\tother/\xff\0").unwrap();
+        let files = entries_from(&tree, &["tools/".into(), "tools/a".into()]).unwrap();
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[1], ("tools/b".into(), "100755".into(), "b".into()));
+        assert!(entries_from(&tree, &["tool".into()]).is_err());
+        assert!(entries_from(&tree, &["tools-link".into()]).is_err());
+        assert!(entries_from(&tree, &["other".into()]).unwrap_err().to_string().contains("UTF-8"));
+    }
+}
+
+fn manifest(files: Vec<(String, String, String)>, digests: &BTreeMap<String, String>) -> Vec<(String, String, String)> {
+    files.into_iter().map(|(path, mode, id)| (path, mode, digests[&id].clone())).collect()
 }
 
 fn hash(value: &impl Serialize) -> Result<String> {
     Ok(hex::encode(Sha256::digest(serde_json::to_vec(value)?)))
+}
+
+/// Keep candidate declaration/type checks fail-closed even without a record.
+pub fn validate_candidate(repo: &Path, head: &str, lane: &Lane) -> Result<()> {
+    let tree = read_tree(repo, head)?;
+    let environment_files = entries_from(&tree, &lane.environment.paths)?;
+    let definition_files = entries_from(&tree, &lane.definition_paths)?;
+    let ids = environment_files.iter().chain(&definition_files).map(|(_, _, id)| id.as_str()).collect();
+    validate_blobs(repo, &ids)?;
+    if !lane.inputs.is_empty() || !lane.scratch.is_empty() {
+        crate::evidence::workspace::validate(repo, head, lane)?;
+    }
+    Ok(())
 }
 
 /// Shared signer/verifier contract. Hashes are SHA-256 of compact JSON tuples:
@@ -357,8 +402,13 @@ pub fn expected_inputs(repo: &Path, head: &str, check: &str, lane: &Lane,
     validate_environment(environment)?;
     let declared: Environment = decode(environment_bytes, "environment")?;
     ensure!(serde_json::to_vec(&declared)? == serde_json::to_vec(environment)?, "environment bytes differ from declaration");
-    let environment_files = manifest(repo, head, &lane.environment.paths)?;
-    let definition_files = manifest(repo, head, &lane.definition_paths)?;
+    let tree = read_tree(repo, head)?;
+    let environment_files = entries_from(&tree, &lane.environment.paths)?;
+    let definition_files = entries_from(&tree, &lane.definition_paths)?;
+    let ids = environment_files.iter().chain(&definition_files).map(|(_, _, id)| id.as_str()).collect();
+    let digests = blob_digests(repo, &ids)?;
+    let environment_files = manifest(environment_files, &digests);
+    let definition_files = manifest(definition_files, &digests);
     let environment_sha = hash(&(1, environment_bytes, &lane.environment.paths, environment_files))?;
     let toolchain_sha = hash(&(1, &environment.toolchain))?;
     let lane_sha = hash(&(1, check, lane, definition_files))?;
