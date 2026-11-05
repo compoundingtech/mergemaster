@@ -198,6 +198,7 @@ print((root / name).read_text())
         assert_eq!(value["base"], self.base);
         assert_eq!(value["head"], self.head);
         assert_eq!(value["tree"], self.tree);
+        assert_eq!(value["expectation_source"], "caller");
         assert!(value["protected_paths"].is_array());
         value
     }
@@ -217,6 +218,74 @@ print((root / name).read_text())
         self.command("python3").arg(script).args(["--repo"]).arg(&self.repo)
             .args(["--revision", &self.head, "--check", CHECK, "--keys"]).arg(keys)
             .args(["--command", "[\"tools/graph\",\"check\",\"--full\"]", "--trust-levels", "agent"]).output().unwrap()
+    }
+}
+
+fn merge_group_fixture() -> Fixture {
+    let mut f = Fixture::new();
+    let mut policy = Fixture::policy("required_evidence");
+    policy["lanes"][CHECK]["events"] = json!(["merge_group"]);
+    f.write(".mergemaster/lanes.json", policy.to_string());
+    f.base = f.commit("opt into merge-group shadow");
+    f.write("source.txt", "queue candidate\n");
+    f.refresh_head();
+    f
+}
+
+fn merge_group_event(f: &Fixture) -> Value {
+    json!({"action":"checks_requested","repository":{"full_name":"fixture/repo"},
+        "merge_group":{"head_sha":f.head,"base_sha":f.base,"base_ref":"refs/heads/main",
+            "head_ref":format!("refs/heads/gh-readonly-queue/main/pr-1-{}", f.head)}})
+}
+
+fn merge_group_decision(f: &Fixture, event: &Value, extra: &[&str]) -> Value {
+    let path = f.root.path().join("merge-group.json");
+    fs::write(&path, event.to_string()).unwrap();
+    let mut args = vec!["--event", "merge_group", "--event-file", path.to_str().unwrap()];
+    args.extend_from_slice(extra);
+    f.decision(&args)
+}
+
+#[test]
+fn merge_group_is_explicit_and_report_only_even_with_satisfying_evidence() {
+    let f = merge_group_fixture();
+    f.note(&f.statement(), &f.key, "tree");
+    let output = f.root.path().join("github-output");
+    let decision = merge_group_decision(&f, &merge_group_event(&f),
+        &["--github-output", output.to_str().unwrap()]);
+    assert_eq!(decision["decision"], "refuse");
+    assert_eq!(decision["outcome"], "rejected");
+    assert_eq!(decision["reason"], "report_only_queue_parent");
+    assert_eq!(decision["expectation_source"], "caller");
+    assert!(decision["summary"].as_str().unwrap().contains("queue parent, not the live accepted BASE"));
+    let output = fs::read_to_string(output).unwrap();
+    assert!(output.contains("skip=false\n"));
+    assert!(output.contains("refuse=true\n"));
+}
+
+#[test]
+fn merge_group_requires_lane_opt_in_and_event_file() {
+    let f = Fixture::new();
+    assert_eq!(merge_group_decision(&f, &merge_group_event(&f), &[])["reason"], "event_not_allowed");
+    let f = merge_group_fixture();
+    assert_eq!(f.decision(&["--event", "merge_group"])["reason"], "source_unbound");
+    assert_eq!(merge_group_decision(&f, &merge_group_event(&f), &[])["reason"], "no_record");
+}
+
+#[test]
+fn merge_group_refuses_unbound_candidate_parent_or_queue_ref() {
+    let f = merge_group_fixture();
+    for (field, value) in [
+        ("head_sha", f.base.clone()), ("base_sha", f.head.clone()),
+        ("head_ref", format!("refs/heads/gh-readonly-queue/main/pr-01-{}", f.head)),
+        ("head_ref", format!("refs/heads/gh-readonly-queue/other/pr-1-{}", f.head)),
+        ("head_ref", "refs/heads/gh-readonly-queue/main/pr-1-not-a-sha".into()),
+    ] {
+        let mut event = merge_group_event(&f);
+        event["merge_group"][field] = json!(value);
+        let decision = merge_group_decision(&f, &event, &[]);
+        assert_eq!(decision["decision"], "refuse");
+        assert_eq!(decision["reason"], "source_unbound", "{field}: {value}");
     }
 }
 
