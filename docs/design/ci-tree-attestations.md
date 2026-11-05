@@ -100,7 +100,9 @@ objects, attempt-specific API snapshots and the downloaded archive's SHA-256.
 the independently observed successful job conclusion. Failed/incomplete jobs
 refuse `payload_failed`; neither function provisions keys or executes artifacts.
 Direct source derivation supports merge-group queue SHAs for BASE policy's
-protected branch and pushed SHAs;
+protected branch and pushed SHAs. Queue refs require exactly
+`gh-readonly-queue/<protected-branch>/pr-<positive-decimal>-<40-or-64-lowercase-hex>`,
+with no leading zero in the PR number or nested branch suffix;
 event authorization remains a separate preflight gate (Stage 1 does not authorize
 push signers). Pull-request derivation refuses `source_unbound`: the PR head
 commit cannot stand in for its OIDC merge commit.

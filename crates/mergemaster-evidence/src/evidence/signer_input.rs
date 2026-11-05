@@ -72,7 +72,7 @@ pub fn derive_expected(p: &BasePolicy, s: &Selection, i: &SignerInput<'_>) -> Re
         // PR head SHA is not its OIDC merge SHA; no inferred equivalence.
         "push" => true,
         "merge_group" => run["head_branch"].as_str().is_some_and(|r|
-            r.starts_with(&format!("gh-readonly-queue/{}/", p.protected_branch))),
+            queue_ref(r, &p.protected_branch)),
         _ => false,
     };
     ensure!(mapped && run["head_repository"]["id"].as_u64() == Some(p.repository_id)
@@ -118,3 +118,10 @@ pub fn verify_signer_input(bytes: &[u8], jwt: &str, jwks: &JwkSet, policy: &Base
 
 fn lower_hex(v: &str) -> bool { v.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) }
 fn git_hash(v: &str) -> bool { matches!(v.len(), 40 | 64) && lower_hex(v) }
+
+fn queue_ref(value: &str, branch: &str) -> bool {
+    value.strip_prefix("gh-readonly-queue/").and_then(|v| v.strip_prefix(branch))
+        .and_then(|v| v.strip_prefix("/pr-")).and_then(|v| v.split_once('-'))
+        .is_some_and(|(number, sha)| !number.is_empty() && !number.starts_with('0')
+            && number.bytes().all(|b| b.is_ascii_digit()) && git_hash(sha))
+}
