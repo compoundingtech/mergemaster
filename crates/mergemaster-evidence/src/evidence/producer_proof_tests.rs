@@ -146,6 +146,7 @@ fn signer_fixture() -> (Receipt, Value, BasePolicy, Selection, Value, Value, Val
     claims["event_name"] = json!("merge_group");
     let policy = BasePolicy {
         repository: b.repository.clone(), repository_id: b.repository_id, owner_id: b.owner_id,
+        protected_branch: "release".into(),
         workflow_id: 50, workflow_path: b.workflow_path.clone(), workflow_sha256: b.workflow_sha256.clone(),
         job_workflow_ref: expected.job_workflow_ref, job_workflow_sha: expected.job_workflow_sha,
         lane: b.lane.clone(), lane_sha256: b.lane_sha256.clone(),
@@ -155,7 +156,7 @@ fn signer_fixture() -> (Receipt, Value, BasePolicy, Selection, Value, Value, Val
     let selection = Selection { run_id: 100, run_attempt: 2, check_run_id: 200, artifact_id: 900 };
     let run = json!({"id":100,"run_attempt":2,"repository":{"id":20,"full_name":"example/project","owner":{"id":10}},
         "head_repository":{"id":20},"head_sha":b.candidate_sha,"event":"merge_group",
-        "head_branch":"gh-readonly-queue/main/pr-1",
+        "head_branch":"gh-readonly-queue/release/pr-1",
         "workflow_id":50,"path":b.workflow_path,
         "referenced_workflows":[{"path":policy.job_workflow_ref,"sha":policy.job_workflow_sha}]});
     let jobs = json!({"total_count":1,"jobs":[{"id":300,"run_id":100,"run_attempt":2,
@@ -204,6 +205,7 @@ fn signer_input_refuses_api_and_policy_mismatches() {
         ("/run/workflow_id", json!(51), "wrong_recipe"),
         ("/run/referenced_workflows/0/sha", json!("main"), "wrong_recipe"),
         ("/run/head_sha", json!("0".repeat(40)), "source_unbound"),
+        ("/run/head_branch", json!("gh-readonly-queue/main/pr-1"), "source_unbound"),
         ("/run/event", json!("pull_request"), "source_unbound"),
         ("/run/event", json!("workflow_dispatch"), "source_unbound"),
         ("/run/head_repository/id", json!(21), "source_unbound"),

@@ -10,6 +10,7 @@ pub struct BasePolicy {
     pub repository: String,
     pub repository_id: u64,
     pub owner_id: u64,
+    pub protected_branch: String,
     pub workflow_id: u64,
     pub workflow_path: String,
     pub workflow_sha256: String,
@@ -70,7 +71,8 @@ pub fn derive_expected(p: &BasePolicy, s: &Selection, i: &SignerInput<'_>) -> Re
     let mapped = match event {
         // PR head SHA is not its OIDC merge SHA; no inferred equivalence.
         "push" => true,
-        "merge_group" => run["head_branch"].as_str().is_some_and(|r| r.starts_with("gh-readonly-queue/main/")),
+        "merge_group" => run["head_branch"].as_str().is_some_and(|r|
+            r.starts_with(&format!("gh-readonly-queue/{}/", p.protected_branch))),
         _ => false,
     };
     ensure!(mapped && run["head_repository"]["id"].as_u64() == Some(p.repository_id)
