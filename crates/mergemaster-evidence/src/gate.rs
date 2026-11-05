@@ -17,7 +17,7 @@ pub struct Args {
     #[arg(long)] pub check: String,
     #[arg(long)] pub base: String,
     #[arg(long)] pub head: String,
-    #[arg(long, default_value = "pull_request", value_parser = ["pull_request", "push"])]
+    #[arg(long, default_value = "pull_request", value_parser = ["pull_request", "push", "merge_group"])]
     pub event: String,
     #[arg(long)] pub event_file: Option<PathBuf>,
     #[arg(long)] pub hosted_evidence: Option<PathBuf>,
@@ -47,6 +47,7 @@ pub struct Decision {
     pub base: String,
     pub head: String,
     pub tree: String,
+    pub expectation_source: &'static str,
     pub decision: &'static str,
     pub outcome: &'static str,
     pub reason: &'static str,
@@ -57,12 +58,22 @@ pub struct Decision {
 
 pub fn run(args: Args) -> Result<()> {
     let repo = std::env::current_dir()?;
-    let push = args.event == "push";
-    let live = Live::read(&repo, &args.base, &args.head, args.event_file.as_deref(), push)?;
-    let mut decision = compute(&repo, &args.check, &args.base, &args.head, args.event_file.as_deref(), args.hosted_evidence.as_deref(), push)?;
+    let merge_group = args.event == "merge_group";
+    let live = if merge_group { None } else {
+        Some(Live::read(&repo, &args.base, &args.head, args.event_file.as_deref(), args.event == "push")?)
+    };
+    let mut decision = compute(&repo, &args.check, &args.base, &args.head, args.event_file.as_deref(), args.hosted_evidence.as_deref(), &args.event)?;
+    if merge_group {
+        decision.decision = "refuse";
+        if matches!(decision.outcome, "satisfied" | "reused") {
+            decision.reason = "report_only_queue_parent";
+            decision.outcome = "rejected";
+        }
+        decision.summary = format!("Report-only merge-group shadow: event base_sha is the queue parent, not the live accepted BASE; caller-supplied candidate, no live queue or protected-target authorization. {}", decision.summary);
+    }
     let mut output = args.github_output.map(|path|
         std::fs::OpenOptions::new().append(true).create(true).open(path)).transpose()?;
-    if let Some(reason) = live.recheck(&repo, &args.base, &args.head)? {
+    if let Some(reason) = live.as_ref().map(|live| live.recheck(&repo, &args.base, &args.head)).transpose()?.flatten() {
         decision.decision = "refuse";
         decision.outcome = "rejected";
         decision.reason = reason;
@@ -189,12 +200,14 @@ impl Live {
 
 pub fn decide(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path>) -> Result<Decision> {
     let live = Live::read(repo, base, head, event, false)?;
-    let decision = compute(repo, check, base, head, event, None, false)?;
+    let decision = compute(repo, check, base, head, event, None, "pull_request")?;
     let _ = live.recheck(repo, base, head)?;
     Ok(decision)
 }
 
-fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path>, hosted: Option<&Path>, push: bool) -> Result<Decision> {
+fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path>, hosted: Option<&Path>, event_type: &str) -> Result<Decision> {
+    let push = event_type == "push";
+    let merge_group = event_type == "merge_group";
     commit(repo, base)?;
     commit(repo, head)?;
     let tree = git::text(repo, &["rev-parse", &format!("{head}^{{tree}}")])?;
@@ -202,18 +215,40 @@ fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path
         Ok(config) => config,
         Err(error) if error.is::<config::MissingConfig>() => return Ok(Decision {
             version: 1, check: check.into(), base: base.into(), head: head.into(), tree,
-            decision: "refuse", outcome: "rejected", reason: "config_missing",
+            expectation_source: "caller", decision: "refuse", outcome: "rejected", reason: "config_missing",
             record: None, protected_paths: Vec::new(), summary: error.to_string(),
         }),
         Err(error) => return Err(error),
     };
     let lane = config.policy.lanes.get(check).context("unknown check")?;
     let mut decision = Decision { version: 1, check: check.into(), base: base.into(), head: head.into(), tree,
-        decision: if lane.mode == "required_evidence" { "refuse" } else { "run" },
+        expectation_source: "caller", decision: if lane.mode == "required_evidence" { "refuse" } else { "run" },
         outcome: "rejected", reason: "base_not_ancestor", record: None, protected_paths: Vec::new(), summary: String::new() };
-    if !lane.events.iter().any(|event| event == if push { "push" } else { "pull_request" }) {
+    if !lane.events.iter().any(|event| event == event_type) {
         decision.reason = "event_not_allowed";
         return Ok(decision);
+    }
+    if merge_group {
+        let payload: serde_json::Value = match event {
+            Some(path) => serde_json::from_slice(&std::fs::read(path)?)?,
+            None => {
+                decision.reason = "source_unbound";
+                return Ok(decision);
+            },
+        };
+        let string = |pointer| payload.pointer(pointer).and_then(serde_json::Value::as_str);
+        let branch = string("/merge_group/base_ref").and_then(|reference| reference.strip_prefix("refs/heads/"));
+        let bound = branch.filter(|branch| !branch.is_empty()).is_some_and(|branch|
+            string("/merge_group/head_ref").and_then(|reference| reference.strip_prefix("refs/heads/"))
+                .is_some_and(|reference| evidence::signer_input::queue_ref(reference, branch)));
+        if payload["action"] != "checks_requested" || !bound
+            || string("/merge_group/head_sha") != Some(head) || string("/merge_group/base_sha") != Some(base)
+            || !std::env::var("GITHUB_REPOSITORY").ok().is_some_and(|repository|
+                string("/repository/full_name") == Some(repository.as_str())) {
+            decision.reason = "source_unbound";
+            decision.summary = "merge_group must bind repository, head_sha to --head, base_sha to --base, and a valid queue head_ref to base_ref".into();
+            return Ok(decision);
+        }
     }
     if push {
         let parents = git::text(repo, &["rev-list", "--parents", "-n", "1", head])?;
@@ -247,7 +282,7 @@ fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path
             decision.protected_paths.push(path.to_owned());
         }
     }
-    if !push {
+    if !push && !merge_group {
         let merges = git::text(repo, &["rev-list", "--min-parents=2", "--parents", &format!("{base}..{head}")])?;
         for merge in merges.lines() {
             for parent in merge.split_whitespace().skip(2) {
@@ -270,7 +305,7 @@ fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path
         decision.reason = "protected_paths";
         return Ok(decision);
     }
-    if !push && !eligible(repo, base, head, event, &config, lane)? {
+    if !push && !merge_group && !eligible(repo, base, head, event, &config, lane)? {
         decision.reason = "ineligible_event";
         return Ok(decision);
     }

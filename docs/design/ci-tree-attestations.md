@@ -248,6 +248,24 @@ policy-matching evidence can skip a lane; retain newest-failure precedence,
 maximum age and explicit reuse policy. Missing evidence runs the configured real
 fallback or refuses. Report-only decisions never publish a required success.
 
+### Report-only caller-bound shadow
+
+The CLI accepts `gate --event merge_group` only for lanes whose `events` explicitly
+includes `merge_group`; `pull_request` does not imply permission. With
+`--event-file`, `checks_requested` must bind the trusted `GITHUB_REPOSITORY`,
+`head_sha` to `--head`, and `base_sha` to `--base`. The queue `head_ref` must match
+the existing signer-input grammar for the protected branch named by `base_ref`.
+Missing or mismatching source fields refuse with `source_unbound`.
+
+This shadow evaluates evidence against the caller's event parent, **not** a live
+accepted BASE. It does not authorize queue membership or the protected target,
+and never emits `skip` or a satisfied outcome (including GitHub outputs).
+Otherwise satisfying evidence reports `report_only_queue_parent`. The live
+trust-anchor and freshness requirements above remain prerequisites for enforcement.
+Every Decision JSON includes additive `expectation_source: "caller"` for CLI/event
+expectations, including existing PR/push paths; its schema version remains 1.
+
+
 ## Refusals and delivery gates
 
 Stable refusal codes: `oidc_invalid`, `identity_unbound`, `foreign_run`,

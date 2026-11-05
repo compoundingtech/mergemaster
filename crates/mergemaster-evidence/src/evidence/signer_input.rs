@@ -119,7 +119,7 @@ pub fn verify_signer_input(bytes: &[u8], jwt: &str, jwks: &JwkSet, policy: &Base
 fn lower_hex(v: &str) -> bool { v.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) }
 fn git_hash(v: &str) -> bool { matches!(v.len(), 40 | 64) && lower_hex(v) }
 
-fn queue_ref(value: &str, branch: &str) -> bool {
+pub(crate) fn queue_ref(value: &str, branch: &str) -> bool {
     value.strip_prefix("gh-readonly-queue/").and_then(|v| v.strip_prefix(branch))
         .and_then(|v| v.strip_prefix("/pr-")).and_then(|v| v.split_once('-'))
         .is_some_and(|(number, sha)| !number.is_empty() && !number.starts_with('0')
