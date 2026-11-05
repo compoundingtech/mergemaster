@@ -93,6 +93,20 @@ execution; a different attempt cannot inherit its predecessor's receipt.
 Initially reject expired producer tokens. Queue delays can therefore require a
 new payload run; no historical-token or timestamp guarantee is assumed.
 
+`mergemaster_evidence::evidence::signer_input::derive_expected` derives the
+producer verifier's expectations from BASE policy, independently resolved Git
+objects, attempt-specific API snapshots and the downloaded archive's SHA-256.
+`verify_signer_input` composes that derivation with the producer proof and returns
+the independently observed successful job conclusion. Failed/incomplete jobs
+refuse `payload_failed`; neither function provisions keys or executes artifacts.
+Direct source derivation supports merge-group queue SHAs for BASE policy's
+protected branch and pushed SHAs. Queue refs require exactly
+`gh-readonly-queue/<protected-branch>/pr-<positive-decimal>-<40-or-64-lowercase-hex>`,
+with no leading zero in the PR number or nested branch suffix;
+event authorization remains a separate preflight gate (Stage 1 does not authorize
+push signers). Pull-request derivation refuses `source_unbound`: the PR head
+commit cannot stand in for its OIDC merge commit.
+
 ### Standard artifact attestations
 
 GitHub attestations are useful for authenticated artifact digest, reusable builder

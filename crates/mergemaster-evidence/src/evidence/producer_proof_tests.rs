@@ -135,3 +135,136 @@ fn producer_proof_requires_canonical_receipt_and_exact_authenticated_bytes() {
     let future = serde_json::to_vec(&future).unwrap();
     assert!(verify(&future, &token(&claims), &key().1, &expected).is_err());
 }
+
+// Composition tests reuse the real RS256 proof fixture above.
+use super::super::signer_input::{BasePolicy, Selection, SignerInput, verify_signer_input};
+
+fn signer_fixture() -> (Receipt, Value, BasePolicy, Selection, Value, Value, Value) {
+    let (receipt, expected, mut claims) = fixture();
+    let b = &receipt.bindings;
+    claims["sha"] = json!(b.candidate_sha);
+    claims["event_name"] = json!("merge_group");
+    let policy = BasePolicy {
+        repository: b.repository.clone(), repository_id: b.repository_id, owner_id: b.owner_id,
+        protected_branch: "release".into(),
+        workflow_id: 50, workflow_path: b.workflow_path.clone(), workflow_sha256: b.workflow_sha256.clone(),
+        job_workflow_ref: expected.job_workflow_ref, job_workflow_sha: expected.job_workflow_sha,
+        lane: b.lane.clone(), lane_sha256: b.lane_sha256.clone(),
+        environment_sha256: b.environment_sha256.clone(), recipe_sha256: b.recipe_sha256.clone(),
+        action_backends: expected.action_backends,
+    };
+    let selection = Selection { run_id: 100, run_attempt: 2, check_run_id: 200, artifact_id: 900 };
+    let run = json!({"id":100,"run_attempt":2,"repository":{"id":20,"full_name":"example/project","owner":{"id":10}},
+        "head_repository":{"id":20},"head_sha":b.candidate_sha,"event":"merge_group",
+        "head_branch":format!("gh-readonly-queue/release/pr-1-{}", b.candidate_sha),
+        "workflow_id":50,"path":b.workflow_path,
+        "referenced_workflows":[{"path":policy.job_workflow_ref,"sha":policy.job_workflow_sha}]});
+    let jobs = json!({"total_count":1,"jobs":[{"id":300,"run_id":100,"run_attempt":2,
+        "check_run_url":"https://api.github.com/repos/example/project/check-runs/200",
+        "status":"completed","conclusion":"success"}]});
+    let artifact = json!({"id":900,"expired":false,"workflow_run":{"id":100,"repository_id":20},
+        "digest":format!("sha256:{}", b.artifact_sha256)});
+    (receipt, claims, policy, selection, run, jobs, artifact)
+}
+
+#[test]
+fn signer_input_accepts_independent_success() {
+    for (event, length) in [("merge_group", 40), ("merge_group", 64), ("push", 40)] {
+        let (r, mut c, p, s, mut run, jobs, artifact) = signer_fixture();
+        c["event_name"] = json!(event);
+        run["event"] = json!(event);
+        run["head_branch"] = json!(format!("gh-readonly-queue/release/pr-1-{}", "a".repeat(length)));
+        let input = SignerInput { run: &run, current_run: &run, jobs: &jobs, artifact: &artifact,
+            accepted_base: &r.bindings.accepted_base, candidate_sha: &r.bindings.candidate_sha,
+            candidate_tree: &r.bindings.candidate_tree, archive_sha256: &r.bindings.artifact_sha256 };
+        let verified = verify_signer_input(&serde_json::to_vec(&r).unwrap(), &token(&c), &key().1, &p, &s, &input).unwrap();
+        assert_eq!(verified.job_id, 300); // Not the check-run ID (200).
+        assert_eq!(verified.conclusion, "success");
+        assert_eq!(verified.receipt.bindings, r.bindings);
+    }
+}
+
+#[test]
+fn signer_input_refuses_api_and_policy_mismatches() {
+    for (pointer, value, code) in [
+        ("/run/id", json!(101), "foreign_run"),
+        ("/current/id", json!(101), "foreign_run"),
+        ("/run/repository/id", json!(21), "foreign_run"),
+        ("/run/repository/owner/id", json!(11), "foreign_run"),
+        ("/run/run_attempt", json!(1), "wrong_attempt"),
+        ("/current/run_attempt", json!(3), "wrong_attempt"),
+        ("/jobs/jobs/0/run_attempt", json!(1), "wrong_attempt"),
+        ("/jobs/jobs/0/check_run_url", json!("https://evil.invalid/check-runs/200"), "wrong_job"),
+        ("/jobs/jobs", json!([]), "wrong_job"),
+        ("/jobs/total_count", json!(2), "wrong_job"),
+        ("/jobs/jobs/0/status", json!("in_progress"), "payload_failed"),
+        ("/jobs/jobs/0/conclusion", json!("failure"), "payload_failed"),
+        ("/artifact/workflow_run/id", json!(101), "artifact_unbound"),
+        ("/artifact/digest", Value::Null, "artifact_unbound"),
+        ("/artifact/digest", json!(format!("sha256:{}", "0".repeat(64))), "artifact_digest_mismatch"),
+        ("/run/path", json!(".github/workflows/copied.yml"), "wrong_recipe"),
+        ("/run/workflow_id", json!(51), "wrong_recipe"),
+        ("/run/referenced_workflows/0/sha", json!("main"), "wrong_recipe"),
+        ("/run/head_sha", json!("0".repeat(40)), "source_unbound"),
+        ("/run/head_branch", json!(format!("gh-readonly-queue/main/pr-1-{}", "a".repeat(40))), "source_unbound"),
+        ("/run/head_branch", json!(format!("gh-readonly-queue/release/hotfix/pr-1-{}", "a".repeat(40))), "source_unbound"),
+        ("/run/head_branch", json!("gh-readonly-queue/release/x"), "source_unbound"),
+        ("/run/head_branch", json!(format!("gh-readonly-queue/release/pr-01-{}", "a".repeat(40))), "source_unbound"),
+        ("/run/head_branch", json!(format!("gh-readonly-queue/release/pr-0-{}", "a".repeat(40))), "source_unbound"),
+        ("/run/head_branch", json!(format!("gh-readonly-queue/release/pr-1-{}", "A".repeat(40))), "source_unbound"),
+        ("/run/event", json!("pull_request"), "source_unbound"),
+        ("/run/event", json!("workflow_dispatch"), "source_unbound"),
+        ("/run/head_repository/id", json!(21), "source_unbound"),
+    ] {
+        let (r, c, p, s, run, jobs, artifact) = signer_fixture();
+        let mut api = json!({"run":run,"current":run,"jobs":jobs,"artifact":artifact});
+        *api.pointer_mut(pointer).unwrap() = value;
+        let input = SignerInput { run: &api["run"], current_run: &api["current"], jobs: &api["jobs"], artifact: &api["artifact"],
+            accepted_base: &r.bindings.accepted_base, candidate_sha: &r.bindings.candidate_sha,
+            candidate_tree: &r.bindings.candidate_tree, archive_sha256: &r.bindings.artifact_sha256 };
+        let error = verify_signer_input(&serde_json::to_vec(&r).unwrap(), &token(&c), &key().1, &p, &s, &input).unwrap_err();
+        assert!(error.to_string().starts_with(code), "{pointer}: {error}");
+    }
+}
+
+#[test]
+fn signer_input_refuses_authenticated_wrong_tree_attempt_recipe_and_run() {
+    for (field, value, code) in [
+        ("candidate_tree", json!("0".repeat(40)), "tree_mismatch"),
+        ("run_attempt", json!(1), "wrong_attempt"),
+        ("recipe_sha256", json!("0".repeat(64)), "wrong_recipe"),
+        ("run_id", json!(101), "foreign_run"),
+    ] {
+        let (r, mut c, p, s, run, jobs, artifact) = signer_fixture();
+        let mut wrong = serde_json::to_value(&r).unwrap();
+        wrong["bindings"][field] = value.clone();
+        if field == "run_attempt" || field == "run_id" { c[field] = json!(value.as_u64().unwrap().to_string()); }
+        let bytes = serde_json::to_vec(&serde_json::from_value::<Receipt>(wrong).unwrap()).unwrap();
+        c["aud"] = json!(format!("{AUDIENCE}{}", hex::encode(Sha256::digest(&bytes))));
+        let input = SignerInput { run: &run, current_run: &run, jobs: &jobs, artifact: &artifact,
+            accepted_base: &r.bindings.accepted_base, candidate_sha: &r.bindings.candidate_sha,
+            candidate_tree: &r.bindings.candidate_tree, archive_sha256: &r.bindings.artifact_sha256 };
+        let error = verify_signer_input(&bytes, &token(&c), &key().1, &p, &s, &input).unwrap_err();
+        assert!(error.to_string().starts_with(code), "{field}: {error}");
+    }
+}
+
+#[test]
+fn signer_input_refuses_ambiguous_job_and_mutable_recipe() {
+    for mutable in [false, true] {
+        let (r, c, mut p, s, run, mut jobs, artifact) = signer_fixture();
+        if mutable {
+            p.job_workflow_sha = "main".into();
+            p.job_workflow_ref = "example/project/.github/workflows/engine.yml@main".into();
+        } else {
+            let duplicate = jobs["jobs"][0].clone();
+            jobs["jobs"].as_array_mut().unwrap().push(duplicate);
+            jobs["total_count"] = json!(2);
+        }
+        let input = SignerInput { run: &run, current_run: &run, jobs: &jobs, artifact: &artifact,
+            accepted_base: &r.bindings.accepted_base, candidate_sha: &r.bindings.candidate_sha,
+            candidate_tree: &r.bindings.candidate_tree, archive_sha256: &r.bindings.artifact_sha256 };
+        let error = verify_signer_input(&serde_json::to_vec(&r).unwrap(), &token(&c), &key().1, &p, &s, &input).unwrap_err();
+        assert!(error.to_string().starts_with(if mutable { "wrong_recipe" } else { "wrong_job" }));
+    }
+}

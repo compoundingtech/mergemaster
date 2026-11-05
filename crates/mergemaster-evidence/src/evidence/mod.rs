@@ -24,6 +24,7 @@ mod ci_reattest;
 mod ci_transport;
 pub mod observers;
 pub mod producer_proof;
+pub mod signer_input;
 #[cfg(test)]
 mod tests;
 
