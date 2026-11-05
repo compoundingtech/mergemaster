@@ -93,6 +93,13 @@ execution; a different attempt cannot inherit its predecessor's receipt.
 Initially reject expired producer tokens. Queue delays can therefore require a
 new payload run; no historical-token or timestamp guarantee is assumed.
 
+`mergemaster_evidence::evidence::signer_input::derive_expected` derives the
+producer verifier's expectations from BASE policy, independently resolved Git
+objects, attempt-specific API snapshots and the downloaded archive's SHA-256.
+`verify_signer_input` composes that derivation with the producer proof and returns
+the independently observed successful job conclusion. Failed/incomplete jobs
+refuse `payload_failed`; neither function provisions keys or executes artifacts.
+
 ### Standard artifact attestations
 
 GitHub attestations are useful for authenticated artifact digest, reusable builder
