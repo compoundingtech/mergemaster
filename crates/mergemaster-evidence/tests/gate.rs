@@ -289,6 +289,96 @@ fn merge_group_refuses_unbound_candidate_parent_or_queue_ref() {
     }
 }
 
+#[test]
+fn merge_group_refuses_wrong_action_repository_or_missing_binding_fields() {
+    let f = merge_group_fixture();
+    f.note(&f.statement(), &f.key, "tree");
+    for case in ["action", "repository", "head_sha", "base_sha", "base_ref", "head_ref"] {
+        let mut event = merge_group_event(&f);
+        match case {
+            "action" => event["action"] = json!("destroyed"),
+            "repository" => event["repository"]["full_name"] = json!("other/repo"),
+            field => { event["merge_group"].as_object_mut().unwrap().remove(field); },
+        }
+        let decision = merge_group_decision(&f, &event, &[]);
+        assert_eq!(decision["decision"], "refuse", "{case}: {decision}");
+        assert_eq!(decision["outcome"], "rejected", "{case}: {decision}");
+        assert_eq!(decision["reason"], "source_unbound", "{case}: {decision}");
+    }
+}
+
+#[test]
+fn merge_group_optional_fallback_never_emits_skip() {
+    for case in ["missing", "failed", "satisfied"] {
+        let mut f = merge_group_fixture();
+        let mut policy = Fixture::policy("optional_fallback");
+        policy["lanes"][CHECK]["events"] = json!(["merge_group"]);
+        f.write(".mergemaster/lanes.json", policy.to_string());
+        f.base = f.commit("optional merge-group policy");
+        f.write("source.txt", "optional queue candidate\n");
+        f.refresh_head();
+        if case != "missing" {
+            let mut statement = f.statement();
+            if case == "failed" {
+                statement["predicate"]["observed"]["checks"][CHECK]["exit_code"] = json!(1);
+            }
+            f.note(&statement, &f.key, "tree");
+        }
+        let output = f.root.path().join(format!("optional-output-{case}"));
+        let decision = merge_group_decision(&f, &merge_group_event(&f),
+            &["--github-output", output.to_str().unwrap()]);
+        assert_eq!(decision["decision"], "refuse", "{case}: {decision}");
+        assert_eq!(decision["reason"], match case {
+            "missing" => "no_record", "failed" => "check_failed", _ => "report_only_queue_parent",
+        }, "{case}: {decision}");
+        assert_eq!(decision["outcome"], if case == "missing" { "no_note" } else { "rejected" });
+        let output = fs::read_to_string(output).unwrap();
+        assert!(output.contains("skip=false\n"), "{case}: {output}");
+        assert!(output.contains("refuse=true\n"), "{case}: {output}");
+    }
+}
+
+#[test]
+fn merge_group_with_reused_hosted_evidence_is_still_report_only() {
+    let f = merge_group_fixture();
+    f.note(&f.statement(), &f.key, "tree");
+    let hosted = f.root.path().join("hosted.json");
+    fs::write(&hosted, approval_evidence(&f).to_string()).unwrap();
+    let decision = merge_group_decision(&f, &merge_group_event(&f),
+        &["--hosted-evidence", hosted.to_str().unwrap()]);
+    assert_eq!(decision["decision"], "refuse");
+    assert_eq!(decision["outcome"], "rejected");
+    assert_eq!(decision["reason"], "report_only_queue_parent");
+}
+
+#[test]
+fn merge_group_human_approval_never_yields_satisfied() {
+    let mut f = approval_fixture();
+    let mut policy = Fixture::policy("required_evidence");
+    policy["lanes"][CHECK]["events"] = json!(["pull_request", "merge_group"]);
+    policy["lanes"][CHECK]["protected_edits"] = json!("human_approval");
+    policy["lanes"][CHECK]["approvers"] = json!(["schickling"]);
+    policy["lanes"][CHECK]["require_hosted"] = json!([{
+        "name":"validate", "workflow_id":42, "workflow_path":".github/workflows/validate.yml"
+    }]);
+    f.write(".mergemaster/lanes.json", policy.to_string());
+    f.base = f.commit("authorize merge-group human policy");
+    f.write(".github/workflows/validate.yml", "name: validate\n# queue change\n");
+    f.refresh_head();
+    let hosted = f.root.path().join("hosted.json");
+    fs::write(&hosted, approval_evidence(&f).to_string()).unwrap();
+    let output = f.root.path().join("approval-output");
+    let decision = merge_group_decision(&f, &merge_group_event(&f),
+        &["--hosted-evidence", hosted.to_str().unwrap(), "--github-output", output.to_str().unwrap()]);
+    assert_eq!(decision["decision"], "refuse");
+    assert_eq!(decision["outcome"], "rejected");
+    assert_eq!(decision["reason"], "report_only_queue_parent");
+    assert_eq!(decision["protected_paths"], json!([".github/workflows/validate.yml"]));
+    let output = fs::read_to_string(output).unwrap();
+    assert!(output.contains("skip=false\n"));
+    assert!(output.contains("refuse=true\n"));
+}
+
 fn approval_fixture() -> Fixture {
     let mut f = Fixture::new();
     let mut policy = Fixture::policy("required_evidence");
