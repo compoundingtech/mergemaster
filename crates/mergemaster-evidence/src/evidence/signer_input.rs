@@ -68,9 +68,8 @@ pub fn derive_expected(p: &BasePolicy, s: &Selection, i: &SignerInput<'_>) -> Re
             r["path"].as_str() == Some(&p.job_workflow_ref) && r["sha"].as_str() == Some(&p.job_workflow_sha))), "wrong_recipe");
     let event = run["event"].as_str().context("source_unbound: event")?;
     let mapped = match event {
-        "pull_request" => run["pull_requests"].as_array().is_some_and(|prs| prs.len() == 1
-            && prs[0]["head"]["sha"].as_str() == Some(i.candidate_sha)
-            && prs[0]["head"]["repo"]["id"].as_u64() == Some(p.repository_id)),
+        // PR head SHA is not its OIDC merge SHA; no inferred equivalence.
+        "push" => true,
         "merge_group" => run["head_branch"].as_str().is_some_and(|r| r.starts_with("gh-readonly-queue/main/")),
         _ => false,
     };

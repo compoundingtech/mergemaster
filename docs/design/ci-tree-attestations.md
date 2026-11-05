@@ -99,6 +99,10 @@ objects, attempt-specific API snapshots and the downloaded archive's SHA-256.
 `verify_signer_input` composes that derivation with the producer proof and returns
 the independently observed successful job conclusion. Failed/incomplete jobs
 refuse `payload_failed`; neither function provisions keys or executes artifacts.
+Direct source derivation supports merge-group queue SHAs and pushed SHAs;
+event authorization remains a separate preflight gate (Stage 1 does not authorize
+push signers). Pull-request derivation refuses `source_unbound`: the PR head
+commit cannot stand in for its OIDC merge commit.
 
 ### Standard artifact attestations
 
