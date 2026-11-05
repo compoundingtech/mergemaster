@@ -469,6 +469,34 @@ fn merge_group_human_approval_never_yields_satisfied() {
     assert!(output.contains("refuse=true\n"));
 }
 
+#[test]
+fn queue_protected_edits_cannot_be_satisfied_by_human_approval() {
+    let mut f = approval_fixture();
+    let mut policy: Value = serde_json::from_slice(&fs::read(f.repo.join(".mergemaster/lanes.json")).unwrap()).unwrap();
+    policy["lanes"][CHECK]["events"] = json!(["queue"]);
+    f.write(".mergemaster/lanes.json", policy.to_string());
+    f.base = f.commit("authorize queue human policy");
+    f.write(".github/workflows/validate.yml", "name: validate\n# queue change\n");
+    f.refresh_head();
+    f.head = f.git(&["commit-tree", &f.tree, "-p", &f.base, "-p", &f.head, "-m", "queue"], b"");
+    let hosted = f.root.path().join("hosted.json");
+    fs::write(&hosted, approval_evidence(&f).to_string()).unwrap();
+    for signed in [false, true] {
+        if signed { f.note(&f.statement(), &f.key, "tree"); }
+        let output = f.root.path().join(format!("approval-output-{signed}"));
+        let d = f.decision(&["--event", "queue", "--hosted-evidence", hosted.to_str().unwrap(),
+            "--github-output", output.to_str().unwrap()]);
+        assert_eq!(d["decision"], "refuse");
+        assert_eq!(d["outcome"], "rejected");
+        assert_eq!(d["reason"], "human_approval_only");
+        assert_eq!(d["report_only"], true);
+        assert!(d["record"].is_null());
+        assert_eq!(d["protected_paths"], json!([".github/workflows/validate.yml"]));
+        let output = fs::read_to_string(output).unwrap();
+        assert!(output.contains("skip=false\nrecord=\noutcome=rejected\nrefuse=true\nrefusal=human_approval_only\n"));
+    }
+}
+
 fn approval_fixture() -> Fixture {
     let mut f = Fixture::new();
     let mut policy = Fixture::policy("required_evidence");

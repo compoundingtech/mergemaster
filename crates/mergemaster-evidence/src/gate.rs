@@ -356,6 +356,10 @@ fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path
         decision.decision = "refuse";
         decision.reason = "protected_paths";
         if lane.protected_edits == "human_approval" {
+            if queue {
+                decision.reason = "human_approval_only";
+                return Ok(decision);
+            }
             if lane.require_hosted.iter().any(|required|
                 decision.protected_paths.contains(&required.workflow_path)) {
                 decision.summary = "this PR changes the validate workflow; validate ran the changed file".into();

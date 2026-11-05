@@ -284,6 +284,12 @@ and `refuse=true`; this report never authorizes skipping a check or merging.
 Additive `signer`, `observed_at`, `age_seconds`, and `lane_definition_sha256`
 describe the selected verified statement, or are null when unavailable.
 
+Protected edits under `human_approval` reject with `human_approval_only`, even
+with matching hosted reviews/checks or signed evidence. Queue reports do not
+evaluate that PR approval exception: allowing signed evidence alone would bypass
+the protected-path human policy. Such edits cannot produce a satisfied queue
+outcome; `protected_edits: "reject"` continues to refuse `protected_paths`.
+
 Optional `--compare-head H` is valid only with `--event queue`. It reports
 `input_key_equal` by comparing BASE-defined lane/environment input identities
 for H and M, never the signer's declared inputs. Definition paths participate.
