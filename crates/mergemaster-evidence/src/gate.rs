@@ -17,9 +17,10 @@ pub struct Args {
     #[arg(long)] pub check: String,
     #[arg(long)] pub base: String,
     #[arg(long)] pub head: String,
-    #[arg(long, default_value = "pull_request", value_parser = ["pull_request", "push", "merge_group"])]
+    #[arg(long, default_value = "pull_request", value_parser = ["pull_request", "push", "merge_group", "queue"])]
     pub event: String,
     #[arg(long)] pub event_file: Option<PathBuf>,
+    #[arg(long)] pub compare_head: Option<String>,
     #[arg(long)] pub hosted_evidence: Option<PathBuf>,
     #[arg(long, value_parser = ["json"])] pub format: String,
     #[arg(long)] pub github_output: Option<PathBuf>,
@@ -52,17 +53,39 @@ pub struct Decision {
     pub outcome: &'static str,
     pub reason: &'static str,
     pub record: Option<String>,
+    pub report_only: bool,
+    pub signer: Option<String>,
+    pub observed_at: Option<String>,
+    pub age_seconds: Option<i64>,
+    pub lane_definition_sha256: Option<String>,
+    pub input_key_equal: Option<bool>,
+    pub compared_record: Option<ComparedRecord>,
     pub protected_paths: Vec<String>,
     pub summary: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ComparedRecord {
+    pub tree: String,
+    pub signer: Option<String>,
+    pub observed_at: String,
+    pub age_seconds: i64,
 }
 
 pub fn run(args: Args) -> Result<()> {
     let repo = std::env::current_dir()?;
     let merge_group = args.event == "merge_group";
-    let live = if merge_group { None } else {
+    let queue = args.event == "queue";
+    ensure!(queue || args.compare_head.is_none(), "--compare-head requires --event queue");
+    let live = if merge_group || queue { None } else {
         Some(Live::read(&repo, &args.base, &args.head, args.event_file.as_deref(), args.event == "push")?)
     };
     let mut decision = compute(&repo, &args.check, &args.base, &args.head, args.event_file.as_deref(), args.hosted_evidence.as_deref(), &args.event)?;
+    if queue {
+        decision.decision = "refuse";
+        decision.report_only = true;
+        if let Some(head) = &args.compare_head { compare(&repo, &args, head, &mut decision)?; }
+    }
     if merge_group {
         decision.decision = "refuse";
         if matches!(decision.outcome, "satisfied" | "reused") {
@@ -208,6 +231,14 @@ pub fn decide(repo: &Path, check: &str, base: &str, head: &str, event: Option<&P
 fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path>, hosted: Option<&Path>, event_type: &str) -> Result<Decision> {
     let push = event_type == "push";
     let merge_group = event_type == "merge_group";
+    let queue = event_type == "queue";
+    if queue && (commit(repo, base).is_err() || commit(repo, head).is_err()) {
+        return Ok(Decision { version: 1, check: check.into(), base: base.into(), head: head.into(), tree: String::new(),
+            expectation_source: "caller", decision: "refuse", outcome: "rejected", reason: "source_unbound",
+            record: None, protected_paths: Vec::new(), summary: String::new(), report_only: true,
+            signer: None, observed_at: None, age_seconds: None, lane_definition_sha256: None,
+            input_key_equal: None, compared_record: None });
+    }
     commit(repo, base)?;
     commit(repo, head)?;
     let tree = git::text(repo, &["rev-parse", &format!("{head}^{{tree}}")])?;
@@ -217,13 +248,25 @@ fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path
             version: 1, check: check.into(), base: base.into(), head: head.into(), tree,
             expectation_source: "caller", decision: "refuse", outcome: "rejected", reason: "config_missing",
             record: None, protected_paths: Vec::new(), summary: error.to_string(),
+            report_only: queue, signer: None, observed_at: None, age_seconds: None,
+            lane_definition_sha256: None, input_key_equal: None, compared_record: None,
         }),
         Err(error) => return Err(error),
     };
     let lane = config.policy.lanes.get(check).context("unknown check")?;
     let mut decision = Decision { version: 1, check: check.into(), base: base.into(), head: head.into(), tree,
         expectation_source: "caller", decision: if lane.mode == "required_evidence" { "refuse" } else { "run" },
-        outcome: "rejected", reason: "base_not_ancestor", record: None, protected_paths: Vec::new(), summary: String::new() };
+        outcome: "rejected", reason: "base_not_ancestor", record: None, protected_paths: Vec::new(), summary: String::new(),
+        report_only: queue, signer: None, observed_at: None, age_seconds: None,
+        lane_definition_sha256: None, input_key_equal: None, compared_record: None };
+    if queue {
+        let parents = git::text(repo, &["rev-list", "--parents", "-n", "1", head]).unwrap_or_default();
+        let parents: Vec<_> = parents.split_whitespace().skip(1).collect();
+        if event.is_some() || parents.len() != 2 || !parents.contains(&base) {
+            decision.reason = "source_unbound";
+            return Ok(decision);
+        }
+    }
     if !lane.events.iter().any(|event| event == event_type) {
         decision.reason = "event_not_allowed";
         return Ok(decision);
@@ -282,7 +325,7 @@ fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path
             decision.protected_paths.push(path.to_owned());
         }
     }
-    if !push && !merge_group {
+    if !push && !merge_group && !queue {
         let merges = git::text(repo, &["rev-list", "--min-parents=2", "--parents", &format!("{base}..{head}")])?;
         for merge in merges.lines() {
             for parent in merge.split_whitespace().skip(2) {
@@ -305,7 +348,7 @@ fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path
         decision.reason = "protected_paths";
         return Ok(decision);
     }
-    if !push && !merge_group && !eligible(repo, base, head, event, &config, lane)? {
+    if !push && !merge_group && !queue && !eligible(repo, base, head, event, &config, lane)? {
         decision.reason = "ineligible_event";
         return Ok(decision);
     }
@@ -313,6 +356,10 @@ fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path
         decision.decision = "refuse";
         decision.reason = "protected_paths";
         if lane.protected_edits == "human_approval" {
+            if queue {
+                decision.reason = "human_approval_only";
+                return Ok(decision);
+            }
             if lane.require_hosted.iter().any(|required|
                 decision.protected_paths.contains(&required.workflow_path)) {
                 decision.summary = "this PR changes the validate workflow; validate ran the changed file".into();
@@ -367,7 +414,13 @@ fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path
     decision.record = Some(chosen.0);
     decision.outcome = "rejected";
     let statement = chosen.1;
-    decision.reason = satisfy(&statement, check, head, &decision.tree, lane, &expected, push);
+    decision.signer = statement.predicate.signer.clone();
+    decision.observed_at = Some(statement.predicate.observed_at.clone());
+    decision.age_seconds = Some((Utc::now() - chosen.2.with_timezone(&Utc)).num_seconds());
+    if let Fact::Tests { inputs, .. } = &statement.predicate.fact {
+        decision.lane_definition_sha256 = inputs.get("lane_definition_sha256").cloned();
+    }
+    decision.reason = satisfy(&statement, check, head, &decision.tree, lane, &expected, push || queue);
     if matches!(decision.reason, "satisfied" | "execution_reused") {
         decision.decision = "skip";
         decision.outcome = "satisfied";
@@ -481,4 +534,39 @@ fn eligible(repo: &Path, base: &str, head: &str, event: Option<&Path>, config: &
         }
     }
     Ok(true)
+}
+
+fn compare(repo: &Path, args: &Args, head: &str, decision: &mut Decision) -> Result<()> {
+    commit(repo, head)?;
+    if matches!(decision.reason, "source_unbound" | "config_missing" | "event_not_allowed") { return Ok(()); }
+    let config = config::load(repo, &args.base)?;
+    let lane = &config.policy.lanes[&args.check];
+    let expected = |head| config::expected_inputs(repo, head, &args.check, lane, &config.environment, &config.environment_bytes);
+    decision.input_key_equal = Some(expected(head)? == expected(&args.head)?);
+    let tree = git::text(repo, &["rev-parse", &format!("{head}^{{tree}}")])?;
+    let mut keys = tempfile::NamedTempFile::new()?;
+    keys.write_all(&config.keys)?;
+    keys.flush()?;
+    let mut newest = None;
+    for id in records(repo, &tree)?.0 {
+        let mut command = Command::new(std::env::current_exe()?);
+        git::sanitize(&mut command);
+        let output = command.arg("gate-verify-record").arg("--repo").arg(repo)
+            .arg("--record").arg(&id).arg("--keys").arg(keys.path()).output()?;
+        if !output.status.success() { continue; }
+        let statement: Statement = serde_json::from_slice(&output.stdout).context("signature worker output")?;
+        let predicate = &statement.predicate;
+        if statement.subject[0].digest.get("gitTree") != Some(&tree) || predicate.tier != TrustTier::Full
+            || !lane.trust_levels.iter().any(|level| predicate.signer.as_deref().unwrap_or("").starts_with(&format!("{level}/")))
+            || !matches!(&predicate.fact, Fact::Tests { checks, .. } if checks.contains_key(&args.check)) { continue; }
+        let at = DateTime::parse_from_rfc3339(&predicate.observed_at)?;
+        if newest.as_ref().is_none_or(|(previous, previous_id, _)| (at, &id) > (*previous, previous_id)) {
+            newest = Some((at, id, statement));
+        }
+    }
+    decision.compared_record = newest.map(|(at, _, statement)| ComparedRecord {
+        tree, signer: statement.predicate.signer, observed_at: statement.predicate.observed_at,
+        age_seconds: (Utc::now() - at.with_timezone(&Utc)).num_seconds(),
+    });
+    Ok(())
 }
