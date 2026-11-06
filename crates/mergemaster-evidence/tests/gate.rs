@@ -303,6 +303,7 @@ fn missing_keys_precede_lane_expansion_but_no_record_still_validates_inputs() {
     let mut f = queue_fixture();
     fs::remove_file(f.repo.join("tools/graph")).unwrap();
     f.refresh_head();
+    f.head = f.git(&["commit-tree", &f.tree, "-p", &f.base, "-p", &f.head, "-m", "queue"], b"");
     let output = f.gate(&["--event", "queue"]);
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("missing committed input path"));
