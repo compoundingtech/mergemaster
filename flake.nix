@@ -49,7 +49,7 @@
       devShells = forAllSystems (system:
         let pkgs = import nixpkgs { inherit system; };
         in { default = pkgs.mkShell {
-          packages = [ pkgs.cargo pkgs.rustc ] ++ scriptInputs pkgs;
+          packages = [ pkgs.cargo pkgs.rustc pkgs.rustfmt pkgs.clippy ] ++ scriptInputs pkgs;
           MERGEMASTER_EFFECT_UTILS = "${effect-utils}";
           MERGEMASTER_FRACTAL_FIXTURE = "${fractal-fixture}";
         }; });
