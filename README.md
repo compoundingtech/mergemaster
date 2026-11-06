@@ -403,6 +403,13 @@ does not execute its full check in the publisher job. The separate unprivileged
 validate job may execute candidate code. Copied Fractal wrappers retain their
 original contracts and are not generic environment producers.
 
+The final authenticated pull-request recheck refuses with `stale_head` when the
+live head SHA moved, `stale_base` when the live base branch tip moved, or
+`pr_metadata_changed` when the head/base repository or base ref changed.
+These decisions exit zero with `outcome=rejected` and no record; `summary`
+names the changed side or metadata field and includes event/live values and SHAs.
+Authentication and API failures remain nonzero errors, not refusal decisions.
+
 The JSON result contains `version`, `check`, `base`, `head`, `tree`, `decision`,
 `outcome`, `reason`, `record` (an immutable record ID or null),
 `protected_paths` (the touched protected paths, empty otherwise), and `summary`.
@@ -415,7 +422,8 @@ The stable reason codes are `satisfied`, `base_not_ancestor`, `foreign_merge`, `
 `wrong_check`, `stale_tree`, `degraded`, `untrusted_tier`, `wrong_commit`,
 `untrusted_level`, `future_dated`, `too_old`, `check_failed`, `wrong_command`,
 `wrong_input`, `workspace_dirty`, `approval_evidence_missing`, `human_approval_missing`,
-`hosted_check_missing`, and `human_approval_satisfied`. Consumers branch on these codes, not
+`hosted_check_missing`, `human_approval_satisfied`, `stale_base`, `stale_head`,
+and `pr_metadata_changed`. Consumers branch on these codes, not
 diagnostic prose. Malformed configuration or unavailable Git plumbing is an
 error, not a computed satisfaction result.
 In pull-request mode, every merge in `BASE..HEAD` is allowed only when **all
@@ -428,8 +436,8 @@ BASE→HEAD tree diff, and lane/environment bindings use the final HEAD tree:
 conflict-resolution edits cannot disappear inside a per-commit walk. Protected comparisons
 use Unicode NFKC normalization and lowercase component matching, including ancestor
 replacement paths; signatures cannot authorize replacing a protected root with
-a symlink. Live head/base movement or unavailable live authority is an error,
-with no decision output, rather than a transferable success.
+a symlink. Authenticated live head/base movement yields a refusal as described
+above; unavailable live authority remains an error with no decision output.
 
 `--github-output FILE` appends `skip`, `record`, `outcome`, `refuse`, and
 `refusal` only after computation completes. `refusal` is the reason code for
@@ -476,6 +484,8 @@ before decision publication, the gate checks the live repository default branch
 and requires event `after`, requested HEAD and the live branch SHA to agree.
 Refusal reasons include `tree_mismatch`, `event_not_allowed`,
 `not_default_branch`, `stale_push`, `no_parent` and `base_not_parent`.
+Pull-request live rechecks use `stale_base`, `stale_head` and
+`pr_metadata_changed` as described above.
 
 ### Protected edits with human approval
 

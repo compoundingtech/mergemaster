@@ -64,6 +64,16 @@ pub struct Decision {
     pub summary: String,
 }
 
+impl Decision {
+    fn refuse(&mut self, (reason, summary): (&'static str, String)) {
+        self.decision = "refuse";
+        self.outcome = "rejected";
+        self.reason = reason;
+        self.record = None;
+        self.summary = summary;
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct ComparedRecord {
     pub tree: String,
@@ -96,11 +106,8 @@ pub fn run(args: Args) -> Result<()> {
     }
     let mut output = args.github_output.map(|path|
         std::fs::OpenOptions::new().append(true).create(true).open(path)).transpose()?;
-    if let Some(reason) = live.as_ref().map(|live| live.recheck(&repo, &args.base, &args.head)).transpose()?.flatten() {
-        decision.decision = "refuse";
-        decision.outcome = "rejected";
-        decision.reason = reason;
-        decision.record = None;
+    if let Some(refusal) = live.as_ref().map(|live| live.recheck(&repo, &args.base, &args.head)).transpose()?.flatten() {
+        decision.refuse(refusal);
     }
     let json = serde_json::to_string(&decision)?;
     if let Some(output) = output.as_mut() {
@@ -165,7 +172,7 @@ impl Live {
         git::text(repo, &["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/", "refs/remotes/"])
     }
 
-    fn recheck(&self, repo: &Path, base: &str, head: &str) -> Result<Option<&'static str>> {
+    fn recheck(&self, repo: &Path, base: &str, head: &str) -> Result<Option<(&'static str, String)>> {
         match self {
             Self::Local { head: initial, head_ref, refs } => {
                 ensure!(git::text(repo, &["rev-parse", "HEAD"])? == *initial &&
@@ -174,24 +181,40 @@ impl Live {
             }
             Self::Github { repository, number, base_ref } => {
                 let pull = Self::api(repo, &format!("repos/{repository}/pulls/{number}"))?;
-                ensure!(pull.pointer("/head/sha").and_then(serde_json::Value::as_str) == Some(head) &&
-                    pull.pointer("/head/repo/full_name").and_then(serde_json::Value::as_str) == Some(repository.as_str()) &&
-                    pull.pointer("/base/repo/full_name").and_then(serde_json::Value::as_str) == Some(repository.as_str()) &&
-                    pull.pointer("/base/ref").and_then(serde_json::Value::as_str) == Some(base_ref.as_str()),
-                    "live PR metadata changed");
+                let live_head = pull.pointer("/head/sha").and_then(serde_json::Value::as_str).context("live head SHA required")?;
+                if live_head != head {
+                    return Ok(Some(("stale_head", format!("live head tip moved: event {head} live {live_head}"))));
+                }
+                for (field, expected) in [
+                    ("/head/repo/full_name", repository.as_str()),
+                    ("/base/repo/full_name", repository.as_str()),
+                    ("/base/ref", base_ref.as_str()),
+                ] {
+                    let actual = pull.pointer(field).and_then(serde_json::Value::as_str);
+                    if actual != Some(expected) {
+                        return Ok(Some(("pr_metadata_changed", format!(
+                            "live PR {field} changed: event {expected} live {}; head event {head} live {live_head}; base event {base} live {}",
+                            actual.unwrap_or("<missing>"),
+                            pull.pointer("/base/sha").and_then(serde_json::Value::as_str).unwrap_or("<missing>")))));
+                    }
+                }
                 let encoded: String = base_ref.bytes().map(|b| format!("%{b:02X}")).collect();
                 let branch = Self::api(repo, &format!("repos/{repository}/git/ref/heads/{encoded}"))?;
-                ensure!(branch.pointer("/object/sha").and_then(serde_json::Value::as_str) == Some(base),
-                    "live base tip changed");
+                let live_base = branch.pointer("/object/sha").and_then(serde_json::Value::as_str).context("live base SHA required")?;
+                if live_base != base {
+                    return Ok(Some(("stale_base", format!("live base tip moved: event {base} live {live_base}"))));
+                }
             }
             Self::Push { repository, reference, after } => {
                 let metadata = Self::api(repo, &format!("repos/{repository}"))?;
                 let branch = metadata["default_branch"].as_str().context("live default branch required")?;
-                if reference != &format!("refs/heads/{branch}") { return Ok(Some("not_default_branch")); }
+                if reference != &format!("refs/heads/{branch}") {
+                    return Ok(Some(("not_default_branch", format!("push ref {reference} is not the live default branch {branch}"))));
+                }
                 let encoded: String = branch.bytes().map(|b| format!("%{b:02X}")).collect();
                 let tip = Self::api(repo, &format!("repos/{repository}/git/ref/heads/{encoded}"))?;
                 if after != head || tip.pointer("/object/sha").and_then(serde_json::Value::as_str) != Some(head) {
-                    return Ok(Some("stale_push"));
+                    return Ok(Some(("stale_push", "push does not match the live default branch tip".into())));
                 }
             }
         }
@@ -223,8 +246,8 @@ impl Live {
 
 pub fn decide(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path>) -> Result<Decision> {
     let live = Live::read(repo, base, head, event, false)?;
-    let decision = compute(repo, check, base, head, event, None, "pull_request")?;
-    let _ = live.recheck(repo, base, head)?;
+    let mut decision = compute(repo, check, base, head, event, None, "pull_request")?;
+    if let Some(refusal) = live.recheck(repo, base, head)? { decision.refuse(refusal); }
     Ok(decision)
 }
 
