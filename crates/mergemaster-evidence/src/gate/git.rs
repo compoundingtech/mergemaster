@@ -73,6 +73,15 @@ pub fn validate_blobs(repo: &Path, ids: &BTreeSet<&str>) -> Result<()> {
     blobs(repo, ids, false).map(|_| ())
 }
 
+fn blob_size(output: &mut impl BufRead, id: &str) -> Result<u64> {
+    let mut header = String::new();
+    output.read_line(&mut header)?;
+    ensure!(header.ends_with('\n'), "expected committed regular file");
+    let fields: Vec<_> = header.split_whitespace().collect();
+    ensure!(fields.len() == 3 && fields[0] == id && fields[1] == "blob", "expected committed regular file");
+    fields[2].parse().context("invalid Git blob size")
+}
+
 fn blobs(repo: &Path, ids: &BTreeSet<&str>, hash: bool) -> Result<BTreeMap<String, String>> {
     let mut child = command(repo).args(["cat-file", if hash { "--batch" } else { "--batch-check" }])
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null())
@@ -85,11 +94,8 @@ fn blobs(repo: &Path, ids: &BTreeSet<&str>, hash: bool) -> Result<BTreeMap<Strin
             ensure!(super::config::full_commit(id), "invalid blob ID");
             writeln!(input, "{id}")?;
             input.flush()?;
-            let mut header = String::new();
-            output.read_line(&mut header)?;
-            let fields: Vec<_> = header.split_whitespace().collect();
-            ensure!(fields.len() == 3 && fields[0] == *id && fields[1] == "blob", "expected committed regular file");
-            let size: u64 = fields[2].parse().context("invalid Git blob size")?;
+            // Both batch modes require a complete header, including its newline.
+            let size = blob_size(&mut output, id)?;
             if !hash { continue; }
             let mut bytes = (&mut output).take(size);
             let mut digest = Sha256::new();
@@ -111,4 +117,23 @@ fn blobs(repo: &Path, ids: &BTreeSet<&str>, hash: bool) -> Result<BTreeMap<Strin
     let status = child.wait()?;
     ensure!(status.success() || result.is_err(), "Git plumbing failed ({status})");
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::blob_size;
+
+    #[test]
+    fn batch_headers_require_newlines_in_both_modes() {
+        let id = "a".repeat(40);
+        for hash in [false, true] {
+            let mut complete = format!("{id} blob 3\n").into_bytes();
+            if hash { complete.extend_from_slice(b"abc\n"); }
+            assert_eq!(blob_size(&mut complete.as_slice(), &id).unwrap(), 3);
+            let truncated = format!("{id} blob 3");
+            let error = blob_size(&mut truncated.as_bytes(), &id).unwrap_err();
+            assert_eq!(error.to_string(), "expected committed regular file");
+            assert!(blob_size(&mut b"".as_slice(), &id).is_err());
+        }
+    }
 }

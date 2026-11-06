@@ -730,6 +730,7 @@ Required configuration is validated before expanding lane paths. Each load
 lists the BASE tree once for all lanes; candidate manifests batch blob reads and
 reuse content digests for overlapping inputs. An exact-tree record miss still
 validates candidate input paths and objects, but does not hash their contents.
+Both blob-read and object-check batches reject unterminated Git response headers.
 
 
 ## Base-only generic required-check publisher
