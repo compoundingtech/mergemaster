@@ -289,6 +289,27 @@ fn queue_requires_base_keys_and_lane_opt_in() {
 }
 
 #[test]
+fn missing_keys_precede_lane_expansion_but_no_record_still_validates_inputs() {
+    let mut f = queue_fixture();
+    let mut policy = Fixture::policy("required_evidence");
+    policy["lanes"][CHECK]["events"] = json!(["queue"]);
+    policy["lanes"][CHECK]["definition_paths"] = json!(["absent"]);
+    f.write(".mergemaster/lanes.json", policy.to_string());
+    fs::remove_file(f.repo.join(".mergemaster/evidence-keys")).unwrap();
+    f.base = f.commit("missing keys and lane input");
+    f.refresh_head();
+    assert_eq!(f.decision(&["--event", "queue"])["reason"], "config_missing");
+
+    let mut f = queue_fixture();
+    fs::remove_file(f.repo.join("tools/graph")).unwrap();
+    f.refresh_head();
+    f.head = f.git(&["commit-tree", &f.tree, "-p", &f.base, "-p", &f.head, "-m", "queue"], b"");
+    let output = f.gate(&["--event", "queue"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("missing committed input path"));
+}
+
+#[test]
 fn queue_input_comparison_never_satisfies_a_different_tree() {
     let mut f = queue_fixture();
     let compared = f.head.clone();
