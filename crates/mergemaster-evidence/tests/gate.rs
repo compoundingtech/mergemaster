@@ -174,7 +174,7 @@ print((root / name).read_text())
         fs::set_permissions(script, fs::Permissions::from_mode(0o755)).unwrap();
         fs::write(self.root.path().join("live-pull"), json!({
             "head":{"sha":head,"repo":{"full_name":"fixture/repo"}},
-            "base":{"ref":"main","repo":{"full_name":"fixture/repo"}}
+            "base":{"sha":base,"ref":"main","repo":{"full_name":"fixture/repo"}}
         }).to_string()).unwrap();
         fs::write(self.root.path().join("live-base"), json!({"default_branch":"main","object":{"sha":base}}).to_string()).unwrap();
     }
@@ -1077,13 +1077,19 @@ fn optional_fallback_foreign_merge_refuses_and_lists_protected_edits() {
 #[test]
 fn live_github_recheck_precedes_all_decision_outputs() {
     for outcome in ["skip", "no_note", "protected"] {
-        for moved in ["head", "base", "unavailable", "unchanged"] {
+        for moved in ["head", "base", "/head/repo/full_name", "/base/repo/full_name", "/base/ref", "unavailable", "unchanged"] {
             let mut f = Fixture::new();
             if outcome == "protected" { f.write(".github/actions/new", "changed"); f.refresh_head(); }
             if outcome == "skip" { f.note(&f.statement(), &f.key, "tree"); }
             f.live_api(if moved == "head" { &f.base } else { &f.head },
                 if moved == "base" { &f.head } else { &f.base });
             if moved == "unavailable" { fs::remove_file(f.root.path().join("live-pull")).unwrap(); }
+            if moved.starts_with('/') {
+                let path = f.root.path().join("live-pull");
+                let mut pull: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+                *pull.pointer_mut(moved).unwrap() = json!("changed");
+                fs::write(path, pull.to_string()).unwrap();
+            }
             let event = f.root.path().join("event.json");
             fs::write(&event, json!({"number":1, "repository":{"full_name":"fixture/repo"},
                 "pull_request":{"head":{"sha":f.head,"repo":{"full_name":"fixture/repo"}},
@@ -1092,10 +1098,27 @@ fn live_github_recheck_precedes_all_decision_outputs() {
             let outputs = f.root.path().join("outputs");
             let result = f.gate(&["--event-file", event.to_str().unwrap(),
                 "--github-output", outputs.to_str().unwrap()]);
-            assert_eq!(result.status.success(), moved == "unchanged", "{outcome}/{moved}");
-            if moved != "unchanged" {
+            assert_eq!(result.status.code(), Some(if moved == "unavailable" { 1 } else { 0 }), "{outcome}/{moved}: {}", String::from_utf8_lossy(&result.stderr));
+            if moved == "unavailable" {
                 assert!(result.stdout.is_empty());
                 assert!(!outputs.exists() || fs::read(outputs).unwrap().is_empty());
+            } else if moved != "unchanged" {
+                let value: Value = serde_json::from_slice(&result.stdout).unwrap();
+                let (reason, summary) = match moved {
+                    "head" => ("stale_head", format!("live head tip moved: event {} live {}", f.head, f.base)),
+                    "base" => ("stale_base", format!("live base tip moved: event {} live {}", f.base, f.head)),
+                    field => ("pr_metadata_changed", format!(
+                        "live PR {field} changed: event {} live changed; head event {} live {}; base event {} live {}",
+                        if field == "/base/ref" { "main" } else { "fixture/repo" }, f.head, f.head, f.base, f.base)),
+                };
+                assert_eq!(value["decision"], "refuse");
+                assert_eq!(value["outcome"], "rejected");
+                assert_eq!(value["reason"], reason);
+                assert!(value["record"].is_null());
+                assert_eq!(value["summary"], summary);
+                let outputs = fs::read_to_string(outputs).unwrap();
+                assert!(outputs.contains("skip=false\nrecord=\noutcome=rejected\nrefuse=true\n"));
+                assert!(outputs.contains(&format!("refusal={reason}\n")));
             }
             assert!(f.root.path().join("api-calls").exists(), "{outcome}/{moved}: no live recheck");
         }
