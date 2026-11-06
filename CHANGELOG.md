@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.4.0]
+
+### Added
+
+- Native `evidence keygen` provisions signing accounts with script-compatible permissions, idempotence and refusal behavior. (#46)
+- Canonical producer receipts verify job-scoped GitHub OIDC signatures and exact tree, recipe, attempt and artifact bindings. (#54)
+- Trusted signer expectations derive from BASE policy, Git and authenticated API observations; unproven PR sources fail closed. (#58)
+- Caller-bound `gate --event merge_group` supports explicit lane opt-in and report-only shadow decisions, never enforcement or skip. (#59)
+- Caller-bound `gate --event queue` reports exact-tree evidence, verified-statement metadata and optional input comparisons without authorizing merges. (#61)
+
+### Changed
+
+- Admit a minimal ZIP reader dependency with stored, DEFLATE, BZIP2 and LZMA compatibility for native CI transport. (#47)
+- Authenticated CI source archives extract in Rust with bounded sizes, fixed names and hostile-member refusals, without runtime Python. (#48)
+- Shared signer tool-trust checks are factored and proved against the unchanged legacy Python oracle. (#52)
+- Producer JWT verification uses AWS-LC instead of the RustCrypto RSA dependency family, retaining RS256-only acceptance. (#55)
+- Native library validation covers legacy signer requests and Nix claims with Python-compatible numeric provenance; legacy CLI wiring remains unchanged. (#56)
+
+### Fixed
+
+- Legacy JSON number parsing stays local instead of enabling serde_json extensions across ordinary JSON entrypoints. (#57)
+- Merge-group refusal regressions cover malformed bindings, optional fallback, reused hosted evidence and human-approval shortcuts. (#60)
+
+### Documentation
+
+- Document isolated exact-tree CI attestations, credential boundaries, queue semantics and rollout proofs; no signer deployment is implied. (#53)
+
 ## [0.3.0]
 
 ### Added
@@ -56,3 +83,4 @@
 
 [0.2.0]: https://github.com/compoundingtech/mergemaster/compare/v0.1.0...v0.2.0
 [0.3.0]: https://github.com/compoundingtech/mergemaster/compare/v0.2.0...v0.3.0
+[0.4.0]: https://github.com/compoundingtech/mergemaster/compare/v0.3.0...v0.4.0
