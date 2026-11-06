@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.0] - 2026-11-06
+
+### Changed
+
+- Reduce gate latency with batched object reads via `git cat-file --batch`, one `ls-tree` per configuration load, and record lookup before content hashing. Reported debug-build medians: real dotfiles missing-key refusal 4.30 s → 0.74 s; seven-lane fixture queue hit 12.02 s → 1.41 s. (#63)
+- Include `rustfmt` and `clippy` in the development shell. (#64)
+
+### Fixed
+
+- Pull-request live rechecks return computed `stale_head`, `stale_base`, or `pr_metadata_changed` refusals with event/live SHAs and metadata instead of a hard error: exit 0, no record. `decide()` applies the same refusal. (#65)
+
 ## [0.4.0]
 
 ### Added
@@ -83,4 +94,5 @@
 
 [0.2.0]: https://github.com/compoundingtech/mergemaster/compare/v0.1.0...v0.2.0
 [0.3.0]: https://github.com/compoundingtech/mergemaster/compare/v0.2.0...v0.3.0
-[0.4.0]: https://github.com/compoundingtech/mergemaster/compare/v0.3.0...v0.4.0
+[0.4.0]: https://github.com/compoundingtech/mergemaster/compare/v0.1.0...v0.4.0
+[0.5.0]: https://github.com/compoundingtech/mergemaster/compare/v0.4.0...v0.5.0
