@@ -43,9 +43,32 @@
         };
     in {
       packages = forAllSystems (system: { default = packageFor system; });
-      checks = forAllSystems (system: {
-        evidence = self.packages.${system}.default;
-      });
+      checks = forAllSystems (system:
+        let pkgs = import nixpkgs { inherit system; };
+        in {
+          evidence = self.packages.${system}.default;
+          fmt = pkgs.runCommand "mergemaster-fmt" {
+            nativeBuildInputs = [ pkgs.cargo pkgs.rustfmt ];
+            src = pkgs.lib.cleanSource self;
+          } ''
+            cp -r "$src" source
+            chmod -R u+w source
+            cd source
+            cargo fmt --all --check
+            touch "$out"
+          '';
+          clippy = (packageFor system).overrideAttrs (old: {
+            pname = "mergemaster-clippy";
+            nativeBuildInputs = (old.nativeBuildInputs or []) ++ [ pkgs.clippy ];
+            buildPhase = ''
+              runHook preBuild
+              cargo clippy --locked --offline --all-targets -- -D warnings
+              runHook postBuild
+            '';
+            doCheck = false;
+            installPhase = ''mkdir -p "$out"'';
+          });
+        });
       devShells = forAllSystems (system:
         let pkgs = import nixpkgs { inherit system; };
         in { default = pkgs.mkShell {
