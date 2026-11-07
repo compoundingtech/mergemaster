@@ -146,6 +146,10 @@ The scheduled **Fractal parity drift** workflow reports every six hours without
 blocking CI or changing evidence policy. It reads history only, never upstream
 scripts. Omit `--report-only` to return exit 1 when newer commits exist; invalid
 history or a missing watermark is an error in either mode.
+`mergemaster parity-drift` provides the same arguments, JSON report and exit
+statuses as the Python command (including `--provenance`). The Python script and
+scheduled workflow remain unchanged. The Rust differential integration test runs
+the unchanged Python oracle against real local Git histories.
 
 This is a newer-commit alarm, not proof of complete parity: older unported
 commits remain in the cutover inventory. Record each port's upstream SHA,
