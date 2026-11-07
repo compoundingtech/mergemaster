@@ -750,6 +750,9 @@ signer levels and otherwise-valid passes with the wrong lane-definition digest.
 Other invalid passes decide; failures at or after pass minus 120 seconds veto
 a valid pass. With no surviving pass, newest-trusted/failure-biased selection
 applies. Push is unchanged; queue remains report-only.
+Unsigned degraded records do not shadow trusted non-push candidates. A pass
+with both a wrong lane digest and wrong bound input is conservatively refused
+by Rust where Python can pass it over (recorded as P3 in `scripts/PROVENANCE`).
 
 ### Read-only informational reporter
 

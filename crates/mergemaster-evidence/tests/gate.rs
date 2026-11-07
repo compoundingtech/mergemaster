@@ -385,6 +385,10 @@ print((root / name).read_text())
     }
 
     fn oracle_selection(&self, definition: &str) -> Value {
+        self.oracle_selection_with(definition, None, false)
+    }
+
+    fn oracle_selection_with(&self, definition: &str, age: Option<u64>, bind: bool) -> Value {
         let root = PathBuf::from(std::env::var_os("MERGEMASTER_PYTHON_ORACLE").unwrap());
         let keys = self.root.path().join("selection-keys");
         fs::write(
@@ -407,7 +411,8 @@ v = runpy.run_path(sys.argv[1])
 try:
     r = v['verify'](sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5],
         ['tools/graph', 'check', '--full'], trust_levels=['agent'],
-        lane={'sha256': sys.argv[6], 'changed': []})
+        lane={'sha256': sys.argv[6], 'changed': []}, max_age=int(sys.argv[7]) or None,
+        bind=[('wrapper_sha256', 'tools/graph')] if sys.argv[8] == 'true' else [])
     r['reason'] = 'satisfied'
 except v['Failure'] as e:
     r = dict(satisfied=False, reason=e.reason, **e.extra)
@@ -422,6 +427,7 @@ print(json.dumps(r))
                 keys.to_str().unwrap(),
                 definition,
             ])
+            .args([age.unwrap_or(0).to_string(), bind.to_string()])
             .output()
             .unwrap();
         assert!(
@@ -1851,6 +1857,196 @@ print(json.dumps(r))
         let oracle: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(oracle["reason"], expected);
         assert_eq!(oracle["decided_by"], record);
+    }
+}
+
+#[test]
+fn tiers_vetoes_and_compound_inputs_have_explicit_oracle_contracts() {
+    use mergemaster_evidence::evidence::{Statement, record_degraded};
+    for mode in ["required_evidence", "optional_fallback"] {
+        for case in [
+            "degraded_pass",
+            "test_tier",
+            "host_failure",
+            "old_failure",
+            "degraded_veto",
+            "degraded_fallback",
+            "definition_input",
+            "equal_level",
+            "equal_definition",
+        ] {
+            let mut f = Fixture::new();
+            let mut policy = Fixture::policy(mode);
+            policy["lanes"][CHECK]["max_age_seconds"] = json!(60);
+            f.write(".mergemaster/lanes.json", policy.to_string());
+            let public = fs::read_to_string(f.key.with_extension("pub")).unwrap();
+            f.write(
+                ".mergemaster/evidence-keys",
+                format!("{PRINCIPAL},host/fixture namespaces=\"git\" {public}"),
+            );
+            f.base = f.commit("authorize host but accept agent only");
+            f.refresh_head();
+            let now = chrono::Utc::now();
+            let mut older = f.statement();
+            older["predicate"]["observed_at"] =
+                json!((now - chrono::Duration::seconds(30)).to_rfc3339());
+            older["predicate"]["observed"]["inputs"]["wrapper_sha256"] = json!(hex::encode(
+                sha2::Sha256::digest(b"fixture command, never executed\n")
+            ));
+            let definition = older["predicate"]["observed"]["inputs"]["lane_definition_sha256"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            let mut newer = older.clone();
+            if case == "degraded_fallback" {
+                older["predicate"]["observed"]["checks"][CHECK]["command"] = json!(["true"]);
+            }
+            let older_id = f.note(&older, &f.key, "tree");
+            newer["predicate"]["observed_at"] = json!(
+                (now - chrono::Duration::seconds(if case == "old_failure" {
+                    90
+                } else if case.starts_with("equal_") {
+                    30
+                } else {
+                    20
+                }))
+                .to_rfc3339()
+            );
+            if case.starts_with("degraded_") {
+                newer["predicate"]["tier"] = json!("degraded");
+                newer["predicate"]["signer"] = Value::Null;
+            }
+            if case == "test_tier" {
+                newer["predicate"]["tier"] = json!("test");
+            }
+            if matches!(case, "host_failure" | "equal_level") {
+                newer["predicate"]["signer"] = json!("host/fixture");
+            }
+            if matches!(
+                case,
+                "host_failure" | "old_failure" | "degraded_veto" | "degraded_fallback"
+            ) {
+                newer["predicate"]["observed"]["checks"][CHECK]["exit_code"] = json!(1);
+            }
+            if matches!(case, "definition_input" | "equal_definition") {
+                newer["predicate"]["observed"]["inputs"]["lane_definition_sha256"] =
+                    json!("0".repeat(64));
+            }
+            if case == "definition_input" {
+                newer["predicate"]["observed"]["inputs"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("wrapper_sha256");
+            }
+            let newer_id = if case.starts_with("degraded_") {
+                let statement: Statement = serde_json::from_value(newer).unwrap();
+                let id = record_degraded(&f.repo, &statement).unwrap();
+                f.publish(&id, "tree");
+                id
+            } else {
+                f.note(&newer, &f.key, "tree")
+            };
+            let oracle = f.oracle_selection_with(&definition, Some(60), true);
+            let decision = f.decision(&[]);
+            if case == "definition_input" {
+                // P3: Python skips before bound-input validation; Rust stays conservative.
+                assert_eq!(oracle["reason"], "satisfied");
+                assert_eq!(oracle["decided_by"], older_id);
+                assert_eq!(decision["reason"], "wrong_input");
+                assert_eq!(decision["record"], newer_id);
+                assert_eq!(
+                    decision["decision"],
+                    if mode == "optional_fallback" {
+                        "run"
+                    } else {
+                        "refuse"
+                    }
+                );
+            } else {
+                assert_eq!(
+                    decision["reason"], oracle["reason"],
+                    "{mode}/{case}: {decision} / {oracle}"
+                );
+                assert_eq!(decision["record"], oracle["decided_by"], "{mode}/{case}");
+                assert_eq!(decision["decision"] == "skip", oracle["satisfied"] == true);
+                if matches!(case, "host_failure" | "old_failure") {
+                    assert_eq!(decision["reason"], "check_failed");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn equal_time_passes_follow_oracle_discovery_order() {
+    for pass_over in [false, true] {
+        for invalid_lower in [false, true] {
+            for prioritize_higher_tag in [false, true] {
+                let f = Fixture::new();
+                let mut valid = f.statement();
+                valid["predicate"]["observed_at"] =
+                    json!((chrono::Utc::now() - chrono::Duration::minutes(10)).to_rfc3339());
+                let valid_id = f.note(&valid, &f.key, "tree");
+                let mut invalid = valid.clone();
+                invalid["predicate"]["observed"]["checks"][CHECK]["command"] = json!(["true"]);
+                let invalid_id = (0..128)
+                    .find_map(|nonce| {
+                        invalid["predicate"]["change_id"] = json!(format!("tie-{nonce}"));
+                        let id = f.note(&invalid, &f.key, "tree");
+                        if (id < valid_id) == invalid_lower {
+                            Some(id)
+                        } else {
+                            f.git(
+                                &[
+                                    "update-ref",
+                                    "-d",
+                                    &format!("refs/notes/evidence/{}/{id}", f.tree),
+                                ],
+                                b"",
+                            );
+                            None
+                        }
+                    })
+                    .expect("find the requested record-ID ordering");
+                let lower = if invalid_lower {
+                    &invalid_id
+                } else {
+                    &valid_id
+                };
+                let higher = if invalid_lower {
+                    &valid_id
+                } else {
+                    &invalid_id
+                };
+                if prioritize_higher_tag {
+                    f.publish(higher, "tag");
+                }
+                if pass_over {
+                    let mut newer = f.statement();
+                    newer["predicate"]["observed"]["inputs"]["lane_definition_sha256"] =
+                        json!("0".repeat(64));
+                    f.note(&newer, &f.key, "tree");
+                }
+                let definition = valid["predicate"]["observed"]["inputs"]["lane_definition_sha256"]
+                    .as_str()
+                    .unwrap();
+                let oracle = f.oracle_selection(definition);
+                let decision = f.decision(&[]);
+                let expected = if prioritize_higher_tag { higher } else { lower };
+                assert_eq!(oracle["decided_by"], *expected);
+                assert_eq!(
+                    oracle["reason"],
+                    if expected == &valid_id {
+                        "satisfied"
+                    } else {
+                        "wrong_command"
+                    }
+                );
+                assert_eq!(decision["record"], oracle["decided_by"]);
+                assert_eq!(decision["reason"], oracle["reason"]);
+                assert_eq!(decision["decision"] == "skip", oracle["satisfied"] == true);
+            }
+        }
     }
 }
 

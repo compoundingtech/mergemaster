@@ -565,6 +565,10 @@ fn degraded_and_test_tiers_are_explicit_and_never_satisfy_daemon_policy() {
     let f = Fixture::new();
     let mut degraded = f.tests("fixture-runner", 0);
     degraded.predicate.tier = TrustTier::Degraded;
+    assert!(
+        degraded.validate(f.repo()).is_err(),
+        "degraded evidence must not carry a signer"
+    );
     degraded.predicate.signer = None;
     assert!(sign_observation(f.repo(), &degraded, &f.key).is_err());
     let id = record_degraded(f.repo(), &degraded).unwrap();
