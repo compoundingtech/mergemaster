@@ -121,16 +121,18 @@ Run the script suite independently:
 
 ```sh
 nix develop -c bash scripts/test-scripts
-# Or, with dependencies and both pinned-source environment variables set:
+# Or, with dependencies and all three pinned-source environment variables set:
 bash scripts/test-scripts
 ```
 
-`scripts/test-scripts` discovers every copied `scripts/*-test` self-test,
-including `evidence-verify-test`; `st-test` and `fractal-test` are production
-entrypoints, not self-tests. Fixture-only tests are not added to the suite.
+`scripts/test-scripts` discovers every copied `scripts/*-test` self-test from
+`MERGEMASTER_PYTHON_ORACLE`, including `evidence-verify-test`; `st-test` and
+`fractal-test` are production entrypoints, not self-tests. Fixture-only tests are
+not added to the suite. The oracle variable is required; there is no working-tree
+script fallback.
 The runner creates a temporary Git repository using the immutable non-flake
 `fractal-fixture` input, then overlays the small intentional fixtures under
-`tests/fixtures/fractal/` and the current copied scripts. The input supplies
+`tests/fixtures/fractal/` and the immutable oracle scripts. The input supplies
 original sparse-test inputs, lane-definition paths, real web source files and
 source witnesses for declared input directories. These tree-shaped fixtures
 are not vendored into this repository. The committed fixtures contain only

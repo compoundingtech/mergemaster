@@ -3,12 +3,13 @@
 set -euo pipefail
 export PYTHONDONTWRITEBYTECODE=1
 root=$(cd "$(dirname "$0")/.." && pwd)
+oracle=${MERGEMASTER_PYTHON_ORACLE:?run in nix develop or set MERGEMASTER_PYTHON_ORACLE to the pinned Python oracle source}
 . "$root/tests/fixtures/fractal/scripts/script-test-supervisor"
 . "$root/tests/fixtures/fractal/scripts/git-env-clean"
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_COUNT=0
 # Discover before overlaying fixtures: fixture-only scripts are not this suite.
 tests=()
-for path in "$root"/scripts/*-test; do
+for path in "$oracle"/scripts/*-test; do
   name=${path##*/}
   case "$name" in st-test|fractal-test) continue ;; esac
   tests+=("$name")
@@ -30,10 +31,10 @@ chmod -R u+w "$sandbox/repo"
 # Original repository files are test data, never the consuming build definition.
 cp -R "$root/tests/fixtures/fractal/." "$sandbox/repo/"
 # Nix-store source directories are read-only; make the private copy writable
-# before overlaying the moving scripts or creating sandbox-only files.
+# before overlaying the pinned scripts or creating sandbox-only files.
 chmod -R u+w "$sandbox/repo"
 mkdir -p "$sandbox/repo/scripts"
-cp -R "$root/scripts/." "$sandbox/repo/scripts/"
+cp -R "$oracle/scripts/." "$sandbox/repo/scripts/"
 # The parity inventory test needs the manifests at their owning repository paths,
 # not only the fixture files overlaid at the simulated Fractal root.
 while IFS= read -r -d '' manifest; do
