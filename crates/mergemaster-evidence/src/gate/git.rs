@@ -108,7 +108,7 @@ fn blobs(repo: &Path, ids: &BTreeSet<&str>, hash: bool) -> Result<BTreeMap<Strin
             ensure!(bytes.limit() == 0, "truncated Git blob");
             let mut newline = [0];
             output.read_exact(&mut newline)?;
-            ensure!(newline == [b'\n'], "invalid Git blob terminator");
+            ensure!(&newline == b"\n", "invalid Git blob terminator");
             digests.insert((*id).to_owned(), hex::encode(digest.finalize()));
         }
         Ok(digests)

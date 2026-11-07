@@ -1,0 +1,3 @@
+# Tool binaries come from flake.lock's nixpkgs in both the dev shell and checks.
+edition = "2024"
+style_edition = "2024"

@@ -433,10 +433,9 @@ fn compute(repo: &Path, check: &str, base: &str, head: &str, event: Option<&Path
     // failures within two minutes. A later invalid command cannot expose an old pass.
     candidates.sort_by(|a, b| (a.2, failed(&a.1, check), &a.0).cmp(&(b.2, failed(&b.1, check), &b.0)));
     let Some(mut chosen) = candidates.pop() else { return Ok(decision) };
-    if !failed(&chosen.1, check) {
-        if let Some(index) = candidates.iter().rposition(|c| failed(&c.1, check) && c.2 >= chosen.2 - Duration::seconds(120)) {
-            chosen = candidates.remove(index);
-        }
+    if !failed(&chosen.1, check)
+        && let Some(index) = candidates.iter().rposition(|c| failed(&c.1, check) && c.2 >= chosen.2 - Duration::seconds(120)) {
+        chosen = candidates.remove(index);
     }
     decision.record = Some(chosen.0);
     decision.outcome = "rejected";
@@ -506,10 +505,9 @@ fn satisfy(statement: &Statement, check: &str, head: &str, tree: &str, lane: &La
     if inputs.get("workspace_clean").map(String::as_str) != Some("true") ||
         inputs.get("untracked_files").map(String::as_str) != Some("false") { return "workspace_dirty"; }
     if expected.iter().any(|(key, value)| inputs.get(key) != Some(value)) { return "wrong_input"; }
-    if let Some(check) = &lane.nix_check {
-        if inputs.get("nix_execution").map(String::as_str) == Some("reused") {
-            return if check.required == "any" { "execution_reused" } else { "fresh_execution_required" };
-        }
+    if let Some(check) = &lane.nix_check
+        && inputs.get("nix_execution").map(String::as_str) == Some("reused") {
+        return if check.required == "any" { "execution_reused" } else { "fresh_execution_required" };
     }
     "satisfied"
 }
