@@ -323,7 +323,7 @@ enum SubjectPresence {
     AllowMissingForInspection,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 enum SubjectBinding {
     Verified,
