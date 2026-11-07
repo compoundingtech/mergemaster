@@ -281,6 +281,18 @@ mergemaster evidence verify --repo . --record "$RECORD" \
   --trusted-signers "$ALLOWED_SIGNERS"
 ```
 
+Explicit `show --record` and `verify --record` inspection can read an existing
+observation fetched shallowly without its subject commit. The raw observation
+must still name exactly that subject as its sole parent, and any locally present
+subject must match the signed tree. Object reads never lazily fetch missing
+objects. This inspection-only allowance does not apply to `put`, producers,
+gate/push decisions, policy verification, or wrapper reuse: those require the
+subject commit to be present and its tree to match.
+Both inspection commands include `subject_binding`: `"verified"` when the subject
+was present and tree-checked, or `"subject-absent"` when only its signed claim
+could be inspected. Both cases exit 0 on success; callers must check this field
+when they require a locally verified subject binding.
+
 The Rust evidence sources originate from `compoundingtech/fractal` commit
 `d6e91e3b6db855c30b4d35f2e78a29a3948b1ded`. The evidence library is available as
 `mergemaster_evidence::evidence`.

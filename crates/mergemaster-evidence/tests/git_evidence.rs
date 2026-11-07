@@ -881,3 +881,108 @@ os.execv(os.environ['FIXTURE_REAL_GIT'],[os.environ['FIXTURE_REAL_GIT'],*args])
     std::fs::write(fixtures.join("artifact.zip"), damaged).unwrap();
     assert!(!observer(&[]).status.success());
 }
+
+#[test]
+fn immutable_wrapper_record_matches_oracle_even_when_shallow() {
+    let oracle = std::env::var_os("MERGEMASTER_PYTHON_ORACLE")
+        .expect("MERGEMASTER_PYTHON_ORACLE must be set; run tests in nix develop");
+    let output = Command::new("python3")
+        .args(["-I", "-B", "-c", LEGACY_RECORD_DRIVER])
+        .arg(env!("CARGO_BIN_EXE_mergemaster"))
+        .arg(oracle)
+        .arg(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/fixtures/fractal/scripts/testdata/evidence/wrapper-note"),
+        )
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+const LEGACY_RECORD_DRIVER: &str = r#"
+import base64, json, os, pathlib, subprocess, sys, tempfile
+binary, oracle, fixture = sys.argv[1], pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3])
+env = dict(os.environ, GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_NOSYSTEM='1')
+def run(argv, data=None):
+    return subprocess.run(list(map(str, argv)), input=data, env=env, capture_output=True)
+def git(repo, *args, data=None):
+    result = run(['git', '-C', repo, *args], data)
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip()
+with tempfile.TemporaryDirectory() as scratch:
+    root = pathlib.Path(scratch)
+    source, shallow = root / 'source', root / 'shallow'
+    for repo in [source, shallow]:
+        git(root, 'init', '-q', repo)
+    expected = json.loads((fixture / 'expected.json').read_text())
+    record, subject, tree = (expected[name] for name in ['record', 'commit', 'tree'])
+    keys = fixture / 'allowed-signers'
+    git(source, 'index-pack', '--stdin', data=base64.b64decode((fixture / 'record.pack.base64').read_text()))
+    git(shallow, 'fetch', '--depth=1', str(source), record)
+    assert run(['git', '-C', shallow, 'cat-file', '-e', subject]).returncode != 0
+    marker = root / 'unexpected-fetch'
+    helper = root / 'git-remote-forbidden'
+    helper.write_text(f'#!{sys.executable}\nfrom pathlib import Path\nPath({str(marker)!r}).touch()\nraise SystemExit(1)\n')
+    helper.chmod(0o755)
+    env['PATH'] = str(root) + os.pathsep + env['PATH']
+    git(shallow, 'config', 'remote.origin.url', 'forbidden::unused')
+    git(shallow, 'config', 'remote.origin.promisor', 'true')
+    git(shallow, 'config', 'protocol.forbidden.allow', 'always')
+    def native(repo, command, id=record, signers=keys):
+        args = [binary, 'evidence', command, '--repo', repo, '--record', id]
+        if command == 'verify':
+            args += ['--trusted-signers', signers]
+        return run(args)
+    def python(repo, signers=keys):
+        return run([sys.executable, '-I', '-B', oracle / 'scripts/evidence-verify',
+                    '--repo', repo, '--tree', tree, '--check', expected['check'], '--keys', signers])
+    # Every layout points to the exact frozen signed commit; never reserialize it.
+    for repo in [source, shallow]:
+        binding = 'verified' if repo == source else 'subject-absent'
+        refs = [f'refs/notes/evidence/{record}', f'refs/notes/evidence/{tree}/{record}',
+                f'refs/tags/evidence/{tree}/{record}']
+        for ref in refs:
+            git(repo, 'update-ref', ref, record)
+            reference, actual = python(repo), native(repo, 'verify')
+            assert reference.returncode == actual.returncode == 0, (reference.stderr, reference.stdout, actual.stderr)
+            assert json.loads(reference.stdout)['record'] == json.loads(actual.stdout)['record'] == record
+            assert json.loads(native(repo, 'show').stdout)['subject'][0]['name'] == subject
+            assert json.loads(actual.stdout)['subject_binding'] == binding
+            assert json.loads(native(repo, 'show').stdout)['subject_binding'] == binding
+            git(repo, 'update-ref', '-d', ref)
+        for ref in refs:
+            git(repo, 'update-ref', ref, record)
+        assert python(repo).returncode == native(repo, 'verify').returncode == 0
+        empty = root / 'untrusted'
+        empty.write_text('')
+        assert python(repo, empty).returncode != 0
+        assert native(repo, 'verify', signers=empty).returncode != 0
+        wrong = root / 'wrong-principal'
+        wrong.write_text(keys.read_text().replace(expected['signer'], 'fleet/impostor'))
+        assert python(repo, wrong).returncode != 0
+        assert native(repo, 'verify', signers=wrong).returncode != 0
+    # Mutate only commit headers: both readers must reject malformed bindings.
+    raw = git(source, 'cat-file', 'commit', record)
+    parent = f'parent {subject}'.encode()
+    for replacement in [b'parent malformed', b'parent ' + b'0' * 40,
+                        parent + b'\n' + parent]:
+        damaged = git(source, 'hash-object', '--literally', '-t', 'commit', '-w', '--stdin',
+                      data=raw.replace(parent, replacement, 1)).decode()
+        for ref in refs:
+            git(source, 'update-ref', '-d', ref)
+        ref = f'refs/notes/evidence/{tree}/{damaged}'
+        # Git update-ref itself rejects malformed commits; inject the corrupt ref as on disk.
+        reference = source / '.git' / ref
+        reference.parent.mkdir(parents=True, exist_ok=True)
+        reference.write_text(damaged + '\n')
+        assert native(source, 'show', damaged).returncode != 0
+        assert native(source, 'verify', damaged).returncode != 0
+        assert python(source).returncode != 0
+        reference.unlink()
+    assert not marker.exists(), 'inspection must never lazily fetch absent objects'
+"#;
