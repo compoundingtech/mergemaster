@@ -10,7 +10,7 @@ use clap::Args as ClapArgs;
 use config::{Authors, Config, Lane};
 use serde::Serialize;
 use std::{
-    collections::BTreeSet,
+    collections::BTreeMap,
     io::Write,
     path::{Path, PathBuf},
     process::Command,
@@ -732,7 +732,7 @@ fn compute(
     let mut keys = tempfile::NamedTempFile::new()?;
     keys.write_all(&config.keys)?;
     keys.flush()?;
-    for id in records {
+    for (id, discovery) in records {
         let mut command = Command::new(std::env::current_exe()?);
         git::sanitize(&mut command);
         let output = command
@@ -764,16 +764,86 @@ fn compute(
             continue;
         }
         let at = DateTime::parse_from_rfc3339(&statement.predicate.observed_at)?;
-        candidates.push((id, statement, at));
+        candidates.push((id, statement, at, discovery));
     }
-    // Python evidence-verify selects newest trusted observation first, biased toward
-    // failures within two minutes. A later invalid command cannot expose an old pass.
+    // Push keeps newest-trusted selection; PR/queue match the pinned oracle.
     candidates
         .sort_by(|a, b| (a.2, failed(&a.1, check), &a.0).cmp(&(b.2, failed(&b.1, check), &b.0)));
-    let Some(mut chosen) = candidates.pop() else {
+    let judge = |statement: &Statement| {
+        let reason = satisfy(
+            statement,
+            check,
+            head,
+            &decision.tree,
+            lane,
+            expected.iter(),
+            push || queue,
+        );
+        if !push
+            && reason == "wrong_input"
+            && let Fact::Tests { inputs, .. } = &statement.predicate.fact
+            && inputs.get("lane_definition_sha256") != expected.get("lane_definition_sha256")
+            && matches!(
+                satisfy(
+                    statement,
+                    check,
+                    head,
+                    &decision.tree,
+                    lane,
+                    expected
+                        .iter()
+                        .filter(|(key, _)| key.as_str() != "lane_definition_sha256"),
+                    queue
+                ),
+                "satisfied" | "execution_reused"
+            )
+        {
+            "wrong_definition"
+        } else {
+            reason
+        }
+    };
+    let selected = if push {
+        None
+    } else {
+        candidates
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, statement, _, _))| {
+                !failed(statement, check)
+                    && lane.trust_levels.iter().any(|level| {
+                        Some(level.as_str())
+                            == statement
+                                .predicate
+                                .signer
+                                .as_deref()
+                                .and_then(|s| s.split('/').next())
+                    })
+                    && judge(statement) != "wrong_definition"
+            })
+            .max_by(|(_, a), (_, b)| a.2.cmp(&b.2).then_with(|| (b.3, &b.0).cmp(&(a.3, &a.0))))
+            .map(|(index, _)| {
+                let reason = judge(&candidates[index].1);
+                if matches!(reason, "satisfied" | "execution_reused")
+                    && let Some(failure) = candidates.iter().rposition(|c| {
+                        failed(&c.1, check) && c.2 >= candidates[index].2 - Duration::seconds(120)
+                    })
+                {
+                    (failure, "check_failed")
+                } else {
+                    (index, reason)
+                }
+            })
+    };
+    let Some(mut chosen) = (if let Some((index, _)) = selected {
+        Some(candidates.remove(index))
+    } else {
+        candidates.pop()
+    }) else {
         return Ok(decision);
     };
-    if !failed(&chosen.1, check)
+    if selected.is_none()
+        && !failed(&chosen.1, check)
         && let Some(index) = candidates
             .iter()
             .rposition(|c| failed(&c.1, check) && c.2 >= chosen.2 - Duration::seconds(120))
@@ -789,15 +859,7 @@ fn compute(
     if let Fact::Tests { inputs, .. } = &statement.predicate.fact {
         decision.lane_definition_sha256 = inputs.get("lane_definition_sha256").cloned();
     }
-    decision.reason = satisfy(
-        &statement,
-        check,
-        head,
-        &decision.tree,
-        lane,
-        &expected,
-        push || queue,
-    );
+    decision.reason = selected.map_or_else(|| judge(&statement), |(_, reason)| reason);
     if matches!(decision.reason, "satisfied" | "execution_reused") {
         decision.decision = "skip";
         decision.outcome = "satisfied";
@@ -834,13 +896,13 @@ fn failed(statement: &Statement, check: &str) -> bool {
     matches!(&statement.predicate.fact, Fact::Tests {checks, ..} if checks[check].exit_code != 0)
 }
 
-fn satisfy(
+fn satisfy<'a>(
     statement: &Statement,
     check: &str,
     head: &str,
     tree: &str,
     lane: &Lane,
-    expected: &std::collections::BTreeMap<String, String>,
+    mut expected: impl Iterator<Item = (&'a String, &'a String)>,
     push: bool,
 ) -> &'static str {
     let predicate = &statement.predicate;
@@ -948,10 +1010,7 @@ fn satisfy(
     {
         return "workspace_dirty";
     }
-    if expected
-        .iter()
-        .any(|(key, value)| inputs.get(key) != Some(value))
-    {
+    if expected.any(|(key, value)| inputs.get(key) != Some(value)) {
         return "wrong_input";
     }
     if let Some(check) = &lane.nix_check
@@ -966,7 +1025,7 @@ fn satisfy(
     "satisfied"
 }
 
-fn records(repo: &Path, tree: &str) -> Result<(BTreeSet<String>, bool, bool)> {
+fn records(repo: &Path, tree: &str) -> Result<(BTreeMap<String, u8>, bool, bool)> {
     let refs = git::text(
         repo,
         &[
@@ -976,7 +1035,7 @@ fn records(repo: &Path, tree: &str) -> Result<(BTreeSet<String>, bool, bool)> {
             "refs/tags/evidence/",
         ],
     )?;
-    let mut found = BTreeSet::new();
+    let mut found = BTreeMap::<String, u8>::new();
     let mut malformed = false;
     let mut other_tree = false;
     for line in refs.lines() {
@@ -1000,7 +1059,19 @@ fn records(repo: &Path, tree: &str) -> Result<(BTreeSet<String>, bool, bool)> {
             malformed = true;
             continue;
         }
-        found.insert(id.to_owned());
+        // Oracle discovery: tree tags, tree notes, then legacy notes; aliases
+        // retain their earliest namespace, with ascending IDs within each.
+        let discovery = if parts.len() == 1 {
+            2
+        } else if name.starts_with("refs/tags/") {
+            0
+        } else {
+            1
+        };
+        found
+            .entry(id.to_owned())
+            .and_modify(|prior| *prior = (*prior).min(discovery))
+            .or_insert(discovery);
     }
     Ok((found, malformed, other_tree))
 }
@@ -1105,7 +1176,7 @@ fn compare(repo: &Path, args: &Args, head: &str, decision: &mut Decision) -> Res
     keys.write_all(&config.keys)?;
     keys.flush()?;
     let mut newest = None;
-    for id in records(repo, &tree)?.0 {
+    for (id, _) in records(repo, &tree)?.0 {
         let mut command = Command::new(std::env::current_exe()?);
         git::sanitize(&mut command);
         let output = command

@@ -455,7 +455,7 @@ The stable reason codes are `satisfied`, `base_not_ancestor`, `foreign_merge`, `
 `ineligible_event`, `no_record`, `invalid_record`, `untrusted_signer`,
 `wrong_check`, `stale_tree`, `degraded`, `untrusted_tier`, `wrong_commit`,
 `untrusted_level`, `future_dated`, `too_old`, `check_failed`, `wrong_command`,
-`wrong_input`, `workspace_dirty`, `approval_evidence_missing`, `human_approval_missing`,
+`wrong_input`, `wrong_definition`, `workspace_dirty`, `approval_evidence_missing`, `human_approval_missing`,
 `hosted_check_missing`, `human_approval_satisfied`, `stale_base`, `stale_head`,
 and `pr_metadata_changed`. Consumers branch on these codes, not
 diagnostic prose. Malformed configuration or unavailable Git plumbing is an
@@ -744,6 +744,12 @@ A caller-supplied runner outside those kinds remains a valid evidence record
 for inspection and native policy verification, but cannot satisfy the generic
 gate (`unsupported_kind`). Re-attestation also preserves the exact subject
 commit name and its verified/absent inspection binding, not only its tree.
+
+PR and queue inspect the newest valid pass, passing over globally unaccepted
+signer levels and otherwise-valid passes with the wrong lane-definition digest.
+Other invalid passes decide; failures at or after pass minus 120 seconds veto
+a valid pass. With no surviving pass, newest-trusted/failure-biased selection
+applies. Push is unchanged; queue remains report-only.
 
 ### Read-only informational reporter
 

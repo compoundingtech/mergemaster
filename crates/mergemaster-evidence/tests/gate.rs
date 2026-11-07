@@ -383,6 +383,54 @@ print((root / name).read_text())
             .output()
             .unwrap()
     }
+
+    fn oracle_selection(&self, definition: &str) -> Value {
+        let root = PathBuf::from(std::env::var_os("MERGEMASTER_PYTHON_ORACLE").unwrap());
+        let keys = self.root.path().join("selection-keys");
+        fs::write(
+            &keys,
+            self.git(
+                &["show", &format!("{}:.mergemaster/evidence-keys", self.base)],
+                b"",
+            ),
+        )
+        .unwrap();
+        // Isolate selection from digest derivation: Rust's compact-JSON lane
+        // digest differs from legacy --lane-from. The oracle code is unchanged.
+        let output = self
+            .command("python3")
+            .args([
+                "-c",
+                r#"
+import json, runpy, sys
+v = runpy.run_path(sys.argv[1])
+try:
+    r = v['verify'](sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5],
+        ['tools/graph', 'check', '--full'], trust_levels=['agent'],
+        lane={'sha256': sys.argv[6], 'changed': []})
+    r['reason'] = 'satisfied'
+except v['Failure'] as e:
+    r = dict(satisfied=False, reason=e.reason, **e.extra)
+print(json.dumps(r))
+"#,
+            ])
+            .arg(root.join("scripts/evidence-verify"))
+            .args([
+                self.repo.to_str().unwrap(),
+                &self.tree,
+                CHECK,
+                keys.to_str().unwrap(),
+                definition,
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice(&output.stdout).unwrap()
+    }
 }
 
 fn queue_fixture() -> Fixture {
@@ -412,8 +460,20 @@ fn queue_fixture() -> Fixture {
 #[test]
 fn queue_exact_tree_is_report_only_in_either_parent_order() {
     let mut f = queue_fixture();
-    let statement = f.statement();
+    let mut statement = f.statement();
+    statement["predicate"]["observed_at"] =
+        json!((chrono::Utc::now() - chrono::Duration::minutes(10)).to_rfc3339());
     let record = f.note(&statement, &f.key, "tree");
+    let mut newer = f.statement();
+    newer["predicate"]["observed"]["inputs"]["lane_definition_sha256"] = json!("0".repeat(64));
+    f.note(&newer, &f.key, "tree");
+    let oracle = f.oracle_selection(
+        statement["predicate"]["observed"]["inputs"]["lane_definition_sha256"]
+            .as_str()
+            .unwrap(),
+    );
+    assert_eq!(oracle["reason"], "satisfied");
+    assert_eq!(oracle["decided_by"], record);
     let output = f.root.path().join("github-output");
     for reverse in [false, true] {
         if reverse {
@@ -1734,6 +1794,189 @@ fn age_and_future_margins_match_oracle() {
             );
         }
     }
+}
+
+#[test]
+fn equal_time_passes_follow_oracle_discovery_order() {
+    for pass_over in [false, true] {
+        for invalid_lower in [false, true] {
+            for prioritize_higher_tag in [false, true] {
+                let f = Fixture::new();
+                let mut valid = f.statement();
+                valid["predicate"]["observed_at"] =
+                    json!((chrono::Utc::now() - chrono::Duration::minutes(10)).to_rfc3339());
+                let valid_id = f.note(&valid, &f.key, "tree");
+                let mut invalid = valid.clone();
+                invalid["predicate"]["observed"]["checks"][CHECK]["command"] = json!(["true"]);
+                let invalid_id = (0..128)
+                    .find_map(|nonce| {
+                        invalid["predicate"]["change_id"] = json!(format!("tie-{nonce}"));
+                        let id = f.note(&invalid, &f.key, "tree");
+                        if (id < valid_id) == invalid_lower {
+                            Some(id)
+                        } else {
+                            f.git(
+                                &[
+                                    "update-ref",
+                                    "-d",
+                                    &format!("refs/notes/evidence/{}/{id}", f.tree),
+                                ],
+                                b"",
+                            );
+                            None
+                        }
+                    })
+                    .expect("find the requested record-ID ordering");
+                let lower = if invalid_lower {
+                    &invalid_id
+                } else {
+                    &valid_id
+                };
+                let higher = if invalid_lower {
+                    &valid_id
+                } else {
+                    &invalid_id
+                };
+                if prioritize_higher_tag {
+                    f.publish(higher, "tag");
+                }
+                if pass_over {
+                    let mut newer = f.statement();
+                    newer["predicate"]["observed"]["inputs"]["lane_definition_sha256"] =
+                        json!("0".repeat(64));
+                    f.note(&newer, &f.key, "tree");
+                }
+                let definition = valid["predicate"]["observed"]["inputs"]["lane_definition_sha256"]
+                    .as_str()
+                    .unwrap();
+                let oracle = f.oracle_selection(definition);
+                let decision = f.decision(&[]);
+                let expected = if prioritize_higher_tag { higher } else { lower };
+                assert_eq!(oracle["decided_by"], *expected);
+                assert_eq!(
+                    oracle["reason"],
+                    if expected == &valid_id {
+                        "satisfied"
+                    } else {
+                        "wrong_command"
+                    }
+                );
+                assert_eq!(decision["record"], oracle["decided_by"]);
+                assert_eq!(decision["reason"], oracle["reason"]);
+                assert_eq!(decision["decision"] == "skip", oracle["satisfied"] == true);
+            }
+        }
+    }
+}
+
+#[test]
+fn nonpush_newest_valid_pass_matches_oracle() {
+    for mode in ["required_evidence", "optional_fallback"] {
+        for case in [
+            "level",
+            "definition",
+            "definition+argv",
+            "invalid+failure",
+            "no_valid",
+            "tie",
+        ] {
+            for failure_offset in [None, Some(-121), Some(-120), Some(1)] {
+                let mut f = Fixture::new();
+                f.write(".mergemaster/lanes.json", Fixture::policy(mode).to_string());
+                let public = fs::read_to_string(f.key.with_extension("pub")).unwrap();
+                f.write(
+                    ".mergemaster/evidence-keys",
+                    format!("{PRINCIPAL},host/fixture namespaces=\"git\" {public}"),
+                );
+                f.base = f.commit("authorize both levels, accept agent only");
+                f.refresh_head();
+                let now = chrono::Utc::now() - chrono::Duration::minutes(10);
+                let mut older = f.statement();
+                older["predicate"]["observed_at"] = json!(now.to_rfc3339());
+                let definition = older["predicate"]["observed"]["inputs"]["lane_definition_sha256"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned();
+                if case == "no_valid" {
+                    older["predicate"]["signer"] = json!("host/fixture");
+                }
+                f.note(&older, &f.key, "tree");
+                let mut newer = f.statement();
+                newer["predicate"]["observed_at"] =
+                    json!((now + chrono::Duration::seconds(300)).to_rfc3339());
+                match case {
+                    "level" | "no_valid" => newer["predicate"]["signer"] = json!("host/fixture"),
+                    "definition" | "definition+argv" => {
+                        newer["predicate"]["observed"]["inputs"]["lane_definition_sha256"] =
+                            json!("0".repeat(64))
+                    }
+                    _ => {}
+                }
+                if matches!(case, "definition+argv" | "invalid+failure") {
+                    newer["predicate"]["observed"]["checks"][CHECK]["command"] = json!(["true"]);
+                }
+                let newer_id = f.note(&newer, &f.key, "tree");
+                let offset = if matches!(case, "invalid+failure" | "tie") {
+                    Some(300)
+                } else {
+                    failure_offset
+                };
+                if let Some(offset) = offset {
+                    let mut failure = older.clone();
+                    failure["predicate"]["observed_at"] =
+                        json!((now + chrono::Duration::seconds(offset)).to_rfc3339());
+                    failure["predicate"]["observed"]["checks"][CHECK]["exit_code"] = json!(1);
+                    f.note(&failure, &f.key, "tree");
+                }
+                let oracle = f.oracle_selection(&definition);
+                let decision = f.decision(&[]);
+                assert_eq!(
+                    decision["reason"], oracle["reason"],
+                    "{case}/{offset:?}: {decision} / {oracle}"
+                );
+                assert_eq!(
+                    decision["record"], oracle["decided_by"],
+                    "{case}/{offset:?}: {decision} / {oracle}"
+                );
+                assert_eq!(decision["decision"] == "skip", oracle["satisfied"] == true);
+                if case == "invalid+failure" {
+                    // Main also runs/refuses; only check_failed/failure diagnostics change.
+                    assert_eq!(
+                        decision["decision"],
+                        if mode == "optional_fallback" {
+                            "run"
+                        } else {
+                            "refuse"
+                        }
+                    );
+                    assert_eq!(decision["reason"], "wrong_command");
+                    assert_eq!(decision["record"], newer_id);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn push_retains_newest_pass_and_failure_precedence() {
+    let f = push_fixture(false);
+    let mut older = f.statement();
+    older["predicate"]["observed_at"] =
+        json!((chrono::Utc::now() - chrono::Duration::minutes(10)).to_rfc3339());
+    f.note(&older, &f.key, "tree");
+    let mut newer = f.statement();
+    newer["predicate"]["observed"]["inputs"]["lane_definition_sha256"] = json!("0".repeat(64));
+    let record = f.note(&newer, &f.key, "tree");
+    let decision = f.push("refs/heads/main", &f.head, &f.head);
+    assert_eq!(decision["decision"], "refuse");
+    assert_eq!(decision["reason"], "wrong_input");
+    assert_eq!(decision["record"], record);
+    newer["predicate"]["observed"]["checks"][CHECK]["exit_code"] = json!(1);
+    let failure = f.note(&newer, &f.key, "tree");
+    let decision = f.push("refs/heads/main", &f.head, &f.head);
+    assert_eq!(decision["decision"], "refuse");
+    assert_eq!(decision["reason"], "check_failed");
+    assert_eq!(decision["record"], failure);
 }
 
 #[test]
