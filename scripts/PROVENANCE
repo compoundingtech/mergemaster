@@ -11,6 +11,11 @@
 # Open gap: lane-digest-derivation. Rust hashes compact-JSON tuples; legacy
 # evidence-verify --lane-from hashes Git entries/argv. Selection differential
 # tests supply an identical expected digest, not a claim of derivation parity.
+# Rust parity P2-a: degraded-veto-and-fallback-exclusion. Unsigned degraded
+# records do not shadow trusted candidates during non-push selection.
+# Conservative divergence P3: wrong-definition-plus-bound-input. Python passes
+# over the definition mismatch before judging bound inputs; Rust refuses the
+# compound mismatch as wrong_input. Covered by the tiers/vetoes/input matrix.
 # Port: 64351934f2f637f63f44d1f5d72563414135a3cc
 # Scope: scripts/st-test scripts/fractal-test-test; two-hour queue aging.
 # Upstream hunks SHA256: 368ffaff939aecc9bb91e7979a4f273d4fb7ab63aca501c609b34e7614743336
