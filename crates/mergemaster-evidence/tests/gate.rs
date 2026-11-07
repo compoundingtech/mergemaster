@@ -385,10 +385,16 @@ print((root / name).read_text())
     }
 
     fn oracle_selection(&self, definition: &str) -> Value {
-        self.oracle_selection_with(definition, None, false)
+        self.oracle_selection_with(definition, None, false, None)
     }
 
-    fn oracle_selection_with(&self, definition: &str, age: Option<u64>, bind: bool) -> Value {
+    fn oracle_selection_with(
+        &self,
+        definition: &str,
+        age: Option<u64>,
+        bind: bool,
+        now: Option<&str>,
+    ) -> Value {
         let root = PathBuf::from(std::env::var_os("MERGEMASTER_PYTHON_ORACLE").unwrap());
         let keys = self.root.path().join("selection-keys");
         fs::write(
@@ -412,7 +418,8 @@ try:
     r = v['verify'](sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5],
         ['tools/graph', 'check', '--full'], trust_levels=['agent'],
         lane={'sha256': sys.argv[6], 'changed': []}, max_age=int(sys.argv[7]) or None,
-        bind=[('wrapper_sha256', 'tools/graph')] if sys.argv[8] == 'true' else [])
+        bind=[('wrapper_sha256', 'tools/graph')] if sys.argv[8] == 'true' else [],
+        now=v['parse_time'](sys.argv[9]) if sys.argv[9] else None)
     r['reason'] = 'satisfied'
 except v['Failure'] as e:
     r = dict(satisfied=False, reason=e.reason, **e.extra)
@@ -428,6 +435,7 @@ print(json.dumps(r))
                 definition,
             ])
             .args([age.unwrap_or(0).to_string(), bind.to_string()])
+            .arg(now.unwrap_or_default())
             .output()
             .unwrap();
         assert!(
@@ -1813,48 +1821,14 @@ fn oracle_fixed_clock_matches_exact_age_boundary_contract() {
         let mut statement = f.statement();
         statement["predicate"]["observed_at"] = json!(stamp);
         let record = f.note(&statement, &f.key, "tree");
-        let keys = f.root.path().join("boundary-keys");
-        fs::write(
-            &keys,
-            f.git(
-                &["show", &format!("{}:.mergemaster/evidence-keys", f.base)],
-                b"",
-            ),
-        )
-        .unwrap();
-        let root = PathBuf::from(std::env::var_os("MERGEMASTER_PYTHON_ORACLE").unwrap());
-        let output = f
-            .command("python3")
-            .args([
-                "-c",
-                r#"
-import json, runpy, sys
-v = runpy.run_path(sys.argv[1])
-try:
-    r = v['verify'](sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5],
-        ['tools/graph', 'check', '--full'], trust_levels=['agent'],
-        max_age=60, now=v['parse_time']('2030-01-01T00:01:00Z'))
-    r['reason'] = 'satisfied'
-except v['Failure'] as e:
-    r = dict(reason=e.reason, **e.extra)
-print(json.dumps(r))
-"#,
-            ])
-            .arg(root.join("scripts/evidence-verify"))
-            .args([
-                f.repo.to_str().unwrap(),
-                &f.tree,
-                CHECK,
-                keys.to_str().unwrap(),
-            ])
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
+        let oracle = f.oracle_selection_with(
+            statement["predicate"]["observed"]["inputs"]["lane_definition_sha256"]
+                .as_str()
+                .unwrap(),
+            Some(60),
+            false,
+            Some("2030-01-01T00:01:00Z"),
         );
-        let oracle: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(oracle["reason"], expected);
         assert_eq!(oracle["decided_by"], record);
     }
@@ -1880,9 +1854,10 @@ fn tiers_vetoes_and_compound_inputs_have_explicit_oracle_contracts() {
             policy["lanes"][CHECK]["max_age_seconds"] = json!(60);
             f.write(".mergemaster/lanes.json", policy.to_string());
             let public = fs::read_to_string(f.key.with_extension("pub")).unwrap();
+            let host_public = fs::read_to_string(f.stranger.with_extension("pub")).unwrap();
             f.write(
                 ".mergemaster/evidence-keys",
-                format!("{PRINCIPAL},host/fixture namespaces=\"git\" {public}"),
+                format!("{PRINCIPAL} namespaces=\"git\" {public}\nhost/fixture namespaces=\"git\" {host_public}"),
             );
             f.base = f.commit("authorize host but accept agent only");
             f.refresh_head();
@@ -1944,9 +1919,31 @@ fn tiers_vetoes_and_compound_inputs_have_explicit_oracle_contracts() {
                 f.publish(&id, "tree");
                 id
             } else {
-                f.note(&newer, &f.key, "tree")
+                f.note(
+                    &newer,
+                    if matches!(case, "host_failure" | "equal_level") {
+                        &f.stranger
+                    } else {
+                        &f.key
+                    },
+                    "tree",
+                )
             };
-            let oracle = f.oracle_selection_with(&definition, Some(60), true);
+            if case == "equal_level" {
+                f.git(
+                    &[
+                        "update-ref",
+                        "-d",
+                        &format!("refs/notes/evidence/{}/{older_id}", f.tree),
+                    ],
+                    b"",
+                );
+                let alone = f.decision(&[]);
+                assert_eq!(alone["reason"], "untrusted_level");
+                assert_eq!(alone["record"], newer_id);
+                f.publish(&older_id, "tree");
+            }
+            let oracle = f.oracle_selection_with(&definition, Some(60), true, None);
             let decision = f.decision(&[]);
             if case == "definition_input" {
                 // P3: Python skips before bound-input validation; Rust stays conservative.
@@ -1970,7 +1967,10 @@ fn tiers_vetoes_and_compound_inputs_have_explicit_oracle_contracts() {
                 assert_eq!(decision["record"], oracle["decided_by"], "{mode}/{case}");
                 assert_eq!(decision["decision"] == "skip", oracle["satisfied"] == true);
                 if matches!(case, "host_failure" | "old_failure") {
-                    assert_eq!(decision["reason"], "check_failed");
+                    assert_eq!(
+                        decision["reason"], "check_failed",
+                        "{mode}/{case}: {decision} / {oracle}"
+                    );
                 }
             }
         }
@@ -2065,12 +2065,24 @@ fn nonpush_newest_valid_pass_matches_oracle() {
                 let mut f = Fixture::new();
                 f.write(".mergemaster/lanes.json", Fixture::policy(mode).to_string());
                 let public = fs::read_to_string(f.key.with_extension("pub")).unwrap();
+                let host_public = fs::read_to_string(f.stranger.with_extension("pub")).unwrap();
                 f.write(
                     ".mergemaster/evidence-keys",
-                    format!("{PRINCIPAL},host/fixture namespaces=\"git\" {public}"),
+                    format!("{PRINCIPAL} namespaces=\"git\" {public}\nhost/fixture namespaces=\"git\" {host_public}"),
                 );
                 f.base = f.commit("authorize both levels, accept agent only");
                 f.refresh_head();
+                let note = |statement: &Value| {
+                    f.note(
+                        statement,
+                        if statement["predicate"]["signer"] == "host/fixture" {
+                            &f.stranger
+                        } else {
+                            &f.key
+                        },
+                        "tree",
+                    )
+                };
                 let now = chrono::Utc::now() - chrono::Duration::minutes(10);
                 let mut older = f.statement();
                 older["predicate"]["observed_at"] = json!(now.to_rfc3339());
@@ -2081,7 +2093,7 @@ fn nonpush_newest_valid_pass_matches_oracle() {
                 if case == "no_valid" {
                     older["predicate"]["signer"] = json!("host/fixture");
                 }
-                f.note(&older, &f.key, "tree");
+                note(&older);
                 let mut newer = f.statement();
                 newer["predicate"]["observed_at"] =
                     json!((now + chrono::Duration::seconds(300)).to_rfc3339());
@@ -2096,7 +2108,7 @@ fn nonpush_newest_valid_pass_matches_oracle() {
                 if matches!(case, "definition+argv" | "invalid+failure") {
                     newer["predicate"]["observed"]["checks"][CHECK]["command"] = json!(["true"]);
                 }
-                let newer_id = f.note(&newer, &f.key, "tree");
+                let newer_id = note(&newer);
                 let offset = if matches!(case, "invalid+failure" | "tie") {
                     Some(300)
                 } else {
@@ -2107,9 +2119,15 @@ fn nonpush_newest_valid_pass_matches_oracle() {
                     failure["predicate"]["observed_at"] =
                         json!((now + chrono::Duration::seconds(offset)).to_rfc3339());
                     failure["predicate"]["observed"]["checks"][CHECK]["exit_code"] = json!(1);
-                    f.note(&failure, &f.key, "tree");
+                    note(&failure);
                 }
                 let oracle = f.oracle_selection(&definition);
+                if case == "level" {
+                    assert_eq!(oracle["skipped_newer"].as_array().unwrap().len(), 1);
+                }
+                if case == "no_valid" {
+                    assert_eq!(oracle["reason"], "untrusted_level");
+                }
                 let decision = f.decision(&[]);
                 assert_eq!(
                     decision["reason"], oracle["reason"],
