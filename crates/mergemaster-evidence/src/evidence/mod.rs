@@ -323,7 +323,7 @@ enum SubjectPresence {
     AllowMissingForInspection,
 }
 
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 enum SubjectBinding {
     Verified,
@@ -666,14 +666,16 @@ fn verify_with_subject(
         "signature principal does not match record signer"
     );
     if let Some(prior_id) = &statement.predicate.re_attests {
-        let (prior, _) = show_with_subject(repo, prior_id, presence)?;
+        let (prior, prior_binding) = show_with_subject(repo, prior_id, presence)?;
         ensure!(
             prior.predicate.tier == TrustTier::Degraded,
             "re-attestation must cite degraded evidence"
         );
         verify_with_subject(repo, prior_id, trusted_signers, presence)?;
         ensure!(
-            prior.predicate.change_id == statement.predicate.change_id
+            prior_binding == binding
+                && prior.predicate.change_id == statement.predicate.change_id
+                && prior.subject[0].name == statement.subject[0].name
                 && prior.subject[0].digest == statement.subject[0].digest,
             "re-attestation changed its keyed subject"
         );

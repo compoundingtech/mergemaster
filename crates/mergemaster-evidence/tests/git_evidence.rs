@@ -958,6 +958,8 @@ with tempfile.TemporaryDirectory() as scratch:
         for ref in refs:
             git(repo, 'update-ref', ref, record)
         assert python(repo).returncode == native(repo, 'verify').returncode == 0
+        assert json.loads(native(repo, 'verify').stdout)['subject_binding'] == binding
+        assert json.loads(native(repo, 'show').stdout)['subject_binding'] == binding
         empty = root / 'untrusted'
         empty.write_text('')
         assert python(repo, empty).returncode != 0

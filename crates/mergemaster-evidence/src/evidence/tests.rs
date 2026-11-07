@@ -626,6 +626,28 @@ fn fresh_full_rerun_re_attests_without_promoting_degraded_record() {
 }
 
 #[test]
+fn re_attestation_cannot_substitute_a_same_tree_subject_during_inspection() {
+    let f = Fixture::new();
+    let mut degraded = f.tests("fixture-runner", 0);
+    degraded.predicate.tier = TrustTier::Degraded;
+    degraded.predicate.signer = None;
+    let prior = record_degraded(f.repo(), &degraded).unwrap();
+    let mut rerun = f.tests("fixture-rerun", 0);
+    rerun.predicate.re_attests = Some(prior);
+    let same_tree = f.commit_tree(&tree(f.repo(), &f.head).unwrap(), Some(&f.head));
+    rerun.subject[0].name = same_tree;
+    let record = sign_observation(f.repo(), &rerun, &f.key).unwrap();
+    let error = verify_with_subject(
+        f.repo(),
+        &record,
+        &f.trusted,
+        SubjectPresence::AllowMissingForInspection,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("changed its keyed subject"));
+}
+
+#[test]
 fn open_test_inputs_round_trip_but_do_not_authorize_scoped_reuse() {
     let f = Fixture::new();
     let mut tests = f.tests("fixture-runner", 0);
