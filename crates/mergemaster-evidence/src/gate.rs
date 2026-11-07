@@ -766,14 +766,82 @@ fn compute(
         let at = DateTime::parse_from_rfc3339(&statement.predicate.observed_at)?;
         candidates.push((id, statement, at));
     }
-    // Python evidence-verify selects newest trusted observation first, biased toward
-    // failures within two minutes. A later invalid command cannot expose an old pass.
+    // Push keeps newest-trusted selection; PR/queue match the pinned oracle.
     candidates
         .sort_by(|a, b| (a.2, failed(&a.1, check), &a.0).cmp(&(b.2, failed(&b.1, check), &b.0)));
-    let Some(mut chosen) = candidates.pop() else {
+    let judge = |statement: &Statement| {
+        let reason = satisfy(
+            statement,
+            check,
+            head,
+            &decision.tree,
+            lane,
+            expected.iter(),
+            push || queue,
+        );
+        if !push
+            && reason == "wrong_input"
+            && let Fact::Tests { inputs, .. } = &statement.predicate.fact
+            && inputs.get("lane_definition_sha256") != expected.get("lane_definition_sha256")
+            && matches!(
+                satisfy(
+                    statement,
+                    check,
+                    head,
+                    &decision.tree,
+                    lane,
+                    expected
+                        .iter()
+                        .filter(|(key, _)| key.as_str() != "lane_definition_sha256"),
+                    queue
+                ),
+                "satisfied" | "execution_reused"
+            )
+        {
+            "wrong_definition"
+        } else {
+            reason
+        }
+    };
+    let selected = if push {
+        None
+    } else {
+        candidates
+            .iter()
+            .rposition(|(_, statement, _)| {
+                !failed(statement, check)
+                    && lane.trust_levels.iter().any(|level| {
+                        Some(level.as_str())
+                            == statement
+                                .predicate
+                                .signer
+                                .as_deref()
+                                .and_then(|s| s.split('/').next())
+                    })
+                    && judge(statement) != "wrong_definition"
+            })
+            .map(|index| {
+                let reason = judge(&candidates[index].1);
+                if matches!(reason, "satisfied" | "execution_reused")
+                    && let Some(failure) = candidates.iter().rposition(|c| {
+                        failed(&c.1, check) && c.2 >= candidates[index].2 - Duration::seconds(120)
+                    })
+                {
+                    (failure, "check_failed")
+                } else {
+                    (index, reason)
+                }
+            })
+    };
+    let Some(mut chosen) = (if let Some((index, _)) = selected {
+        Some(candidates.remove(index))
+    } else {
+        candidates.pop()
+    }) else {
         return Ok(decision);
     };
-    if !failed(&chosen.1, check)
+    if selected.is_none()
+        && !failed(&chosen.1, check)
         && let Some(index) = candidates
             .iter()
             .rposition(|c| failed(&c.1, check) && c.2 >= chosen.2 - Duration::seconds(120))
@@ -789,15 +857,7 @@ fn compute(
     if let Fact::Tests { inputs, .. } = &statement.predicate.fact {
         decision.lane_definition_sha256 = inputs.get("lane_definition_sha256").cloned();
     }
-    decision.reason = satisfy(
-        &statement,
-        check,
-        head,
-        &decision.tree,
-        lane,
-        &expected,
-        push || queue,
-    );
+    decision.reason = selected.map_or_else(|| judge(&statement), |(_, reason)| reason);
     if matches!(decision.reason, "satisfied" | "execution_reused") {
         decision.decision = "skip";
         decision.outcome = "satisfied";
@@ -834,13 +894,13 @@ fn failed(statement: &Statement, check: &str) -> bool {
     matches!(&statement.predicate.fact, Fact::Tests {checks, ..} if checks[check].exit_code != 0)
 }
 
-fn satisfy(
+fn satisfy<'a>(
     statement: &Statement,
     check: &str,
     head: &str,
     tree: &str,
     lane: &Lane,
-    expected: &std::collections::BTreeMap<String, String>,
+    mut expected: impl Iterator<Item = (&'a String, &'a String)>,
     push: bool,
 ) -> &'static str {
     let predicate = &statement.predicate;
@@ -948,10 +1008,7 @@ fn satisfy(
     {
         return "workspace_dirty";
     }
-    if expected
-        .iter()
-        .any(|(key, value)| inputs.get(key) != Some(value))
-    {
+    if expected.any(|(key, value)| inputs.get(key) != Some(value)) {
         return "wrong_input";
     }
     if let Some(check) = &lane.nix_check
