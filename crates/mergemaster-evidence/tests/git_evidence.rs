@@ -959,6 +959,10 @@ with tempfile.TemporaryDirectory() as scratch:
         empty.write_text('')
         assert python(repo, empty).returncode != 0
         assert native(repo, 'verify', signers=empty).returncode != 0
+        wrong = root / 'wrong-principal'
+        wrong.write_text(keys.read_text().replace(expected['signer'], 'fleet/impostor'))
+        assert python(repo, wrong).returncode != 0
+        assert native(repo, 'verify', signers=wrong).returncode != 0
     # Mutate only commit headers: both readers must reject malformed bindings.
     raw = git(source, 'cat-file', 'commit', record)
     parent = f'parent {subject}'.encode()

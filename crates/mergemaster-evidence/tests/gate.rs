@@ -1568,6 +1568,7 @@ fn record_ref_names_must_match_the_immutable_signed_object() {
     let decision = f.decision(&[]);
     assert_eq!(decision["decision"], "refuse");
     assert_eq!(decision["reason"], "invalid_record");
+    assert!(!f.python().status.success());
 }
 
 #[test]
