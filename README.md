@@ -150,6 +150,8 @@ history or a missing watermark is an error in either mode.
 statuses as the Python command (including `--provenance`). The Python script and
 scheduled workflow remain unchanged. The Rust differential integration test runs
 the unchanged Python oracle against real local Git histories.
+Rust defaults to `scripts/PROVENANCE` at the caller's Git top level; outside a
+checkout, pass `--provenance`. Python defaults to the script's own checkout.
 
 This is a newer-commit alarm, not proof of complete parity: older unported
 commits remain in the cutover inventory. Record each port's upstream SHA,

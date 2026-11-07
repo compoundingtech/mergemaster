@@ -33,6 +33,24 @@ def compare(self, *args):
 oracle.DriftTest.run_guard = compare
 
 class AdditionalHistories(oracle.DriftTest):
+    def test_default_from_caller_subdirectory(self):
+        self.provenance = self.repo / 'scripts/PROVENANCE'
+        self.provenance.write_text(f'# Commit: {self.base}\nscripts/st-test\told\n')
+        self.commit('scripts/st-test', 'default drift')
+        expected = original(self)
+        actual = subprocess.run([binary, 'parity-drift', '--fractal-repo', str(self.repo)],
+            cwd=self.repo / 'scripts', env=self.env, capture_output=True, text=True)
+        self.assertEqual(actual.returncode, expected.returncode, actual.stderr)
+        self.assertEqual(actual.stdout, expected.stdout)
+
+    def test_missing_default_names_provenance_option(self):
+        for cwd in [self.root, self.repo / 'scripts']:
+            actual = subprocess.run([binary, 'parity-drift', '--fractal-repo', str(self.repo)],
+                cwd=cwd, env=self.env, capture_output=True, text=True)
+            self.assertEqual(actual.returncode, 1)
+            self.assertEqual(actual.stdout, '')
+            self.assertIn('--provenance', actual.stderr)
+
     def test_reverted_and_untrusted_source(self):
         marker = self.root / 'executed'
         self.commit('scripts/st-test', '#!/bin/sh\ntouch ' + str(marker))

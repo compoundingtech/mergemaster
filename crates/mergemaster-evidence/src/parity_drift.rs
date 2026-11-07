@@ -16,8 +16,8 @@ pub struct ParityDriftArgs {
     fractal_repo: PathBuf,
     #[arg(long, default_value = "HEAD")]
     r#ref: String,
-    #[arg(long, default_value = concat!(env!("CARGO_MANIFEST_DIR"), "/../../scripts/PROVENANCE"))]
-    provenance: PathBuf,
+    #[arg(long)]
+    provenance: Option<PathBuf>,
     #[arg(long)]
     report_only: bool,
 }
@@ -63,7 +63,22 @@ struct Report<'a> {
 
 /// Return the Python CLI's status, including drift (1) without an error message.
 pub fn run(args: ParityDriftArgs) -> Result<u8> {
-    let text = fs::read_to_string(&args.provenance).context("read provenance")?;
+    let provenance = match args.provenance {
+        Some(path) => path,
+        None => {
+            let output = Command::new("git")
+                .args(["rev-parse", "--show-toplevel"])
+                .output()
+                .context("cannot locate caller repository; pass --provenance")?;
+            ensure!(
+                output.status.success(),
+                "not inside a Git work tree; pass --provenance"
+            );
+            PathBuf::from(String::from_utf8(output.stdout)?.trim()).join("scripts/PROVENANCE")
+        }
+    };
+    let text =
+        fs::read_to_string(&provenance).context("cannot read provenance; pass --provenance")?;
     let baseline = text
         .lines()
         .find_map(|line| sha(line, "# Commit: "))
@@ -87,8 +102,7 @@ pub fn run(args: ParityDriftArgs) -> Result<u8> {
         ]
         .map(str::to_owned),
     );
-    let root = args
-        .provenance
+    let root = provenance
         .parent()
         .and_then(Path::parent)
         .unwrap_or(Path::new(""));
