@@ -1797,6 +1797,79 @@ fn age_and_future_margins_match_oracle() {
 }
 
 #[test]
+fn equal_time_passes_follow_oracle_discovery_order() {
+    for pass_over in [false, true] {
+        for invalid_lower in [false, true] {
+            for prioritize_higher_tag in [false, true] {
+                let f = Fixture::new();
+                let mut valid = f.statement();
+                valid["predicate"]["observed_at"] =
+                    json!((chrono::Utc::now() - chrono::Duration::minutes(10)).to_rfc3339());
+                let valid_id = f.note(&valid, &f.key, "tree");
+                let mut invalid = valid.clone();
+                invalid["predicate"]["observed"]["checks"][CHECK]["command"] = json!(["true"]);
+                let invalid_id = (0..128)
+                    .find_map(|nonce| {
+                        invalid["predicate"]["change_id"] = json!(format!("tie-{nonce}"));
+                        let id = f.note(&invalid, &f.key, "tree");
+                        if (id < valid_id) == invalid_lower {
+                            Some(id)
+                        } else {
+                            f.git(
+                                &[
+                                    "update-ref",
+                                    "-d",
+                                    &format!("refs/notes/evidence/{}/{id}", f.tree),
+                                ],
+                                b"",
+                            );
+                            None
+                        }
+                    })
+                    .expect("find the requested record-ID ordering");
+                let lower = if invalid_lower {
+                    &invalid_id
+                } else {
+                    &valid_id
+                };
+                let higher = if invalid_lower {
+                    &valid_id
+                } else {
+                    &invalid_id
+                };
+                if prioritize_higher_tag {
+                    f.publish(higher, "tag");
+                }
+                if pass_over {
+                    let mut newer = f.statement();
+                    newer["predicate"]["observed"]["inputs"]["lane_definition_sha256"] =
+                        json!("0".repeat(64));
+                    f.note(&newer, &f.key, "tree");
+                }
+                let definition = valid["predicate"]["observed"]["inputs"]["lane_definition_sha256"]
+                    .as_str()
+                    .unwrap();
+                let oracle = f.oracle_selection(definition);
+                let decision = f.decision(&[]);
+                let expected = if prioritize_higher_tag { higher } else { lower };
+                assert_eq!(oracle["decided_by"], *expected);
+                assert_eq!(
+                    oracle["reason"],
+                    if expected == &valid_id {
+                        "satisfied"
+                    } else {
+                        "wrong_command"
+                    }
+                );
+                assert_eq!(decision["record"], oracle["decided_by"]);
+                assert_eq!(decision["reason"], oracle["reason"]);
+                assert_eq!(decision["decision"] == "skip", oracle["satisfied"] == true);
+            }
+        }
+    }
+}
+
+#[test]
 fn nonpush_newest_valid_pass_matches_oracle() {
     for mode in ["required_evidence", "optional_fallback"] {
         for case in [

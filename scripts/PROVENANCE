@@ -5,8 +5,9 @@
 # https://github.com/compoundingtech/fractal/pull/4398 (5f995f26e5).
 # The source_blob column remains the original import; mergemaster_blob includes applied patches.
 # The local parity-drift reporter is a Rust command, not a copied upstream script.
-# Rust parity: newest-valid-pass-level and newest-valid-pass-definition match
-# the pinned Python oracle for PR/queue selection; push remains newest-trusted.
+# Rust parity cases: newest-valid-pass-level and newest-valid-pass-definition;
+# PR/queue tie order follows oracle discovery. Push remains newest-trusted.
+# These differential cases are not a claim of complete selection parity.
 # Open gap: lane-digest-derivation. Rust hashes compact-JSON tuples; legacy
 # evidence-verify --lane-from hashes Git entries/argv. Selection differential
 # tests supply an identical expected digest, not a claim of derivation parity.

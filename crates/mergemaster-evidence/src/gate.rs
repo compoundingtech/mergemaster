@@ -10,7 +10,7 @@ use clap::Args as ClapArgs;
 use config::{Authors, Config, Lane};
 use serde::Serialize;
 use std::{
-    collections::BTreeSet,
+    collections::BTreeMap,
     io::Write,
     path::{Path, PathBuf},
     process::Command,
@@ -732,7 +732,7 @@ fn compute(
     let mut keys = tempfile::NamedTempFile::new()?;
     keys.write_all(&config.keys)?;
     keys.flush()?;
-    for id in records {
+    for (id, discovery) in records {
         let mut command = Command::new(std::env::current_exe()?);
         git::sanitize(&mut command);
         let output = command
@@ -764,7 +764,7 @@ fn compute(
             continue;
         }
         let at = DateTime::parse_from_rfc3339(&statement.predicate.observed_at)?;
-        candidates.push((id, statement, at));
+        candidates.push((id, statement, at, discovery));
     }
     // Push keeps newest-trusted selection; PR/queue match the pinned oracle.
     candidates
@@ -808,7 +808,8 @@ fn compute(
     } else {
         candidates
             .iter()
-            .rposition(|(_, statement, _)| {
+            .enumerate()
+            .filter(|(_, (_, statement, _, _))| {
                 !failed(statement, check)
                     && lane.trust_levels.iter().any(|level| {
                         Some(level.as_str())
@@ -820,7 +821,8 @@ fn compute(
                     })
                     && judge(statement) != "wrong_definition"
             })
-            .map(|index| {
+            .max_by(|(_, a), (_, b)| a.2.cmp(&b.2).then_with(|| (b.3, &b.0).cmp(&(a.3, &a.0))))
+            .map(|(index, _)| {
                 let reason = judge(&candidates[index].1);
                 if matches!(reason, "satisfied" | "execution_reused")
                     && let Some(failure) = candidates.iter().rposition(|c| {
@@ -1023,7 +1025,7 @@ fn satisfy<'a>(
     "satisfied"
 }
 
-fn records(repo: &Path, tree: &str) -> Result<(BTreeSet<String>, bool, bool)> {
+fn records(repo: &Path, tree: &str) -> Result<(BTreeMap<String, u8>, bool, bool)> {
     let refs = git::text(
         repo,
         &[
@@ -1033,7 +1035,7 @@ fn records(repo: &Path, tree: &str) -> Result<(BTreeSet<String>, bool, bool)> {
             "refs/tags/evidence/",
         ],
     )?;
-    let mut found = BTreeSet::new();
+    let mut found = BTreeMap::<String, u8>::new();
     let mut malformed = false;
     let mut other_tree = false;
     for line in refs.lines() {
@@ -1057,7 +1059,19 @@ fn records(repo: &Path, tree: &str) -> Result<(BTreeSet<String>, bool, bool)> {
             malformed = true;
             continue;
         }
-        found.insert(id.to_owned());
+        // Oracle discovery: tree tags, tree notes, then legacy notes; aliases
+        // retain their earliest namespace, with ascending IDs within each.
+        let discovery = if parts.len() == 1 {
+            2
+        } else if name.starts_with("refs/tags/") {
+            0
+        } else {
+            1
+        };
+        found
+            .entry(id.to_owned())
+            .and_modify(|prior| *prior = (*prior).min(discovery))
+            .or_insert(discovery);
     }
     Ok((found, malformed, other_tree))
 }
@@ -1162,7 +1176,7 @@ fn compare(repo: &Path, args: &Args, head: &str, decision: &mut Decision) -> Res
     keys.write_all(&config.keys)?;
     keys.flush()?;
     let mut newest = None;
-    for id in records(repo, &tree)?.0 {
+    for (id, _) in records(repo, &tree)?.0 {
         let mut command = Command::new(std::env::current_exe()?);
         git::sanitize(&mut command);
         let output = command
