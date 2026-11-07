@@ -57,7 +57,8 @@
           });
           oracle-scripts = pkgs.runCommand "mergemaster-oracle-scripts" {
             nativeBuildInputs = [ pkgs.python3 ];
-            src = pkgs.lib.cleanSource self;
+            # Inspect every Git-source entry, including names cleanSource excludes.
+            src = self;
             MERGEMASTER_PYTHON_ORACLE = "${python-oracle}";
           } ''
             python3 - <<'PY'
