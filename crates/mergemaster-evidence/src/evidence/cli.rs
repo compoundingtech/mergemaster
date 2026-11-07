@@ -76,7 +76,9 @@ pub fn run(args: EvidenceArgs) -> Result<()> {
         EvidenceCommand::Keygen(args) => return super::keygen::run_keygen(args),
         EvidenceCommand::Wrap(args) => {
             let code = super::generic::run_wrap(&args)?;
-            if code != 0 { std::process::exit(code); }
+            if code != 0 {
+                std::process::exit(code);
+            }
             return Ok(());
         }
         EvidenceCommand::Sign(args) => return super::signing::run_sign(args),

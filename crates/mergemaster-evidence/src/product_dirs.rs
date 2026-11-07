@@ -20,7 +20,8 @@ pub fn resolve(old: PathBuf, new: PathBuf) -> PathBuf {
         if !WARNED.swap(true, Ordering::Relaxed) {
             eprintln!(
                 "st: {} has no completed migration receipt; using {}",
-                new.display(), old.display()
+                new.display(),
+                old.display()
             );
         }
         return old;
@@ -32,4 +33,3 @@ fn completed(directory: &Path) -> bool {
     std::fs::read_to_string(directory.join(RECEIPT_FILE))
         .is_ok_and(|receipt| receipt.strip_suffix('\n') == Some(MIGRATION_ID))
 }
-

@@ -11,22 +11,22 @@ use std::{
     process::{Command, Stdio},
 };
 
-pub mod cli;
-pub mod generic;
-pub mod signing;
-pub mod keygen;
-pub mod legacy_request;
-mod legacy_json;
-mod nix;
-pub(crate) mod derivation;
-pub mod workspace;
 mod ci_reattest;
 mod ci_transport;
+pub mod cli;
+pub(crate) mod derivation;
+pub mod generic;
+pub mod keygen;
+mod legacy_json;
+pub mod legacy_request;
+mod nix;
 pub mod observers;
 pub mod producer_proof;
 pub mod signer_input;
+pub mod signing;
 #[cfg(test)]
 mod tests;
+pub mod workspace;
 
 pub const NOTES_PREFIX: &str = "refs/notes/evidence/";
 pub const STATEMENT_TYPE: &str = "https://in-toto.io/Statement/v1";
@@ -835,11 +835,8 @@ pub fn load_policy(repo: &Path, revision: &str) -> Result<Policy> {
     } else {
         ".fractal/evidence-policy.json"
     };
-    let policy = serde_json::from_slice(&git(
-        repo,
-        &["show", &format!("{revision}:{path}")],
-        None,
-    )?)?;
+    let policy =
+        serde_json::from_slice(&git(repo, &["show", &format!("{revision}:{path}")], None)?)?;
     Ok(policy)
 }
 
@@ -866,7 +863,8 @@ mod policy_path_tests {
         for (directory, contents) in [(".st", legacy), (".fractal", current)] {
             if let Some(contents) = contents {
                 std::fs::create_dir(repo.join(directory)).unwrap();
-                std::fs::write(repo.join(directory).join("evidence-policy.json"), contents).unwrap();
+                std::fs::write(repo.join(directory).join("evidence-policy.json"), contents)
+                    .unwrap();
             }
         }
         git(repo, &["add", "."], None).unwrap();
@@ -938,7 +936,10 @@ mod policy_path_tests {
         let (root, revision) = fixture(Some(&old), Some(&new));
         let blob = git_text(
             root.path(),
-            &["rev-parse", &format!("{revision}:.fractal/evidence-policy.json")],
+            &[
+                "rev-parse",
+                &format!("{revision}:.fractal/evidence-policy.json"),
+            ],
             None,
         )
         .unwrap();
