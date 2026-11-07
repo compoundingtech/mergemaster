@@ -1,6 +1,7 @@
 #[test]
 fn python_oracle_parity() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let root = std::env::var_os("MERGEMASTER_PYTHON_ORACLE")
+        .expect("MERGEMASTER_PYTHON_ORACLE must be set; run tests in nix develop");
     let status = std::process::Command::new("python3")
         .args(["-I", "-B", "-c", DRIVER])
         .arg(root)

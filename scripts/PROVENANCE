@@ -4,6 +4,7 @@
 # scripts/fractal-test-test: apply the fixture maintenance-isolation patch from
 # https://github.com/compoundingtech/fractal/pull/4398 (5f995f26e5).
 # The source_blob column remains the original import; mergemaster_blob includes applied patches.
+# The local parity-drift reporter is a Rust command, not a copied upstream script.
 # Port: 64351934f2f637f63f44d1f5d72563414135a3cc
 # Scope: scripts/st-test scripts/fractal-test-test; two-hour queue aging.
 # Upstream hunks SHA256: 368ffaff939aecc9bb91e7979a4f273d4fb7ab63aca501c609b34e7614743336
