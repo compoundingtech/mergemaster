@@ -17,6 +17,12 @@ The default development shell provides both suites' real tool dependencies
 and pinned source inputs. Script tests run on the host, not inside a Nix
 derivation or a nested bubblewrap sandbox.
 
+Rust signer/verifier parity tests read the immutable v0.5.0 Python source pinned
+by the `python-oracle` flake input, not the working-tree scripts.
+`MERGEMASTER_PYTHON_ORACLE` names that source root and is required for those tests;
+the dev shell and `checks.evidence` set it automatically. The production package
+does not depend on the oracle or run its parity tests.
+
 For development:
 
 ```sh

@@ -10,8 +10,12 @@
     url = "github:compoundingtech/fractal/e83871ec919f95b3b3e2a9a1cd211c2ac37babda";
     flake = false;
   };
+  inputs.python-oracle = {
+    url = "github:compoundingtech/mergemaster/1392a516e969be46d9516d904b76a4db98c55030";
+    flake = false;
+  };
 
-  outputs = { self, nixpkgs, effect-utils, fractal-fixture }:
+  outputs = { self, nixpkgs, effect-utils, fractal-fixture, python-oracle }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
@@ -33,7 +37,8 @@
             export HOME="$TMPDIR/home"
             mkdir -p "$HOME"
           '';
-          doCheck = true;
+          # Oracle-backed tests belong to checks.evidence, not the production package.
+          doCheck = false;
           meta = {
             description = "Portable signed gate observations in immutable Git notes";
             license = pkgs.lib.licenses.mit;
@@ -46,7 +51,10 @@
       checks = forAllSystems (system:
         let pkgs = import nixpkgs { inherit system; };
         in {
-          evidence = self.packages.${system}.default;
+          evidence = (packageFor system).overrideAttrs (_: {
+            doCheck = true;
+            MERGEMASTER_PYTHON_ORACLE = "${python-oracle}";
+          });
           fmt = pkgs.runCommand "mergemaster-fmt" {
             nativeBuildInputs = [ pkgs.cargo pkgs.rustfmt ];
             src = pkgs.lib.cleanSource self;
@@ -75,6 +83,7 @@
           packages = [ pkgs.cargo pkgs.rustc pkgs.rustfmt pkgs.clippy ] ++ scriptInputs pkgs;
           MERGEMASTER_EFFECT_UTILS = "${effect-utils}";
           MERGEMASTER_FRACTAL_FIXTURE = "${fractal-fixture}";
+          MERGEMASTER_PYTHON_ORACLE = "${python-oracle}";
         }; });
     };
 }

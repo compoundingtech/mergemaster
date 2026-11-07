@@ -348,7 +348,11 @@ print((root / name).read_text())
     }
 
     fn python(&self) -> Output {
-        let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/evidence-verify");
+        let script = PathBuf::from(
+            std::env::var_os("MERGEMASTER_PYTHON_ORACLE")
+                .expect("MERGEMASTER_PYTHON_ORACLE must be set; run tests in nix develop"),
+        )
+        .join("scripts/evidence-verify");
         let keys = self.root.path().join("trusted-signers");
         fs::write(
             &keys,
@@ -1631,7 +1635,11 @@ fn moved_python_signer_produces_a_record_the_generic_gate_accepts() {
         "exit_code":0,"output_sha256":"b".repeat(64),"change_id":"python-produced",
         "inputs":inputs
     });
-    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/evidence-sign");
+    let script = PathBuf::from(
+        std::env::var_os("MERGEMASTER_PYTHON_ORACLE")
+            .expect("MERGEMASTER_PYTHON_ORACLE must be set; run tests in nix develop"),
+    )
+    .join("scripts/evidence-sign");
     let mut signer = f
         .command("python3")
         .arg(script)
