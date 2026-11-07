@@ -2325,3 +2325,37 @@ fn merge_graph_all_trusted_non_first_octopus_parents_are_accepted() {
     );
     assert_eq!(value["decision"], "skip", "{value}");
 }
+
+#[test]
+fn inspection_only_missing_subject_never_authorizes_a_gate() {
+    let mut f = Fixture::new();
+    let record = f.note(&f.statement(), &f.key, "tree");
+    let absent = f.head.clone();
+    f.head = f.git(
+        &["commit-tree", &f.tree, "-p", &f.base],
+        b"same tree, another commit\n",
+    );
+    f.git(&["update-ref", "HEAD", &f.head], b"");
+    fs::remove_file(
+        f.repo
+            .join(".git/objects")
+            .join(&absent[..2])
+            .join(&absent[2..]),
+    )
+    .unwrap();
+    let shown = f
+        .command(env!("CARGO_BIN_EXE_mergemaster"))
+        .args(["evidence", "show", "--repo"])
+        .arg(&f.repo)
+        .args(["--record", &record])
+        .output()
+        .unwrap();
+    assert!(
+        shown.status.success(),
+        "{}",
+        String::from_utf8_lossy(&shown.stderr)
+    );
+    let decision = f.decision(&[]);
+    assert_eq!(decision["decision"], "refuse", "{decision}");
+    assert_eq!(decision["reason"], "untrusted_signer", "{decision}");
+}

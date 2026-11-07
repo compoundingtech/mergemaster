@@ -179,6 +179,7 @@ fn git(repo: &Path, args: &[&str], input: Option<&[u8]>) -> Result<Vec<u8>> {
         ])
         .args(args)
         .env("GIT_NO_REPLACE_OBJECTS", "1")
+        .env("GIT_NO_LAZY_FETCH", "1")
         .stdin(if input.is_some() {
             Stdio::piped()
         } else {
@@ -315,8 +316,19 @@ pub fn changed_files(
     Ok(files)
 }
 
+/// Only explicit observation inspection may tolerate an absent shallow subject.
+#[derive(Clone, Copy)]
+enum SubjectPresence {
+    Required,
+    AllowMissingForInspection,
+}
+
 impl Statement {
     pub fn validate(&self, repo: &Path) -> Result<&str> {
+        self.validate_with_subject(repo, SubjectPresence::Required)
+    }
+
+    fn validate_with_subject(&self, repo: &Path, presence: SubjectPresence) -> Result<&str> {
         ensure!(
             self.statement_type == STATEMENT_TYPE
                 && matches!(
@@ -337,10 +349,18 @@ impl Statement {
             .get("gitTree")
             .context("missing gitTree digest")?;
         oid(observed_tree)?;
-        ensure!(
-            tree(repo, &subject.name)? == *observed_tree,
-            "subject commit/tree mismatch"
-        );
+        let missing = matches!(presence, SubjectPresence::AllowMissingForInspection)
+            && git_text(
+                repo,
+                &["cat-file", "--batch-check=%(objecttype)"],
+                Some(format!("{}\n", subject.name).as_bytes()),
+            )? == format!("{} missing", subject.name);
+        if !missing {
+            ensure!(
+                tree(repo, &subject.name)? == *observed_tree,
+                "subject commit/tree mismatch"
+            );
+        }
         let observation = &self.predicate;
         ensure!(
             observation.schema_version == 1,
@@ -527,6 +547,10 @@ fn write_observation(repo: &Path, statement: &Statement, ssh_key: Option<&Path>)
 
 /// Read the sole note from an immutable signed observation commit. No trust is implied.
 pub fn show(repo: &Path, id: &str) -> Result<Statement> {
+    show_with_subject(repo, id, SubjectPresence::Required)
+}
+
+fn show_with_subject(repo: &Path, id: &str, presence: SubjectPresence) -> Result<Statement> {
     oid(id)?;
     let entries = git(repo, &["ls-tree", "-r", "-z", id], None)?;
     let entries: Vec<_> = entries
@@ -550,12 +574,20 @@ pub fn show(repo: &Path, id: &str) -> Result<Statement> {
         serde_json::from_slice(&git(repo, &["cat-file", "blob", parts[2]], None)?)
             .context("decode evidence statement")?;
     ensure!(
-        statement.validate(repo)? == path,
+        statement.validate_with_subject(repo, presence)? == path,
         "note attached to wrong tree"
     );
-    let parents = git_text(repo, &["show", "-s", "--format=%P", id], None)?;
+    let raw = git_text(repo, &["cat-file", "commit", id], None)?;
+    let header = raw
+        .split_once("\n\n")
+        .context("observation commit header")?
+        .0;
+    let parents: Vec<_> = header
+        .lines()
+        .filter_map(|line| line.strip_prefix("parent "))
+        .collect();
     ensure!(
-        parents == statement.subject[0].name,
+        parents == [statement.subject[0].name.as_str()],
         "observation must have exactly its subject commit as parent"
     );
     Ok(statement)
@@ -564,7 +596,16 @@ pub fn show(repo: &Path, id: &str) -> Result<Statement> {
 /// Verify using only repository objects and an OpenSSH allowed-signers file. Never use
 /// the repository's trust list. The statement's signer must equal the verified principal.
 pub fn verify_record(repo: &Path, id: &str, trusted_signers: &Path) -> Result<Statement> {
-    let statement = show(repo, id)?;
+    verify_with_subject(repo, id, trusted_signers, SubjectPresence::Required)
+}
+
+fn verify_with_subject(
+    repo: &Path,
+    id: &str,
+    trusted_signers: &Path,
+    presence: SubjectPresence,
+) -> Result<Statement> {
+    let statement = show_with_subject(repo, id, presence)?;
     if statement.predicate.tier == TrustTier::Degraded {
         let status = git_text(repo, &["show", "-s", "--format=%G?", id], None)?;
         ensure!(status == "N", "degraded record must be unsigned");
@@ -603,12 +644,12 @@ pub fn verify_record(repo: &Path, id: &str, trusted_signers: &Path) -> Result<St
         "signature principal does not match record signer"
     );
     if let Some(prior_id) = &statement.predicate.re_attests {
-        let prior = show(repo, prior_id)?;
+        let prior = show_with_subject(repo, prior_id, presence)?;
         ensure!(
             prior.predicate.tier == TrustTier::Degraded,
             "re-attestation must cite degraded evidence"
         );
-        verify_record(repo, prior_id, trusted_signers)?;
+        verify_with_subject(repo, prior_id, trusted_signers, presence)?;
         ensure!(
             prior.predicate.change_id == statement.predicate.change_id
                 && prior.subject[0].digest == statement.subject[0].digest,

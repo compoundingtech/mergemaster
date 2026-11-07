@@ -96,14 +96,23 @@ pub fn run(args: EvidenceArgs) -> Result<()> {
         } => {
             serde_json::json!({"ref": put(&repo, &record, &trusted_signers)?, "tier": show(&repo, &record)?.predicate.tier})
         }
-        EvidenceCommand::Show { repo, record } => serde_json::to_value(show(&repo, &record)?)?,
+        EvidenceCommand::Show { repo, record } => serde_json::to_value(show_with_subject(
+            &repo,
+            &record,
+            SubjectPresence::AllowMissingForInspection,
+        )?)?,
         EvidenceCommand::Verify {
             repo,
             record: Some(record),
             trusted_signers,
             ..
         } => {
-            let statement = verify_record(&repo, &record, &trusted_signers)?;
+            let statement = verify_with_subject(
+                &repo,
+                &record,
+                &trusted_signers,
+                SubjectPresence::AllowMissingForInspection,
+            )?;
             serde_json::json!({"record":record, "signer":statement.predicate.signer, "tier":statement.predicate.tier, "signature_verified":statement.predicate.tier != TrustTier::Degraded})
         }
         EvidenceCommand::Verify {
