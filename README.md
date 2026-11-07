@@ -149,7 +149,7 @@ matching Fractal's `ci-sparse-tree --link repos` behavior.
 
 ### Upstream parity reporting
 
-`python3 scripts/parity-drift --fractal-repo PATH --ref origin/main --report-only`
+`mergemaster parity-drift --fractal-repo PATH --ref origin/main --report-only`
 lists commits touching mapped origin paths after the last `# Port:`
 SHA in `scripts/PROVENANCE` (or the extraction SHA before any ports). Watched
 paths include every fixture origin manifest, including infrastructure helpers.
@@ -160,12 +160,12 @@ The scheduled **Fractal parity drift** workflow reports every six hours without
 blocking CI or changing evidence policy. It reads history only, never upstream
 scripts. Omit `--report-only` to return exit 1 when newer commits exist; invalid
 history or a missing watermark is an error in either mode.
-`mergemaster parity-drift` provides the same arguments, JSON report and exit
-statuses as the Python command (including `--provenance`). The Python script and
-scheduled workflow remain unchanged. The Rust differential integration test runs
-the unchanged Python oracle against real local Git histories.
-Rust defaults to `scripts/PROVENANCE` at the caller's Git top level; outside a
-checkout, pass `--provenance`. Python defaults to the script's own checkout.
+The workflow builds the Rust binary from the checkout's locked Nix flake before
+fetching upstream history, retaining read-only permissions and advisory reporting.
+The Rust differential integration test compares the unchanged Python implementation
+and assertions from `MERGEMASTER_PYTHON_ORACLE` against real local Git histories.
+The command defaults to `scripts/PROVENANCE` at the caller's Git top level; outside
+a checkout, pass `--provenance`.
 
 This is a newer-commit alarm, not proof of complete parity: older unported
 commits remain in the cutover inventory. Record each port's upstream SHA,
