@@ -943,6 +943,7 @@ with tempfile.TemporaryDirectory() as scratch:
                     '--repo', repo, '--tree', tree, '--check', expected['check'], '--keys', signers])
     # Every layout points to the exact frozen signed commit; never reserialize it.
     for repo in [source, shallow]:
+        binding = 'verified' if repo == source else 'subject-absent'
         refs = [f'refs/notes/evidence/{record}', f'refs/notes/evidence/{tree}/{record}',
                 f'refs/tags/evidence/{tree}/{record}']
         for ref in refs:
@@ -951,6 +952,8 @@ with tempfile.TemporaryDirectory() as scratch:
             assert reference.returncode == actual.returncode == 0, (reference.stderr, reference.stdout, actual.stderr)
             assert json.loads(reference.stdout)['record'] == json.loads(actual.stdout)['record'] == record
             assert json.loads(native(repo, 'show').stdout)['subject'][0]['name'] == subject
+            assert json.loads(actual.stdout)['subject_binding'] == binding
+            assert json.loads(native(repo, 'show').stdout)['subject_binding'] == binding
             git(repo, 'update-ref', '-d', ref)
         for ref in refs:
             git(repo, 'update-ref', ref, record)

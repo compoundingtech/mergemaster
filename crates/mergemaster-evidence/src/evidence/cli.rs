@@ -96,24 +96,26 @@ pub fn run(args: EvidenceArgs) -> Result<()> {
         } => {
             serde_json::json!({"ref": put(&repo, &record, &trusted_signers)?, "tier": show(&repo, &record)?.predicate.tier})
         }
-        EvidenceCommand::Show { repo, record } => serde_json::to_value(show_with_subject(
-            &repo,
-            &record,
-            SubjectPresence::AllowMissingForInspection,
-        )?)?,
+        EvidenceCommand::Show { repo, record } => {
+            let (statement, binding) =
+                show_with_subject(&repo, &record, SubjectPresence::AllowMissingForInspection)?;
+            let mut value = serde_json::to_value(statement)?;
+            value["subject_binding"] = serde_json::to_value(binding)?;
+            value
+        }
         EvidenceCommand::Verify {
             repo,
             record: Some(record),
             trusted_signers,
             ..
         } => {
-            let statement = verify_with_subject(
+            let (statement, binding) = verify_with_subject(
                 &repo,
                 &record,
                 &trusted_signers,
                 SubjectPresence::AllowMissingForInspection,
             )?;
-            serde_json::json!({"record":record, "signer":statement.predicate.signer, "tier":statement.predicate.tier, "signature_verified":statement.predicate.tier != TrustTier::Degraded})
+            serde_json::json!({"record":record, "signer":statement.predicate.signer, "tier":statement.predicate.tier, "signature_verified":statement.predicate.tier != TrustTier::Degraded, "subject_binding": binding})
         }
         EvidenceCommand::Verify {
             repo,

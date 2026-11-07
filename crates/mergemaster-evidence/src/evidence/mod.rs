@@ -323,12 +323,24 @@ enum SubjectPresence {
     AllowMissingForInspection,
 }
 
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum SubjectBinding {
+    Verified,
+    SubjectAbsent,
+}
+
 impl Statement {
     pub fn validate(&self, repo: &Path) -> Result<&str> {
         self.validate_with_subject(repo, SubjectPresence::Required)
+            .map(|(tree, _)| tree)
     }
 
-    fn validate_with_subject(&self, repo: &Path, presence: SubjectPresence) -> Result<&str> {
+    fn validate_with_subject(
+        &self,
+        repo: &Path,
+        presence: SubjectPresence,
+    ) -> Result<(&str, SubjectBinding)> {
         ensure!(
             self.statement_type == STATEMENT_TYPE
                 && matches!(
@@ -440,7 +452,14 @@ impl Statement {
                 }
             }
         }
-        Ok(observed_tree)
+        Ok((
+            observed_tree,
+            if missing {
+                SubjectBinding::SubjectAbsent
+            } else {
+                SubjectBinding::Verified
+            },
+        ))
     }
 }
 
@@ -547,10 +566,14 @@ fn write_observation(repo: &Path, statement: &Statement, ssh_key: Option<&Path>)
 
 /// Read the sole note from an immutable signed observation commit. No trust is implied.
 pub fn show(repo: &Path, id: &str) -> Result<Statement> {
-    show_with_subject(repo, id, SubjectPresence::Required)
+    show_with_subject(repo, id, SubjectPresence::Required).map(|(statement, _)| statement)
 }
 
-fn show_with_subject(repo: &Path, id: &str, presence: SubjectPresence) -> Result<Statement> {
+fn show_with_subject(
+    repo: &Path,
+    id: &str,
+    presence: SubjectPresence,
+) -> Result<(Statement, SubjectBinding)> {
     oid(id)?;
     let entries = git(repo, &["ls-tree", "-r", "-z", id], None)?;
     let entries: Vec<_> = entries
@@ -573,10 +596,8 @@ fn show_with_subject(repo: &Path, id: &str, presence: SubjectPresence) -> Result
     let statement: Statement =
         serde_json::from_slice(&git(repo, &["cat-file", "blob", parts[2]], None)?)
             .context("decode evidence statement")?;
-    ensure!(
-        statement.validate_with_subject(repo, presence)? == path,
-        "note attached to wrong tree"
-    );
+    let (tree, binding) = statement.validate_with_subject(repo, presence)?;
+    ensure!(tree == path, "note attached to wrong tree");
     let raw = git_text(repo, &["cat-file", "commit", id], None)?;
     let header = raw
         .split_once("\n\n")
@@ -590,13 +611,14 @@ fn show_with_subject(repo: &Path, id: &str, presence: SubjectPresence) -> Result
         parents == [statement.subject[0].name.as_str()],
         "observation must have exactly its subject commit as parent"
     );
-    Ok(statement)
+    Ok((statement, binding))
 }
 
 /// Verify using only repository objects and an OpenSSH allowed-signers file. Never use
 /// the repository's trust list. The statement's signer must equal the verified principal.
 pub fn verify_record(repo: &Path, id: &str, trusted_signers: &Path) -> Result<Statement> {
     verify_with_subject(repo, id, trusted_signers, SubjectPresence::Required)
+        .map(|(statement, _)| statement)
 }
 
 fn verify_with_subject(
@@ -604,12 +626,12 @@ fn verify_with_subject(
     id: &str,
     trusted_signers: &Path,
     presence: SubjectPresence,
-) -> Result<Statement> {
-    let statement = show_with_subject(repo, id, presence)?;
+) -> Result<(Statement, SubjectBinding)> {
+    let (statement, binding) = show_with_subject(repo, id, presence)?;
     if statement.predicate.tier == TrustTier::Degraded {
         let status = git_text(repo, &["show", "-s", "--format=%G?", id], None)?;
         ensure!(status == "N", "degraded record must be unsigned");
-        return Ok(statement);
+        return Ok((statement, binding));
     }
     let signers = std::fs::canonicalize(trusted_signers).context("read trusted signer list")?;
     let signers = signers.to_str().context("signer path must be UTF-8")?;
@@ -644,7 +666,7 @@ fn verify_with_subject(
         "signature principal does not match record signer"
     );
     if let Some(prior_id) = &statement.predicate.re_attests {
-        let prior = show_with_subject(repo, prior_id, presence)?;
+        let (prior, _) = show_with_subject(repo, prior_id, presence)?;
         ensure!(
             prior.predicate.tier == TrustTier::Degraded,
             "re-attestation must cite degraded evidence"
@@ -687,7 +709,7 @@ fn verify_with_subject(
             "re-attestation predates original observation"
         );
     }
-    Ok(statement)
+    Ok((statement, binding))
 }
 
 /// Validate first, then create the immutable ref. Distinct writers never share a ref;
