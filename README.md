@@ -378,7 +378,9 @@ policy can add protection, not remove it. Prefixes match complete path
 components, not globs. Missing input paths, escaping paths, symlinks,
 submodules, unknown schema fields and unsupported versions/policy fail closed.
 The only alternate lane mode is `optional_fallback`; optional positive
-`max_age_seconds` bounds signed observation age. `authors.mode=none` adds no
+`max_age_seconds` bounds signed observation age, including fractional seconds
+(age equal to the limit is allowed). Observations more than 120 seconds in the
+future are refused. `authors.mode=none` adds no
 author restriction but does not bypass repository or signer checks. An explicit
 allowlist uses `{"mode":"allowlist","logins":[...],"git_authors":[...],
 "git_committers":[...]}`: all lists must be nonempty, Git identities are exact

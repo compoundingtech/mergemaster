@@ -1250,6 +1250,11 @@ fn oracle_and_gate_agree_on_single_record_selection_bindings() {
         "nix",
         "sekrets",
         "github:fixture/repo/actions/runs/1",
+        "github:",
+        "GitHub:",
+        "GITHUB:",
+        " github:",
+        "\tgithub:fixture/repo",
         "hand-typed",
         "Wrapper",
         "wrong_check",
@@ -1591,11 +1596,14 @@ fn latest_failure_is_not_hidden_by_a_nearby_passing_observation() {
         let failed_at = chrono::Utc::now() - chrono::Duration::minutes(10);
         failure["predicate"]["observed_at"] = json!(failed_at.to_rfc3339());
         failure["predicate"]["observed"]["checks"][CHECK]["exit_code"] = json!(1);
-        f.note(&failure, &f.key, "tree");
+        let failure_id = f.note(&failure, &f.key, "tree");
         let mut pass = f.statement();
         pass["predicate"]["observed_at"] =
             json!((failed_at + chrono::Duration::seconds(seconds_after_failure)).to_rfc3339());
-        f.note(&pass, &f.key, "tree");
+        let pass_id = f.note(&pass, &f.key, "tree");
+        // Aliases must not create additional attempts or change the deciding record.
+        f.publish(&failure_id, "legacy");
+        f.publish(&pass_id, "tag");
         let decision = f.decision(&[]);
         assert_eq!(
             decision["decision"],
@@ -1608,6 +1616,123 @@ fn latest_failure_is_not_hidden_by_a_nearby_passing_observation() {
         );
         let reference = f.python();
         assert_eq!(reference.status.success(), seconds_after_failure > 120);
+        let oracle: Value = serde_json::from_slice(&reference.stdout).unwrap();
+        let deciding = if seconds_after_failure > 120 {
+            pass_id
+        } else {
+            failure_id
+        };
+        assert_eq!(decision["record"], deciding);
+        assert_eq!(oracle["decided_by"], deciding);
+        assert_eq!(oracle["attempts"], 2);
+    }
+}
+
+#[test]
+fn newer_invalid_pass_is_not_replaced_by_older_evidence() {
+    for mode in ["required_evidence", "optional_fallback"] {
+        for case in ["argv", "input", "kind", "tier", "future", "age"] {
+            let mut f = Fixture::new();
+            let mut policy = Fixture::policy(mode);
+            policy["lanes"][CHECK]["max_age_seconds"] = json!(3600);
+            f.write(".mergemaster/lanes.json", policy.to_string());
+            f.base = f.commit("age and fallback policy");
+            f.refresh_head();
+            let mut older = f.statement();
+            older["predicate"]["observed_at"] = json!(
+                (chrono::Utc::now()
+                    - chrono::Duration::seconds(if case == "age" { 7200 } else { 600 }))
+                .to_rfc3339()
+            );
+            older["predicate"]["observed"]["inputs"]["wrapper_sha256"] = json!(hex::encode(
+                sha2::Sha256::digest(b"fixture command, never executed\n")
+            ));
+            f.note(&older, &f.key, "tree");
+            let mut newer = older.clone();
+            newer["predicate"]["observed_at"] = json!(
+                (chrono::Utc::now()
+                    - chrono::Duration::seconds(if case == "age" { 7000 } else { 300 }))
+                .to_rfc3339()
+            );
+            match case {
+                "argv" => {
+                    newer["predicate"]["observed"]["checks"][CHECK]["command"] = json!(["true"])
+                }
+                "input" => {
+                    newer["predicate"]["observed"]["inputs"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("wrapper_sha256");
+                }
+                "kind" => newer["predicate"]["observed"]["runner"] = json!("unsupported"),
+                "tier" => newer["predicate"]["tier"] = json!("test"),
+                "future" => {
+                    newer["predicate"]["observed_at"] =
+                        json!((chrono::Utc::now() + chrono::Duration::minutes(10)).to_rfc3339())
+                }
+                _ => {}
+            }
+            let record = f.note(&newer, &f.key, "tree");
+            f.publish(&record, "tag");
+            let decision = f.decision(&[]);
+            let python = f.python_with(&[
+                "--max-age",
+                "3600",
+                "--bind-input",
+                "wrapper_sha256=tools/graph",
+            ]);
+            assert!(!python.status.success(), "{mode}/{case}");
+            let oracle: Value = serde_json::from_slice(&python.stdout).unwrap();
+            assert_eq!(
+                decision["decision"],
+                if mode == "optional_fallback" {
+                    "run"
+                } else {
+                    "refuse"
+                },
+                "{mode}/{case}: {decision}"
+            );
+            assert_eq!(decision["record"], record, "{mode}/{case}");
+            assert_eq!(oracle["decided_by"], record, "{mode}/{case}: {oracle}");
+            assert_eq!(oracle["attempts"], 2);
+        }
+    }
+}
+
+#[test]
+fn age_and_future_margins_match_oracle() {
+    for (offset, accepted) in [(-90, false), (-30, true), (90, true), (150, false)] {
+        let mut f = Fixture::new();
+        let mut policy = Fixture::policy("required_evidence");
+        policy["lanes"][CHECK]["max_age_seconds"] = json!(60);
+        f.write(".mergemaster/lanes.json", policy.to_string());
+        f.base = f.commit("age-limited policy");
+        f.refresh_head();
+        let mut statement = f.statement();
+        statement["predicate"]["observed_at"] =
+            json!((chrono::Utc::now() + chrono::Duration::seconds(offset)).to_rfc3339());
+        let record = f.note(&statement, &f.key, "tree");
+        let python = f.python_with(&["--max-age", "60"]);
+        assert_eq!(python.status.success(), accepted, "offset={offset}");
+        let oracle: Value = serde_json::from_slice(&python.stdout).unwrap();
+        let decision = f.decision(&[]);
+        assert_eq!(
+            decision["decision"] == "skip",
+            accepted,
+            "{offset}: {decision}"
+        );
+        assert_eq!(decision["record"], record);
+        assert_eq!(oracle["decided_by"], record);
+        if !accepted {
+            assert_eq!(
+                decision["reason"],
+                if offset < 0 {
+                    "too_old"
+                } else {
+                    "future_dated"
+                }
+            );
+        }
     }
 }
 

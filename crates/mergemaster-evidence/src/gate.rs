@@ -875,7 +875,9 @@ fn satisfy(
         return "future_dated";
     }
     if lane.max_age_seconds.is_some_and(|seconds| {
-        (now - at.with_timezone(&Utc)).num_seconds() > i64::try_from(seconds).unwrap_or(i64::MAX)
+        (now - at.with_timezone(&Utc))
+            .to_std()
+            .is_ok_and(|age| age > std::time::Duration::from_secs(seconds))
     }) {
         return "too_old";
     }
