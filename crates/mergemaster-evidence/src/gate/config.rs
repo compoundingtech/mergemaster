@@ -1,10 +1,10 @@
 //! Version-one, BASE-owned policy and object-only input binding.
-use std::{collections::BTreeMap, path::Path};
+use super::git::{blob_digests, git, text, validate_blobs};
 use anyhow::{Context, Result, ensure};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use super::git::{blob_digests, git, text, validate_blobs};
+use std::{collections::BTreeMap, path::Path};
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -18,7 +18,10 @@ struct ToolPin {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ReleasePin { version: String, sha256: String }
+struct ReleasePin {
+    version: String,
+    sha256: String,
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -43,7 +46,11 @@ pub struct PullRequestPolicy {
 #[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Authors {
     None,
-    Allowlist { logins: Vec<String>, git_authors: Vec<String>, git_committers: Vec<String> },
+    Allowlist {
+        logins: Vec<String>,
+        git_authors: Vec<String>,
+        git_committers: Vec<String>,
+    },
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -78,7 +85,9 @@ pub struct NixCheck {
     #[serde(default = "fresh")]
     pub required: String,
 }
-fn fresh() -> String { "fresh".into() }
+fn fresh() -> String {
+    "fresh".into()
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -90,7 +99,10 @@ pub struct HostedCheck {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct EnvironmentDeclaration { pub manifest: String, pub paths: Vec<String> }
+pub struct EnvironmentDeclaration {
+    pub manifest: String,
+    pub paths: Vec<String>,
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -109,7 +121,10 @@ pub struct Toolchain {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct Artifact { pub name: String, pub identity: String }
+pub struct Artifact {
+    pub name: String,
+    pub identity: String,
+}
 
 #[derive(Debug)]
 pub struct Config {
@@ -125,10 +140,16 @@ pub fn full_commit(value: &str) -> bool {
 
 /// A literal top-level store output, never a flake expression or subpath.
 pub fn nix_store_path(path: &str) -> bool {
-    path.strip_prefix("/nix/store/").is_some_and(|name|
-        name.len() > 33 && name.as_bytes()[32] == b'-'
-        && name.as_bytes()[..32].iter().all(|c| b"0123456789abcdfghijklmnpqrsvwxyz".contains(c))
-        && name[33..].bytes().all(|c| c.is_ascii_alphanumeric() || b"+-._?=".contains(&c)))
+    path.strip_prefix("/nix/store/").is_some_and(|name| {
+        name.len() > 33
+            && name.as_bytes()[32] == b'-'
+            && name.as_bytes()[..32]
+                .iter()
+                .all(|c| b"0123456789abcdfghijklmnpqrsvwxyz".contains(c))
+            && name[33..]
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b"+-._?=".contains(&c))
+    })
 }
 
 fn nonempty(value: &str) -> bool {
@@ -138,22 +159,37 @@ fn nonempty(value: &str) -> bool {
 /// Repository-relative literal paths, never pathspec patterns or filesystem paths.
 pub fn validate_path(path: &str) -> Result<()> {
     let path = path.strip_suffix('/').unwrap_or(path);
-    ensure!(!path.is_empty() && !path.starts_with('/') && !path.contains('\\')
-        && !path.chars().any(char::is_control)
-        && path.split('/').all(|part| !part.is_empty() && part != "." && part != ".." && part != ".git"),
-        "invalid repository path");
+    ensure!(
+        !path.is_empty()
+            && !path.starts_with('/')
+            && !path.contains('\\')
+            && !path.chars().any(char::is_control)
+            && path
+                .split('/')
+                .all(|part| !part.is_empty() && part != "." && part != ".." && part != ".git"),
+        "invalid repository path"
+    );
     Ok(())
 }
 
 fn blob(repo: &Path, commit: &str, path: &str) -> Result<Vec<u8>> {
     validate_path(path)?;
     let object = format!("{commit}:{path}");
-    ensure!(text(repo, &["cat-file", "-t", &object])?.trim() == "blob", "expected committed regular file");
+    ensure!(
+        text(repo, &["cat-file", "-t", &object])?.trim() == "blob",
+        "expected committed regular file"
+    );
     // A blob may still be a symbolic link. Inspect its tree mode separately.
     let literal = format!(":(literal){path}");
-    let tree = parse_tree(&git(repo, &["ls-tree", "-z", "--full-tree", commit, "--", &literal])?)?;
+    let tree = parse_tree(&git(
+        repo,
+        &["ls-tree", "-z", "--full-tree", commit, "--", &literal],
+    )?)?;
     let entries = entries_from(&tree, &[path.to_owned()])?;
-    ensure!(entries.len() == 1 && entries[0].0 == path && entries[0].1 != "120000", "expected regular file");
+    ensure!(
+        entries.len() == 1 && entries[0].0 == path && entries[0].1 != "120000",
+        "expected regular file"
+    );
     git(repo, &["cat-file", "blob", &object])
 }
 
@@ -179,7 +215,10 @@ mod missing_config_tests {
     fn missing_config_keeps_a_distinct_error_type_and_path() {
         let error = anyhow::Error::new(super::MissingConfig(".mergemaster/lanes.json"));
         assert!(error.is::<super::MissingConfig>());
-        assert_eq!(error.to_string(), "BASE configuration missing: .mergemaster/lanes.json");
+        assert_eq!(
+            error.to_string(),
+            "BASE configuration missing: .mergemaster/lanes.json"
+        );
         assert!(!anyhow::anyhow!("invalid lanes policy").is::<super::MissingConfig>());
     }
 }
@@ -188,7 +227,12 @@ fn config_blob(repo: &Path, base: &str, path: &'static str) -> Result<Vec<u8>> {
     let literal = format!(":(literal){path}");
     // A successful empty tree lookup is absence. Git failures, wrong object
     // types, symlinks and malformed contents retain their original errors.
-    if git(repo, &["ls-tree", "-z", "--full-tree", base, "--", &literal])?.is_empty() {
+    if git(
+        repo,
+        &["ls-tree", "-z", "--full-tree", base, "--", &literal],
+    )?
+    .is_empty()
+    {
         return Err(MissingConfig(path).into());
     }
     blob(repo, base, path)
@@ -196,102 +240,232 @@ fn config_blob(repo: &Path, base: &str, path: &'static str) -> Result<Vec<u8>> {
 
 pub fn load(repo: &Path, base: &str) -> Result<Config> {
     ensure!(full_commit(base), "BASE must be a full commit ID");
-    ensure!(text(repo, &["cat-file", "-t", base])?.trim() == "commit", "BASE is not a commit");
-    let pin: ToolPin = decode(&config_blob(repo, base, ".mergemaster/tool-pin.json")?, "tool pin")?;
-    ensure!(pin.version == 1 && pin.repository == "compoundingtech/mergemaster" && full_commit(&pin.revision), "unsupported tool pin");
+    ensure!(
+        text(repo, &["cat-file", "-t", base])?.trim() == "commit",
+        "BASE is not a commit"
+    );
+    let pin: ToolPin = decode(
+        &config_blob(repo, base, ".mergemaster/tool-pin.json")?,
+        "tool pin",
+    )?;
+    ensure!(
+        pin.version == 1
+            && pin.repository == "compoundingtech/mergemaster"
+            && full_commit(&pin.revision),
+        "unsupported tool pin"
+    );
     if let Some(release) = &pin.release {
-        let version = release.version.strip_prefix('v').context("release version must start with v")?;
-        ensure!(version.split('.').count() == 3
-            && version.split('.').all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
-            && release.sha256.len() == 64
-            && release.sha256.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
-            "invalid release pin");
+        let version = release
+            .version
+            .strip_prefix('v')
+            .context("release version must start with v")?;
+        ensure!(
+            version.split('.').count() == 3
+                && version
+                    .split('.')
+                    .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+                && release.sha256.len() == 64
+                && release
+                    .sha256
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+            "invalid release pin"
+        );
     }
-    let mut policy: Policy = decode(&config_blob(repo, base, ".mergemaster/lanes.json")?, "lanes policy")?;
+    let mut policy: Policy = decode(
+        &config_blob(repo, base, ".mergemaster/lanes.json")?,
+        "lanes policy",
+    )?;
     let environment_bytes = config_blob(repo, base, ".mergemaster/environment.json")?;
     let environment: Environment = decode(&environment_bytes, "environment")?;
     validate_environment(&environment)?;
     let keys = config_blob(repo, base, ".mergemaster/evidence-keys")?;
     validate_keys(&keys)?;
-    ensure!(policy.version == 1 && policy.pull_request.same_repository
-        && policy.pull_request.base_relation == "ancestor" && !policy.lanes.is_empty(), "unsupported pull request policy");
-    if let Authors::Allowlist { logins, git_authors, git_committers } = &policy.pull_request.authors {
-        ensure!(!logins.is_empty() && !git_authors.is_empty() && !git_committers.is_empty()
-            && logins.iter().all(|login| nonempty(login) && login.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-'))
-            && git_authors.iter().chain(git_committers).all(|identity| nonempty(identity) && identity.ends_with('>') && identity.contains(" <")),
-            "invalid author allowlist");
+    ensure!(
+        policy.version == 1
+            && policy.pull_request.same_repository
+            && policy.pull_request.base_relation == "ancestor"
+            && !policy.lanes.is_empty(),
+        "unsupported pull request policy"
+    );
+    if let Authors::Allowlist {
+        logins,
+        git_authors,
+        git_committers,
+    } = &policy.pull_request.authors
+    {
+        ensure!(
+            !logins.is_empty()
+                && !git_authors.is_empty()
+                && !git_committers.is_empty()
+                && logins.iter().all(|login| nonempty(login)
+                    && login
+                        .bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || c == b'-'))
+                && git_authors
+                    .iter()
+                    .chain(git_committers)
+                    .all(|identity| nonempty(identity)
+                        && identity.ends_with('>')
+                        && identity.contains(" <")),
+            "invalid author allowlist"
+        );
     }
-    for path in policy.protected_paths.iter().chain(&policy.bootstrap_paths) { validate_path(path)?; }
+    for path in policy.protected_paths.iter().chain(&policy.bootstrap_paths) {
+        validate_path(path)?;
+    }
     let tree = read_tree(repo, base)?;
-    for path in &policy.bootstrap_paths { entries_from(&tree, std::slice::from_ref(path))?; }
+    for path in &policy.bootstrap_paths {
+        entries_from(&tree, std::slice::from_ref(path))?;
+    }
     for required in [".mergemaster/", ".github/workflows/", ".github/actions/"] {
-        if !policy.protected_paths.iter().any(|path| path == required) { policy.protected_paths.push(required.to_owned()); }
+        if !policy.protected_paths.iter().any(|path| path == required) {
+            policy.protected_paths.push(required.to_owned());
+        }
     }
     for path in &policy.bootstrap_paths {
-        if !policy.protected_paths.contains(path) { policy.protected_paths.push(path.clone()); }
+        if !policy.protected_paths.contains(path) {
+            policy.protected_paths.push(path.clone());
+        }
     }
     for (check, lane) in &policy.lanes {
-        ensure!(nonempty(check) && !lane.argv.is_empty() && lane.argv.iter().all(|arg| !arg.contains('\0'))
-            && nonempty(&lane.argv[0]) && !lane.remediation_argv.is_empty()
-            && lane.remediation_argv.iter().all(|arg| !arg.contains('\0')), "invalid lane argv");
-        ensure!(matches!(lane.mode.as_str(), "required_evidence" | "optional_fallback")
-            && matches!(lane.protected_edits.as_str(), "reject" | "human_approval")
-            && !lane.events.is_empty() && lane.events.iter().all(|event| matches!(event.as_str(), "pull_request" | "push" | "merge_group" | "queue"))
-            && lane.events.iter().collect::<std::collections::BTreeSet<_>>().len() == lane.events.len()
-            && !lane.trust_levels.is_empty() && lane.trust_levels.iter().all(|level| matches!(level.as_str(), "agent" | "host"))
-            && lane.max_age_seconds != Some(0), "unsupported lane policy");
+        ensure!(
+            nonempty(check)
+                && !lane.argv.is_empty()
+                && lane.argv.iter().all(|arg| !arg.contains('\0'))
+                && nonempty(&lane.argv[0])
+                && !lane.remediation_argv.is_empty()
+                && lane.remediation_argv.iter().all(|arg| !arg.contains('\0')),
+            "invalid lane argv"
+        );
+        ensure!(
+            matches!(
+                lane.mode.as_str(),
+                "required_evidence" | "optional_fallback"
+            ) && matches!(lane.protected_edits.as_str(), "reject" | "human_approval")
+                && !lane.events.is_empty()
+                && lane.events.iter().all(|event| matches!(
+                    event.as_str(),
+                    "pull_request" | "push" | "merge_group" | "queue"
+                ))
+                && lane
+                    .events
+                    .iter()
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len()
+                    == lane.events.len()
+                && !lane.trust_levels.is_empty()
+                && lane
+                    .trust_levels
+                    .iter()
+                    .all(|level| matches!(level.as_str(), "agent" | "host"))
+                && lane.max_age_seconds != Some(0),
+            "unsupported lane policy"
+        );
         if lane.protected_edits == "human_approval" {
-            ensure!(!lane.approvers.is_empty() && lane.approvers.iter().all(|login|
-                nonempty(login) && login.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
-                && !lane.require_hosted.is_empty(), "human approval requires approvers and hosted checks");
+            ensure!(
+                !lane.approvers.is_empty()
+                    && lane.approvers.iter().all(|login| nonempty(login)
+                        && login
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || b == b'-'))
+                    && !lane.require_hosted.is_empty(),
+                "human approval requires approvers and hosted checks"
+            );
             let mut names = std::collections::BTreeSet::new();
             for hosted in &lane.require_hosted {
                 validate_path(&hosted.workflow_path)?;
-                ensure!(nonempty(&hosted.name) && names.insert(&hosted.name) && hosted.workflow_id > 0
-                    && hosted.workflow_path.starts_with(".github/workflows/")
-                    && (hosted.workflow_path.ends_with(".yml") || hosted.workflow_path.ends_with(".yaml")),
-                    "invalid required hosted check");
+                ensure!(
+                    nonempty(&hosted.name)
+                        && names.insert(&hosted.name)
+                        && hosted.workflow_id > 0
+                        && hosted.workflow_path.starts_with(".github/workflows/")
+                        && (hosted.workflow_path.ends_with(".yml")
+                            || hosted.workflow_path.ends_with(".yaml")),
+                    "invalid required hosted check"
+                );
                 blob(repo, base, &hosted.workflow_path)?;
             }
         } else {
-            ensure!(lane.approvers.is_empty() && lane.require_hosted.is_empty(),
-                "approval configuration requires human_approval policy");
+            ensure!(
+                lane.approvers.is_empty() && lane.require_hosted.is_empty(),
+                "approval configuration requires human_approval policy"
+            );
         }
         if let Some(check) = &lane.nix_check {
             let parts: Vec<_> = check.attribute.split('.').collect();
-            ensure!(parts.len() == 3 && parts[0] == "checks"
-                && parts.iter().all(|part| !part.is_empty() && part.bytes().all(|c| c.is_ascii_alphanumeric() || b"_-".contains(&c)))
-                && matches!(check.required.as_str(), "fresh" | "any"), "invalid Nix check declaration");
-            ensure!(lane.argv.len() == 1 && Path::new(&lane.argv[0]).is_absolute(), "Nix check argv declares the absolute trusted nix executable only");
+            ensure!(
+                parts.len() == 3
+                    && parts[0] == "checks"
+                    && parts.iter().all(|part| !part.is_empty()
+                        && part
+                            .bytes()
+                            .all(|c| c.is_ascii_alphanumeric() || b"_-".contains(&c)))
+                    && matches!(check.required.as_str(), "fresh" | "any"),
+                "invalid Nix check declaration"
+            );
+            ensure!(
+                lane.argv.len() == 1 && Path::new(&lane.argv[0]).is_absolute(),
+                "Nix check argv declares the absolute trusted nix executable only"
+            );
         }
-        ensure!(lane.environment.manifest == ".mergemaster/environment.json", "unsupported environment manifest");
+        ensure!(
+            lane.environment.manifest == ".mergemaster/environment.json",
+            "unsupported environment manifest"
+        );
         entries_from(&tree, &lane.definition_paths)?;
         entries_from(&tree, &lane.environment.paths)?;
     }
-    Ok(Config { policy, environment, environment_bytes, keys })
+    Ok(Config {
+        policy,
+        environment,
+        environment_bytes,
+        keys,
+    })
 }
 
 fn validate_keys(bytes: &[u8]) -> Result<()> {
     let text = std::str::from_utf8(bytes).context("evidence keys are not UTF-8")?;
     let mut count = 0;
-    for line in text.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with('#')) {
+    for line in text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+    {
         let mut fields = line.split_whitespace();
         let principals = fields.next().context("missing signer principal")?;
-        ensure!(principals.split(',').all(|principal| {
-            principal.split_once('/').is_some_and(|(level, name)| {
-                matches!(level, "agent" | "host") && !name.is_empty()
-                    && name.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.'))
-            })
-        }), "unsupported signer principal");
+        ensure!(
+            principals.split(',').all(|principal| {
+                principal.split_once('/').is_some_and(|(level, name)| {
+                    matches!(level, "agent" | "host")
+                        && !name.is_empty()
+                        && name
+                            .bytes()
+                            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.'))
+                })
+            }),
+            "unsupported signer principal"
+        );
         let mut kind = fields.next().context("missing signer key")?;
-        if kind == "namespaces=\"git\"" { kind = fields.next().context("missing signer key")?; }
-        ensure!(kind == "ssh-ed25519", "unsupported signer key type or options");
+        if kind == "namespaces=\"git\"" {
+            kind = fields.next().context("missing signer key")?;
+        }
+        ensure!(
+            kind == "ssh-ed25519",
+            "unsupported signer key type or options"
+        );
         let encoded = fields.next().context("missing signer key data")?;
-        let decoded = STANDARD.decode(encoded).context("invalid signer key encoding")?;
+        let decoded = STANDARD
+            .decode(encoded)
+            .context("invalid signer key encoding")?;
         // SSH wire strings: uint32(11), \"ssh-ed25519\", uint32(32), public key.
-        ensure!(decoded.len() == 51 && decoded[..4] == [0, 0, 0, 11]
-            && &decoded[4..15] == b"ssh-ed25519" && decoded[15..19] == [0, 0, 0, 32],
-            "invalid Ed25519 public key");
+        ensure!(
+            decoded.len() == 51
+                && decoded[..4] == [0, 0, 0, 11]
+                && &decoded[4..15] == b"ssh-ed25519"
+                && decoded[15..19] == [0, 0, 0, 32],
+            "invalid Ed25519 public key"
+        );
         count += 1;
     }
     ensure!(count > 0, "evidence keys contain no supported signers");
@@ -299,15 +473,41 @@ fn validate_keys(bytes: &[u8]) -> Result<()> {
 }
 
 fn validate_environment(environment: &Environment) -> Result<()> {
-    ensure!(environment.version == 1 && matches!(environment.system.as_str(),
-        "x86_64-linux" | "aarch64-linux" | "x86_64-darwin" | "aarch64-darwin"), "unsupported environment");
-    for (name, artifact) in std::iter::once(("runtime", &environment.toolchain.runtime))
-        .chain(environment.toolchain.dependencies.iter().map(|(name, artifact)| (name.as_str(), artifact))) {
-        ensure!(nonempty(name) && nonempty(&artifact.name), "invalid toolchain artifact");
-        let valid = artifact.identity.strip_prefix("sha256:").is_some_and(|hash| hash.len() == 64 && hash.bytes().all(|c| c.is_ascii_hexdigit()))
-            || artifact.identity.strip_prefix("git:").is_some_and(full_commit)
-            || artifact.identity.strip_prefix("nix:").is_some_and(nix_store_path);
-        ensure!(valid, "toolchain artifacts require immutable sha256, git or nix identities");
+    ensure!(
+        environment.version == 1
+            && matches!(
+                environment.system.as_str(),
+                "x86_64-linux" | "aarch64-linux" | "x86_64-darwin" | "aarch64-darwin"
+            ),
+        "unsupported environment"
+    );
+    for (name, artifact) in std::iter::once(("runtime", &environment.toolchain.runtime)).chain(
+        environment
+            .toolchain
+            .dependencies
+            .iter()
+            .map(|(name, artifact)| (name.as_str(), artifact)),
+    ) {
+        ensure!(
+            nonempty(name) && nonempty(&artifact.name),
+            "invalid toolchain artifact"
+        );
+        let valid = artifact
+            .identity
+            .strip_prefix("sha256:")
+            .is_some_and(|hash| hash.len() == 64 && hash.bytes().all(|c| c.is_ascii_hexdigit()))
+            || artifact
+                .identity
+                .strip_prefix("git:")
+                .is_some_and(full_commit)
+            || artifact
+                .identity
+                .strip_prefix("nix:")
+                .is_some_and(nix_store_path);
+        ensure!(
+            valid,
+            "toolchain artifacts require immutable sha256, git or nix identities"
+        );
     }
     Ok(())
 }
@@ -317,10 +517,17 @@ fn validate_environment(environment: &Environment) -> Result<()> {
 type Tree = BTreeMap<Vec<u8>, Vec<u8>>;
 
 fn parse_tree(output: &[u8]) -> Result<Tree> {
-    output.split(|byte| *byte == 0).filter(|entry| !entry.is_empty()).map(|entry| {
-        let tab = entry.iter().position(|byte| *byte == b'\t').context("invalid Git tree entry")?;
-        Ok((entry[tab + 1..].to_vec(), entry[..tab].to_vec()))
-    }).collect()
+    output
+        .split(|byte| *byte == 0)
+        .filter(|entry| !entry.is_empty())
+        .map(|entry| {
+            let tab = entry
+                .iter()
+                .position(|byte| *byte == b'\t')
+                .context("invalid Git tree entry")?;
+            Ok((entry[tab + 1..].to_vec(), entry[..tab].to_vec()))
+        })
+        .collect()
 }
 
 fn read_tree(repo: &Path, commit: &str) -> Result<Tree> {
@@ -335,19 +542,35 @@ fn entries_from(tree: &Tree, paths: &[String]) -> Result<Vec<(String, String, St
         let path = path.trim_end_matches('/');
         let mut found = false;
         for (name, metadata) in tree.range(path.as_bytes().to_vec()..) {
-            if !name.starts_with(path.as_bytes()) { break; }
-            if name != path.as_bytes() && name.get(path.len()) != Some(&b'/') { continue; }
+            if !name.starts_with(path.as_bytes()) {
+                break;
+            }
+            if name != path.as_bytes() && name.get(path.len()) != Some(&b'/') {
+                continue;
+            }
             let name = std::str::from_utf8(name).context("input path is not UTF-8")?;
             let metadata = std::str::from_utf8(metadata).context("invalid Git tree entry")?;
             let parts: Vec<_> = metadata.split(' ').collect();
-            ensure!(parts.len() == 3 && parts[1] == "blob" && matches!(parts[0], "100644" | "100755"), "unsupported input type (symlink or submodule)");
-            ensure!(name == path || name.strip_prefix(path).is_some_and(|suffix| suffix.starts_with('/')), "input path escaped declaration");
+            ensure!(
+                parts.len() == 3 && parts[1] == "blob" && matches!(parts[0], "100644" | "100755"),
+                "unsupported input type (symlink or submodule)"
+            );
+            ensure!(
+                name == path
+                    || name
+                        .strip_prefix(path)
+                        .is_some_and(|suffix| suffix.starts_with('/')),
+                "input path escaped declaration"
+            );
             files.insert(name.to_owned(), (parts[0].to_owned(), parts[2].to_owned()));
             found = true;
         }
         ensure!(found, "missing committed input path: {path}");
     }
-    Ok(files.into_iter().map(|(path, (mode, id))| (path, mode, id)).collect())
+    Ok(files
+        .into_iter()
+        .map(|(path, (mode, id))| (path, mode, id))
+        .collect())
 }
 
 #[cfg(test)]
@@ -356,21 +579,35 @@ mod tree_tests {
 
     #[test]
     fn expansion_preserves_boundaries_modes_and_selected_path_encoding() {
-        let tree = parse_tree(b"100644 blob a\ttools/a\0\
+        let tree = parse_tree(
+            b"100644 blob a\ttools/a\0\
             100755 blob b\ttools/b\0\
             120000 blob c\ttools-link\0\
-            100644 blob d\tother/\xff\0").unwrap();
+            100644 blob d\tother/\xff\0",
+        )
+        .unwrap();
         let files = entries_from(&tree, &["tools/".into(), "tools/a".into()]).unwrap();
         assert_eq!(files.len(), 2);
         assert_eq!(files[1], ("tools/b".into(), "100755".into(), "b".into()));
         assert!(entries_from(&tree, &["tool".into()]).is_err());
         assert!(entries_from(&tree, &["tools-link".into()]).is_err());
-        assert!(entries_from(&tree, &["other".into()]).unwrap_err().to_string().contains("UTF-8"));
+        assert!(
+            entries_from(&tree, &["other".into()])
+                .unwrap_err()
+                .to_string()
+                .contains("UTF-8")
+        );
     }
 }
 
-fn manifest(files: Vec<(String, String, String)>, digests: &BTreeMap<String, String>) -> Vec<(String, String, String)> {
-    files.into_iter().map(|(path, mode, id)| (path, mode, digests[&id].clone())).collect()
+fn manifest(
+    files: Vec<(String, String, String)>,
+    digests: &BTreeMap<String, String>,
+) -> Vec<(String, String, String)> {
+    files
+        .into_iter()
+        .map(|(path, mode, id)| (path, mode, digests[&id].clone()))
+        .collect()
 }
 
 fn hash(value: &impl Serialize) -> Result<String> {
@@ -382,7 +619,11 @@ pub fn validate_candidate(repo: &Path, head: &str, lane: &Lane) -> Result<()> {
     let tree = read_tree(repo, head)?;
     let environment_files = entries_from(&tree, &lane.environment.paths)?;
     let definition_files = entries_from(&tree, &lane.definition_paths)?;
-    let ids = environment_files.iter().chain(&definition_files).map(|(_, _, id)| id.as_str()).collect();
+    let ids = environment_files
+        .iter()
+        .chain(&definition_files)
+        .map(|(_, _, id)| id.as_str())
+        .collect();
     validate_blobs(repo, &ids)?;
     if !lane.inputs.is_empty() || !lane.scratch.is_empty() {
         crate::evidence::workspace::validate(repo, head, lane)?;
@@ -395,21 +636,42 @@ pub fn validate_candidate(repo: &Path, head: &str, lane: &Lane) -> Result<()> {
 /// toolchain [version, resolved toolchain], lane [version,check,lane,files].
 /// Array ordering and struct field ordering are normative; dependency maps and
 /// expanded paths use byte-sorted keys. No runtime or candidate code is executed.
-pub fn expected_inputs(repo: &Path, head: &str, check: &str, lane: &Lane,
-    environment: &Environment, environment_bytes: &[u8]) -> Result<BTreeMap<String, String>> {
+pub fn expected_inputs(
+    repo: &Path,
+    head: &str,
+    check: &str,
+    lane: &Lane,
+    environment: &Environment,
+    environment_bytes: &[u8],
+) -> Result<BTreeMap<String, String>> {
     ensure!(full_commit(head), "HEAD must be a full commit ID");
-    ensure!(text(repo, &["cat-file", "-t", head])?.trim() == "commit", "HEAD is not a commit");
+    ensure!(
+        text(repo, &["cat-file", "-t", head])?.trim() == "commit",
+        "HEAD is not a commit"
+    );
     validate_environment(environment)?;
     let declared: Environment = decode(environment_bytes, "environment")?;
-    ensure!(serde_json::to_vec(&declared)? == serde_json::to_vec(environment)?, "environment bytes differ from declaration");
+    ensure!(
+        serde_json::to_vec(&declared)? == serde_json::to_vec(environment)?,
+        "environment bytes differ from declaration"
+    );
     let tree = read_tree(repo, head)?;
     let environment_files = entries_from(&tree, &lane.environment.paths)?;
     let definition_files = entries_from(&tree, &lane.definition_paths)?;
-    let ids = environment_files.iter().chain(&definition_files).map(|(_, _, id)| id.as_str()).collect();
+    let ids = environment_files
+        .iter()
+        .chain(&definition_files)
+        .map(|(_, _, id)| id.as_str())
+        .collect();
     let digests = blob_digests(repo, &ids)?;
     let environment_files = manifest(environment_files, &digests);
     let definition_files = manifest(definition_files, &digests);
-    let environment_sha = hash(&(1, environment_bytes, &lane.environment.paths, environment_files))?;
+    let environment_sha = hash(&(
+        1,
+        environment_bytes,
+        &lane.environment.paths,
+        environment_files,
+    ))?;
     let toolchain_sha = hash(&(1, &environment.toolchain))?;
     let lane_sha = hash(&(1, check, lane, definition_files))?;
     let mut inputs = BTreeMap::from([
@@ -421,7 +683,10 @@ pub fn expected_inputs(repo: &Path, head: &str, check: &str, lane: &Lane,
     if !lane.inputs.is_empty() || !lane.scratch.is_empty() {
         crate::evidence::workspace::validate(repo, head, lane)?;
         inputs.insert("workspace_binding".into(), "v2".into());
-        inputs.insert("workspace_declaration_sha256".into(), hash(&(2, &lane.inputs, &lane.scratch))?);
+        inputs.insert(
+            "workspace_declaration_sha256".into(),
+            hash(&(2, &lane.inputs, &lane.scratch))?,
+        );
     }
     Ok(inputs)
 }

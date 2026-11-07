@@ -75,7 +75,10 @@ fn extract_source(archive: &Path, destination: &Path, size: u64, expected: &str)
     use std::io::{Read, Seek};
     use std::os::unix::fs::{DirBuilderExt, FileExt};
     let mut source = std::fs::File::open(archive)?;
-    ensure!(source.metadata()?.len() == size, "source ZIP byte length mismatch");
+    ensure!(
+        source.metadata()?.len() == size,
+        "source ZIP byte length mismatch"
+    );
     let mut digest = sha2::Sha256::new();
     let mut buffer = [0; 65536];
     loop {
@@ -85,7 +88,10 @@ fn extract_source(archive: &Path, destination: &Path, size: u64, expected: &str)
         }
         digest.update(&buffer[..count]);
     }
-    ensure!(hex::encode(digest.finalize()) == expected, "source ZIP digest mismatch");
+    ensure!(
+        hex::encode(digest.finalize()) == expected,
+        "source ZIP digest mismatch"
+    );
     source.rewind()?;
     let mut zipped = zip::ZipArchive::new(&source)?;
     ensure!(
@@ -109,10 +115,16 @@ fn extract_source(archive: &Path, destination: &Path, size: u64, expected: &str)
         let mut header = [0; 30];
         source.read_exact_at(&mut header, entry.header_start())?;
         let name_length = usize::from(u16::from_le_bytes([header[26], header[27]]));
-        ensure!(name_length == entry.name_raw().len(), "source ZIP local name mismatch");
+        ensure!(
+            name_length == entry.name_raw().len(),
+            "source ZIP local name mismatch"
+        );
         let mut local_name = [0; 12]; // Only the two fixed names above are accepted.
         source.read_exact_at(&mut local_name[..name_length], entry.header_start() + 30)?;
-        ensure!(&local_name[..name_length] == entry.name_raw(), "source ZIP local name mismatch");
+        ensure!(
+            &local_name[..name_length] == entry.name_raw(),
+            "source ZIP local name mismatch"
+        );
     }
     std::fs::DirBuilder::new().mode(0o700).create(destination)?;
     for name in ["receipt.json", "source.pack"] {
@@ -135,14 +147,11 @@ pub fn observe_ci(run: u64, attempt: u64, artifact: u64, predecessors: &[String]
         oid(id)?;
     }
     let home = PathBuf::from(std::env::var_os("HOME").context("protected profile HOME")?);
-    let directory = crate::product_dirs::resolve(
-        home.join(".config/st"),
-        home.join(".config/fractal"),
-    );
-    let configuration: Configuration = serde_json::from_slice(&std::fs::read(
-        directory.join("evidence-ci.json"),
-    )?)
-    .context("private CI observer configuration")?;
+    let directory =
+        crate::product_dirs::resolve(home.join(".config/st"), home.join(".config/fractal"));
+    let configuration: Configuration =
+        serde_json::from_slice(&std::fs::read(directory.join("evidence-ci.json"))?)
+            .context("private CI observer configuration")?;
     ensure!(
         configuration.scratch_repo.is_absolute(),
         "private scratch path must be absolute"
@@ -490,7 +499,12 @@ if case in ('local_name', 'local_name_length'):
 
     fn extract(path: &Path, destination: &Path) -> Result<()> {
         let bytes = std::fs::read(path)?;
-        extract_source(path, destination, bytes.len() as u64, &hex::encode(sha2::Sha256::digest(&bytes)))
+        extract_source(
+            path,
+            destination,
+            bytes.len() as u64,
+            &hex::encode(sha2::Sha256::digest(&bytes)),
+        )
     }
 
     #[test]
@@ -500,18 +514,48 @@ if case in ('local_name', 'local_name_length'):
             let path = archive(root.path(), case);
             let destination = root.path().join("verified");
             extract(&path, &destination).unwrap();
-            assert_eq!(std::fs::read(destination.join("receipt.json")).unwrap(), b"{}\n");
-            assert_eq!(std::fs::read(destination.join("source.pack")).unwrap(), b"\x00\xff\r\npayload");
-            assert_eq!(destination.metadata().unwrap().permissions().mode() & 0o777, 0o700);
-            assert!(extract(&path, &destination).is_err(), "never reuse a destination");
+            assert_eq!(
+                std::fs::read(destination.join("receipt.json")).unwrap(),
+                b"{}\n"
+            );
+            assert_eq!(
+                std::fs::read(destination.join("source.pack")).unwrap(),
+                b"\x00\xff\r\npayload"
+            );
+            assert_eq!(
+                destination.metadata().unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+            assert!(
+                extract(&path, &destination).is_err(),
+                "never reuse a destination"
+            );
         }
     }
 
     #[test]
     fn archive_rejects_adversarial_members_and_corruption() {
-        for case in ["../escape", "/absolute", "nested/receipt.json", "receipt.json/",
-            "duplicate", "duplicate_extra", "extra", "symlink", "fifo", "device", "directory", "encrypted",
-            "receipt_limit", "pack_limit", "forged_size", "crc", "truncated", "local_name", "local_name_length"] {
+        for case in [
+            "../escape",
+            "/absolute",
+            "nested/receipt.json",
+            "receipt.json/",
+            "duplicate",
+            "duplicate_extra",
+            "extra",
+            "symlink",
+            "fifo",
+            "device",
+            "directory",
+            "encrypted",
+            "receipt_limit",
+            "pack_limit",
+            "forged_size",
+            "crc",
+            "truncated",
+            "local_name",
+            "local_name_length",
+        ] {
             let root = tempfile::tempdir().unwrap();
             let path = archive(root.path(), case);
             let destination = root.path().join("verified");
