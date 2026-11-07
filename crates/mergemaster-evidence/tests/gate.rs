@@ -1,6 +1,7 @@
 //! Generic single-lane gate contracts, using actual Git objects and SSH signatures.
 use mergemaster_evidence::gate::config::{expected_inputs, load};
 use serde_json::{Value, json};
+use sha2::Digest;
 use std::{
     fs,
     io::Write,
@@ -348,6 +349,10 @@ print((root / name).read_text())
     }
 
     fn python(&self) -> Output {
+        self.python_with(&[])
+    }
+
+    fn python_with(&self, extra: &[&str]) -> Output {
         let script = PathBuf::from(
             std::env::var_os("MERGEMASTER_PYTHON_ORACLE")
                 .expect("MERGEMASTER_PYTHON_ORACLE must be set; run tests in nix develop"),
@@ -374,6 +379,7 @@ print((root / name).read_text())
                 "--trust-levels",
                 "agent",
             ])
+            .args(extra)
             .output()
             .unwrap()
     }
@@ -1234,6 +1240,66 @@ fn signed_observations_require_every_lane_binding() {
                 .is_some_and(|reason| !reason.is_empty()),
             "{case}: {decision}"
         );
+    }
+}
+
+#[test]
+fn oracle_and_gate_agree_on_single_record_selection_bindings() {
+    for case in [
+        "wrapper",
+        "nix",
+        "sekrets",
+        "github:fixture/repo/actions/runs/1",
+        "hand-typed",
+        "Wrapper",
+        "wrong_check",
+        "wrong_argv",
+        "missing_input",
+        "test_tier",
+        "wrong_level",
+        "wrong_key",
+    ] {
+        let f = Fixture::new();
+        let mut statement = f.statement();
+        let inputs = &mut statement["predicate"]["observed"]["inputs"];
+        inputs["wrapper_sha256"] = json!(hex::encode(sha2::Sha256::digest(
+            b"fixture command, never executed\n"
+        )));
+        let mut key = &f.key;
+        match case {
+            "wrong_check" => {
+                let check = statement["predicate"]["observed"]["checks"][CHECK].take();
+                statement["predicate"]["observed"]["checks"] = json!({"other":check});
+            }
+            "wrong_argv" => {
+                statement["predicate"]["observed"]["checks"][CHECK]["command"] = json!(["true"])
+            }
+            "missing_input" => {
+                inputs.as_object_mut().unwrap().remove("wrapper_sha256");
+            }
+            "test_tier" => statement["predicate"]["tier"] = json!("test"),
+            "wrong_level" => statement["predicate"]["signer"] = json!("host/fixture"),
+            "wrong_key" => key = &f.stranger,
+            runner => statement["predicate"]["observed"]["runner"] = json!(runner),
+        }
+        f.note(&statement, key, "tree");
+        let expected = matches!(case, "wrapper" | "nix" | "sekrets") || case.starts_with("github:");
+        let python = f.python_with(&["--bind-input", "wrapper_sha256=tools/graph"]);
+        assert_eq!(
+            python.status.success(),
+            expected,
+            "{case}: {}",
+            String::from_utf8_lossy(&python.stdout)
+        );
+        let decision = f.decision(&[]);
+        assert_eq!(
+            decision["decision"] == "skip",
+            expected,
+            "{case}: {decision}"
+        );
+        if matches!(case, "hand-typed" | "Wrapper") {
+            assert_eq!(decision["reason"], "unsupported_kind");
+        }
     }
 }
 

@@ -736,6 +736,13 @@ signer. Existing Python evidence verification can read the same note, but
 consumer policies that require legacy `flake_lock_sha256` must not be applied
 to a generic environment lane.
 
+Generic gate satisfaction accepts the pinned Python verifier's runner kinds:
+`wrapper`, `nix`, `sekrets`, and any `github:`-prefixed observer runner.
+A caller-supplied runner outside those kinds remains a valid evidence record
+for inspection and native policy verification, but cannot satisfy the generic
+gate (`unsupported_kind`). Re-attestation also preserves the exact subject
+commit name and its verified/absent inspection binding, not only its tree.
+
 ### Read-only informational reporter
 
 `genie/generic-evidence.ts` exports `genericEvidenceReporterJob({ check, checkout,

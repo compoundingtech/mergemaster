@@ -388,6 +388,17 @@ fn wrap_sign_publish_skip_and_input_mutation_cannot_reuse_evidence() {
         assert_eq!(decision["outcome"], "satisfied");
         let reference = f.refs();
         assert_eq!(reference.lines().count(), 1);
+        let record = f
+            .command("git")
+            .args([
+                "show",
+                &format!("{reference}:{}", decision["tree"].as_str().unwrap()),
+            ])
+            .output()
+            .unwrap();
+        assert!(record.status.success());
+        let statement: Value = serde_json::from_slice(&record.stdout).unwrap();
+        assert_eq!(statement["predicate"]["observed"]["runner"], "wrapper");
         let remote = f
             .command("git")
             .args(["--git-dir"])

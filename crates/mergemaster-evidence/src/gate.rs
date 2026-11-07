@@ -879,9 +879,18 @@ fn satisfy(
     }) {
         return "too_old";
     }
-    let Fact::Tests { checks, inputs, .. } = &predicate.fact else {
+    let Fact::Tests {
+        runner,
+        checks,
+        inputs,
+    } = &predicate.fact
+    else {
         return "wrong_check";
     };
+    // Match the pinned verifier's producer kinds, without narrowing the record format.
+    if !matches!(runner.as_str(), "nix" | "wrapper" | "sekrets") && !runner.starts_with("github:") {
+        return "unsupported_kind";
+    }
     let result = &checks[check];
     if result.exit_code != 0 {
         return "check_failed";
