@@ -1797,6 +1797,64 @@ fn age_and_future_margins_match_oracle() {
 }
 
 #[test]
+fn oracle_fixed_clock_matches_exact_age_boundary_contract() {
+    for (stamp, expected) in [
+        ("2030-01-01T00:00:00Z", "satisfied"),
+        ("2029-12-31T23:59:59.999999Z", "too_old"),
+        ("2030-01-01T00:00:00.000001Z", "satisfied"),
+    ] {
+        let f = Fixture::new();
+        let mut statement = f.statement();
+        statement["predicate"]["observed_at"] = json!(stamp);
+        let record = f.note(&statement, &f.key, "tree");
+        let keys = f.root.path().join("boundary-keys");
+        fs::write(
+            &keys,
+            f.git(
+                &["show", &format!("{}:.mergemaster/evidence-keys", f.base)],
+                b"",
+            ),
+        )
+        .unwrap();
+        let root = PathBuf::from(std::env::var_os("MERGEMASTER_PYTHON_ORACLE").unwrap());
+        let output = f
+            .command("python3")
+            .args([
+                "-c",
+                r#"
+import json, runpy, sys
+v = runpy.run_path(sys.argv[1])
+try:
+    r = v['verify'](sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5],
+        ['tools/graph', 'check', '--full'], trust_levels=['agent'],
+        max_age=60, now=v['parse_time']('2030-01-01T00:01:00Z'))
+    r['reason'] = 'satisfied'
+except v['Failure'] as e:
+    r = dict(reason=e.reason, **e.extra)
+print(json.dumps(r))
+"#,
+            ])
+            .arg(root.join("scripts/evidence-verify"))
+            .args([
+                f.repo.to_str().unwrap(),
+                &f.tree,
+                CHECK,
+                keys.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let oracle: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(oracle["reason"], expected);
+        assert_eq!(oracle["decided_by"], record);
+    }
+}
+
+#[test]
 fn nonpush_newest_valid_pass_matches_oracle() {
     for mode in ["required_evidence", "optional_fallback"] {
         for case in [

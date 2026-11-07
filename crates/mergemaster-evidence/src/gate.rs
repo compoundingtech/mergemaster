@@ -934,11 +934,10 @@ fn satisfy<'a>(
     if at > now + Duration::seconds(120) {
         return "future_dated";
     }
-    if lane.max_age_seconds.is_some_and(|seconds| {
-        (now - at.with_timezone(&Utc))
-            .to_std()
-            .is_ok_and(|age| age > std::time::Duration::from_secs(seconds))
-    }) {
+    if lane
+        .max_age_seconds
+        .is_some_and(|seconds| age_exceeds_limit(now - at.with_timezone(&Utc), seconds))
+    {
         return "too_old";
     }
     let Fact::Tests {
@@ -1021,6 +1020,12 @@ fn satisfy<'a>(
         };
     }
     "satisfied"
+}
+
+fn age_exceeds_limit(elapsed: Duration, seconds: u64) -> bool {
+    elapsed
+        .to_std()
+        .is_ok_and(|age| age > std::time::Duration::from_secs(seconds))
 }
 
 fn records(repo: &Path, tree: &str) -> Result<(BTreeSet<String>, bool, bool)> {
@@ -1208,4 +1213,19 @@ fn compare(repo: &Path, args: &Args, head: &str, decision: &mut Decision) -> Res
         age_seconds: (Utc::now() - at.with_timezone(&Utc)).num_seconds(),
     });
     Ok(())
+}
+
+#[cfg(test)]
+mod age_tests {
+    use super::*;
+
+    #[test]
+    fn exact_limit_is_allowed_but_one_microsecond_over_is_expired() {
+        let limit = Duration::seconds(60);
+        assert!(!age_exceeds_limit(limit, 60));
+        assert!(age_exceeds_limit(limit + Duration::microseconds(1), 60));
+        assert!(!age_exceeds_limit(limit - Duration::microseconds(1), 60));
+        assert!(!age_exceeds_limit(Duration::seconds(-1), 60));
+        assert!(!age_exceeds_limit(limit, u64::MAX));
+    }
 }
