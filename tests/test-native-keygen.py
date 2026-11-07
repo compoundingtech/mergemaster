@@ -11,8 +11,10 @@ import unittest
 from unittest.mock import patch
 
 sys.dont_write_bytecode = True
-ROOT = Path(__file__).resolve().parent.parent
-SCRIPT = ROOT / 'scripts/evidence-keygen'
+oracle_root = os.environ.get('MERGEMASTER_PYTHON_ORACLE')
+if not oracle_root:
+    raise SystemExit('MERGEMASTER_PYTHON_ORACLE must be set; run tests in nix develop')
+SCRIPT = Path(oracle_root) / 'scripts/evidence-keygen'
 NATIVE = [sys.argv[1], 'evidence', 'keygen']
 ORACLE = [sys.executable, '-I', str(SCRIPT)]
 loader = importlib.machinery.SourceFileLoader('keygen_oracle', str(SCRIPT) + '-test')
