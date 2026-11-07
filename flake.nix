@@ -55,6 +55,33 @@
             doCheck = true;
             MERGEMASTER_PYTHON_ORACLE = "${python-oracle}";
           });
+          oracle-scripts = pkgs.runCommand "mergemaster-oracle-scripts" {
+            nativeBuildInputs = [ pkgs.python3 ];
+            src = pkgs.lib.cleanSource self;
+            MERGEMASTER_PYTHON_ORACLE = "${python-oracle}";
+          } ''
+            python3 - <<'PY'
+            import os
+            from pathlib import Path
+
+            scripts = Path(os.environ["src"]) / "scripts"
+            oracle = Path(os.environ["MERGEMASTER_PYTHON_ORACLE"]) / "scripts"
+            # Repository metadata and orchestration, not copied upstream scripts.
+            exempt = {"PROVENANCE", "test-scripts", "parity-drift", "parity-drift-test"}
+            for path in sorted(scripts.rglob("*")):
+                if path.is_dir() and not path.is_symlink():
+                    continue
+                relative = path.relative_to(scripts)
+                if relative.as_posix() in exempt:
+                    continue
+                reference = oracle / relative
+                if (path.is_symlink() or not reference.is_file()
+                        or path.read_bytes() != reference.read_bytes()
+                        or (path.stat().st_mode & 0o111) != (reference.stat().st_mode & 0o111)):
+                    raise SystemExit(f"scripts/{relative}: differs from pinned oracle or is not an oracle copy")
+            PY
+            touch "$out"
+          '';
           fmt = pkgs.runCommand "mergemaster-fmt" {
             nativeBuildInputs = [ pkgs.cargo pkgs.rustfmt ];
             src = pkgs.lib.cleanSource self;

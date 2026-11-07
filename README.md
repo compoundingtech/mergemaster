@@ -23,6 +23,11 @@ by the `python-oracle` flake input, not the working-tree scripts.
 the dev shell and `checks.evidence` set it automatically. The production package
 does not depend on the oracle or run its parity tests.
 
+`checks.oracle-scripts` compares every remaining working-tree script's bytes and
+executable bits with the pinned oracle. Deletions are allowed; additions or edits
+fail. The explicit exemptions are repository-owned `PROVENANCE`, `test-scripts`,
+`parity-drift`, and `parity-drift-test`, rather than copied upstream scripts.
+
 For development:
 
 ```sh
