@@ -679,7 +679,11 @@ mod hardening_tests {
 
     #[test]
     fn tool_file_hardening_matches_legacy_oracle() {
-        let python = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/evidence-sign");
+        let python = PathBuf::from(
+            std::env::var_os("MERGEMASTER_PYTHON_ORACLE")
+                .expect("MERGEMASTER_PYTHON_ORACLE must be set; run tests in nix develop"),
+        )
+        .join("scripts/evidence-sign");
         let cases = [
             ("x", 0o100755, 0),
             ("x", 0o100555, 0),

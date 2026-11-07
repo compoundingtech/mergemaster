@@ -340,11 +340,15 @@ fn validate_nix(
 #[cfg(test)]
 mod tests {
     use serde_json::Value;
-    use std::{path::Path, process::Command};
+    use std::{path::PathBuf, process::Command};
 
     #[test]
     fn legacy_requests_match_python_validation() {
-        let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/evidence-sign");
+        let script = PathBuf::from(
+            std::env::var_os("MERGEMASTER_PYTHON_ORACLE")
+                .expect("MERGEMASTER_PYTHON_ORACLE must be set; run tests in nix develop"),
+        )
+        .join("scripts/evidence-sign");
         let output = Command::new("python3").args(["-I", "-B", "-c", r#"
 import copy, importlib.machinery, importlib.util, json, sys
 loader = importlib.machinery.SourceFileLoader('oracle', sys.argv[1])

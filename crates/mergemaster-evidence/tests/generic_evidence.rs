@@ -227,7 +227,13 @@ impl Fixture {
     }
     fn python(&self) -> Output {
         self.command("python3")
-            .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/evidence-verify"))
+            .arg(
+                PathBuf::from(
+                    std::env::var_os("MERGEMASTER_PYTHON_ORACLE")
+                        .expect("MERGEMASTER_PYTHON_ORACLE must be set; run tests in nix develop"),
+                )
+                .join("scripts/evidence-verify"),
+            )
             .args(["--repo"])
             .arg(&self.repo)
             .args(["--revision", &self.head, "--check", CHECK, "--keys"])
