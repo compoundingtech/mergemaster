@@ -969,10 +969,13 @@ with tempfile.TemporaryDirectory() as scratch:
         for ref in refs:
             git(source, 'update-ref', '-d', ref)
         ref = f'refs/notes/evidence/{tree}/{damaged}'
-        git(source, 'update-ref', ref, damaged)
+        # Git update-ref itself rejects malformed commits; inject the corrupt ref as on disk.
+        reference = source / '.git' / ref
+        reference.parent.mkdir(parents=True, exist_ok=True)
+        reference.write_text(damaged + '\n')
         assert native(source, 'show', damaged).returncode != 0
         assert native(source, 'verify', damaged).returncode != 0
         assert python(source).returncode != 0
-        git(source, 'update-ref', '-d', ref)
+        reference.unlink()
     assert not marker.exists(), 'inspection must never lazily fetch absent objects'
 "#;
