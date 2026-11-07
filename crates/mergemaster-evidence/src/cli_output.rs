@@ -56,4 +56,3 @@ pub fn finish(code: ExitCode) -> ExitCode {
         }
     }
 }
-

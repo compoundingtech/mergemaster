@@ -1,7 +1,13 @@
 //! Read-only Git plumbing with ambient repository selectors and helpers disabled.
-use std::{collections::{BTreeMap, BTreeSet}, env, io::{BufRead, BufReader, Read, Write}, path::Path, process::{Command, Stdio}};
 use anyhow::{Context, Result, ensure};
 use sha2::{Digest, Sha256};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    env,
+    io::{BufRead, BufReader, Read, Write},
+    path::Path,
+    process::{Command, Stdio},
+};
 
 /// Also usable on the isolated evidence worker: its child Git processes inherit
 /// these overrides without changing this process's environment.
@@ -12,7 +18,8 @@ pub fn sanitize(command: &mut Command) {
             command.env_remove(key);
         }
     }
-    command.env("GIT_CONFIG_NOSYSTEM", "1")
+    command
+        .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CONFIG_SYSTEM", "/dev/null")
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_NO_REPLACE_OBJECTS", "1")
@@ -39,7 +46,8 @@ pub fn sanitize(command: &mut Command) {
     ];
     command.env("GIT_CONFIG_COUNT", settings.len().to_string());
     for (index, (key, value)) in settings.iter().enumerate() {
-        command.env(format!("GIT_CONFIG_KEY_{index}"), key)
+        command
+            .env(format!("GIT_CONFIG_KEY_{index}"), key)
             .env(format!("GIT_CONFIG_VALUE_{index}"), value);
     }
 }
@@ -52,9 +60,16 @@ pub fn command(repo: &Path) -> Command {
 }
 
 pub fn git(repo: &Path, args: &[&str]) -> Result<Vec<u8>> {
-    let output = command(repo).args(args).output().context("running trusted Git plumbing")?;
+    let output = command(repo)
+        .args(args)
+        .output()
+        .context("running trusted Git plumbing")?;
     // Git diagnostics can contain candidate-controlled paths; do not forward them.
-    ensure!(output.status.success(), "Git plumbing failed ({})", output.status);
+    ensure!(
+        output.status.success(),
+        "Git plumbing failed ({})",
+        output.status
+    );
     Ok(output.stdout)
 }
 
@@ -78,14 +93,21 @@ fn blob_size(output: &mut impl BufRead, id: &str) -> Result<u64> {
     output.read_line(&mut header)?;
     ensure!(header.ends_with('\n'), "expected committed regular file");
     let fields: Vec<_> = header.split_whitespace().collect();
-    ensure!(fields.len() == 3 && fields[0] == id && fields[1] == "blob", "expected committed regular file");
+    ensure!(
+        fields.len() == 3 && fields[0] == id && fields[1] == "blob",
+        "expected committed regular file"
+    );
     fields[2].parse().context("invalid Git blob size")
 }
 
 fn blobs(repo: &Path, ids: &BTreeSet<&str>, hash: bool) -> Result<BTreeMap<String, String>> {
-    let mut child = command(repo).args(["cat-file", if hash { "--batch" } else { "--batch-check" }])
-        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null())
-        .spawn().context("running trusted Git plumbing")?;
+    let mut child = command(repo)
+        .args(["cat-file", if hash { "--batch" } else { "--batch-check" }])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("running trusted Git plumbing")?;
     let result = (|| {
         let mut input = child.stdin.take().context("Git batch stdin")?;
         let mut output = BufReader::new(child.stdout.take().context("Git batch stdout")?);
@@ -96,26 +118,35 @@ fn blobs(repo: &Path, ids: &BTreeSet<&str>, hash: bool) -> Result<BTreeMap<Strin
             input.flush()?;
             // Both batch modes require a complete header, including its newline.
             let size = blob_size(&mut output, id)?;
-            if !hash { continue; }
+            if !hash {
+                continue;
+            }
             let mut bytes = (&mut output).take(size);
             let mut digest = Sha256::new();
             let mut buffer = [0; 8192];
             loop {
                 let count = bytes.read(&mut buffer)?;
-                if count == 0 { break; }
+                if count == 0 {
+                    break;
+                }
                 digest.update(&buffer[..count]);
             }
             ensure!(bytes.limit() == 0, "truncated Git blob");
             let mut newline = [0];
             output.read_exact(&mut newline)?;
-            ensure!(newline == [b'\n'], "invalid Git blob terminator");
+            ensure!(&newline == b"\n", "invalid Git blob terminator");
             digests.insert((*id).to_owned(), hex::encode(digest.finalize()));
         }
         Ok(digests)
     })();
-    if result.is_err() { let _ = child.kill(); }
+    if result.is_err() {
+        let _ = child.kill();
+    }
     let status = child.wait()?;
-    ensure!(status.success() || result.is_err(), "Git plumbing failed ({status})");
+    ensure!(
+        status.success() || result.is_err(),
+        "Git plumbing failed ({status})"
+    );
     result
 }
 
@@ -128,7 +159,9 @@ mod tests {
         let id = "a".repeat(40);
         for hash in [false, true] {
             let mut complete = format!("{id} blob 3\n").into_bytes();
-            if hash { complete.extend_from_slice(b"abc\n"); }
+            if hash {
+                complete.extend_from_slice(b"abc\n");
+            }
             assert_eq!(blob_size(&mut complete.as_slice(), &id).unwrap(), 3);
             let truncated = format!("{id} blob 3");
             let error = blob_size(&mut truncated.as_bytes(), &id).unwrap_err();
