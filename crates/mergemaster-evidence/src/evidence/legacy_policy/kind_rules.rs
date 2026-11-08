@@ -1,4 +1,5 @@
 //! Complete legacy kind/level declarations; no record evaluation.
+use super::level_rules::{LevelRule, checked_levels, fill, normalized};
 use super::value_rules::{ValueRules, checked_value_rules};
 use super::{
     CommandInputs, PolicyError, checked_base_inputs, checked_command_inputs, invalid, names,
@@ -19,29 +20,6 @@ pub struct KindRule {
     #[serde(serialize_with = "super::serialize_pairs")]
     pub base_inputs: Vec<(String, String)>,
 }
-#[derive(Debug, Serialize)]
-pub struct LevelRule {
-    #[serde(flatten)]
-    pub inputs: CommandInputs,
-    pub events: Vec<String>,
-    pub lane: LaneBinding,
-}
-#[derive(Debug)]
-pub enum LaneBinding {
-    None,
-    Base,
-    Tree,
-}
-impl Serialize for LaneBinding {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self {
-            Self::None => serializer.serialize_bool(false),
-            Self::Base => serializer.serialize_bool(true),
-            Self::Tree => serializer.serialize_str("tree"),
-        }
-    }
-}
-
 pub fn checked_kinds(
     kinds: Map<String, Value>,
     levels: &[String],
@@ -101,52 +79,13 @@ pub fn checked_kinds(
                 Value::Number(n) if n.as_f64() == Some(0.0) => Map::new(),
                 _ => return Err(error()),
             };
-            let mut by_level = Vec::with_capacity(overrides.len());
-            for (level, raw) in overrides {
-                if level.is_empty() || !trust_levels.as_deref().unwrap_or(levels).contains(&level) {
-                    return Err(error());
-                }
-                let Value::Object(mut fields) = raw else {
-                    return Err(error());
-                };
-                if fields.keys().any(|key| {
-                    ![
-                        "command",
-                        "required_inputs",
-                        "bind_inputs",
-                        "events",
-                        "lane",
-                    ]
-                    .contains(&key.as_str())
-                }) {
-                    return Err(error());
-                }
-                let events = fields
-                    .remove("events")
-                    .and_then(names)
-                    .filter(|events| {
-                        events
-                            .iter()
-                            .all(|event| matches!(event.as_str(), "pull_request" | "merge_group"))
-                            && (events.len() == 1 || (events.len() == 2 && events[0] != events[1]))
-                    })
-                    .ok_or_else(error)?;
-                let inputs = checked_command_inputs(&mut fields, &format!("{where_}/{level}"))?;
-                let lane = match fields.remove("lane") {
-                    None | Some(Value::Bool(false)) => LaneBinding::None,
-                    Some(Value::Bool(true)) => LaneBinding::Base,
-                    Some(Value::String(s)) if s == "tree" => LaneBinding::Tree,
-                    _ => return Err(error()),
-                };
-                by_level.push((
-                    level,
-                    LevelRule {
-                        inputs: normalized(inputs, repository, check),
-                        events,
-                        lane,
-                    },
-                ));
-            }
+            let by_level = checked_levels(
+                overrides,
+                trust_levels.as_deref().unwrap_or(levels),
+                repository,
+                check,
+                &kind,
+            )?;
             Ok((
                 kind,
                 KindRule {
@@ -161,34 +100,10 @@ pub fn checked_kinds(
         })
         .collect()
 }
-fn fill(mut value: String, repository: &str, check: &str) -> String {
-    for (placeholder, replacement) in [("{repository}", repository), ("{check}", check)] {
-        if value.contains(placeholder) {
-            value = value.replace(placeholder, replacement);
-        }
-    }
-    value
-}
-fn normalized(mut inputs: CommandInputs, repository: &str, check: &str) -> CommandInputs {
-    inputs.command = inputs
-        .command
-        .into_iter()
-        .map(|v| fill(v, repository, check))
-        .collect();
-    inputs.required_inputs.sort_unstable();
-    inputs.required_inputs.dedup();
-    for (key, _) in &inputs.bind_inputs {
-        if let Err(index) = inputs.required_inputs.binary_search(key) {
-            inputs.required_inputs.insert(index, key.clone());
-        }
-    }
-    inputs
-}
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use serde_json::json;
+    use serde_json::{Value, json};
     #[test]
     fn complete_kind_schemas_match_the_pinned_oracle() {
         let mut cases: Vec<Value> = serde_json::from_str(
@@ -272,7 +187,7 @@ results = []
 for kinds in json.loads(sys.argv[2]):
     try:
         policy = dict(version=1, checks=dict(check=dict(kinds=kinds, trust_levels=['agent'])))
-        results.append(oracle['policy_rules'](json.dumps(policy), 'check', 'owner/{check}')['kinds'])
+        results.append(oracle['policy_rules'](json.dumps(policy), 'check', 'owner/{check}'))
     except (oracle['Failure'], TypeError, AttributeError, KeyError):
         results.append(dict(reason='error'))
 print(json.dumps(results))
@@ -289,21 +204,12 @@ print(json.dumps(results))
         let expected: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(cases.len(), expected.len());
         for (kinds, expected) in cases.into_iter().zip(expected) {
-            let actual = checked_kinds(
-                kinds.as_object().unwrap().clone(),
-                &["agent".into()],
-                "owner/{check}",
-                "check",
-            )
-            .map(|rules| {
-                Value::Object(
-                    rules
-                        .into_iter()
-                        .map(|(kind, rule)| (kind, serde_json::to_value(rule).unwrap()))
-                        .collect(),
-                )
-            })
-            .unwrap_or_else(|error| json!({"reason":error.reason}));
+            let policy =
+                json!({"version":1,"checks":{"check":{"kinds":kinds,"trust_levels":["agent"]}}});
+            let actual = super::super::PolicyDocument::parse(&policy.to_string(), "check")
+                .and_then(|document| document.into_rules("owner/{check}"))
+                .map(|rules| serde_json::to_value(rules).unwrap())
+                .unwrap_or_else(|error| json!({"reason":error.reason}));
             assert_eq!(actual, expected, "{kinds}");
         }
     }
