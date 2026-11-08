@@ -1,4 +1,5 @@
 //! Legacy skip-policy schemas; unrelated to native gate authorization.
+pub mod value_rules;
 use serde::Serialize;
 use serde_json::{Map, Value, value::RawValue};
 use std::collections::BTreeMap;
