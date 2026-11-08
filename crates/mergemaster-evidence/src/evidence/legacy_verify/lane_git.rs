@@ -109,3 +109,79 @@ pub fn lane_definition(
         tree_sha256,
     })
 }
+
+const LANES: &str = ".st/required-lanes.json";
+const PREFERRED: &str = ".fractal/required-lanes.json";
+fn config_path(repo: &Path, commit: &str) -> Result<Option<&'static str>, PolicyError> {
+    let listing = git(
+        repo,
+        &[
+            "ls-tree",
+            "-z",
+            "--full-tree",
+            commit,
+            "--",
+            PREFERRED,
+            LANES,
+        ],
+        None,
+    )
+    .map_err(error)?;
+    Ok([PREFERRED, LANES].into_iter().find(|path| {
+        listing
+            .split(|b| *b == 0)
+            .any(|row| row.splitn(2, |b| *b == b'\t').nth(1) == Some(path.as_bytes()))
+    }))
+}
+/// Read the accepted revision, not the checkout; a present preferred file never falls back.
+pub fn read_lanes(repo: &Path, commit: &str) -> Result<String, PolicyError> {
+    let path = config_path(repo, commit)?.unwrap_or(LANES);
+    let shown = git(repo, &["show", &format!("{commit}:{path}")], None).map_err(error)?;
+    String::from_utf8(shown).map_err(error)
+}
+pub fn lane_for(
+    repo: &Path,
+    tree: &str,
+    lanes: Option<(&str, &str)>,
+    check: &str,
+    lane_base: Option<&str>,
+) -> Result<Option<LaneDefinition>, PolicyError> {
+    let Some((text, accepted)) = lanes else {
+        return Ok(None);
+    };
+    let mut definition_base = accepted;
+    if let Some(base) = lane_base {
+        crate::evidence::oid(base).map_err(error)?;
+        git(repo, &["merge-base", "--is-ancestor", base, accepted], None).map_err(error)?;
+        let path = config_path(repo, base)?;
+        let shown = git(
+            repo,
+            &["show", &format!("{base}:{}", path.unwrap_or(LANES))],
+            None,
+        );
+        let here = match shown {
+            Ok(bytes) => super::lane_entry::canonical(&String::from_utf8_lossy(&bytes), check)?,
+            Err(e) if path.is_some() => return Err(error(e)),
+            Err(_) => None,
+        };
+        if here.is_none() || here != super::lane_entry::canonical(text, check)? {
+            return Err(PolicyError {
+                reason: "definition_changed",
+                detail: format!("lane {check} differs from the branch point"),
+            });
+        }
+        definition_base = base;
+    }
+    let base_tree = crate::evidence::git_text(
+        repo,
+        &[
+            "rev-parse",
+            "--verify",
+            "--end-of-options",
+            &format!("{definition_base}^{{tree}}"),
+        ],
+        None,
+    )
+    .map_err(error)?;
+    lane_definition(repo, &base_tree, tree, LaneRules::parse(text, check)?).map(Some)
+}
