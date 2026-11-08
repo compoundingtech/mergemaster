@@ -502,6 +502,8 @@ Level overrides validate accepted signers, required events and lane-binding mode
 then normalize command placeholders and the required-input/binding-key union.
 `PolicyDocument::into_rules` completes kind/level validation and normalization
 before returning typed policy rules; raw kind entries are not exposed to callers.
+`legacy_verify::value_checks` judges ranked/base inputs and complete shard results
+without granting signature trust or changing native gate behavior.
 
 ### Main-push tree-equality evidence
 

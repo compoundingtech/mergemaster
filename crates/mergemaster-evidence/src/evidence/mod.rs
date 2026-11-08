@@ -20,6 +20,7 @@ pub mod keygen;
 mod legacy_json;
 pub mod legacy_policy;
 pub mod legacy_request;
+pub mod legacy_verify;
 mod nix;
 pub mod observers;
 pub mod producer_proof;
