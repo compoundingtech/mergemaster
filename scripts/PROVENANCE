@@ -34,6 +34,10 @@
 # Arabic-Indic/fullwidth/mathematical digits produce wrong_input, not acceptance.
 # Leading ASCII zeros match Python through 4300 digits. Above 4300 digits and
 # for superscript two, Rust returns wrong_input where Python int raises ValueError.
+# Conservative divergence: max-age-duration-overflow. At max_age_s >=
+# 86400000000000 Python raises OverflowError; Rust returns reason=error after
+# future_dated, before required inputs. Every record reaching it fails, so no
+# acceptance widens. Native age logic is unchanged; CLI crash parity is 4d-4.
 # Unported single-check surfaces, owned by 4d-5 (immutable evidence-verify lines):
 # prefer_levels 953-956,1172-1177; members 1198-1312; log shadow 783-912.
 # Port: 64351934f2f637f63f44d1f5d72563414135a3cc
