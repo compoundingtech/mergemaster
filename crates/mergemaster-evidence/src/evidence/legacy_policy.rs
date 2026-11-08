@@ -1,7 +1,9 @@
 //! Legacy skip-policy schemas; unrelated to native gate authorization.
-use serde::Serialize;
-use serde_json::{Map, Value, value::RawValue};
-use std::collections::BTreeMap;
+use serde::{
+    Serialize,
+    de::{self, DeserializeSeed, IgnoredAny, MapAccess, Visitor},
+};
+use serde_json::{Map, Value};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct PolicyError {
@@ -17,36 +19,92 @@ impl std::error::Error for PolicyError {}
 
 #[derive(Debug)]
 pub struct PolicyDocument<'a> {
-    pub checks: BTreeMap<String, &'a RawValue>,
+    check: &'a str,
+    entry: Option<Value>,
 }
 impl<'a> PolicyDocument<'a> {
-    pub fn parse(text: &'a str) -> Result<Self, PolicyError> {
-        // RawValue validates JSON grammar without converting unrelated numbers.
-        let mut object: BTreeMap<String, &RawValue> =
-            serde_json::from_str(text).map_err(|e| invalid(e.to_string()))?;
-        let shape = || invalid("skip policy must be {\"version\": 1, \"checks\": {...}}");
-        // Python equality also accepts true and 1.0 as version one.
-        let version: Option<Value> = object
-            .remove("version")
-            .and_then(|raw| serde_json::from_str(raw.get()).ok());
-        if object.len() != 1
+    pub fn parse(text: &str, check: &'a str) -> Result<Self, PolicyError> {
+        let mut decoder = serde_json::Deserializer::from_str(text);
+        let doc = DocumentSeed(check)
+            .deserialize(&mut decoder)
+            .map_err(|e| invalid(e.to_string()))?;
+        decoder.end().map_err(|e| invalid(e.to_string()))?;
+        Ok(doc)
+    }
+    /// Unrelated entries are syntax-checked without bounded numeric conversion.
+    pub fn into_header(self) -> Result<CheckHeader, PolicyError> {
+        let entry = self.entry.ok_or_else(|| PolicyError {
+            reason: "no_policy",
+            detail: format!("the skip policy has no entry for check {}", self.check),
+        })?;
+        CheckHeader::parse(entry, self.check)
+    }
+}
+struct DocumentSeed<'a>(&'a str);
+impl<'de, 'a> DeserializeSeed<'de> for DocumentSeed<'a> {
+    type Value = PolicyDocument<'a>;
+    fn deserialize<D: de::Deserializer<'de>>(self, decoder: D) -> Result<Self::Value, D::Error> {
+        decoder.deserialize_map(self)
+    }
+}
+impl<'de, 'a> Visitor<'de> for DocumentSeed<'a> {
+    type Value = PolicyDocument<'a>;
+    fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a legacy skip policy object")
+    }
+    fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
+        let (mut version, mut entry, mut checks, mut unknown) = (None, None, false, false);
+        while let Some(key) = map.next_key::<String>()? {
+            match key.as_str() {
+                "version" => version = Some(map.next_value::<Value>()?),
+                "checks" => {
+                    entry = map.next_value_seed(ChecksSeed(self.0))?;
+                    checks = true;
+                }
+                _ => {
+                    map.next_value::<IgnoredAny>()?;
+                    unknown = true;
+                }
+            }
+        }
+        // Match Python's version-one equality, including true and 1.0.
+        if unknown
+            || !checks
             || !(version.as_ref().and_then(Value::as_f64) == Some(1.0)
                 || version == Some(Value::Bool(true)))
         {
-            return Err(shape());
+            return Err(de::Error::custom(
+                "skip policy must be {\"version\": 1, \"checks\": {...}}",
+            ));
         }
-        let raw = object.remove("checks").ok_or_else(shape)?;
-        let checks = serde_json::from_str(raw.get()).map_err(|_| shape())?;
-        Ok(Self { checks })
+        Ok(PolicyDocument {
+            check: self.0,
+            entry,
+        })
     }
-    /// Consume only the selected check; unrelated entries are not validated.
-    pub fn into_header(mut self, check: &str) -> Result<CheckHeader, PolicyError> {
-        let entry = self.checks.remove(check).ok_or_else(|| PolicyError {
-            reason: "no_policy",
-            detail: format!("the skip policy has no entry for check {check}"),
-        })?;
-        let entry = serde_json::from_str(entry.get()).map_err(|e| invalid(e.to_string()))?;
-        CheckHeader::parse(entry, check)
+}
+struct ChecksSeed<'a>(&'a str);
+impl<'de> DeserializeSeed<'de> for ChecksSeed<'_> {
+    type Value = Option<Value>;
+    fn deserialize<D: de::Deserializer<'de>>(self, decoder: D) -> Result<Self::Value, D::Error> {
+        decoder.deserialize_map(self)
+    }
+}
+impl<'de> Visitor<'de> for ChecksSeed<'_> {
+    type Value = Option<Value>;
+    fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a map of legacy check entries")
+    }
+    fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
+        let mut entry = None;
+        while let Some(key) = map.next_key::<String>()? {
+            if key == self.0 {
+                entry = Some(map.next_value::<Value>()?);
+            } else {
+                map.next_value::<IgnoredAny>()?;
+            }
+        }
+        Ok(entry)
     }
 }
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -481,7 +539,7 @@ print(json.dumps(reasons))
     fn document_and_check_headers_match_the_oracle() {
         let base = json!({"version":1,"checks":{"unit":{"trust_levels":["agent"],
             "kinds":{"wrapper":{"command":["test","{repository}","{check}"]}}}}});
-        let parse = |text: &str| PolicyDocument::parse(text)?.into_header("unit");
+        let parse = |text: &str| PolicyDocument::parse(text, "unit")?.into_header();
         let mut cases: Vec<String> = [
             "{",
             "[]",
@@ -494,6 +552,7 @@ print(json.dumps(reasons))
             r#"{"version":1,"checks":{"unit":false}}"#,
             r#"{"version":1,"checks":{"ignored":1e1000}}"#,
             r#"{"version":1,"checks":{"unit":{"kinds":{"wrapper":{"command":1e1000}},"trust_levels":["agent"]}}}"#,
+            r#"{"version":1,"checks":{"ignored":{"n":1e1000,"n":2},"ignored":{"n":3,"n":4},"unit":{"kinds":{"wrapper":{"command":["test"]}},"trust_levels":["agent"]}}}"#,
         ]
         .map(str::to_owned)
         .into();
@@ -529,6 +588,15 @@ print(json.dumps(reasons))
         cases.push(other.to_string());
         cases.push(base.to_string().replace(":1,", ":true,"));
         cases.push(base.to_string().replace(":1,", ":1.0,"));
+        let shadowed = cases.len()..cases.len() + 3;
+        cases.extend([
+            base.to_string()
+                .replace(r#""version":1"#, r#""version":1e1000,"version":1"#),
+            base.to_string()
+                .replace(r#""checks":"#, r#""checks":false,"checks":"#),
+            base.to_string()
+                .replace(r#"{"unit":"#, r#"{"unit":1e1000,"unit":"#),
+        ]);
         let large = base.to_string().replace(
             "\"trust_levels\"",
             "\"max_age_s\":18446744073709551616,\"trust_levels\"",
@@ -567,7 +635,10 @@ print(json.dumps(results))
                     assert!(!error.detail.is_empty());
                     json!({"reason":error.reason})
                 });
-            if index == cases.len() - 1 {
+            if shadowed.contains(&index) {
+                assert!(expected["trust_levels"].is_array());
+                assert_eq!(actual, json!({"reason":"error"}), "{text}");
+            } else if index == cases.len() - 1 {
                 assert!(expected["max_age_s"].is_number()); // max-age-above-u64.
                 assert_eq!(actual, json!({"reason":"error"}));
             } else {
