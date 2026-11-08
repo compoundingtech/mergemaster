@@ -64,6 +64,8 @@ mod tests {
             Some(vec!["merge_group".to_owned(), "pull_request".to_owned()]),
             Some(vec!["merge_group".to_owned()]),
             Some(vec!["pull_request".to_owned(), "merge_group".to_owned()]),
+            Some(vec![]),
+            Some(vec!["pull_request".to_owned(), "pull_request".to_owned()]),
         ];
         let mut actual = Vec::new();
         for check in &events {
@@ -79,8 +81,10 @@ mod tests {
             "github:job",
             "github",
             "other",
+            "Wrapper",
+            "GITHUB:x",
         ] {
-            for value in [None, Some(""), Some("0"), Some("1")] {
+            for value in [None, Some(""), Some("0"), Some("1"), Some(" ")] {
                 let inputs = value
                     .map(|v| BTreeMap::from([("i".into(), v.into())]))
                     .unwrap_or_default();
@@ -97,10 +101,10 @@ mod tests {
 import json, runpy, sys
 oracle = runpy.run_path(sys.argv[1] + '/scripts/evidence-verify')
 rules = oracle['policy_rules'](sys.argv[2], 'check', 'owner/repo')
-events = [None, ['pull_request'], ['merge_group', 'pull_request'], ['merge_group'], ['pull_request', 'merge_group']]
+events = [None, ['pull_request'], ['merge_group', 'pull_request'], ['merge_group'], ['pull_request', 'merge_group'], [], ['pull_request', 'pull_request']]
 actual = [oracle['narrowed_events'](check, level) for check in events for level in events]
-for runner in ('wrapper', 'nix', 'sekrets', 'github:', 'github:job', 'github', 'other'):
-    for value in (None, '', '0', '1'):
+for runner in ('wrapper', 'nix', 'sekrets', 'github:', 'github:job', 'github', 'other', 'Wrapper', 'GITHUB:x'):
+    for value in (None, '', '0', '1', ' '):
         statement = dict(predicate=dict(observed=dict(runner=runner, inputs={} if value is None else dict(i=value))))
         actual.append([oracle['kind_of'](runner), oracle['shard_part'](rules, statement), oracle['shard_part'](None, statement)])
 print(json.dumps(actual))
