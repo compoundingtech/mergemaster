@@ -10,7 +10,7 @@
 # These differential cases are not a claim of complete selection parity.
 # Legacy definition_digest now matches Git-entry/argv preimages byte for byte;
 # native lane hashing is unchanged. Selection fixtures still supply the digest.
-# Open gap: lane-entry-canonicalization: open until 4d-3c-2.
+# Open gap: lane-entry-canonicalization: open until 4d-3c-2b.
 # lane_for must not be wired while lane-entry-canonicalization is open.
 # Rust parity P2-a: degraded-veto-and-fallback-exclusion. Unsigned degraded
 # records do not shadow trusted candidates during non-push selection.
@@ -44,6 +44,16 @@
 # The differential matrix includes 0.0/-0.0; whole-run crash parity is 4d-4.
 # Lane parsing shares the selective-document parser: shadowed-invalid-value
 # also covers discarded earlier version/lanes/selected-lane values.
+# Conservative divergence: lane-entry-float-text. Selected float lexemes
+# (1.0, -0.0, 1e400) compare in Python; Rust refuses with this reason.
+# Conservative divergence: lane-entry-json-extensions. NaN/Infinity/-Infinity
+# and lone surrogates, even unrelated, are accepted by Python; Rust refuses.
+# Conservative divergence: lane-entry-nesting-depth. Maximum open containers
+# including the root is 127; oracle accepts 126/127/128/200, Rust refuses >127.
+# Each reason classifies as rejected in pinned Fractal. Identical float entries
+# can give oracle unavailable/TypeError instead; stricter diagnostics fail closed.
+# Above Python's recursion limit (1200 fixture), oracle RecursionError versus
+# Rust rejected joins the 4d-4 whole-run crash inventory. Integer cap: 4300 digits.
 # Unported single-check surfaces, owned by 4d-5 (immutable evidence-verify lines):
 # prefer_levels 953-956,1172-1177; members 1198-1312; log shadow 783-912.
 # Port: 64351934f2f637f63f44d1f5d72563414135a3cc

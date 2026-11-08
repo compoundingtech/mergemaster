@@ -54,6 +54,7 @@
           evidence = (packageFor system).overrideAttrs (_: {
             doCheck = true;
             MERGEMASTER_PYTHON_ORACLE = "${python-oracle}";
+            MERGEMASTER_FRACTAL_FIXTURE = "${fractal-fixture}";
           });
           oracle-scripts = pkgs.runCommand "mergemaster-oracle-scripts" {
             nativeBuildInputs = [ pkgs.python3 ];
