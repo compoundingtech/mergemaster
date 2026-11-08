@@ -3135,3 +3135,147 @@ fn inspection_only_missing_subject_never_authorizes_a_gate() {
     assert_eq!(decision["decision"], "refuse", "{decision}");
     assert_eq!(decision["reason"], "untrusted_signer", "{decision}");
 }
+
+#[test]
+fn legacy_policy_routing_matches_signed_oracle_reason_order() {
+    use mergemaster_evidence::evidence::{
+        Fact, Statement,
+        legacy_policy::PolicyDocument,
+        legacy_verify::{
+            events::narrowed_events,
+            routing::{RecordFacts, route},
+        },
+    };
+    for (case, reason) in [
+        ("satisfied", "satisfied"),
+        ("tier_and_kind", "untrusted_tier"),
+        ("failed_part_and_tier", "check_failed"),
+        ("kind_and_level", "unsupported_kind"),
+        ("level_and_runner", "untrusted_level"),
+        ("wrong_runner", "wrong_runner"),
+        ("kind_levels", "satisfied"),
+        ("override", "satisfied"),
+        ("override_runner", "wrong_runner"),
+        ("missing_kind", "unsupported_kind"),
+        ("prefix", "satisfied"),
+    ] {
+        let f = Fixture::new();
+        let mut statement = f.statement();
+        let command = statement["predicate"]["observed"]["checks"][CHECK]["command"].clone();
+        let mut entry = json!({"trust_levels":["agent"],"events":["pull_request"],
+            "kinds":{"wrapper":{"command":command}}});
+        match case {
+            "tier_and_kind" => {
+                statement["predicate"]["tier"] = json!("test");
+                statement["predicate"]["observed"]["runner"] = json!("other");
+            }
+            "failed_part_and_tier" => {
+                statement["predicate"]["tier"] = json!("test");
+                statement["predicate"]["observed"]["checks"][CHECK]["exit_code"] = json!(1);
+                statement["predicate"]["observed"]["inputs"]["i"] = json!("0");
+                entry["kinds"]["wrapper"]["shard_inputs"] =
+                    json!({"count":"n","results":"r","index":"i"});
+            }
+            "kind_and_level" => {
+                statement["predicate"]["observed"]["runner"] = json!("other");
+                entry["trust_levels"] = json!(["host"]);
+            }
+            "level_and_runner" | "wrong_runner" => {
+                entry["kinds"]["wrapper"]["runner_prefix"] = json!("github:");
+                if case == "level_and_runner" {
+                    entry["trust_levels"] = json!(["host"]);
+                }
+            }
+            "kind_levels" => {
+                entry["trust_levels"] = json!(["host"]);
+                entry["kinds"]["wrapper"]["trust_levels"] = json!(["agent"]);
+            }
+            "override" | "override_runner" => {
+                entry["kinds"]["wrapper"]["command"] = json!(["false"]);
+                entry["kinds"]["wrapper"]["required_inputs"] = json!(["missing"]);
+                entry["kinds"]["wrapper"]["bind_inputs"] = json!({"missing":"nonexistent"});
+                entry["kinds"]["wrapper"]["by_level"] = json!({"agent":{
+                    "command":command,"events":["merge_group","pull_request"]}});
+                if case == "override_runner" {
+                    entry["kinds"]["wrapper"]["runner_prefix"] = json!("github:");
+                }
+            }
+            "missing_kind" => {
+                entry["kinds"] = json!({"observed":{"command":command}});
+            }
+            "prefix" => {
+                entry["kinds"]["wrapper"]["runner_prefix"] = json!("wrap");
+            }
+            _ => {}
+        }
+        f.note(&statement, &f.key, "tree");
+        let policy = json!({"version":1,"checks":{CHECK:entry}}).to_string();
+        let rules = PolicyDocument::parse(&policy, CHECK)
+            .unwrap()
+            .into_rules("owner/repo")
+            .unwrap();
+        let typed: Statement = serde_json::from_value(statement).unwrap();
+        let Fact::Tests {
+            runner,
+            checks,
+            inputs,
+        } = &typed.predicate.fact
+        else {
+            unreachable!()
+        };
+        let record = RecordFacts {
+            tier: typed.predicate.tier,
+            runner,
+            principal: PRINCIPAL,
+            check: &checks[CHECK],
+            inputs,
+        };
+        let actual = route(&rules, &record, 1).and_then(|routing| {
+            routing.check_runner(runner, 1)?;
+            Ok(json!({"reason":"satisfied","command":routing.command_inputs.command,
+                "events":narrowed_events(rules.header.events.as_deref(), routing.level.map(|level| level.events.as_slice()))}))
+        }).unwrap_or_else(|failure| json!({"reason":failure.reason,"attempts":failure.attempts}));
+        let keys = f.root.path().join("routing-keys");
+        fs::write(
+            &keys,
+            f.git(
+                &["show", &format!("{}:.mergemaster/evidence-keys", f.base)],
+                b"",
+            ),
+        )
+        .unwrap();
+        let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap();
+        let script = r#"
+import json, runpy, sys
+oracle = runpy.run_path(sys.argv[1] + '/scripts/evidence-verify')
+rules = oracle['policy_rules'](sys.argv[6], sys.argv[4], 'owner/repo')
+try:
+    result = oracle['verify'](sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], None, rules=rules)
+    print(json.dumps(dict(reason='satisfied', command=result['command'], events=result['events'])))
+except oracle['Failure'] as failure:
+    print(json.dumps(dict(reason=failure.reason, attempts=failure.extra['attempts'])))
+"#;
+        let output = f
+            .command("python3")
+            .args([
+                "-c",
+                script,
+                &root,
+                f.repo.to_str().unwrap(),
+                &f.tree,
+                CHECK,
+                keys.to_str().unwrap(),
+                &policy,
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let expected: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(expected["reason"], reason, "{case}");
+        assert_eq!(actual, expected, "{case}");
+    }
+}
