@@ -521,6 +521,8 @@ not parsed-value equality; callers compare before validating the lane schema.
 `legacy_verify::judgment::judge` routes before lazy lane lookup, then checks the
 runner, clock/inputs, lane identity and ordered Git bindings. Earlier guards
 never fetch later provider resources; a supplied lane avoids the lazy lookup.
+Legacy `lane_git::lane_definition` discovers definition/absent files in real Git
+trees, preserving raw changed-path bytes and accepted-base existence checks.
 
 ### Main-push tree-equality evidence
 

@@ -78,13 +78,13 @@ impl LaneRules {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DefinitionEntry {
     pub mode: String,
     pub oid: String,
     pub path: Vec<u8>,
 }
-fn codepoints(bytes: &[u8]) -> impl Iterator<Item = u32> + '_ {
+pub(super) fn codepoints(bytes: &[u8]) -> impl Iterator<Item = u32> + '_ {
     bytes.utf8_chunks().flat_map(|part| {
         part.valid()
             .chars()

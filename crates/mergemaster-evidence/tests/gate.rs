@@ -3794,3 +3794,143 @@ print(json.dumps(dict(result=result,lane_reads=len(reads),blobs=blobs)))
         assert_eq!(json!(provider.blobs), expected["blobs"], "{case}");
     }
 }
+
+#[test]
+fn legacy_git_definition_matches_oracle_with_raw_names() {
+    use mergemaster_evidence::evidence::legacy_verify::{
+        lane_git::{definition_entries, lane_definition},
+        lanes::LaneRules,
+    };
+    use std::os::unix::{
+        ffi::OsStrExt,
+        fs::{PermissionsExt, symlink},
+    };
+    for case in [
+        "unchanged",
+        "edited",
+        "deleted",
+        "mode",
+        "symlink",
+        "absent_added",
+        "absent_base",
+        "missing_base",
+        "overlap",
+        "raw_names",
+        "bad_tree",
+        "bad_base",
+    ] {
+        let mut f = Fixture::new();
+        f.write("defs/a", "base");
+        f.write("defs/nested/b", "base");
+        if case == "absent_base" {
+            f.write("forbidden/file", "base");
+        }
+        let raw = std::ffi::OsStr::from_bytes(b"defs/\xff\t\n");
+        fs::write(f.repo.join(raw), b"base").unwrap();
+        f.write("defs/😀", "base");
+        let mut base = f.commit("accepted definitions");
+        let mut entry = json!({"argv":["tools/graph","check","é"],"definition_paths":["defs"],
+            "absent_paths":["forbidden"]});
+        match case {
+            "edited" => f.write("defs/a", "candidate"),
+            "deleted" => fs::remove_file(f.repo.join("defs/a")).unwrap(),
+            "mode" => fs::set_permissions(f.repo.join("defs/a"), fs::Permissions::from_mode(0o755))
+                .unwrap(),
+            "symlink" => {
+                fs::remove_file(f.repo.join("defs/a")).unwrap();
+                symlink("nested/b", f.repo.join("defs/a")).unwrap();
+            }
+            "absent_added" => f.write("forbidden/new", "candidate"),
+            "missing_base" => {
+                entry["definition_paths"] = json!(["missing"]);
+                f.write("missing", "candidate");
+            }
+            "overlap" => entry["definition_paths"] = json!(["defs", "defs/a", "defs/nested"]),
+            "raw_names" => {
+                fs::write(f.repo.join(raw), b"candidate").unwrap();
+                f.write("defs/😀", "candidate");
+            }
+            _ => {}
+        }
+        f.refresh_head();
+        let tree = if case == "bad_tree" {
+            "0".repeat(40)
+        } else {
+            f.tree.clone()
+        };
+        if case == "bad_base" {
+            base = "0".repeat(40);
+        }
+        let text = json!({"version":1,"lanes":{CHECK:entry}}).to_string();
+        let rules = LaneRules::parse(&text, CHECK).unwrap();
+        let entries = definition_entries(&f.repo, &base, &rules.definition_paths)
+            .map(|entries| {
+                json!(
+                    entries
+                        .into_iter()
+                        .map(|e| json!([e.mode, e.oid, hex::encode(e.path)]))
+                        .collect::<Vec<_>>()
+                )
+            })
+            .unwrap_or_else(|e| json!({"reason":e.reason}));
+        let actual = lane_definition(&f.repo, &base, &tree, rules)
+            .map(|lane| {
+                json!({"sha256":lane.sha256,"tree_sha256":lane.tree_sha256,
+                "changed":lane.changed.iter().map(hex::encode).collect::<Vec<_>>()})
+            })
+            .unwrap_or_else(|e| json!({"reason":e.reason}));
+        let root = std::env::var("MERGEMASTER_PYTHON_ORACLE")
+            .expect("MERGEMASTER_PYTHON_ORACLE must point to the pinned Python oracle");
+        let script = r#"
+import json, runpy, sys
+o = runpy.run_path(sys.argv[1] + '/scripts/evidence-verify')
+repo, base, tree, text, check = sys.argv[2:]
+rules = o['lane_rules'](text,check)
+try:
+    entries = [[m,h,p.encode('utf-8','surrogateescape').hex()]
+               for m,h,p in sorted(o['definition_entries'](repo,base,rules['definition_paths']))]
+except o['Failure'] as e:
+    entries = dict(reason=e.reason)
+try:
+    result = o['lane_definition'](repo,base,tree,rules)
+    result['changed'] = [p.encode('utf-8','surrogateescape').hex() for p in result['changed']]
+except o['Failure'] as e:
+    result = dict(reason=e.reason)
+print(json.dumps(dict(entries=entries,result=result)))
+"#;
+        let output = f
+            .command("python3")
+            .args([
+                "-c",
+                script,
+                &root,
+                f.repo.to_str().unwrap(),
+                &base,
+                &tree,
+                &text,
+                CHECK,
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{case}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let oracle: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(entries, oracle["entries"], "{case}");
+        assert_eq!(actual, oracle["result"], "{case}");
+        if matches!(
+            case,
+            "absent_base" | "missing_base" | "bad_tree" | "bad_base"
+        ) {
+            assert_eq!(actual["reason"], "error", "{case}");
+        } else if case == "unchanged" || case == "overlap" {
+            assert_eq!(actual["changed"], json!([]), "{case}");
+            assert_eq!(actual["sha256"], actual["tree_sha256"], "{case}");
+        } else {
+            assert_ne!(actual["changed"], json!([]), "{case}");
+            assert_ne!(actual["sha256"], actual["tree_sha256"], "{case}");
+        }
+    }
+}
