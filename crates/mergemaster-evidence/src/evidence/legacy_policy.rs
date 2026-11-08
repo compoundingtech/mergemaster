@@ -334,6 +334,7 @@ mod tests {
             r#"{"version":1,"checks":{"unit":false}}"#,
             r#"{"version":1,"checks":{"ignored":1e1000}}"#,
             r#"{"version":1,"checks":{"unit":{"kinds":{"wrapper":{"command":1e1000}},"trust_levels":["agent"]}}}"#,
+            r#"{"version":1,"checks":{"ignored":{"n":1e1000,"n":2},"ignored":{"n":3,"n":4},"unit":{"kinds":{"wrapper":{"command":["test"]}},"trust_levels":["agent"]}}}"#,
         ]
         .map(str::to_owned)
         .into();
