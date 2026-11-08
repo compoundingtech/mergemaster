@@ -1037,6 +1037,119 @@ fn missing_base_config_is_a_structured_refusal_even_if_head_supplies_it() {
 }
 
 #[test]
+fn native_status_json_and_github_output_are_a_single_contract() {
+    // These are the native protocol, NOT the legacy satisfied/tier/policy
+    // document consumed by Fractal's ci-evidence-gate.
+    let keys = [
+        "version",
+        "check",
+        "base",
+        "head",
+        "tree",
+        "expectation_source",
+        "decision",
+        "outcome",
+        "reason",
+        "record",
+        "report_only",
+        "signer",
+        "observed_at",
+        "age_seconds",
+        "lane_definition_sha256",
+        "input_key_equal",
+        "compared_record",
+        "protected_paths",
+        "summary",
+    ];
+    for mode in ["required_evidence", "optional_fallback"] {
+        for case in ["missing", "satisfied", "failed", "wrong_command"] {
+            let mut f = Fixture::new();
+            f.write(".mergemaster/lanes.json", Fixture::policy(mode).to_string());
+            f.base = f.commit("pin status policy");
+            f.refresh_head();
+            let mut statement = f.statement();
+            if case == "failed" {
+                statement["predicate"]["observed"]["checks"][CHECK]["exit_code"] = json!(1);
+            } else if case == "wrong_command" {
+                statement["predicate"]["observed"]["checks"][CHECK]["command"] = json!(["true"]);
+            }
+            let record = (case != "missing").then(|| f.note(&statement, &f.key, "tree"));
+            let output_path = f.root.path().join("github-output");
+            fs::write(&output_path, "previous=value\n").unwrap();
+            let output = f.gate(&["--github-output", output_path.to_str().unwrap()]);
+            // A structured refusal is still a successfully computed decision.
+            assert_eq!(output.status.code(), Some(0));
+            assert!(output.stderr.is_empty());
+            let raw = String::from_utf8(output.stdout).unwrap();
+            assert!(raw.ends_with("}\n"));
+            assert_eq!(raw.lines().count(), 1);
+            let value: Value = serde_json::from_str(&raw).unwrap();
+            assert_eq!(value.as_object().unwrap().len(), keys.len());
+            let positions: Vec<_> = keys
+                .iter()
+                .map(|key| raw.find(&format!("\"{key}\":")).unwrap())
+                .collect();
+            assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
+            let satisfied = case == "satisfied";
+            let decision = if satisfied {
+                "skip"
+            } else if mode == "optional_fallback" {
+                "run"
+            } else {
+                "refuse"
+            };
+            let outcome = if satisfied {
+                "satisfied"
+            } else if case == "missing" {
+                "no_note"
+            } else {
+                "rejected"
+            };
+            let reason = match case {
+                "missing" => "no_record",
+                "failed" => "check_failed",
+                "wrong_command" => "wrong_command",
+                _ => "satisfied",
+            };
+            let present = case != "missing";
+            let age = &value["age_seconds"];
+            assert!(if present {
+                age.as_i64().is_some_and(|age| age >= 0)
+            } else {
+                age.is_null()
+            });
+            assert_eq!(
+                value,
+                json!({
+                    "version":1, "check":CHECK, "base":f.base, "head":f.head, "tree":f.tree,
+                    "expectation_source":"caller", "decision":decision, "outcome":outcome,
+                    "reason":reason, "record":record, "report_only":false,
+                    "signer":if present { json!(PRINCIPAL) } else { Value::Null },
+                    "observed_at":if present { statement["predicate"]["observed_at"].clone() } else { Value::Null },
+                    "age_seconds":age,
+                    "lane_definition_sha256":if present {
+                        statement["predicate"]["observed"]["inputs"]["lane_definition_sha256"].clone()
+                    } else { Value::Null },
+                    "input_key_equal":null, "compared_record":null, "protected_paths":[], "summary":""
+                })
+            );
+            // Pin names, order, booleans, null-to-empty record conversion,
+            // refusal reason, newline termination and append (not overwrite).
+            assert_eq!(
+                fs::read_to_string(output_path).unwrap(),
+                format!(
+                    "previous=value\nskip={}\nrecord={}\noutcome={outcome}\nrefuse={}\nrefusal={}\n",
+                    satisfied,
+                    record.as_deref().unwrap_or(""),
+                    decision == "refuse",
+                    if decision == "refuse" { reason } else { "" },
+                )
+            );
+        }
+    }
+}
+
+#[test]
 fn invalid_base_config_is_not_misreported_as_missing() {
     for kind in ["json", "directory", "symlink"] {
         let mut f = Fixture::new();
@@ -1051,9 +1164,13 @@ fn invalid_base_config_is_not_misreported_as_missing() {
         f.refresh_head();
         let error = load(&f.repo, &f.base).unwrap_err();
         assert!(!error.is::<mergemaster_evidence::gate::config::MissingConfig>());
-        let result = f.gate(&[]);
+        let output_path = f.root.path().join("github-output");
+        fs::write(&output_path, "previous=value\n").unwrap();
+        let result = f.gate(&["--github-output", output_path.to_str().unwrap()]);
         assert!(!result.status.success());
         assert!(result.stdout.is_empty());
+        assert!(!result.stderr.is_empty());
+        assert_eq!(fs::read_to_string(output_path).unwrap(), "previous=value\n");
     }
 }
 
@@ -2093,7 +2210,7 @@ fn nonpush_newest_valid_pass_matches_oracle() {
                 if case == "no_valid" {
                     older["predicate"]["signer"] = json!("host/fixture");
                 }
-                note(&older);
+                let older_id = note(&older);
                 let mut newer = f.statement();
                 newer["predicate"]["observed_at"] =
                     json!((now + chrono::Duration::seconds(300)).to_rfc3339());
@@ -2109,6 +2226,23 @@ fn nonpush_newest_valid_pass_matches_oracle() {
                     newer["predicate"]["observed"]["checks"][CHECK]["command"] = json!(["true"]);
                 }
                 let newer_id = note(&newer);
+                if case == "level" {
+                    f.git(
+                        &[
+                            "update-ref",
+                            "-d",
+                            &format!("refs/notes/evidence/{}/{older_id}", f.tree),
+                        ],
+                        b"",
+                    );
+                    let alone = f.decision(&[]);
+                    assert_eq!(alone["reason"], "untrusted_level");
+                    assert_eq!(alone["record"], newer_id);
+                    let oracle_alone = f.oracle_selection(&definition);
+                    assert_eq!(oracle_alone["reason"], "untrusted_level");
+                    assert_eq!(oracle_alone["decided_by"], newer_id);
+                    f.publish(&older_id, "tree");
+                }
                 let offset = if matches!(case, "invalid+failure" | "tie") {
                     Some(300)
                 } else {

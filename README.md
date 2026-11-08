@@ -485,6 +485,13 @@ the live PR head and base branch immediately before emitting a decision.
 Author allowlists additionally require opener, actor, triggering actor and every
 branch commit's exact author/committer identities.
 
+The native gate emits one compact JSON line and exits 0 for a computed decision,
+including `refuse`; consumers must inspect `decision`, not just the exit code.
+Errors emit no decision JSON or GitHub outputs and return nonzero. GitHub outputs
+use lowercase booleans and an empty `record` for JSON null. This native protocol
+is not the legacy `evidence-verify` document consumed by Fractal's
+`ci-evidence-gate` (`satisfied`, `tier`, policy/trust/matching fields).
+
 ### Main-push tree-equality evidence
 
 `gate --event push` explicitly allows a signed PR-head observation to satisfy a
