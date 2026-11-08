@@ -168,7 +168,7 @@ for overrides in json.loads(sys.argv[2]):
         entry = dict(trust_levels=['agent'], kinds=dict(wrapper=dict(command=['true'], by_level=overrides)))
         policy = dict(version=1, checks=dict(check=entry))
         results.append(oracle['policy_rules'](json.dumps(policy), 'check', 'owner/{check}')['kinds']['wrapper']['by_level'])
-    except (oracle['Failure'], TypeError, AttributeError, KeyError):
+    except (oracle['Failure'], TypeError):
         results.append(dict(reason='error'))
 print(json.dumps(results))
 "#;
