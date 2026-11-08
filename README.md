@@ -496,6 +496,8 @@ The library's `evidence::legacy_policy` schema helpers are separate from native
 lane authorization. Command/input helpers preserve raw commands and bindings;
 base-input helpers validate declarations without reading files. They do not
 evaluate evidence or substitute for kind-rule validation.
+Input-value helpers preserve policy/ranking order and shard declarations,
+including the distinction between absent and explicit-null shard counts.
 
 ### Main-push tree-equality evidence
 
