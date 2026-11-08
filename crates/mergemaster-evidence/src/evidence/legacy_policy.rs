@@ -27,12 +27,10 @@ pub struct PolicyDocument<'a> {
 }
 impl<'a> PolicyDocument<'a> {
     pub fn parse(text: &str, check: &'a str) -> Result<Self, PolicyError> {
-        let mut decoder = serde_json::Deserializer::from_str(text);
-        let doc = DocumentSeed(check)
-            .deserialize(&mut decoder)
-            .map_err(|e| invalid(e.to_string()))?;
-        decoder.end().map_err(|e| invalid(e.to_string()))?;
-        Ok(doc)
+        Ok(Self {
+            check,
+            entry: selected_entry(text, check, "checks")?,
+        })
     }
     /// Unrelated entries are syntax-checked without bounded numeric conversion.
     pub fn into_header(self) -> Result<CheckHeader, PolicyError> {
@@ -55,15 +53,24 @@ impl<'a> PolicyDocument<'a> {
         Ok(PolicyRules { header, kinds })
     }
 }
-struct DocumentSeed<'a>(&'a str);
-impl<'de, 'a> DeserializeSeed<'de> for DocumentSeed<'a> {
-    type Value = PolicyDocument<'a>;
+/// Syntax-check unrelated entries without converting their numeric values.
+pub fn selected_entry(text: &str, name: &str, group: &str) -> Result<Option<Value>, PolicyError> {
+    let mut decoder = serde_json::Deserializer::from_str(text);
+    let entry = DocumentSeed(name, group)
+        .deserialize(&mut decoder)
+        .map_err(|e| invalid(e.to_string()))?;
+    decoder.end().map_err(|e| invalid(e.to_string()))?;
+    Ok(entry)
+}
+struct DocumentSeed<'a>(&'a str, &'a str);
+impl<'de> DeserializeSeed<'de> for DocumentSeed<'_> {
+    type Value = Option<Value>;
     fn deserialize<D: de::Deserializer<'de>>(self, decoder: D) -> Result<Self::Value, D::Error> {
         decoder.deserialize_map(self)
     }
 }
-impl<'de, 'a> Visitor<'de> for DocumentSeed<'a> {
-    type Value = PolicyDocument<'a>;
+impl<'de> Visitor<'de> for DocumentSeed<'_> {
+    type Value = Option<Value>;
     fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("a legacy skip policy object")
     }
@@ -72,7 +79,7 @@ impl<'de, 'a> Visitor<'de> for DocumentSeed<'a> {
         while let Some(key) = map.next_key::<String>()? {
             match key.as_str() {
                 "version" => version = Some(map.next_value::<Value>()?),
-                "checks" => {
+                name if name == self.1 => {
                     entry = map.next_value_seed(ChecksSeed(self.0))?;
                     checks = true;
                 }
@@ -88,14 +95,12 @@ impl<'de, 'a> Visitor<'de> for DocumentSeed<'a> {
             || !(version.as_ref().and_then(Value::as_f64) == Some(1.0)
                 || version == Some(Value::Bool(true)))
         {
-            return Err(de::Error::custom(
-                "skip policy must be {\"version\": 1, \"checks\": {...}}",
-            ));
+            return Err(de::Error::custom(format!(
+                "document must contain version 1 and a {} object",
+                self.1
+            )));
         }
-        Ok(PolicyDocument {
-            check: self.0,
-            entry,
-        })
+        Ok(entry)
     }
 }
 struct ChecksSeed<'a>(&'a str);
