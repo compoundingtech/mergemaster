@@ -498,6 +498,8 @@ base-input helpers validate declarations without reading files. They do not
 evaluate evidence or substitute for kind-rule validation.
 Input-value helpers preserve policy/ranking order and shard declarations,
 including the distinction between absent and explicit-null shard counts.
+Level overrides validate accepted signers, required events and lane-binding modes,
+then normalize command placeholders and the required-input/binding-key union.
 
 ### Main-push tree-equality evidence
 
