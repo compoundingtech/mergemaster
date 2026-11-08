@@ -504,6 +504,8 @@ then normalize command placeholders and the required-input/binding-key union.
 before returning typed policy rules; raw kind entries are not exposed to callers.
 `legacy_verify::value_checks` judges ranked/base inputs and complete shard results
 without granting signature trust or changing native gate behavior.
+Event helpers retain signer-level event order when narrowing check permissions
+and identify shard parts only from the configured producer kind and index input.
 
 ### Main-push tree-equality evidence
 
