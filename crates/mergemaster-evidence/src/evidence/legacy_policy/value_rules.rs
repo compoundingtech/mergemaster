@@ -185,6 +185,46 @@ print(json.dumps(results))
     }
 
     #[test]
+    fn repeated_keys_keep_the_last_value_and_first_position() {
+        let text = r#"{"command":["true"],
+          "bind_inputs":{"z":"old","a":"middle","z":"last"},
+          "base_inputs":{"z":"old.txt","a":"middle.txt","z":"last.txt"},
+          "input_order":{"z":["old","weak"],"a":["middle","weak"],"z":["last","weak"]}}"#;
+        let mut fields: Map<String, Value> = serde_json::from_str(text).unwrap();
+        let command = super::super::checked_command_inputs(&mut fields, "fixture").unwrap();
+        let base = super::super::checked_base_inputs(&mut fields, "fixture").unwrap();
+        let values = checked_value_rules(&mut fields, "fixture").unwrap();
+        let actual = json!([command.bind_inputs, base, values.input_order]);
+        let root = std::env::var("MERGEMASTER_PYTHON_ORACLE")
+            .expect("MERGEMASTER_PYTHON_ORACLE must point to the pinned Python oracle");
+        let script = r#"
+import json, runpy, sys
+oracle, rule = runpy.run_path(sys.argv[1] + '/scripts/evidence-verify'), json.loads(sys.argv[2])
+_, _, binds = oracle['checked_command_inputs'](rule, 'fixture')
+base = oracle['checked_base_inputs'](rule, 'fixture')
+order, _ = oracle['checked_value_rules'](rule, 'fixture')
+print(json.dumps([list(value.items()) for value in (binds, base, order)]))
+"#;
+        let output = std::process::Command::new("python3")
+            .args(["-c", script, &root, text])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let expected: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(actual, expected);
+        let retained = json!([
+            [["z", "last"], ["a", "middle"]],
+            [["z", "last.txt"], ["a", "middle.txt"]],
+            [["z", ["last", "weak"]], ["a", ["middle", "weak"]]]
+        ]);
+        assert_eq!(actual, retained);
+    }
+
+    #[test]
     fn input_order_preserves_the_oracle_deciding_reason() {
         let rules = json!([
             {"input_order":{"z":["strong","weak"],"a":["strong","weak"]}},
