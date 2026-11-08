@@ -492,6 +492,11 @@ use lowercase booleans and an empty `record` for JSON null. This native protocol
 is not the legacy `evidence-verify` document consumed by Fractal's
 `ci-evidence-gate` (`satisfied`, `tier`, policy/trust/matching fields).
 
+The library's `evidence::legacy_policy` schema helpers are separate from native
+lane authorization. Command/input helpers preserve raw commands and bindings;
+base-input helpers validate declarations without reading files. They do not
+evaluate evidence or substitute for kind-rule validation.
+
 ### Main-push tree-equality evidence
 
 `gate --event push` explicitly allows a signed PR-head observation to satisfy a
