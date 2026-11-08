@@ -44,7 +44,7 @@ jsonwebtoken = { version = "11.1", features = ["aws_lc_rs"] }
 libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 # Fractal enables this through workspace feature unification; preserve CLI JSON bytes.
-serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
+serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.10"
 tempfile = "3"
 unicode-normalization = "0.1"
