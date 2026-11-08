@@ -513,6 +513,8 @@ The legacy clock/input guard takes an explicit clock and preserves future, age,
 required-input, exit-code, command and value-check refusal order.
 `legacy_verify::lanes::LaneRules` validates one selected accepted-base lane,
 preserving optional-field truthiness without reading Git or authorizing evidence.
+Legacy definition hashing streams Python-compatible Git-entry/argv bytes,
+including surrogateescaped filenames; native lane hashing remains unchanged.
 
 ### Main-push tree-equality evidence
 
