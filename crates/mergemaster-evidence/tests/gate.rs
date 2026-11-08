@@ -3310,7 +3310,7 @@ fn legacy_clock_and_input_guards_match_signed_oracle_order() {
         ("duration_limit", "satisfied"),
         ("duration_overflow", "error"),
         ("u64_max", "error"),
-        ("zero_age", "too_old"),
+        ("minimum_age", "too_old"),
         ("no_age", "satisfied"),
     ] {
         let f = Fixture::new();
@@ -3374,9 +3374,9 @@ fn legacy_clock_and_input_guards_match_signed_oracle_order() {
                 });
                 entry["kinds"]["wrapper"]["required_inputs"] = json!(["missing"]);
             }
-            "zero_age" => {
-                entry["max_age_s"] = json!(0);
-                at = now - chrono::Duration::microseconds(1);
+            "minimum_age" => {
+                entry["max_age_s"] = json!(1);
+                at = now - chrono::Duration::seconds(1) - chrono::Duration::microseconds(1);
             }
             "no_age" => entry["max_age_s"] = Value::Null,
             _ => {}
