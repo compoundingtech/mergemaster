@@ -3279,3 +3279,206 @@ except oracle['Failure'] as failure:
         assert_eq!(actual, expected, "{case}");
     }
 }
+
+#[test]
+fn legacy_clock_and_input_guards_match_signed_oracle_order() {
+    use mergemaster_evidence::evidence::{
+        Fact, Statement,
+        legacy_policy::PolicyDocument,
+        legacy_verify::{
+            inputs::{Clock, check_inputs},
+            routing::{RecordFacts, route},
+        },
+    };
+    let now = chrono::DateTime::parse_from_rfc3339("2025-01-01T00:01:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    for (case, reason) in [
+        ("exact_age", "satisfied"),
+        ("fraction_over", "too_old"),
+        ("fraction_under", "satisfied"),
+        ("future_exact", "satisfied"),
+        ("future_over", "future_dated"),
+        ("future_overflow", "future_dated"),
+        ("age_and_required", "too_old"),
+        ("required_and_exit", "missing_input"),
+        ("empty_required", "missing_input"),
+        ("exit_and_command", "check_failed"),
+        ("command_and_value", "wrong_command"),
+        ("value_weak", "wrong_input"),
+        ("value_no_run", "no_run_input"),
+        ("value_strong", "satisfied"),
+        ("duration_limit", "satisfied"),
+        ("duration_overflow", "error"),
+        ("u64_max", "error"),
+        ("zero_age", "too_old"),
+        ("no_age", "satisfied"),
+    ] {
+        let f = Fixture::new();
+        let mut statement = f.statement();
+        let mut at = now - chrono::Duration::seconds(60);
+        let mut entry = json!({"trust_levels":["agent"],"max_age_s":60,
+            "kinds":{"wrapper":{"command":statement["predicate"]["observed"]["checks"][CHECK]["command"]}}});
+        let mut run = json!({});
+        match case {
+            "fraction_over" => at -= chrono::Duration::microseconds(1),
+            "fraction_under" => at += chrono::Duration::microseconds(1),
+            "future_exact" => at = now + chrono::Duration::seconds(120),
+            "future_over" | "future_overflow" => {
+                at = now + chrono::Duration::seconds(120) + chrono::Duration::microseconds(1);
+                entry["kinds"]["wrapper"]["required_inputs"] = json!(["missing"]);
+                if case == "future_overflow" {
+                    entry["max_age_s"] = json!(u64::MAX);
+                }
+            }
+            "age_and_required" | "required_and_exit" | "empty_required" => {
+                entry["kinds"]["wrapper"]["required_inputs"] = json!(["missing"]);
+                if case == "age_and_required" {
+                    entry["max_age_s"] = json!(59);
+                }
+                if case == "required_and_exit" {
+                    statement["predicate"]["observed"]["checks"][CHECK]["exit_code"] = json!(1);
+                    statement["predicate"]["observed"]["checks"][CHECK]["command"] =
+                        json!(["false"]);
+                }
+                if case == "empty_required" {
+                    statement["predicate"]["observed"]["inputs"]["missing"] = json!("");
+                }
+            }
+            "exit_and_command" => {
+                statement["predicate"]["observed"]["checks"][CHECK]["exit_code"] = json!(1);
+                statement["predicate"]["observed"]["checks"][CHECK]["command"] = json!(["false"]);
+            }
+            "command_and_value" | "value_weak" | "value_no_run" | "value_strong" => {
+                entry["kinds"]["wrapper"]["input_order"] = json!({"mode":["strong","weak"]});
+                statement["predicate"]["observed"]["inputs"]["mode"] =
+                    json!(if case == "value_strong" {
+                        "strong"
+                    } else {
+                        "weak"
+                    });
+                if case != "value_no_run" {
+                    run["mode"] = json!(if case == "value_strong" {
+                        "weak"
+                    } else {
+                        "strong"
+                    });
+                }
+                if case == "command_and_value" {
+                    statement["predicate"]["observed"]["checks"][CHECK]["command"] =
+                        json!(["false"]);
+                }
+            }
+            "duration_limit" => entry["max_age_s"] = json!(86_399_999_999_999_u64),
+            "duration_overflow" | "u64_max" => {
+                entry["max_age_s"] = json!(if case == "u64_max" {
+                    u64::MAX
+                } else {
+                    86_400_000_000_000
+                });
+                entry["kinds"]["wrapper"]["required_inputs"] = json!(["missing"]);
+            }
+            "zero_age" => {
+                entry["max_age_s"] = json!(0);
+                at = now - chrono::Duration::microseconds(1);
+            }
+            "no_age" => entry["max_age_s"] = Value::Null,
+            _ => {}
+        }
+        statement["predicate"]["observed_at"] = json!(at.to_rfc3339());
+        f.note(&statement, &f.key, "tree");
+        let policy = json!({"version":1,"checks":{CHECK:entry}}).to_string();
+        let rules = PolicyDocument::parse(&policy, CHECK)
+            .unwrap()
+            .into_rules("owner/repo")
+            .unwrap();
+        let typed: Statement = serde_json::from_value(statement).unwrap();
+        let Fact::Tests {
+            runner,
+            checks,
+            inputs,
+        } = &typed.predicate.fact
+        else {
+            unreachable!()
+        };
+        let record = RecordFacts {
+            tier: typed.predicate.tier,
+            runner,
+            principal: PRINCIPAL,
+            check: &checks[CHECK],
+            inputs,
+        };
+        let routing = route(&rules, &record, 1).unwrap();
+        routing.check_runner(runner, 1).unwrap();
+        let clock = Clock {
+            observed_at: at.fixed_offset(),
+            now,
+        };
+        let actual = check_inputs(
+            &rules,
+            &routing,
+            &record,
+            &clock,
+            &serde_json::from_value(run.clone()).unwrap(),
+            1,
+        )
+        .map(|()| json!({"reason":"satisfied"}))
+        .unwrap_or_else(|failure| json!({"reason":failure.reason,"attempts":failure.attempts}));
+        let keys = f.root.path().join("input-keys");
+        fs::write(
+            &keys,
+            f.git(
+                &["show", &format!("{}:.mergemaster/evidence-keys", f.base)],
+                b"",
+            ),
+        )
+        .unwrap();
+        let root = std::env::var("MERGEMASTER_PYTHON_ORACLE")
+            .expect("MERGEMASTER_PYTHON_ORACLE must point to the pinned Python oracle");
+        let script = r#"
+import json, runpy, sys
+oracle = runpy.run_path(sys.argv[1] + '/scripts/evidence-verify')
+rules = oracle['policy_rules'](sys.argv[6], sys.argv[4], 'owner/repo')
+try:
+    oracle['verify'](sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], None, rules=rules,
+        run_inputs=json.loads(sys.argv[7]), now=oracle['parse_time'](sys.argv[8]))
+    print(json.dumps(dict(reason='satisfied')))
+except oracle['Failure'] as failure:
+    print(json.dumps(dict(reason=failure.reason, attempts=failure.extra['attempts'])))
+except OverflowError:
+    print(json.dumps(dict(reason='error', attempts=1, exception='OverflowError')))
+"#;
+        let output = f
+            .command("python3")
+            .args([
+                "-c",
+                script,
+                &root,
+                f.repo.to_str().unwrap(),
+                &f.tree,
+                CHECK,
+                keys.to_str().unwrap(),
+                &policy,
+                &run.to_string(),
+                &now.to_rfc3339(),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let mut expected: Value = serde_json::from_slice(&output.stdout).unwrap();
+        if matches!(case, "duration_overflow" | "u64_max") {
+            assert_eq!(
+                expected.as_object_mut().unwrap().remove("exception"),
+                Some(json!("OverflowError"))
+            );
+        } else {
+            assert!(expected.get("exception").is_none());
+        }
+        assert_eq!(expected["reason"], reason, "{case}");
+        assert_eq!(actual, expected, "{case}");
+    }
+}

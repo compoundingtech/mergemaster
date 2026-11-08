@@ -1,5 +1,6 @@
 //! Legacy policy evaluation, separate from native gate authorization.
 pub mod events;
+pub mod inputs;
 pub mod routing;
 use super::legacy_policy::kind_rules::KindRule;
 use serde::Serialize;

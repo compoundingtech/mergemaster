@@ -509,6 +509,8 @@ and identify shard parts only from the configured producer kind and index input.
 Routing requires a signature-verified principal and a validated generic check.
 The runner-prefix guard follows any required lazy lane lookup, before age/input
 judgments; routing alone never authorizes a record.
+The legacy clock/input guard takes an explicit clock and preserves future, age,
+required-input, exit-code, command and value-check refusal order.
 
 ### Main-push tree-equality evidence
 
