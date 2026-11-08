@@ -10,7 +10,6 @@
 # These differential cases are not a claim of complete selection parity.
 # Legacy definition_digest now matches Git-entry/argv preimages byte for byte;
 # native lane hashing is unchanged. Selection fixtures still supply the digest.
-
 # Rust parity P2-a: degraded-veto-and-fallback-exclusion. Unsigned degraded
 # records do not shadow trusted candidates during non-push selection.
 # Conservative divergence P3: wrong-definition-plus-bound-input. Python passes
