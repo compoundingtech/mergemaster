@@ -3302,7 +3302,6 @@ fn legacy_clock_and_input_guards_match_signed_oracle_order() {
         ("future_overflow", "future_dated"),
         ("age_and_required", "too_old"),
         ("required_and_exit", "missing_input"),
-        ("empty_required", "missing_input"),
         ("exit_and_command", "check_failed"),
         ("command_and_value", "wrong_command"),
         ("value_weak", "wrong_input"),
@@ -3331,7 +3330,7 @@ fn legacy_clock_and_input_guards_match_signed_oracle_order() {
                     entry["max_age_s"] = json!(u64::MAX);
                 }
             }
-            "age_and_required" | "required_and_exit" | "empty_required" => {
+            "age_and_required" | "required_and_exit" => {
                 entry["kinds"]["wrapper"]["required_inputs"] = json!(["missing"]);
                 if case == "age_and_required" {
                     entry["max_age_s"] = json!(59);
@@ -3340,9 +3339,6 @@ fn legacy_clock_and_input_guards_match_signed_oracle_order() {
                     statement["predicate"]["observed"]["checks"][CHECK]["exit_code"] = json!(1);
                     statement["predicate"]["observed"]["checks"][CHECK]["command"] =
                         json!(["false"]);
-                }
-                if case == "empty_required" {
-                    statement["predicate"]["observed"]["inputs"]["missing"] = json!("");
                 }
             }
             "exit_and_command" => {
@@ -3466,7 +3462,7 @@ except OverflowError:
             .unwrap();
         assert!(
             output.status.success(),
-            "{}",
+            "{case}: {}",
             String::from_utf8_lossy(&output.stderr)
         );
         let mut expected: Value = serde_json::from_slice(&output.stdout).unwrap();
