@@ -19,6 +19,9 @@
 # Conservative divergence: degraded-with-signer. Rust statement validation
 # rejects a degraded predicate carrying a signer; Python selection ignores
 # degraded statements. Rust's validation test pins the stricter record contract.
+# Not covered by parity: detail-text. Policy diagnostics retain a string detail
+# but not Python's exact parser/repr wording. Fractal ci-evidence-gate prints
+# diagnostics; it branches on reason/outcome, not on detail text.
 # Port: 64351934f2f637f63f44d1f5d72563414135a3cc
 # Scope: scripts/st-test scripts/fractal-test-test; two-hour queue aging.
 # Upstream hunks SHA256: 368ffaff939aecc9bb91e7979a4f273d4fb7ab63aca501c609b34e7614743336
