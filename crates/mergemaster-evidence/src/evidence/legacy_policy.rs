@@ -1,4 +1,5 @@
 //! Legacy skip-policy schemas; unrelated to native gate authorization.
+pub mod kind_rules;
 pub mod level_rules;
 pub mod value_rules;
 use serde::{
@@ -40,6 +41,18 @@ impl<'a> PolicyDocument<'a> {
             detail: format!("the skip policy has no entry for check {}", self.check),
         })?;
         CheckHeader::parse(entry, self.check)
+    }
+    /// Validate and normalize every selected kind before evidence evaluation.
+    pub fn into_rules(self, repository: &str) -> Result<PolicyRules, PolicyError> {
+        let check = self.check;
+        let mut header = self.into_header()?;
+        let kinds = kind_rules::checked_kinds(
+            std::mem::take(&mut header.kinds),
+            &header.trust_levels,
+            repository,
+            check,
+        )?;
+        Ok(PolicyRules { header, kinds })
     }
 }
 struct DocumentSeed<'a>(&'a str);
@@ -119,9 +132,8 @@ pub enum RequireMode {
 
 #[derive(Debug, Serialize)]
 pub struct CheckHeader {
-    /// Unvalidated kind entries: must be parsed before evidence evaluation.
     #[serde(skip_serializing)]
-    pub kinds: Map<String, Value>,
+    kinds: Map<String, Value>,
     pub trust_levels: Vec<String>,
     pub max_age_s: Option<u64>,
     pub enforce: bool,
@@ -129,6 +141,14 @@ pub struct CheckHeader {
     pub sample_one_in: u64,
     pub require: RequireMode,
     pub events: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PolicyRules {
+    #[serde(flatten)]
+    pub header: CheckHeader,
+    #[serde(serialize_with = "serialize_pairs")]
+    pub kinds: Vec<(String, kind_rules::KindRule)>,
 }
 impl CheckHeader {
     pub fn parse(entry: Value, check: &str) -> Result<Self, PolicyError> {
@@ -648,10 +668,13 @@ print(json.dumps(results))
             }
         }
         other["checks"]["unit"]["kinds"] = json!({"raw":false});
-        let header = parse(&other.to_string()).unwrap();
         assert_eq!(
-            header.kinds,
-            json!({"raw":false}).as_object().unwrap().clone()
+            PolicyDocument::parse(&other.to_string(), "unit")
+                .unwrap()
+                .into_rules("owner/repository")
+                .unwrap_err()
+                .reason,
+            "error"
         );
     }
     #[test]
