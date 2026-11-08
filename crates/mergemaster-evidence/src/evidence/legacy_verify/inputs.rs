@@ -5,7 +5,7 @@ use super::{
     value_checks,
 };
 use crate::evidence::legacy_policy::PolicyRules;
-use chrono::{DateTime, FixedOffset, Utc};
+use chrono::{DateTime, FixedOffset, SubsecRound, Utc};
 use std::collections::BTreeMap;
 
 pub struct Clock {
@@ -26,7 +26,11 @@ pub fn check_inputs(
         detail: detail.into(),
         attempts,
     };
-    if clock.observed_at > clock.now + chrono::Duration::seconds(120) {
+    // Python datetime discards fractional digits beyond microseconds, including
+    // before the epoch. Truncate each clock's subsecond field, not their delta.
+    let observed_at = clock.observed_at.trunc_subsecs(6);
+    let now = clock.now.trunc_subsecs(6);
+    if observed_at > now + chrono::Duration::seconds(120) {
         return Err(fail(
             "future_dated",
             "record claims to be observed in the future",
@@ -37,7 +41,7 @@ pub fn check_inputs(
         if seconds >= 86_400_000_000_000 {
             return Err(fail("error", "max_age_s exceeds the legacy duration range"));
         }
-        if (clock.now - clock.observed_at.with_timezone(&Utc))
+        if (now - observed_at.with_timezone(&Utc))
             .to_std()
             .is_ok_and(|age| age > std::time::Duration::from_secs(seconds))
         {
