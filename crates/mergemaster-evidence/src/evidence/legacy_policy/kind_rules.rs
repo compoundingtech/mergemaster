@@ -134,6 +134,7 @@ mod tests {
                 json!(1),
                 json!(0.0),
                 json!(""),
+                json!("0"),
                 json!("prefix"),
                 json!([]),
                 json!({}),
