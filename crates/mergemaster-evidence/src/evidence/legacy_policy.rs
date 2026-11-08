@@ -1,5 +1,6 @@
-//! Legacy skip-policy input declarations; unrelated to native gate authorization.
-use serde_json::Value;
+//! Legacy skip-policy schemas; unrelated to native gate authorization.
+use serde::Serialize;
+use serde_json::{Map, Value};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct PolicyError {
@@ -12,6 +13,168 @@ impl std::fmt::Display for PolicyError {
     }
 }
 impl std::error::Error for PolicyError {}
+
+#[derive(Debug)]
+pub struct PolicyDocument {
+    pub checks: Map<String, Value>,
+}
+impl PolicyDocument {
+    pub fn parse(text: &str) -> Result<Self, PolicyError> {
+        let mut doc: Value = serde_json::from_str(text).map_err(|e| invalid(e.to_string()))?;
+        let shape = || invalid("skip policy must be {\"version\": 1, \"checks\": {...}}");
+        let object = doc.as_object_mut().ok_or_else(shape)?;
+        // Python equality also accepts true and 1.0 as version one.
+        if object.len() != 2
+            || !(object.get("version").and_then(Value::as_f64) == Some(1.0)
+                || object.get("version") == Some(&Value::Bool(true)))
+        {
+            return Err(shape());
+        }
+        match object.remove("checks") {
+            Some(Value::Object(checks)) => Ok(Self { checks }),
+            _ => Err(shape()),
+        }
+    }
+    /// Consume only the selected check; unrelated entries are not validated.
+    pub fn into_header(mut self, check: &str) -> Result<CheckHeader, PolicyError> {
+        let entry = self.checks.remove(check).ok_or_else(|| PolicyError {
+            reason: "no_policy",
+            detail: format!("the skip policy has no entry for check {check}"),
+        })?;
+        CheckHeader::parse(entry, check)
+    }
+}
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum RequireMode {
+    Off,
+    Shadow,
+    Reject,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CheckHeader {
+    /// Unvalidated kind entries: must be parsed before evidence evaluation.
+    #[serde(skip_serializing)]
+    pub kinds: Map<String, Value>,
+    pub trust_levels: Vec<String>,
+    pub max_age_s: Option<u64>,
+    pub enforce: bool,
+    pub inputs: Option<Vec<String>>,
+    pub sample_one_in: u64,
+    pub require: RequireMode,
+    pub events: Option<Vec<String>>,
+}
+impl CheckHeader {
+    pub fn parse(entry: Value, check: &str) -> Result<Self, PolicyError> {
+        let error = |message: &str| invalid(format!("skip policy for {check}: {message}"));
+        let shape = || error("needs kinds and trust_levels, and nothing unknown");
+        let Value::Object(mut entry) = entry else {
+            return Err(shape());
+        };
+        const KEYS: &[&str] = &[
+            "kinds",
+            "trust_levels",
+            "max_age_s",
+            "enforce",
+            "inputs",
+            "sample_one_in",
+            "require",
+            "events",
+        ];
+        if entry.keys().any(|k| !KEYS.contains(&k.as_str()))
+            || !entry.contains_key("kinds")
+            || !entry.contains_key("trust_levels")
+        {
+            return Err(shape());
+        }
+        let trust_levels = names(entry.remove("trust_levels").unwrap())
+            .ok_or_else(|| error("trust_levels must be a nonempty list of names"))?;
+        let max_age_s =
+            match entry.remove("max_age_s") {
+                None | Some(Value::Null) => None,
+                Some(value) => Some(value.as_u64().filter(|v| *v > 0).ok_or_else(|| {
+                    error("max_age_s must be null or a positive integer within u64")
+                })?),
+            };
+        let enforce = entry
+            .remove("enforce")
+            .unwrap_or(Value::Bool(false))
+            .as_bool()
+            .ok_or_else(|| error("enforce must be true or false"))?;
+        let require = entry.remove("require");
+        let require = match require.as_ref().map_or(Some("off"), Value::as_str) {
+            Some("off") => RequireMode::Off,
+            Some("shadow") => RequireMode::Shadow,
+            Some("reject") => RequireMode::Reject,
+            _ => return Err(error("require must be one of off, shadow, reject")),
+        };
+        let inputs = match entry.remove("inputs") {
+            None | Some(Value::Null) => None,
+            Some(value) => Some(declared_paths(
+                &value,
+                &format!("skip policy for {check}"),
+                true,
+            )?),
+        };
+        let sample_one_in = entry
+            .remove("sample_one_in")
+            .unwrap_or(Value::from(1))
+            .as_u64()
+            .filter(|v| (1..=1000).contains(v))
+            .ok_or_else(|| error("sample_one_in must be an integer from 1 to 1000"))?;
+        let kinds = match entry.remove("kinds") {
+            Some(Value::Object(kinds)) if !kinds.is_empty() => kinds,
+            _ => return Err(error("kinds must name at least one kind")),
+        };
+        let events = match entry.remove("events") {
+            None | Some(Value::Null) => None,
+            Some(value) => Some(
+                names(value)
+                    .filter(|events| {
+                        events
+                            .iter()
+                            .all(|e| matches!(e.as_str(), "pull_request" | "merge_group"))
+                            && (events.len() == 1 || (events.len() == 2 && events[0] != events[1]))
+                    })
+                    .ok_or_else(|| {
+                        error("events must be a nonempty list of pull_request, merge_group")
+                    })?,
+            ),
+        };
+        Ok(Self {
+            kinds,
+            trust_levels,
+            max_age_s,
+            enforce,
+            inputs,
+            sample_one_in,
+            require,
+            events,
+        })
+    }
+}
+fn invalid(detail: impl Into<String>) -> PolicyError {
+    PolicyError {
+        reason: "error",
+        detail: detail.into(),
+    }
+}
+fn names(value: Value) -> Option<Vec<String>> {
+    let Value::Array(values) = value else {
+        return None;
+    };
+    if values.is_empty() {
+        return None;
+    }
+    values
+        .into_iter()
+        .map(|v| match v {
+            Value::String(v) if !v.is_empty() => Some(v),
+            _ => None,
+        })
+        .collect()
+}
 
 /// Parse the legacy literal-path list, optionally allowing exclusions/selectors.
 /// Results are deduplicated and sorted; `where_` supplies diagnostic context.
@@ -90,6 +253,105 @@ fn literal_path(path: &str) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn document_and_check_headers_match_the_oracle() {
+        let base = json!({"version":1,"checks":{"unit":{"trust_levels":["agent"],
+            "kinds":{"wrapper":{"command":["test","{repository}","{check}"]}}}}});
+        let parse = |text: &str| PolicyDocument::parse(text)?.into_header("unit");
+        let mut cases: Vec<String> = [
+            "{",
+            "[]",
+            r#"{"version":1,"checks":{}}"#,
+            r#"{"version":2,"checks":{}}"#,
+            r#"{"version":1,"checks":[]}"#,
+            r#"{"version":1,"checks":{},"extra":true}"#,
+            r#"{"checks":{}}"#,
+            r#"{"version":false,"checks":{}}"#,
+            r#"{"version":1,"checks":{"unit":false}}"#,
+        ]
+        .map(str::to_owned)
+        .into();
+        cases.push(base.to_string());
+        let changes: Value = serde_json::from_str(r#"{
+          "trust_levels": [[], [""], true, [" "], ["agent","agent"]],
+          "max_age_s": [null, 1, 18446744073709551615, 0, -1, true, 1.5, 1.0],
+          "enforce": [true, false, null, 1],
+          "require": ["off", "shadow", "reject", "bad", null],
+          "sample_one_in": [1, 1000, 0, 1001, true, 1.0],
+          "events": [null, ["pull_request","merge_group"], ["merge_group"], [], ["push"], ["pull_request","pull_request"]],
+          "inputs": [null, ["src","!src/tmp","src"], ["x.yml::jobs.test"], ["."], [], ["../x"]],
+          "kinds": [{}, []], "unknown": [true]
+        }"#).unwrap();
+        for (key, values) in changes.as_object().unwrap() {
+            for value in values.as_array().unwrap() {
+                let mut doc = base.clone();
+                doc["checks"]["unit"][key] = value.clone();
+                cases.push(doc.to_string());
+            }
+        }
+        for key in ["kinds", "trust_levels"] {
+            let mut doc = base.clone();
+            doc["checks"]["unit"].as_object_mut().unwrap().remove(key);
+            cases.push(doc.to_string());
+        }
+        let mut other = base.clone();
+        other["checks"]["ignored"] = json!(false);
+        cases.push(other.to_string());
+        cases.push(base.to_string().replace(":1,", ":true,"));
+        cases.push(base.to_string().replace(":1,", ":1.0,"));
+        let large = base.to_string().replace(
+            "\"trust_levels\"",
+            "\"max_age_s\":18446744073709551616,\"trust_levels\"",
+        );
+        cases.push(large);
+        let root = std::env::var("MERGEMASTER_PYTHON_ORACLE")
+            .expect("MERGEMASTER_PYTHON_ORACLE must point to the pinned Python oracle");
+        let script = r#"
+import json, runpy, sys
+oracle = runpy.run_path(sys.argv[1] + '/scripts/evidence-verify')
+results = []
+for text in json.loads(sys.argv[2]):
+    try:
+        header = oracle['policy_rules'](text, 'unit', 'fixture/repo')
+        del header['kinds']
+        results.append(header)
+    except oracle['Failure'] as failure:
+        results.append({'reason': failure.reason})
+print(json.dumps(results))
+"#;
+        let output = std::process::Command::new("python3")
+            .args(["-c", script, &root, &serde_json::to_string(&cases).unwrap()])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let expected: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(expected.len(), cases.len());
+        for (index, (text, expected)) in cases.iter().zip(expected).enumerate() {
+            let actual = parse(text)
+                .map(|header| serde_json::to_value(header).unwrap())
+                .unwrap_or_else(|error| {
+                    assert!(!error.detail.is_empty());
+                    json!({"reason":error.reason})
+                });
+            if index == cases.len() - 1 {
+                assert!(expected["max_age_s"].is_number()); // max-age-above-u64.
+                assert_eq!(actual, json!({"reason":"error"}));
+            } else {
+                assert_eq!(actual, expected, "{text}");
+            }
+        }
+        other["checks"]["unit"]["kinds"] = json!({"raw":false});
+        let header = parse(&other.to_string()).unwrap();
+        assert_eq!(
+            header.kinds,
+            json!({"raw":false}).as_object().unwrap().clone()
+        );
+    }
     #[test]
     fn input_declarations_match_the_immutable_oracle() {
         let mut values: Vec<Value> = serde_json::from_str(
