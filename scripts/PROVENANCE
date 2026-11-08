@@ -25,8 +25,11 @@
 # Conservative divergence: max-age-above-u64. Python accepts arbitrarily large
 # positive max_age_s integers; Rust rejects values above u64::MAX as an invalid
 # policy, without saturation or a global JSON-number feature change.
-# raw_value only adds RawValue; native/push Value and number parsing are unchanged.
-# Selected-entry out-of-range numbers error in both (command 1e1000 is tested), except max-age-above-u64.
+# No JSON feature changes: native/push Value and number parsing stay unchanged.
+# Selected command 1e1000 errors in both; max-age-above-u64 is the exception.
+# Conservative divergence: shadowed-invalid-value. Rust rejects an earlier
+# duplicate version/checks/selected entry that fails conversion even when Python
+# accepts its later replacement. Differential cases cover all three positions.
 # Port: 64351934f2f637f63f44d1f5d72563414135a3cc
 # Scope: scripts/st-test scripts/fractal-test-test; two-hour queue aging.
 # Upstream hunks SHA256: 368ffaff939aecc9bb91e7979a4f273d4fb7ab63aca501c609b34e7614743336
