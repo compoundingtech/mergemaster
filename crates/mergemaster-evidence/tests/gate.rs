@@ -3312,8 +3312,18 @@ fn legacy_clock_and_input_guards_match_signed_oracle_order() {
         ("u64_max", "error"),
         ("minimum_age", "too_old"),
         ("no_age", "satisfied"),
+        ("age_now_tail", "satisfied"),
+        ("age_observed_tail", "satisfied"),
+        ("age_micro_under", "satisfied"),
+        ("age_micro_over", "too_old"),
+        ("future_observed_tail", "satisfied"),
+        ("future_micro_under", "satisfied"),
+        ("future_micro_over", "future_dated"),
+        ("age_before_epoch", "satisfied"),
+        ("future_before_epoch_offset", "satisfied"),
     ] {
         let f = Fixture::new();
+        let mut now = now;
         let mut statement = f.statement();
         let mut at = now - chrono::Duration::seconds(60);
         let mut entry = json!({"trust_levels":["agent"],"max_age_s":60,
@@ -3381,7 +3391,55 @@ fn legacy_clock_and_input_guards_match_signed_oracle_order() {
             "no_age" => entry["max_age_s"] = Value::Null,
             _ => {}
         }
-        statement["predicate"]["observed_at"] = json!(at.to_rfc3339());
+        // Both operands retain nanoseconds in Rust, while the unchanged oracle
+        // parses each independently to microseconds (without rounding).
+        let precise_clock = match case {
+            "age_now_tail" => Some((
+                "2025-01-01T00:01:00.000000999Z",
+                "2025-01-01T00:00:00.000000000Z",
+            )),
+            "age_observed_tail" => Some((
+                "2025-01-01T00:01:00.000000900Z",
+                "2025-01-01T00:00:00.000000100Z",
+            )),
+            "age_micro_under" => Some((
+                "2025-01-01T00:01:00.000000999Z",
+                "2025-01-01T00:00:00.000001000Z",
+            )),
+            "age_micro_over" => Some((
+                "2025-01-01T00:01:00.000001000Z",
+                "2025-01-01T00:00:00.000000999Z",
+            )),
+            "future_observed_tail" => Some((
+                "2025-01-01T00:01:00.000000100Z",
+                "2025-01-01T00:03:00.000000999Z",
+            )),
+            "future_micro_under" => Some((
+                "2025-01-01T00:01:00.000001000Z",
+                "2025-01-01T00:03:00.000000999Z",
+            )),
+            "future_micro_over" => Some((
+                "2025-01-01T00:01:00.000000999Z",
+                "2025-01-01T00:03:00.000001000Z",
+            )),
+            "age_before_epoch" => Some((
+                "1969-12-31T23:59:59.999999999Z",
+                "1969-12-31T23:58:59.999999000Z",
+            )),
+            "future_before_epoch_offset" => Some((
+                "1969-12-31T23:57:59.999999100Z",
+                "1970-01-01T00:59:59.999999999+01:00",
+            )),
+            _ => None,
+        };
+        if let Some((current, _)) = precise_clock {
+            now = chrono::DateTime::parse_from_rfc3339(current)
+                .unwrap()
+                .with_timezone(&chrono::Utc);
+        }
+        statement["predicate"]["observed_at"] = json!(
+            precise_clock.map_or_else(|| at.to_rfc3339(), |(_, observed)| observed.to_owned())
+        );
         f.note(&statement, &f.key, "tree");
         let policy = json!({"version":1,"checks":{CHECK:entry}}).to_string();
         let rules = PolicyDocument::parse(&policy, CHECK)
@@ -3407,7 +3465,8 @@ fn legacy_clock_and_input_guards_match_signed_oracle_order() {
         let routing = route(&rules, &record, 1).unwrap();
         routing.check_runner(runner, 1).unwrap();
         let clock = Clock {
-            observed_at: at.fixed_offset(),
+            observed_at: chrono::DateTime::parse_from_rfc3339(&typed.predicate.observed_at)
+                .unwrap(),
             now,
         };
         let actual = check_inputs(

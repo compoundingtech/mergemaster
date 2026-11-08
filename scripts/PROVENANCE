@@ -10,8 +10,7 @@
 # These differential cases are not a claim of complete selection parity.
 # Legacy definition_digest now matches Git-entry/argv preimages byte for byte;
 # native lane hashing is unchanged. Selection fixtures still supply the digest.
-# Open gap: lane-entry-canonicalization: open until 4d-3c-2.
-# lane_for must not be wired while lane-entry-canonicalization is open.
+# Open gap: lane-entry-canonicalization: open until 4d-3c-2b; lane_for stays unwired until then.
 # Rust parity P2-a: degraded-veto-and-fallback-exclusion. Unsigned degraded
 # records do not shadow trusted candidates during non-push selection.
 # Conservative divergence P3: wrong-definition-plus-bound-input. Python passes
