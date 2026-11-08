@@ -11,6 +11,7 @@
 # Open gap: lane-digest-derivation. Rust hashes compact-JSON tuples; legacy
 # evidence-verify --lane-from hashes Git entries/argv. Selection differential
 # tests supply an identical expected digest, not a claim of derivation parity.
+# Open gap: lane-entry-canonicalization: open until 4d-3c-2b; lane_for stays unwired until then.
 # Rust parity P2-a: degraded-veto-and-fallback-exclusion. Unsigned degraded
 # records do not shadow trusted candidates during non-push selection.
 # Conservative divergence P3: wrong-definition-plus-bound-input. Python passes
