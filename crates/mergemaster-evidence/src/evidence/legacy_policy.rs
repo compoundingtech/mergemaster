@@ -171,7 +171,14 @@ fn invalid(detail: impl Into<String>) -> PolicyError {
 pub struct CommandInputs {
     pub command: Vec<String>,
     pub required_inputs: Vec<String>,
-    pub bind_inputs: BTreeMap<String, String>,
+    #[serde(serialize_with = "serialize_pairs")]
+    pub bind_inputs: Vec<(String, String)>,
+}
+fn serialize_pairs<S: serde::Serializer, T: Serialize>(
+    pairs: &[(String, T)],
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.collect_map(pairs.iter().map(|(key, value)| (key, value)))
 }
 /// Consume only command/input fields; kind/level key validation is separate.
 /// Required-input duplicates/order and placeholders remain unnormalized here.
@@ -206,7 +213,7 @@ pub fn checked_command_inputs(
 pub fn checked_base_inputs(
     rule: &mut Map<String, Value>,
     where_: &str,
-) -> Result<BTreeMap<String, String>, PolicyError> {
+) -> Result<Vec<(String, String)>, PolicyError> {
     let base = string_map(
         rule.remove("base_inputs")
             .unwrap_or(Value::Object(Map::new())),
@@ -216,7 +223,7 @@ pub fn checked_base_inputs(
             "skip policy for {where_}: base_inputs maps an input name to a path"
         ))
     })?;
-    for path in base.values() {
+    for (_, path) in &base {
         if !short_path(path) || !(path == "." || literal_path(path)) {
             return Err(invalid(format!(
                 "skip policy for {where_}: base_inputs: invalid declared input {path:?}"
@@ -226,7 +233,7 @@ pub fn checked_base_inputs(
     Ok(base)
 }
 
-fn string_map(value: Value) -> Option<BTreeMap<String, String>> {
+fn string_map(value: Value) -> Option<Vec<(String, String)>> {
     let Value::Object(values) = value else {
         return None;
     };
@@ -343,7 +350,7 @@ mod tests {
             r#"{
           "command": [null, [], false, "test", [""], [1], ["test"," "], [["test"]]],
           "required_inputs": [null, [], false, [""], [1], ["b","a","b"], [" "]],
-          "bind_inputs": [null, [], false, {"":"x"}, {"x":""}, {"x":1}, {"x":"y","z":"q"}],
+          "bind_inputs": [null, [], false, {"":"x"}, {"x":""}, {"x":1}, {"z":"q","x":"y"}],
           "base_inputs": [null, [], false, {"":"x"}, {"x":""}, {"x":1}, {"x":"."},
                          {"b":"src/b","a":"src/a"}, {"x":"../src"}, {"x":"src/"},
                          {"x":"!src"}, {"x":"x.json::a"}, {"x":"café"}],
@@ -395,7 +402,11 @@ print(json.dumps(results))
                 .and_then(|inputs| {
                     let base = checked_base_inputs(&mut fields, "fixture")?;
                     let mut value = serde_json::to_value(inputs).unwrap();
-                    value["base_inputs"] = json!(base);
+                    value["base_inputs"] = Value::Object(
+                        base.into_iter()
+                            .map(|(key, value)| (key, Value::String(value)))
+                            .collect(),
+                    );
                     Ok(value)
                 })
                 .unwrap_or_else(|error| {
@@ -403,7 +414,68 @@ print(json.dumps(results))
                     json!({"reason":error.reason})
                 });
             assert_eq!(actual, expected, "{rule}");
+            if let Some(bind) = rule.get("bind_inputs").and_then(Value::as_object)
+                && let Some(parsed) = actual["bind_inputs"].as_object()
+            {
+                assert!(bind.keys().eq(parsed.keys()), "{rule}");
+            }
         }
+    }
+
+    #[test]
+    fn base_input_order_preserves_the_oracle_deciding_reason() {
+        let rules = json!([
+            {"base_inputs":{"z":"src/z","a":"src/a"}},
+            {"base_inputs":{"a":"src/a","z":"src/z"}}
+        ]);
+        let parsed: Vec<_> = rules
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|rule| {
+                let mut fields = rule.as_object().unwrap().clone();
+                let base = checked_base_inputs(&mut fields, "fixture").unwrap();
+                Value::Object(
+                    base.into_iter()
+                        .map(|(key, value)| (key, Value::String(value)))
+                        .collect(),
+                )
+            })
+            .collect();
+        let root = std::env::var("MERGEMASTER_PYTHON_ORACLE")
+            .expect("MERGEMASTER_PYTHON_ORACLE must point to the pinned Python oracle");
+        let script = r#"
+import json, runpy, sys
+oracle = runpy.run_path(sys.argv[1] + '/scripts/evidence-verify')
+reasons = []
+for original, parsed in zip(json.loads(sys.argv[2]), json.loads(sys.argv[3])):
+    for base in (original['base_inputs'], parsed):
+        try:
+            oracle['value_checks']({'base_inputs': base}, {'z': 'wrong'}, {'z': 'expected'}, 1)
+        except oracle['Failure'] as failure:
+            reasons.append(failure.reason)
+print(json.dumps(reasons))
+"#;
+        let output = std::process::Command::new("python3")
+            .args([
+                "-c",
+                script,
+                &root,
+                &rules.to_string(),
+                &serde_json::to_string(&parsed).unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let reasons: Vec<String> = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(
+            reasons,
+            ["wrong_input", "wrong_input", "no_run_input", "no_run_input"]
+        );
     }
 
     #[test]
