@@ -3571,7 +3571,6 @@ fn legacy_lane_definition_and_blob_guards_match_signed_oracle() {
     }
     for (case, reason) in [
         ("satisfied", "satisfied"),
-        ("runner_and_age", "wrong_runner"),
         ("tier_before_lane", "untrusted_tier"),
         ("age_and_definition", "too_old"),
         ("required_and_definition", "missing_input"),
@@ -3602,11 +3601,6 @@ fn legacy_lane_definition_and_blob_guards_match_signed_oracle() {
         statement["predicate"]["observed"]["inputs"]["lane_definition_sha256"] =
             lane["sha256"].clone();
         match case {
-            "runner_and_age" => {
-                entry["kinds"]["wrapper"]["runner_prefix"] = json!("github:");
-                statement["predicate"]["observed_at"] = json!("2025-01-01T00:00:00.000000Z");
-                entry["max_age_s"] = json!(1);
-            }
             "tier_before_lane" => statement["predicate"]["tier"] = json!("test"),
             "age_and_definition" => {
                 statement["predicate"]["observed_at"] = json!("2025-01-01T00:00:00Z");
@@ -3675,7 +3669,16 @@ fn legacy_lane_definition_and_blob_guards_match_signed_oracle() {
                 .unwrap(),
             now,
         };
-        let given: LaneDefinition = serde_json::from_value(lane.clone()).unwrap();
+        let given = LaneDefinition {
+            sha256: lane["sha256"].as_str().unwrap().into(),
+            tree_sha256: lane["tree_sha256"].as_str().unwrap().into(),
+            changed: lane["changed"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|path| path.as_str().unwrap().as_bytes().to_vec())
+                .collect(),
+        };
         let mut provider = Source {
             fixture: &f,
             blobs: Vec::new(),

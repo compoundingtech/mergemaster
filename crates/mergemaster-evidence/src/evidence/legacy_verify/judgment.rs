@@ -4,12 +4,9 @@ use super::{
     routing::{RecordFacts, Routing},
 };
 use crate::evidence::legacy_policy::{PolicyError, level_rules::LaneBinding};
-use serde::{Deserialize, Serialize};
-
-#[derive(Deserialize, Serialize)]
 pub struct LaneDefinition {
     pub sha256: String,
-    pub changed: Vec<String>,
+    pub changed: Vec<Vec<u8>>,
     pub tree_sha256: String,
 }
 /// Supply trusted lane context and hashes from the verified tree; never unverified claims.
