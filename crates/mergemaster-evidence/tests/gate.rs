@@ -3537,3 +3537,211 @@ except OverflowError:
         assert_eq!(actual, expected, "{case}");
     }
 }
+
+#[test]
+fn legacy_lane_definition_and_blob_guards_match_signed_oracle() {
+    use mergemaster_evidence::evidence::{
+        Fact, Statement,
+        legacy_policy::{PolicyDocument, PolicyError},
+        legacy_verify::{
+            inputs::{Clock, check_inputs},
+            judgment::{LaneDefinition, Provider, check_bindings},
+            routing::{RecordFacts, route},
+        },
+    };
+    use sha2::{Digest, Sha256};
+    struct Source<'a> {
+        fixture: &'a Fixture,
+        blobs: Vec<String>,
+    }
+    impl Provider for Source<'_> {
+        fn blob_sha256(&mut self, path: &str) -> Result<Option<String>, PolicyError> {
+            self.blobs.push(path.into());
+            let output = self
+                .fixture
+                .command("git")
+                .args(["show", &format!("{}:{path}", self.fixture.tree)])
+                .output()
+                .unwrap();
+            Ok(output
+                .status
+                .success()
+                .then(|| hex::encode(Sha256::digest(output.stdout))))
+        }
+    }
+    for (case, reason) in [
+        ("satisfied", "satisfied"),
+        ("runner_and_age", "wrong_runner"),
+        ("tier_before_lane", "untrusted_tier"),
+        ("age_and_definition", "too_old"),
+        ("required_and_definition", "missing_input"),
+        ("definition_and_bound", "definition_changed"),
+        ("digest_and_bound", "wrong_definition"),
+        ("tree_edit", "satisfied"),
+        ("tree_unchanged", "satisfied"),
+        ("bound_wrong", "wrong_input"),
+        ("bound_missing", "wrong_input"),
+        ("ordered_binds", "wrong_input"),
+    ] {
+        let f = Fixture::new();
+        let mut statement = f.statement();
+        let command = statement["predicate"]["observed"]["checks"][CHECK]["command"].clone();
+        let mut entry = json!({"trust_levels":["agent"],"max_age_s":60,"kinds":{"wrapper":{
+            "command":command,"bind_inputs":{"bound":"source.txt"},"by_level":{"agent":{
+                "command":command,"lane":true,"bind_inputs":{"bound":"source.txt"}}}}}});
+        // Identical supplied context isolates judgment; 3c's byte/hash matrix covers derivation.
+        let mut lane = json!({"sha256":"a".repeat(64),"tree_sha256":"b".repeat(64),"changed":[]});
+        let now = chrono::DateTime::parse_from_rfc3339("2025-01-01T00:01:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        statement["predicate"]["observed_at"] = json!(now.to_rfc3339());
+        let bound = hex::encode(Sha256::digest(
+            f.git(&["show", &format!("{}:source.txt", f.tree)], b""),
+        ));
+        statement["predicate"]["observed"]["inputs"]["bound"] = json!(bound);
+        statement["predicate"]["observed"]["inputs"]["lane_definition_sha256"] =
+            lane["sha256"].clone();
+        match case {
+            "runner_and_age" => {
+                entry["kinds"]["wrapper"]["runner_prefix"] = json!("github:");
+                statement["predicate"]["observed_at"] = json!("2025-01-01T00:00:00.000000Z");
+                entry["max_age_s"] = json!(1);
+            }
+            "tier_before_lane" => statement["predicate"]["tier"] = json!("test"),
+            "age_and_definition" => {
+                statement["predicate"]["observed_at"] = json!("2025-01-01T00:00:00Z");
+                entry["max_age_s"] = json!(1);
+                lane["changed"] = json!(["tools/graph"]);
+            }
+            "required_and_definition" => {
+                entry["kinds"]["wrapper"]["by_level"]["agent"]["required_inputs"] =
+                    json!(["missing"]);
+                lane["changed"] = json!(["tools/graph"]);
+            }
+            "definition_and_bound" => {
+                lane["changed"] = json!(["tools/graph"]);
+                statement["predicate"]["observed"]["inputs"]["bound"] = json!("wrong");
+            }
+            "digest_and_bound" => {
+                statement["predicate"]["observed"]["inputs"]["lane_definition_sha256"] =
+                    json!("wrong");
+                statement["predicate"]["observed"]["inputs"]["bound"] = json!("wrong");
+            }
+            "tree_edit" | "tree_unchanged" => {
+                entry["kinds"]["wrapper"]["by_level"]["agent"]["lane"] = json!("tree");
+                if case == "tree_edit" {
+                    lane["changed"] = json!(["tools/graph"]);
+                    statement["predicate"]["observed"]["inputs"]["lane_definition_sha256"] =
+                        lane["tree_sha256"].clone();
+                }
+            }
+            "bound_wrong" => statement["predicate"]["observed"]["inputs"]["bound"] = json!("wrong"),
+            "bound_missing" => {
+                entry["kinds"]["wrapper"]["by_level"]["agent"]["bind_inputs"]["bound"] =
+                    json!("missing.txt")
+            }
+            "ordered_binds" => {
+                entry["kinds"]["wrapper"]["by_level"]["agent"]["bind_inputs"] =
+                    json!({"z":"source.txt","a":"missing.txt"});
+                statement["predicate"]["observed"]["inputs"]["z"] = json!("wrong");
+                statement["predicate"]["observed"]["inputs"]["a"] = json!("wrong");
+            }
+            _ => {}
+        }
+        f.note(&statement, &f.key, "tree");
+        let policy = json!({"version":1,"checks":{CHECK:entry}}).to_string();
+        let rules = PolicyDocument::parse(&policy, CHECK)
+            .unwrap()
+            .into_rules("owner/repo")
+            .unwrap();
+        let typed: Statement = serde_json::from_value(statement).unwrap();
+        let Fact::Tests {
+            runner,
+            checks,
+            inputs,
+        } = &typed.predicate.fact
+        else {
+            unreachable!()
+        };
+        let record = RecordFacts {
+            tier: typed.predicate.tier,
+            runner,
+            principal: PRINCIPAL,
+            check: &checks[CHECK],
+            inputs,
+        };
+        let clock = Clock {
+            observed_at: chrono::DateTime::parse_from_rfc3339(&typed.predicate.observed_at)
+                .unwrap(),
+            now,
+        };
+        let given: LaneDefinition = serde_json::from_value(lane.clone()).unwrap();
+        let mut provider = Source {
+            fixture: &f,
+            blobs: Vec::new(),
+        };
+        let actual = route(&rules, &record, 1)
+            .and_then(|routing| {
+                routing.check_runner(runner, 1)?;
+                check_inputs(&rules, &routing, &record, &clock, &BTreeMap::new(), 1)?;
+                check_bindings(&routing, &record, Some(&given), &mut provider, 1)
+            })
+            .map(|_| json!({"reason":"satisfied"}))
+            .unwrap_or_else(|e| json!({"reason":e.reason,"attempts":e.attempts}));
+        let keys = f.root.path().join("lazy-keys");
+        fs::write(
+            &keys,
+            f.git(
+                &["show", &format!("{}:.mergemaster/evidence-keys", f.base)],
+                b"",
+            ),
+        )
+        .unwrap();
+        let root = std::env::var("MERGEMASTER_PYTHON_ORACLE")
+            .expect("MERGEMASTER_PYTHON_ORACLE must point to the pinned Python oracle");
+        let script = r#"
+import json, runpy, sys
+oracle = runpy.run_path(sys.argv[1] + '/scripts/evidence-verify')
+rules = oracle['policy_rules'](sys.argv[6],sys.argv[4],'owner/repo')
+context = json.loads(sys.argv[7])
+blobs = []
+original = oracle['blob_sha256']
+def blob(*args):
+    blobs.append(args[2])
+    return original(*args)
+oracle['verified'].__globals__['blob_sha256'] = blob
+try:
+    oracle['verify'](sys.argv[2],sys.argv[3],sys.argv[4],sys.argv[5],None,rules=rules,
+        lane=context,now=oracle['parse_time'](sys.argv[8]))
+    result = dict(reason='satisfied')
+except oracle['Failure'] as failure:
+    result = dict(reason=failure.reason,attempts=failure.extra['attempts'])
+print(json.dumps(dict(result=result,blobs=blobs)))
+"#;
+        let output = f
+            .command("python3")
+            .args([
+                "-c",
+                script,
+                &root,
+                f.repo.to_str().unwrap(),
+                &f.tree,
+                CHECK,
+                keys.to_str().unwrap(),
+                &policy,
+                &lane.to_string(),
+                &now.to_rfc3339(),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{case}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let expected: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(actual["reason"], reason, "{case}");
+        assert_eq!(actual, expected["result"], "{case}");
+        assert_eq!(json!(provider.blobs), expected["blobs"], "{case}");
+    }
+}
