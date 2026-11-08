@@ -2103,38 +2103,46 @@ fn equal_time_passes_follow_oracle_discovery_order() {
                 let mut valid = f.statement();
                 valid["predicate"]["observed_at"] =
                     json!((chrono::Utc::now() - chrono::Duration::minutes(10)).to_rfc3339());
-                let valid_id = f.note(&valid, &f.key, "tree");
                 let mut invalid = valid.clone();
                 invalid["predicate"]["observed"]["checks"][CHECK]["command"] = json!(["true"]);
-                let invalid_id = (0..128)
-                    .find_map(|nonce| {
-                        invalid["predicate"]["change_id"] = json!(format!("tie-{nonce}"));
-                        let id = f.note(&invalid, &f.key, "tree");
-                        if (id < valid_id) == invalid_lower {
-                            Some(id)
-                        } else {
-                            f.git(
-                                &[
-                                    "update-ref",
-                                    "-d",
-                                    &format!("refs/notes/evidence/{}/{id}", f.tree),
-                                ],
-                                b"",
-                            );
-                            None
-                        }
-                    })
-                    .expect("find the requested record-ID ordering");
-                let lower = if invalid_lower {
-                    &invalid_id
-                } else {
-                    &valid_id
+                // Search both sides instead of bracketing one potentially extreme ID.
+                // Disjoint 16-record ranges have probability 2 / binomial(32, 16).
+                let records = |statement: &mut Value| {
+                    (0..16)
+                        .map(|nonce| {
+                            statement["predicate"]["change_id"] = json!(format!("tie-{nonce}"));
+                            f.note(statement, &f.key, "tree")
+                        })
+                        .collect::<Vec<_>>()
                 };
-                let higher = if invalid_lower {
-                    &valid_id
+                let valid_ids = records(&mut valid);
+                let invalid_ids = records(&mut invalid);
+                let valid_min = valid_ids.iter().min().unwrap();
+                let valid_max = valid_ids.iter().max().unwrap();
+                let invalid_min = invalid_ids.iter().min().unwrap();
+                let invalid_max = invalid_ids.iter().max().unwrap();
+                assert!(invalid_min < valid_max, "need a lower-ID invalid record");
+                assert!(valid_min < invalid_max, "need a higher-ID invalid record");
+                let (valid_id, invalid_id) = if invalid_lower {
+                    (valid_max, invalid_min)
                 } else {
-                    &invalid_id
+                    (valid_min, invalid_max)
                 };
+                assert_eq!(invalid_id < valid_id, invalid_lower);
+                for id in valid_ids.iter().chain(&invalid_ids) {
+                    if id != valid_id && id != invalid_id {
+                        f.git(
+                            &[
+                                "update-ref",
+                                "-d",
+                                &format!("refs/notes/evidence/{}/{id}", f.tree),
+                            ],
+                            b"",
+                        );
+                    }
+                }
+                let lower = if invalid_lower { invalid_id } else { valid_id };
+                let higher = if invalid_lower { valid_id } else { invalid_id };
                 if prioritize_higher_tag {
                     f.publish(higher, "tag");
                 }
@@ -2153,7 +2161,7 @@ fn equal_time_passes_follow_oracle_discovery_order() {
                 assert_eq!(oracle["decided_by"], *expected);
                 assert_eq!(
                     oracle["reason"],
-                    if expected == &valid_id {
+                    if expected == valid_id {
                         "satisfied"
                     } else {
                         "wrong_command"
