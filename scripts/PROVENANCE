@@ -30,6 +30,12 @@
 # Conservative divergence: shadowed-invalid-value. Rust rejects an earlier
 # duplicate version/checks/selected entry that fails conversion even when Python
 # accepts its later replacement. Differential cases cover all three positions.
+# Conservative divergence: unicode-shard-count. Rust accepts ASCII digits only;
+# Arabic-Indic/fullwidth/mathematical digits produce wrong_input, not acceptance.
+# Leading ASCII zeros match Python through 4300 digits. Above 4300 digits and
+# for superscript two, Rust returns wrong_input where Python int raises ValueError.
+# Unported single-check surfaces, owned by 4d-5 (immutable evidence-verify lines):
+# prefer_levels 953-956,1172-1177; members 1198-1312; log shadow 783-912.
 # Port: 64351934f2f637f63f44d1f5d72563414135a3cc
 # Scope: scripts/st-test scripts/fractal-test-test; two-hour queue aging.
 # Upstream hunks SHA256: 368ffaff939aecc9bb91e7979a4f273d4fb7ab63aca501c609b34e7614743336
