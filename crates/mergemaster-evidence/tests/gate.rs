@@ -3698,11 +3698,26 @@ fn legacy_lazy_lane_and_blob_composition_matches_signed_oracle() {
                 .unwrap(),
             now,
         };
-        let given = (case == "provided")
-            .then(|| serde_json::from_value::<LaneDefinition>(lane.clone()).unwrap());
+        let definition = || {
+            lane.as_object().map(|_| LaneDefinition {
+                sha256: lane["sha256"].as_str().unwrap().into(),
+                tree_sha256: lane["tree_sha256"].as_str().unwrap().into(),
+                changed: lane["changed"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|path| path.as_str().unwrap().as_bytes().to_vec())
+                    .collect(),
+            })
+        };
+        let given = if case == "provided" {
+            definition()
+        } else {
+            None
+        };
         let mut provider = Source {
             fixture: &f,
-            lane: serde_json::from_value(lane.clone()).unwrap(),
+            lane: definition(),
             lane_reads: 0,
             blobs: Vec::new(),
         };
