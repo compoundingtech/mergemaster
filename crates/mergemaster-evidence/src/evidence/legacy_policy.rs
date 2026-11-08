@@ -1,4 +1,5 @@
 //! Legacy skip-policy schemas; unrelated to native gate authorization.
+pub mod value_rules;
 use serde::{
     Serialize,
     de::{self, DeserializeSeed, IgnoredAny, MapAccess, Visitor},
