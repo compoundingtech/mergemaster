@@ -4,13 +4,45 @@ fn doc(value: &str) -> String {
     format!(r#"{{"version":1,"lanes":{{"check":{value}}}}}"#)
 }
 #[test]
-fn guarded_entries_and_refusals_match_oracle_inventory() {
+fn canonical_text_and_conservative_refusals_match_oracle_inventory() {
     let mut cases = vec![
         (
             [doc("1"), doc("1.0")],
             [None, Some("lane-entry-float-text")],
         ),
+        ([doc("true"), doc("1")], [None, None]),
+        (
+            [
+                doc(r#"{"b":[[],{"é":"😀"}],"a":null}"#),
+                doc(r#"{"a":null,"b":[[],{"é":"😀"}]}"#),
+            ],
+            [None, None],
+        ),
+        ([doc("-0"), doc("0")], [None, None]),
+        (
+            [
+                doc("100000000000000000000000"),
+                doc("100000000000000000000000"),
+            ],
+            [None, None],
+        ),
+        (
+            [
+                r#"{"lanes":{"check":false,"check":{"z":2,"a":1}}}"#.into(),
+                doc(r#"{"a":1,"z":2}"#),
+            ],
+            [None, None],
+        ),
         ([doc(r#""\Infinity""#), doc("1Infinity")], [None, None]),
+        (["{}".into(), doc("null")], [None, None]),
+        ([doc("[]"), doc("{}")], [None, None]),
+        (
+            [
+                doc(r#""\"\\\n\r\t\u0000\u007fé😀""#),
+                doc(r#""\"\\\n\r\t\u0000\u007f\u00e9\ud83d\ude00""#),
+            ],
+            [None, None],
+        ),
     ];
     for number in [
         "1e16",
@@ -68,8 +100,8 @@ fn guarded_entries_and_refusals_match_oracle_inventory() {
         .iter()
         .map(|(texts, _)| {
             texts.each_ref().map(|t| {
-                selected(t, "check")
-                    .map(|v| json!({"present":v.is_some()}))
+                canonical(t, "check")
+                    .map(|v| json!({"text":v}))
                     .unwrap_or_else(|e| json!({"reason":e.reason}))
             })
         })
@@ -128,13 +160,14 @@ print(json.dumps(results))
                 assert_eq!(actual[i]["reason"], reason);
                 assert_eq!(expected["sides"][i]["category"], "rejected");
             } else {
-                assert_eq!(
-                    actual[i]["present"],
-                    !expected["sides"][i]["entry"]["text"].is_null(),
-                    "{}",
-                    texts[i]
-                );
+                assert_eq!(actual[i], expected["sides"][i]["entry"], "{}", texts[i]);
             }
+        }
+        if reasons == &[None, None] {
+            assert_eq!(
+                actual[0]["text"] == actual[1]["text"],
+                expected["equal"].as_bool().unwrap()
+            );
         }
     }
     assert_eq!(

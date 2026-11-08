@@ -516,6 +516,8 @@ preserving optional-field truthiness without reading Git or authorizing evidence
 Legacy definition hashing streams Python-compatible Git-entry/argv bytes,
 including surrogateescaped filenames; native lane hashing remains unchanged.
 Legacy lane-entry parsing preserves integer lexemes and reports unsupported JSON explicitly.
+Canonical lane-entry comparisons use Python-compatible sorted compact JSON text,
+not parsed-value equality; callers compare before validating the lane schema.
 
 ### Main-push tree-equality evidence
 
