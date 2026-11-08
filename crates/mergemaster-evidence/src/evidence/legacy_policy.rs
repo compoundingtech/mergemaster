@@ -1,6 +1,6 @@
 //! Legacy skip-policy schemas; unrelated to native gate authorization.
 use serde::Serialize;
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, value::RawValue};
 use std::collections::BTreeMap;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -16,25 +16,28 @@ impl std::fmt::Display for PolicyError {
 impl std::error::Error for PolicyError {}
 
 #[derive(Debug)]
-pub struct PolicyDocument {
-    pub checks: Map<String, Value>,
+pub struct PolicyDocument<'a> {
+    pub checks: BTreeMap<String, &'a RawValue>,
 }
-impl PolicyDocument {
-    pub fn parse(text: &str) -> Result<Self, PolicyError> {
-        let mut doc: Value = serde_json::from_str(text).map_err(|e| invalid(e.to_string()))?;
+impl<'a> PolicyDocument<'a> {
+    pub fn parse(text: &'a str) -> Result<Self, PolicyError> {
+        // RawValue validates JSON grammar without converting unrelated numbers.
+        let mut object: BTreeMap<String, &RawValue> =
+            serde_json::from_str(text).map_err(|e| invalid(e.to_string()))?;
         let shape = || invalid("skip policy must be {\"version\": 1, \"checks\": {...}}");
-        let object = doc.as_object_mut().ok_or_else(shape)?;
         // Python equality also accepts true and 1.0 as version one.
-        if object.len() != 2
-            || !(object.get("version").and_then(Value::as_f64) == Some(1.0)
-                || object.get("version") == Some(&Value::Bool(true)))
+        let version: Option<Value> = object
+            .remove("version")
+            .and_then(|raw| serde_json::from_str(raw.get()).ok());
+        if object.len() != 1
+            || !(version.as_ref().and_then(Value::as_f64) == Some(1.0)
+                || version == Some(Value::Bool(true)))
         {
             return Err(shape());
         }
-        match object.remove("checks") {
-            Some(Value::Object(checks)) => Ok(Self { checks }),
-            _ => Err(shape()),
-        }
+        let raw = object.remove("checks").ok_or_else(shape)?;
+        let checks = serde_json::from_str(raw.get()).map_err(|_| shape())?;
+        Ok(Self { checks })
     }
     /// Consume only the selected check; unrelated entries are not validated.
     pub fn into_header(mut self, check: &str) -> Result<CheckHeader, PolicyError> {
@@ -42,6 +45,7 @@ impl PolicyDocument {
             reason: "no_policy",
             detail: format!("the skip policy has no entry for check {check}"),
         })?;
+        let entry = serde_json::from_str(entry.get()).map_err(|e| invalid(e.to_string()))?;
         CheckHeader::parse(entry, check)
     }
 }
@@ -416,10 +420,16 @@ print(json.dumps(results))
             r#"{"checks":{}}"#,
             r#"{"version":false,"checks":{}}"#,
             r#"{"version":1,"checks":{"unit":false}}"#,
+            r#"{"version":1,"checks":{"ignored":1e1000}}"#,
+            r#"{"version":1,"checks":{"unit":{"kinds":{"wrapper":{"command":1e1000}},"trust_levels":["agent"]}}}"#,
         ]
         .map(str::to_owned)
         .into();
         cases.push(base.to_string());
+        cases.push(
+            base.to_string()
+                .replace(r#"{"unit":"#, r#"{"ignored":1e1000,"unit":"#),
+        );
         let changes: Value = serde_json::from_str(r#"{
           "trust_levels": [[], [""], true, [" "], ["agent","agent"]],
           "max_age_s": [null, 1, 18446744073709551615, 0, -1, true, 1.5, 1.0],
