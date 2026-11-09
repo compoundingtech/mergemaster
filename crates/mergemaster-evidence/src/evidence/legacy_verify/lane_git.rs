@@ -41,7 +41,7 @@ pub fn definition_entries(
     }
     Ok(entries)
 }
-fn parse_entries(
+pub(super) fn parse_entries(
     listing: &[u8],
     entries: &mut BTreeSet<DefinitionEntry>,
 ) -> Result<(), PolicyError> {
