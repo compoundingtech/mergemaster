@@ -17,6 +17,13 @@ fn error(detail: impl ToString) -> PolicyError {
 }
 /// Prefix order is significant; duplicate IDs are returned once at first occurrence.
 pub fn records_under(repo: &Path, prefixes: &[String]) -> Result<Vec<String>, PolicyError> {
+    for prefix in prefixes {
+        if !prefix.starts_with("refs/") {
+            return Err(error("invalid record prefix"));
+        }
+        let name = prefix.strip_suffix('/').unwrap_or(prefix);
+        text(repo, &["check-ref-format", name]).map_err(error)?;
+    }
     let listings = prefixes
         .iter()
         .map(|prefix| {
@@ -25,6 +32,7 @@ pub fn records_under(repo: &Path, prefixes: &[String]) -> Result<Vec<String>, Po
                 &[
                     "for-each-ref",
                     "--format=%(objectname) %(refname)",
+                    "--end-of-options",
                     prefix.trim_end_matches('/'),
                 ],
             )
@@ -70,6 +78,12 @@ pub fn with_note_for<'a>(
     commits: &'a [String],
     tree: &str,
 ) -> Result<Vec<&'a str>, PolicyError> {
+    for commit in commits {
+        oid(commit).map_err(error)?;
+    }
+    if tree.contains(['\n', '\r', '\0']) {
+        return Err(error("invalid note path"));
+    }
     if commits.is_empty() {
         return Ok(Vec::new());
     }
@@ -85,7 +99,6 @@ pub fn with_note_for<'a>(
         let mut output = BufReader::new(child.stdout.take().expect("piped Git stdout"));
         let mut found = Vec::new();
         let mut answer = String::new();
-        // One query/answer at a time avoids pipe-capacity deadlock without another Git process.
         for commit in commits {
             writeln!(input, "{commit}:{tree}").map_err(error)?;
             input.flush().map_err(error)?;
@@ -94,9 +107,26 @@ pub fn with_note_for<'a>(
             if !answer.ends_with('\n') {
                 return Err(error("truncated Git batch answer"));
             }
-            if !answer.trim_end_matches('\n').ends_with(" missing") {
-                found.push(commit.as_str());
+            if answer
+                .strip_suffix(" missing\n")
+                .is_some_and(|q| q.split_once(':') == Some((commit.as_str(), tree)))
+            {
+                continue;
             }
+            let mut fields = answer.trim_end_matches('\n').split(' ');
+            let (Some(id), Some(kind), Some(size), None) =
+                (fields.next(), fields.next(), fields.next(), fields.next())
+            else {
+                return Err(error("malformed Git batch answer"));
+            };
+            if oid(id).is_err()
+                || !matches!(kind, "blob" | "tree" | "commit" | "tag")
+                || !size.bytes().all(|b| b.is_ascii_digit())
+                || size.parse::<u64>().is_err()
+            {
+                return Err(error("malformed Git batch object"));
+            }
+            found.push(commit.as_str());
         }
         Ok(found)
     })();

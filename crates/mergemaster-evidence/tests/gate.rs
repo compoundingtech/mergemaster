@@ -4218,6 +4218,16 @@ fn legacy_input_indexes_and_note_presence_match_real_oracle() {
         input_refs, records_under, with_note_for,
     };
     let f = Fixture::new();
+    for (commit, tree) in [
+        (format!("{}\n", f.head), f.tree.clone()),
+        (f.head.clone(), format!("{}\n", f.tree)),
+    ] {
+        assert_eq!(
+            with_note_for(&f.repo, &[commit], &tree).unwrap_err().reason,
+            "error"
+        );
+    }
+    assert!(records_under(&f.repo, &["--help".into()]).is_err());
     let blob = f.git(
         &["hash-object", "-w", "--stdin"],
         b"not a signed statement\n",
