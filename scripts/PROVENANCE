@@ -12,6 +12,8 @@
 # native lane hashing is unchanged. Selection fixtures still supply the digest.
 # Rust parity: input-ref-discovery (683-693,702-717). Prefix order, exact suffix
 # identity, deduplication and batch presence match; discovery does not grant trust.
+# Rust parity: workflow-job-selection (462-520). Raw top-level/job bytes and
+# dependency closure match; workflow layout is not interpreted as general YAML.
 # Hardening divergence: discovery-input-hardening rejects invalid ref prefixes,
 # non-OID commits, LF/CR/NUL note paths and malformed batch frames. Python callers
 # never supply these; its suffix-only test counts ambiguous replies as present (impossible with full OIDs).

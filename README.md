@@ -529,6 +529,8 @@ Legacy `discovery::input_refs` and `with_note_for` find indexed candidates and
 batch note-entry presence only; neither establishes statement or signer trust.
 Lane discovery uses the gate's sanitized Git command and rejects malformed or
 unterminated ls-tree rows; shared subprocess timeout/output bounds remain open.
+`workflow::workflow_job` selects exact generated-workflow text and transitive
+job dependencies; it follows the legacy layout contract, not general YAML.
 
 ### Main-push tree-equality evidence
 
