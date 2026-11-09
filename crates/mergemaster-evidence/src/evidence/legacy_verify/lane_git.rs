@@ -134,9 +134,13 @@ pub fn lane_definition(
 }
 
 const LANES: &str = ".st/required-lanes.json";
-const PREFERRED: &str = ".fractal/required-lanes.json";
-fn config_path(repo: &Path, commit: &str) -> Result<Option<&'static str>, PolicyError> {
+pub(super) fn config_path(
+    repo: &Path,
+    commit: &str,
+    legacy: &str,
+) -> Result<Option<String>, PolicyError> {
     crate::evidence::oid(commit).map_err(error)?;
+    let preferred = legacy.replacen(".st/", ".fractal/", 1);
     let listing = git(
         repo,
         &[
@@ -146,25 +150,32 @@ fn config_path(repo: &Path, commit: &str) -> Result<Option<&'static str>, Policy
             "--end-of-options",
             commit,
             "--",
-            PREFERRED,
-            LANES,
+            &preferred,
+            legacy,
         ],
     )
     .map_err(error)?;
     let mut entries = BTreeSet::new();
     parse_entries(&listing, &mut entries)?;
-    Ok([PREFERRED, LANES].into_iter().find(|path| {
-        entries
-            .iter()
-            .any(|entry| entry.path.as_slice() == path.as_bytes())
-    }))
+    Ok([preferred.as_str(), legacy]
+        .into_iter()
+        .find(|path| {
+            entries
+                .iter()
+                .any(|entry| entry.path.as_slice() == path.as_bytes())
+        })
+        .map(str::to_owned))
 }
 /// Read the accepted revision, not the checkout; a present preferred file never falls back.
 pub fn read_lanes(repo: &Path, commit: &str) -> Result<String, PolicyError> {
-    let path = config_path(repo, commit)?.unwrap_or(LANES);
+    let path = config_path(repo, commit, LANES)?;
     let shown = git(
         repo,
-        &["show", "--end-of-options", &format!("{commit}:{path}")],
+        &[
+            "show",
+            "--end-of-options",
+            &format!("{commit}:{}", path.as_deref().unwrap_or(LANES)),
+        ],
     )
     .map_err(error)?;
     String::from_utf8(shown).map_err(error)
@@ -184,13 +195,13 @@ pub fn lane_for(
     if let Some(base) = lane_base {
         crate::evidence::oid(base).map_err(error)?;
         git(repo, &["merge-base", "--is-ancestor", base, accepted]).map_err(error)?;
-        let path = config_path(repo, base)?;
+        let path = config_path(repo, base, LANES)?;
         let shown = git(
             repo,
             &[
                 "show",
                 "--end-of-options",
-                &format!("{base}:{}", path.unwrap_or(LANES)),
+                &format!("{base}:{}", path.as_deref().unwrap_or(LANES)),
             ],
         );
         let here = match shown {
