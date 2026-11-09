@@ -136,12 +136,14 @@ pub fn lane_definition(
 const LANES: &str = ".st/required-lanes.json";
 const PREFERRED: &str = ".fractal/required-lanes.json";
 fn config_path(repo: &Path, commit: &str) -> Result<Option<&'static str>, PolicyError> {
+    crate::evidence::oid(commit).map_err(error)?;
     let listing = git(
         repo,
         &[
             "ls-tree",
             "-z",
             "--full-tree",
+            "--end-of-options",
             commit,
             "--",
             PREFERRED,
@@ -160,7 +162,11 @@ fn config_path(repo: &Path, commit: &str) -> Result<Option<&'static str>, Policy
 /// Read the accepted revision, not the checkout; a present preferred file never falls back.
 pub fn read_lanes(repo: &Path, commit: &str) -> Result<String, PolicyError> {
     let path = config_path(repo, commit)?.unwrap_or(LANES);
-    let shown = git(repo, &["show", &format!("{commit}:{path}")]).map_err(error)?;
+    let shown = git(
+        repo,
+        &["show", "--end-of-options", &format!("{commit}:{path}")],
+    )
+    .map_err(error)?;
     String::from_utf8(shown).map_err(error)
 }
 pub fn lane_for(
@@ -173,6 +179,7 @@ pub fn lane_for(
     let Some((text, accepted)) = lanes else {
         return Ok(None);
     };
+    crate::evidence::oid(accepted).map_err(error)?;
     let mut definition_base = accepted;
     if let Some(base) = lane_base {
         crate::evidence::oid(base).map_err(error)?;
@@ -180,7 +187,11 @@ pub fn lane_for(
         let path = config_path(repo, base)?;
         let shown = git(
             repo,
-            &["show", &format!("{base}:{}", path.unwrap_or(LANES))],
+            &[
+                "show",
+                "--end-of-options",
+                &format!("{base}:{}", path.unwrap_or(LANES)),
+            ],
         );
         let here = match shown {
             Ok(bytes) => super::lane_entry::canonical(&String::from_utf8_lossy(&bytes), check)?,
