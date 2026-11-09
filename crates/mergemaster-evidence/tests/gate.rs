@@ -3539,23 +3539,29 @@ except OverflowError:
 }
 
 #[test]
-fn legacy_lane_definition_and_blob_guards_match_signed_oracle() {
+fn legacy_lazy_lane_and_blob_composition_matches_signed_oracle() {
     use mergemaster_evidence::evidence::{
         Fact, Statement,
         legacy_policy::{PolicyDocument, PolicyError},
         legacy_verify::{
-            inputs::{Clock, check_inputs},
-            judgment::{LaneDefinition, Provider, check_bindings},
-            routing::{RecordFacts, route},
+            inputs::Clock,
+            judgment::{LaneDefinition, Provider, judge},
+            routing::RecordFacts,
         },
     };
     use sha2::{Digest, Sha256};
     use std::collections::BTreeMap;
     struct Source<'a> {
         fixture: &'a Fixture,
+        lane: Option<LaneDefinition>,
+        lane_reads: usize,
         blobs: Vec<String>,
     }
     impl Provider for Source<'_> {
+        fn level_lane(&mut self) -> Result<Option<&LaneDefinition>, PolicyError> {
+            self.lane_reads += 1;
+            Ok(self.lane.as_ref())
+        }
         fn blob_sha256(&mut self, path: &str) -> Result<Option<String>, PolicyError> {
             self.blobs.push(path.into());
             let output = self
@@ -3572,7 +3578,10 @@ fn legacy_lane_definition_and_blob_guards_match_signed_oracle() {
     }
     for (case, reason) in [
         ("satisfied", "satisfied"),
+        ("no_lane_and_runner", "no_lane"),
+        ("runner_and_age", "wrong_runner"),
         ("tier_before_lane", "untrusted_tier"),
+        ("kind_before_lane", "unsupported_kind"),
         ("age_and_definition", "too_old"),
         ("required_and_definition", "missing_input"),
         ("definition_and_bound", "definition_changed"),
@@ -3582,6 +3591,9 @@ fn legacy_lane_definition_and_blob_guards_match_signed_oracle() {
         ("bound_wrong", "wrong_input"),
         ("bound_missing", "wrong_input"),
         ("ordered_binds", "wrong_input"),
+        ("provided", "satisfied"),
+        ("override_off", "satisfied"),
+        ("no_override", "satisfied"),
     ] {
         let f = Fixture::new();
         let mut statement = f.statement();
@@ -3607,7 +3619,17 @@ fn legacy_lane_definition_and_blob_guards_match_signed_oracle() {
         statement["predicate"]["observed"]["inputs"]["lane_definition_sha256"] =
             lane["sha256"].clone();
         match case {
+            "no_lane_and_runner" => {
+                lane = Value::Null;
+                entry["kinds"]["wrapper"]["runner_prefix"] = json!("github:");
+            }
+            "runner_and_age" => {
+                entry["kinds"]["wrapper"]["runner_prefix"] = json!("github:");
+                statement["predicate"]["observed_at"] = json!("2025-01-01T00:00:00.000000Z");
+                entry["max_age_s"] = json!(1);
+            }
             "tier_before_lane" => statement["predicate"]["tier"] = json!("test"),
+            "kind_before_lane" => statement["predicate"]["observed"]["runner"] = json!("other"),
             "age_and_definition" => {
                 statement["predicate"]["observed_at"] = json!("2025-01-01T00:00:00Z");
                 entry["max_age_s"] = json!(1);
@@ -3646,6 +3668,13 @@ fn legacy_lane_definition_and_blob_guards_match_signed_oracle() {
                 statement["predicate"]["observed"]["inputs"]["z"] = json!("wrong");
                 statement["predicate"]["observed"]["inputs"]["a"] = json!("wrong");
             }
+            "override_off" => entry["kinds"]["wrapper"]["by_level"]["agent"]["lane"] = json!(false),
+            "no_override" => {
+                entry["kinds"]["wrapper"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("by_level");
+            }
             _ => {}
         }
         f.note(&statement, &f.key, "tree");
@@ -3675,28 +3704,40 @@ fn legacy_lane_definition_and_blob_guards_match_signed_oracle() {
                 .unwrap(),
             now,
         };
-        let given = LaneDefinition {
-            sha256: lane["sha256"].as_str().unwrap().into(),
-            tree_sha256: lane["tree_sha256"].as_str().unwrap().into(),
-            changed: lane["changed"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|path| path.as_str().unwrap().as_bytes().to_vec())
-                .collect(),
+        let definition = || {
+            lane.as_object().map(|_| LaneDefinition {
+                sha256: lane["sha256"].as_str().unwrap().into(),
+                tree_sha256: lane["tree_sha256"].as_str().unwrap().into(),
+                changed: lane["changed"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|path| path.as_str().unwrap().as_bytes().to_vec())
+                    .collect(),
+            })
+        };
+        let given = if case == "provided" {
+            definition()
+        } else {
+            None
         };
         let mut provider = Source {
             fixture: &f,
+            lane: definition(),
+            lane_reads: 0,
             blobs: Vec::new(),
         };
-        let actual = route(&rules, &record, 1)
-            .and_then(|routing| {
-                routing.check_runner(runner, 1)?;
-                check_inputs(&rules, &routing, &record, &clock, &BTreeMap::new(), 1)?;
-                check_bindings(&routing, &record, Some(&given), &mut provider, 1)
-            })
-            .map(|_| json!({"reason":"satisfied"}))
-            .unwrap_or_else(|e| json!({"reason":e.reason,"attempts":e.attempts}));
+        let actual = judge(
+            &rules,
+            &record,
+            &clock,
+            &BTreeMap::new(),
+            given.as_ref(),
+            &mut provider,
+            1,
+        )
+        .map(|_| json!({"reason":"satisfied"}))
+        .unwrap_or_else(|e| json!({"reason":e.reason,"attempts":e.attempts}));
         let keys = f.root.path().join("lazy-keys");
         fs::write(
             &keys,
@@ -3713,7 +3754,10 @@ import json, runpy, sys
 oracle = runpy.run_path(sys.argv[1] + '/scripts/evidence-verify')
 rules = oracle['policy_rules'](sys.argv[6],sys.argv[4],'owner/repo')
 context = json.loads(sys.argv[7])
-blobs = []
+reads, blobs = [], []
+def load():
+    reads.append(True)
+    return context
 original = oracle['blob_sha256']
 def blob(*args):
     blobs.append(args[2])
@@ -3721,11 +3765,11 @@ def blob(*args):
 oracle['verified'].__globals__['blob_sha256'] = blob
 try:
     oracle['verify'](sys.argv[2],sys.argv[3],sys.argv[4],sys.argv[5],None,rules=rules,
-        lane=context,now=oracle['parse_time'](sys.argv[8]))
+        lane=context if sys.argv[8]=='provided' else None,level_lane=load,now=oracle['parse_time'](sys.argv[9]))
     result = dict(reason='satisfied')
 except oracle['Failure'] as failure:
     result = dict(reason=failure.reason,attempts=failure.extra['attempts'])
-print(json.dumps(dict(result=result,blobs=blobs)))
+print(json.dumps(dict(result=result,lane_reads=len(reads),blobs=blobs)))
 "#;
         let output = f
             .command("python3")
@@ -3739,6 +3783,7 @@ print(json.dumps(dict(result=result,blobs=blobs)))
                 keys.to_str().unwrap(),
                 &policy,
                 &lane.to_string(),
+                case,
                 &now.to_rfc3339(),
             ])
             .output()
@@ -3751,6 +3796,7 @@ print(json.dumps(dict(result=result,blobs=blobs)))
         let expected: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(actual["reason"], reason, "{case}");
         assert_eq!(actual, expected["result"], "{case}");
+        assert_eq!(json!(provider.lane_reads), expected["lane_reads"], "{case}");
         assert_eq!(json!(provider.blobs), expected["blobs"], "{case}");
     }
 }
