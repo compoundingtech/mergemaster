@@ -16,6 +16,14 @@
 # dependency closure match; workflow layout is not interpreted as general YAML.
 # Shared legacy JSON guards/encoding preserve lane behavior; native and push
 # parsing and all JSON dependency features remain unchanged.
+# Rust parity: JSON input selection (543-563), including large integers, -0,
+# duplicate keys and the 4300-digit cap; unrelated floats remain supported.
+# Conservative divergences: input-selection-float-text (selected floats),
+# input-selection-json-extensions (whole-document NaN/Infinity/lone surrogates;
+# diagnostic names the token and byte offset), input-selection-nesting-depth
+# (more than 127 open containers). Oracle accepts the 1200-container fixtures;
+# Rust refuses; pinned classify() reports rejected. Approved after a zero-hit
+# selected-input history scan (243 blob-selector pairs, maximum depth 8).
 # Hardening divergence: discovery-input-hardening rejects invalid ref prefixes,
 # non-OID commits, LF/CR/NUL note paths and malformed batch frames. Python callers
 # never supply these; its suffix-only test counts ambiguous replies as present (impossible with full OIDs).

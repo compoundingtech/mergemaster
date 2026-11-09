@@ -533,6 +533,9 @@ Lane discovery uses the gate's sanitized Git command and rejects malformed or
 unterminated ls-tree rows; shared subprocess timeout/output bounds remain open.
 `workflow::workflow_job` selects exact generated-workflow text and transitive
 job dependencies; it follows the legacy layout contract, not general YAML.
+`selection_json::select_json` preserves legacy integer JSON selections. Selected
+floats, JSON extensions and nesting above 127 containers refuse with named
+`input-selection-*` reasons; extension diagnostics identify the token and byte offset.
 
 ### Main-push tree-equality evidence
 
