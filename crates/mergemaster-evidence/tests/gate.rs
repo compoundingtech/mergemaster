@@ -3984,7 +3984,7 @@ fn legacy_lane_for_resolves_accepted_and_branch_configs_before_schema() {
         ("path_duplicate", ""),
         ("absent_empty", ""),
     ] {
-        let mut f = Fixture::new();
+        let f = Fixture::new();
         let legacy = ".st/required-lanes.json";
         let preferred = ".fractal/required-lanes.json";
         let mut document = json!({"version":1,"lanes":{CHECK:{"argv":["tools/graph"],
@@ -4018,6 +4018,8 @@ fn legacy_lane_for_resolves_accepted_and_branch_configs_before_schema() {
             f.write(legacy, bytes);
         }
         let branch = f.commit("branch point");
+        assert!(read_lanes(&f.repo, "HEAD").is_err());
+        assert!(read_lanes(&f.repo, "--help").is_err());
         match case {
             "preferred" => {
                 f.write(preferred, document.to_string());
