@@ -16,6 +16,7 @@
 # dependency closure match; workflow layout is not interpreted as general YAML.
 # Shared legacy JSON guards/encoding preserve lane behavior; native and push
 # parsing and all JSON dependency features remain unchanged.
+# Lane configuration revisions require full lowercase OIDs; Git option parsing ends explicitly.
 # Open gap: git-subprocess-timeout: gate::git and lane_git have no timeout.
 # Open gap: lane-git-output-bounds: oracle and Rust have no byte/entry bound;
 # a limit requires a later reviewed behavior decision.
