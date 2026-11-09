@@ -73,6 +73,41 @@ pub fn git(repo: &Path, args: &[&str]) -> Result<Vec<u8>> {
     Ok(output.stdout)
 }
 
+/// Refuse oversized output without exposing a truncated result or Git diagnostics.
+pub fn git_bounded(repo: &Path, args: &[&str], max_bytes: usize) -> Result<Vec<u8>> {
+    let limit = u64::try_from(max_bytes)?
+        .checked_add(1)
+        .context("Git byte limit overflow")?;
+    let mut child = command(repo)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()?;
+    let result: Result<Vec<u8>> = (|| {
+        let mut bytes = Vec::new();
+        child
+            .stdout
+            .take()
+            .context("Git stdout")?
+            .take(limit)
+            .read_to_end(&mut bytes)?;
+        ensure!(
+            bytes.len() <= max_bytes,
+            "Git output exceeds {max_bytes} bytes"
+        );
+        Ok(bytes)
+    })();
+    if result.is_err() {
+        let _ = child.kill();
+    }
+    let status = child.wait()?;
+    ensure!(
+        status.success() || result.is_err(),
+        "Git plumbing failed ({status})"
+    );
+    result
+}
+
 pub fn text(repo: &Path, args: &[&str]) -> Result<String> {
     let mut value = String::from_utf8(git(repo, args)?).context("Git output is not UTF-8")?;
     value.truncate(value.trim_end().len());

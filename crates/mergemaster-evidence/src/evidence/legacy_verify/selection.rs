@@ -1,6 +1,9 @@
 //! Resolve configuration layout and select content from the supplied Git tree only.
 use super::{lane_git::config_path, selection_json::select_json, workflow::workflow_job};
-use crate::{evidence::legacy_policy::PolicyError, gate::git::git};
+use crate::{
+    evidence::legacy_policy::PolicyError,
+    gate::git::{git, git_bounded},
+};
 use std::path::Path;
 fn error(detail: impl ToString) -> PolicyError {
     PolicyError {
@@ -28,6 +31,15 @@ pub fn selected_content(
     tree: &str,
     item: &str,
 ) -> Result<Option<Vec<u8>>, PolicyError> {
+    // Generous configuration/workflow cap; enforce before decoding or either selector.
+    selected_content_limit(repo, tree, item, 16 * 1024 * 1024)
+}
+fn selected_content_limit(
+    repo: &Path,
+    tree: &str,
+    item: &str,
+    max_bytes: usize,
+) -> Result<Option<Vec<u8>>, PolicyError> {
     let (path, selector) = item.split_once("::").unwrap_or((item, ""));
     if git(repo, &["ls-tree", "--full-tree", tree, "--", path])
         .map_err(error)?
@@ -35,9 +47,10 @@ pub fn selected_content(
     {
         return Ok(None);
     }
-    let shown = git(
+    let shown = git_bounded(
         repo,
         &["show", "--end-of-options", &format!("{tree}:{path}")],
+        max_bytes,
     )
     .map_err(error)?;
     let text = std::str::from_utf8(&shown).map_err(error)?;

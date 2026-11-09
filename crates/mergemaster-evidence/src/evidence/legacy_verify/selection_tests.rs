@@ -23,6 +23,20 @@ fn content_and_layout_match_oracle_at_each_tree() {
     write("workflow.yml",b"name: CI\njobs:\n  build:\n    runs-on: linux\n  test:\n    needs: build\n    runs-on: linux\n");
     run(&["add", "."]);
     let legacy = run(&["write-tree"]);
+    for item in ["plain.json::selected", "workflow.yml::jobs.test"] {
+        let path = item.split_once("::").unwrap().0;
+        let size = std::fs::read(repo.join(path)).unwrap().len();
+        assert_eq!(
+            selected_content_limit(repo, &legacy, item, size - 1)
+                .unwrap_err()
+                .reason,
+            "error"
+        );
+        assert_eq!(
+            selected_content_limit(repo, &legacy, item, size).unwrap(),
+            selected_content(repo, &legacy, item).unwrap()
+        );
+    }
     write(".fractal/inputs.json", br#"{"selected":{"preferred":1}}"#);
     run(&["add", "."]);
     let both = run(&["write-tree"]);
