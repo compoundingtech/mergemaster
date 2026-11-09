@@ -525,6 +525,8 @@ Legacy `lane_git::lane_definition` discovers definition/absent files in real Git
 trees, preserving raw changed-path bytes and accepted-base existence checks.
 `lane_git::lane_for` resolves accepted/branch-point lane files independently,
 checks ancestry and compares canonical entries before accepted-lane validation.
+Lane discovery uses the gate's sanitized Git command and rejects malformed or
+unterminated ls-tree rows; shared subprocess timeout/output bounds remain open.
 
 ### Main-push tree-equality evidence
 
