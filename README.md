@@ -536,6 +536,8 @@ job dependencies; it follows the legacy layout contract, not general YAML.
 `selection_json::select_json` preserves legacy integer JSON selections. Selected
 floats, JSON extensions and nesting above 127 containers refuse with named
 `input-selection-*` reasons; extension diagnostics identify the token and byte offset.
+`selection::selected` resolves the preferred `.fractal`/legacy `.st` layout at
+the supplied Git tree and reads strict UTF-8 there, never from the checkout.
 
 ### Main-push tree-equality evidence
 

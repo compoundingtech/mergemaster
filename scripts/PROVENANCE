@@ -24,6 +24,8 @@
 # (more than 127 open containers). Oracle accepts the 1200-container fixtures;
 # Rust refuses; pinned classify() reports rejected. Approved after a zero-hit
 # selected-input history scan (243 blob-selector pairs, maximum depth 8).
+# Rust parity: selected-content-layout (523-548). Layout resolution uses the
+# supplied tree; a present invalid preferred file never falls back to legacy.
 # Open gap: git-subprocess-timeout: gate::git and lane_git have no timeout.
 # Open gap: lane-git-output-bounds: oracle and Rust have no byte/entry bound;
 # a limit requires a later reviewed behavior decision.
