@@ -14,6 +14,9 @@
 # identity, deduplication and batch presence match; discovery does not grant trust.
 # Rust parity: workflow-job-selection (462-520). Raw top-level/job bytes and
 # dependency closure match; workflow layout is not interpreted as general YAML.
+# Hardening divergence: discovery-input-hardening rejects invalid ref prefixes,
+# non-OID commits, LF/CR/NUL note paths and malformed batch frames. Python callers
+# never supply these; its suffix-only test counts ambiguous replies as present (impossible with full OIDs).
 # Lane configuration revisions require full lowercase OIDs; Git option parsing ends explicitly.
 # Open gap: git-subprocess-timeout: gate::git and lane_git have no timeout.
 # Open gap: lane-git-output-bounds: oracle and Rust have no byte/entry bound;
