@@ -7,6 +7,7 @@ pub mod lane_entry;
 pub mod lane_git;
 pub mod lanes;
 pub mod routing;
+pub mod selection_json;
 pub mod workflow;
 use super::legacy_policy::kind_rules::KindRule;
 use serde::Serialize;
