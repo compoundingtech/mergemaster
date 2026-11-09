@@ -3817,6 +3817,7 @@ fn legacy_git_definition_matches_oracle_with_raw_names() {
         "deleted",
         "mode",
         "symlink",
+        "gitlink",
         "absent_added",
         "absent_base",
         "missing_base",
@@ -3859,6 +3860,18 @@ fn legacy_git_definition_matches_oracle_with_raw_names() {
             _ => {}
         }
         f.refresh_head();
+        if case == "gitlink" {
+            f.git(
+                &[
+                    "update-index",
+                    "--add",
+                    "--cacheinfo",
+                    &format!("160000,{},defs/submodule", f.base),
+                ],
+                b"",
+            );
+            f.tree = f.git(&["write-tree"], b"");
+        }
         let tree = if case == "bad_tree" {
             "0".repeat(40)
         } else {
@@ -3939,4 +3952,73 @@ print(json.dumps(dict(entries=entries,result=result)))
             assert_ne!(actual["sha256"], actual["tree_sha256"], "{case}");
         }
     }
+}
+
+#[test]
+fn legacy_lane_git_ignores_ambient_repository_redirection() {
+    use mergemaster_evidence::evidence::legacy_verify::lane_git::definition_entries;
+    if let Ok(repo) = std::env::var("MM_LANE_GIT_CHILD_REPO") {
+        let tree = std::env::var("MM_LANE_GIT_CHILD_TREE").unwrap();
+        let redirected = Command::new("git")
+            .args(["-C", &repo, "rev-parse", "--absolute-git-dir"])
+            .output()
+            .unwrap();
+        assert!(redirected.status.success());
+        assert_eq!(
+            String::from_utf8(redirected.stdout).unwrap().trim(),
+            std::env::var("GIT_DIR").unwrap()
+        ); // Old unsanitized commands follow this redirect.
+        let entries = definition_entries(Path::new(&repo), &tree, &["source.txt".into()]).unwrap();
+        let actual = json!(
+            entries
+                .into_iter()
+                .map(|e| json!([e.mode, e.oid, hex::encode(e.path)]))
+                .collect::<Vec<_>>()
+        );
+        let expected: Value =
+            serde_json::from_str(&std::env::var("MM_LANE_GIT_CHILD_EXPECTED").unwrap()).unwrap();
+        assert_eq!(actual, expected);
+        return;
+    }
+    let f = Fixture::new();
+    let foreign = Fixture::new();
+    let root = std::env::var("MERGEMASTER_PYTHON_ORACLE")
+        .expect("MERGEMASTER_PYTHON_ORACLE must point to the pinned Python oracle");
+    let script = r#"
+import json, runpy, sys
+o = runpy.run_path(sys.argv[1] + '/scripts/evidence-verify')
+print(json.dumps([[m,h,p.encode('utf-8','surrogateescape').hex()] for m,h,p in
+    sorted(o['definition_entries'](sys.argv[2],sys.argv[3],['source.txt']))]))
+"#;
+    let expected = f
+        .command("python3")
+        .args(["-c", script, &root, f.repo.to_str().unwrap(), &f.tree])
+        .output()
+        .unwrap();
+    assert!(
+        expected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&expected.stderr)
+    );
+    let child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "legacy_lane_git_ignores_ambient_repository_redirection",
+            "--nocapture",
+        ])
+        .env("MM_LANE_GIT_CHILD_REPO", &f.repo)
+        .env("MM_LANE_GIT_CHILD_TREE", &f.tree)
+        .env(
+            "MM_LANE_GIT_CHILD_EXPECTED",
+            String::from_utf8(expected.stdout).unwrap(),
+        )
+        .env("GIT_DIR", foreign.repo.join(".git"))
+        .output()
+        .unwrap();
+    assert!(
+        child.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&child.stdout),
+        String::from_utf8_lossy(&child.stderr)
+    );
 }
