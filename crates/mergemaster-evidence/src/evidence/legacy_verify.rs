@@ -3,6 +3,7 @@ pub mod events;
 pub mod inputs;
 pub mod judgment;
 pub mod lane_entry;
+pub mod lane_git;
 pub mod lanes;
 pub mod routing;
 use super::legacy_policy::kind_rules::KindRule;

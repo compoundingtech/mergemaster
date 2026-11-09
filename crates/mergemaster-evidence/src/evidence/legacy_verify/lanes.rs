@@ -78,13 +78,26 @@ impl LaneRules {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, PartialEq, Eq)]
 pub struct DefinitionEntry {
     pub mode: String,
     pub oid: String,
     pub path: Vec<u8>,
 }
-fn codepoints(bytes: &[u8]) -> impl Iterator<Item = u32> + '_ {
+impl Ord for DefinitionEntry {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.mode
+            .cmp(&other.mode)
+            .then_with(|| self.oid.cmp(&other.oid))
+            .then_with(|| codepoints(&self.path).cmp(codepoints(&other.path)))
+    }
+}
+impl PartialOrd for DefinitionEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+pub(super) fn codepoints(bytes: &[u8]) -> impl Iterator<Item = u32> + '_ {
     bytes.utf8_chunks().flat_map(|part| {
         part.valid()
             .chars()

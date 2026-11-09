@@ -10,6 +10,9 @@
 # These differential cases are not a claim of complete selection parity.
 # Legacy definition_digest now matches Git-entry/argv preimages byte for byte;
 # native lane hashing is unchanged. Selection fixtures still supply the digest.
+# Open gap: lane-git-hardening: open until 3d-1b; lane_git stays unwired.
+# Open gap: lane-git-output-bounds: oracle and Rust have no byte/entry bound;
+# a limit requires a later reviewed behavior decision.
 # Rust parity P2-a: degraded-veto-and-fallback-exclusion. Unsigned degraded
 # records do not shadow trusted candidates during non-push selection.
 # Conservative divergence P3: wrong-definition-plus-bound-input. Python passes
