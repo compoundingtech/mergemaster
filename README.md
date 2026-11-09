@@ -511,6 +511,8 @@ The runner-prefix guard follows any required lazy lane lookup, before age/input
 judgments; routing alone never authorizes a record.
 The legacy clock/input guard takes an explicit clock and preserves future, age,
 required-input, exit-code, command and value-check refusal order.
+`legacy_verify::lanes::LaneRules` validates one selected accepted-base lane,
+preserving optional-field truthiness without reading Git or authorizing evidence.
 
 ### Main-push tree-equality evidence
 
