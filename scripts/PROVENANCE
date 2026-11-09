@@ -51,8 +51,8 @@
 # including the root is 127; oracle accepts 126/127/128/200, Rust refuses >127.
 # Each reason classifies as rejected in pinned Fractal. Identical float entries
 # can give oracle unavailable/TypeError instead; stricter diagnostics fail closed.
-# Above Python's recursion limit (1200 fixture), oracle RecursionError versus
-# Rust rejected joins the 4d-4 whole-run crash inventory. Integer cap: 4300 digits.
+# The pinned Python accepts 1200 containers with the real selected text/rules;
+# Rust refuses >127, including 1200. Integer cap: 4300 digits.
 # Unported single-check surfaces, owned by 4d-5 (immutable evidence-verify lines):
 # prefer_levels 953-956,1172-1177; members 1198-1312; log shadow 783-912.
 # Port: 64351934f2f637f63f44d1f5d72563414135a3cc

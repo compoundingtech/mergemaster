@@ -137,12 +137,12 @@ print(json.dumps(results))
             }
         }
     }
-    assert_eq!(
-        oracle.last().unwrap()["sides"][0]["entry"]["crash"],
-        "RecursionError"
-    );
-    assert_eq!(
-        oracle.last().unwrap()["sides"][0]["schema"]["crash"],
-        "RecursionError"
-    );
+    // The pinned Python accepts 1200 containers, just as it accepts the 200-container row.
+    for i in 0..2 {
+        let deep = &oracle.last().unwrap()["sides"][i];
+        let reference = &oracle[oracle.len() - 2]["sides"][i];
+        assert!(deep["entry"]["text"].is_string() && deep["schema"]["rules"].is_object());
+        assert_eq!(deep["entry"], reference["entry"]);
+        assert_eq!(deep["schema"], reference["schema"]);
+    }
 }
