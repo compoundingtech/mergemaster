@@ -95,3 +95,47 @@ print(json.dumps(results))
     }
     assert_eq!(crashes, 10);
 }
+#[test]
+fn definition_preimages_and_hashes_match_oracle_bytes() {
+    let cases = json!([
+        {"entries":[],"argv":["run"],"absent":[]},
+        {"entries":[{"mode":"100755","oid":"a","path":[122]},{"mode":"100644","oid":"b","path":[97]}],"argv":["", "\"\\\n\r\t\u{0008}\u{000c}\u{0000}\u{007f}","é中文😀"],"absent":["z","a"]},
+        {"entries":[{"mode":"100644","oid":"c","path":[255]},{"mode":"100644","oid":"d","path":[240,159,152,128]},{"mode":"120000","oid":"e","path":[194]},{"mode":"100644","oid":"f","path":[195,169]}],"argv":["run"],"absent":[]}
+    ]);
+    let expected = oracle(
+        r#"
+import json, runpy, sys
+oracle = runpy.run_path(sys.argv[1] + '/scripts/evidence-verify')
+results = []
+for case in json.loads(sys.argv[2]):
+    entries = [(e['mode'],e['oid'],bytes(e['path']).decode('utf-8','surrogateescape')) for e in case['entries']]
+    argv, absent = case['argv'], case['absent']
+    text = ''.join(f'{mode} {oid} {name}\n' for mode,oid,name in sorted(entries,key=lambda e:e[2])) + 'argv:' + json.dumps(argv)
+    if absent:
+        text += '\nabsent:' + json.dumps(sorted(absent))
+    results.append(dict(bytes=text.encode('utf-8','surrogateescape').hex(),sha256=oracle['definition_digest'](entries,argv,absent)))
+print(json.dumps(results))
+"#,
+        &cases.to_string(),
+    );
+    for (case, expected) in cases
+        .as_array()
+        .unwrap()
+        .iter()
+        .zip(expected.as_array().unwrap())
+    {
+        let mut entries: Vec<DefinitionEntry> =
+            serde_json::from_value(case["entries"].clone()).unwrap();
+        let argv: Vec<String> = serde_json::from_value(case["argv"].clone()).unwrap();
+        let mut absent: Vec<String> = serde_json::from_value(case["absent"].clone()).unwrap();
+        let mut bytes = Vec::new();
+        definition_bytes(&mut entries, &argv, &mut absent, |part| {
+            bytes.extend_from_slice(part)
+        });
+        assert_eq!(hex::encode(bytes), expected["bytes"]);
+        assert_eq!(
+            definition_digest(&mut entries, &argv, &mut absent),
+            expected["sha256"]
+        );
+    }
+}
