@@ -139,6 +139,7 @@ pub(super) fn config_path(
     commit: &str,
     legacy: &str,
 ) -> Result<Option<String>, PolicyError> {
+    crate::evidence::oid(commit).map_err(error)?;
     let preferred = legacy.replacen(".st/", ".fractal/", 1);
     let listing = git(
         repo,
@@ -146,6 +147,7 @@ pub(super) fn config_path(
             "ls-tree",
             "-z",
             "--full-tree",
+            "--end-of-options",
             commit,
             "--",
             &preferred,
@@ -171,6 +173,7 @@ pub fn read_lanes(repo: &Path, commit: &str) -> Result<String, PolicyError> {
         repo,
         &[
             "show",
+            "--end-of-options",
             &format!("{commit}:{}", path.as_deref().unwrap_or(LANES)),
         ],
     )
@@ -187,6 +190,7 @@ pub fn lane_for(
     let Some((text, accepted)) = lanes else {
         return Ok(None);
     };
+    crate::evidence::oid(accepted).map_err(error)?;
     let mut definition_base = accepted;
     if let Some(base) = lane_base {
         crate::evidence::oid(base).map_err(error)?;
@@ -196,6 +200,7 @@ pub fn lane_for(
             repo,
             &[
                 "show",
+                "--end-of-options",
                 &format!("{base}:{}", path.as_deref().unwrap_or(LANES)),
             ],
         );
