@@ -14,8 +14,7 @@ fn error(detail: impl ToString) -> PolicyError {
         detail: detail.to_string(),
     }
 }
-// All callers produce bounded stdout; stderr is suppressed to avoid pipe deadlock
-// and forwarding candidate-controlled diagnostics. Reap even if stdin fails.
+// Bounded stdout and suppressed stderr avoid pipe deadlock; reap on stdin failure.
 fn input_git(
     repo: &Path,
     args: &[&str],

@@ -40,10 +40,21 @@ fn selected_content_limit(
     item: &str,
     max_bytes: usize,
 ) -> Result<Option<Vec<u8>>, PolicyError> {
+    crate::evidence::oid(tree).map_err(error)?;
     let (path, selector) = item.split_once("::").unwrap_or((item, ""));
-    if git(repo, &["ls-tree", "--full-tree", tree, "--", path])
-        .map_err(error)?
-        .is_empty()
+    if git(
+        repo,
+        &[
+            "ls-tree",
+            "--full-tree",
+            "--end-of-options",
+            tree,
+            "--",
+            path,
+        ],
+    )
+    .map_err(error)?
+    .is_empty()
     {
         return Ok(None);
     }
