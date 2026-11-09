@@ -518,6 +518,8 @@ including surrogateescaped filenames; native lane hashing remains unchanged.
 Legacy lane-entry parsing preserves integer lexemes and reports unsupported JSON explicitly.
 Canonical lane-entry comparisons use Python-compatible sorted compact JSON text,
 not parsed-value equality; callers compare before validating the lane schema.
+Legacy JSON helpers share integer-only encoding and ASCII string escaping;
+callers guard unsupported number lexemes before encoding.
 `legacy_verify::judgment::judge` routes before lazy lane lookup, then checks the
 runner, clock/inputs, lane identity and ordered Git bindings. Earlier guards
 never fetch later provider resources; a supplied lane avoids the lazy lookup.
