@@ -3955,6 +3955,195 @@ print(json.dumps(dict(entries=entries,result=result)))
 }
 
 #[test]
+fn legacy_lane_for_resolves_accepted_and_branch_configs_before_schema() {
+    use mergemaster_evidence::evidence::legacy_verify::lane_git::{lane_for, read_lanes};
+    for (case, reason) in [
+        ("legacy", "satisfied"),
+        ("preferred", "satisfied"),
+        ("migration", "satisfied"),
+        ("preferred_both", "satisfied"),
+        ("reverse_migration", "satisfied"),
+        ("branch_replacement", "satisfied"),
+        ("accepted", "satisfied"),
+        ("selected_absent", "no_lane"),
+        ("unrelated", "satisfied"),
+        ("definition_base", "satisfied"),
+        ("different", "definition_changed"),
+        ("schema_diff", "definition_changed"),
+        ("schema_same", "error"),
+        ("missing_branch", "definition_changed"),
+        ("missing_selected", "definition_changed"),
+        ("preferred_unreadable", "error"),
+        ("missing_file", "error"),
+        ("abbreviated", "error"),
+        ("uppercase", "error"),
+        ("nonancestor", "error"),
+        ("none", "none"),
+        // These normalization regressions take their complete expected result only from Python.
+        ("path_order", ""),
+        ("path_duplicate", ""),
+        ("absent_empty", ""),
+    ] {
+        let f = Fixture::new();
+        let legacy = ".st/required-lanes.json";
+        let preferred = ".fractal/required-lanes.json";
+        let mut document = json!({"version":1,"lanes":{CHECK:{"argv":["tools/graph"],
+            "definition_paths":["tools"]}}});
+        match case {
+            "path_order" => {
+                document["lanes"][CHECK]["definition_paths"] = json!(["source.txt", "tools"])
+            }
+            "path_duplicate" => {
+                document["lanes"][CHECK]["definition_paths"] = json!(["tools", "tools"])
+            }
+            _ => {}
+        }
+        if case == "schema_same" {
+            document["lanes"][CHECK]["argv"] = json!([]);
+        }
+        if matches!(case, "missing_selected" | "selected_absent") {
+            document["lanes"] = json!({});
+        }
+        if !matches!(case, "missing_branch" | "missing_file") {
+            f.write(legacy, document.to_string());
+        }
+        if matches!(case, "preferred_both" | "reverse_migration") {
+            f.write(preferred, document.to_string());
+            f.write(legacy, "not JSON");
+        }
+        if case == "branch_replacement" {
+            let mut bytes = document.to_string().into_bytes();
+            bytes.pop();
+            bytes.extend_from_slice(b",\"ignored\":\"\xff\"}");
+            f.write(legacy, bytes);
+        }
+        let branch = f.commit("branch point");
+        assert!(read_lanes(&f.repo, "HEAD").is_err());
+        assert!(read_lanes(&f.repo, "--help").is_err());
+        match case {
+            "preferred" => {
+                f.write(preferred, document.to_string());
+                f.write(legacy, "not JSON");
+            }
+            "migration" => {
+                fs::remove_file(f.repo.join(legacy)).unwrap();
+                f.write(preferred, document.to_string());
+            }
+            "reverse_migration" => {
+                fs::remove_file(f.repo.join(preferred)).unwrap();
+                f.write(legacy, document.to_string());
+            }
+            "branch_replacement" => f.write(legacy, document.to_string()),
+            "preferred_unreadable" => f.write(preferred, b"\xff"),
+            "unrelated" => document["lanes"]["another"] = json!({"irrelevant":true}),
+            "path_order" => {
+                document["lanes"][CHECK]["definition_paths"] = json!(["tools", "source.txt"])
+            }
+            "path_duplicate" => document["lanes"][CHECK]["definition_paths"] = json!(["tools"]),
+            "absent_empty" => document["lanes"][CHECK]["absent_paths"] = json!([]),
+            "different" => document["lanes"][CHECK]["argv"] = json!(["changed"]),
+            "schema_diff" => document["lanes"][CHECK]["argv"] = json!([]),
+            "missing_branch" | "missing_selected" => {
+                document["lanes"][CHECK] =
+                    json!({"argv":["tools/graph"],"definition_paths":["tools"]})
+            }
+            "definition_base" => f.write("tools/graph", "accepted on main, absent from branch"),
+            _ => {}
+        }
+        if matches!(
+            case,
+            "unrelated"
+                | "different"
+                | "schema_diff"
+                | "missing_branch"
+                | "missing_selected"
+                | "path_order"
+                | "path_duplicate"
+                | "absent_empty"
+        ) {
+            f.write(legacy, document.to_string());
+        }
+        let accepted = f.commit("accepted configuration");
+        let tree = f.git(&["rev-parse", &format!("{branch}^{{tree}}")], b"");
+        let lane_base = match case {
+            "abbreviated" => branch[..12].to_owned(),
+            "uppercase" => "A".repeat(40),
+            "nonancestor" => {
+                let root_tree = f.git(&["rev-parse", &format!("{accepted}^{{tree}}")], b"");
+                f.git(&["commit-tree", &root_tree, "-m", "unrelated root"], b"")
+            }
+            _ => branch,
+        };
+        // A None lane context must return before even validating these bad inputs.
+        let actual =
+            if case == "none" {
+                lane_for(&f.repo, "bad", None, CHECK, Some("bad"))
+            } else {
+                read_lanes(&f.repo, &accepted).and_then(|text| {
+                    lane_for(
+                        &f.repo,
+                        &tree,
+                        Some((&text, &accepted)),
+                        CHECK,
+                        (!matches!(case, "accepted" | "selected_absent"))
+                            .then_some(lane_base.as_str()),
+                    )
+                })
+            }
+            .map(|lane| {
+                lane.map_or_else(|| json!({"reason":"none"}), |lane|
+            json!({"reason":"satisfied","sha256":lane.sha256,"tree_sha256":lane.tree_sha256,
+                "changed":lane.changed.iter().map(hex::encode).collect::<Vec<_>>()}))
+            })
+            .unwrap_or_else(|e| json!({"reason":e.reason}));
+        let root = std::env::var("MERGEMASTER_PYTHON_ORACLE")
+            .expect("MERGEMASTER_PYTHON_ORACLE must point to the pinned Python oracle");
+        let script = r#"
+import json, runpy, sys
+o = runpy.run_path(sys.argv[1] + '/scripts/evidence-verify')
+repo, accepted, tree, base, check, case = sys.argv[2:]
+try:
+    result = o['lane_for'](repo,'bad',None,check,'bad') if case == 'none' else o['lane_for'](
+        repo,tree,(o['read_lanes'](repo,accepted),accepted),check,
+        None if case in ('accepted','selected_absent') else base)
+    if result is None:
+        result = dict(reason='none')
+    else:
+        result['reason'] = 'satisfied'
+        result['changed'] = [p.encode('utf-8','surrogateescape').hex() for p in result['changed']]
+except o['Failure'] as e:
+    result = dict(reason=e.reason)
+print(json.dumps(result))
+"#;
+        let output = f
+            .command("python3")
+            .args([
+                "-c",
+                script,
+                &root,
+                f.repo.to_str().unwrap(),
+                &accepted,
+                &tree,
+                &lane_base,
+                CHECK,
+                case,
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{case}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let expected: Value = serde_json::from_slice(&output.stdout).unwrap();
+        if !reason.is_empty() {
+            assert_eq!(actual["reason"], reason, "{case}");
+        }
+        assert_eq!(actual, expected, "{case}");
+    }
+}
+
+#[test]
 fn legacy_lane_git_ignores_ambient_repository_redirection() {
     use mergemaster_evidence::evidence::legacy_verify::lane_git::definition_entries;
     if let Ok(repo) = std::env::var("MM_LANE_GIT_CHILD_REPO") {
