@@ -3550,6 +3550,7 @@ fn legacy_lazy_lane_and_blob_composition_matches_signed_oracle() {
         },
     };
     use sha2::{Digest, Sha256};
+    use std::collections::BTreeMap;
     struct Source<'a> {
         fixture: &'a Fixture,
         lane: Option<LaneDefinition>,
@@ -3606,9 +3607,14 @@ fn legacy_lazy_lane_and_blob_composition_matches_signed_oracle() {
             .unwrap()
             .with_timezone(&chrono::Utc);
         statement["predicate"]["observed_at"] = json!(now.to_rfc3339());
-        let bound = hex::encode(Sha256::digest(
-            f.git(&["show", &format!("{}:source.txt", f.tree)], b""),
-        ));
+        let blob = f
+            .command("git")
+            .args(["cat-file", "blob", &format!("{}:source.txt", f.tree)])
+            .output()
+            .unwrap();
+        assert!(blob.status.success());
+        assert!(blob.stdout.ends_with(b"\n"));
+        let bound = hex::encode(Sha256::digest(&blob.stdout));
         statement["predicate"]["observed"]["inputs"]["bound"] = json!(bound);
         statement["predicate"]["observed"]["inputs"]["lane_definition_sha256"] =
             lane["sha256"].clone();
