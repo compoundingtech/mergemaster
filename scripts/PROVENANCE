@@ -24,6 +24,7 @@
 # (more than 127 open containers). Oracle accepts the 1200-container fixtures;
 # Rust refuses; pinned classify() reports rejected. Approved after a zero-hit
 # selected-input history scan (243 blob-selector pairs, maximum depth 8).
+# Lane configuration revisions require full lowercase OIDs; Git option parsing ends explicitly.
 # Open gap: git-subprocess-timeout: gate::git and lane_git have no timeout.
 # Open gap: lane-git-output-bounds: oracle and Rust have no byte/entry bound;
 # a limit requires a later reviewed behavior decision.
