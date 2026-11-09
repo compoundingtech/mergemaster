@@ -31,8 +31,9 @@
 # never supply these; its suffix-only test counts ambiguous replies as present (impossible with full OIDs).
 # Lane configuration revisions require full lowercase OIDs; Git option parsing ends explicitly.
 # Open gap: git-subprocess-timeout: gate::git and lane_git have no timeout.
-# Open gap: lane-git-output-bounds: oracle and Rust have no byte/entry bound;
-# a limit requires a later reviewed behavior decision.
+# Open gap: lane-git-output-bounds: 3e-4 closes selector-input P3 with a 16 MiB
+# selected-blob read cap (generous config/workflow allowance), before UTF-8/selection.
+# Oversize is error, never truncation; other Git reads and entry counts remain unbounded.
 # Rust parity P2-a: degraded-veto-and-fallback-exclusion. Unsigned degraded
 # records do not shadow trusted candidates during non-push selection.
 # Conservative divergence P3: wrong-definition-plus-bound-input. Python passes
