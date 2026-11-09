@@ -3588,7 +3588,7 @@ fn legacy_lane_definition_and_blob_guards_match_signed_oracle() {
         let command = statement["predicate"]["observed"]["checks"][CHECK]["command"].clone();
         let mut entry = json!({"trust_levels":["agent"],"max_age_s":60,"kinds":{"wrapper":{
             "command":command,"bind_inputs":{"bound":"source.txt"},"by_level":{"agent":{
-                "command":command,"lane":true,"bind_inputs":{"bound":"source.txt"}}}}}});
+                "command":command,"events":["pull_request"],"lane":true,"bind_inputs":{"bound":"source.txt"}}}}}});
         // Identical supplied context isolates judgment; 3c's byte/hash matrix covers derivation.
         let mut lane = json!({"sha256":"a".repeat(64),"tree_sha256":"b".repeat(64),"changed":[]});
         let now = chrono::DateTime::parse_from_rfc3339("2025-01-01T00:01:00Z")
