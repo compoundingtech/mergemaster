@@ -26,6 +26,9 @@
 # selected-input history scan (243 blob-selector pairs, maximum depth 8).
 # Rust parity: selected-content-layout (523-548). Layout resolution uses the
 # supplied tree; a present invalid preferred file never falls back to legacy.
+# Hardening divergence: discovery-input-hardening rejects invalid ref prefixes,
+# non-OID commits, LF/CR/NUL note paths and malformed batch frames. Python callers
+# never supply these; its suffix-only test counts ambiguous replies as present (impossible with full OIDs).
 # Lane configuration revisions require full lowercase OIDs; Git option parsing ends explicitly.
 # Open gap: git-subprocess-timeout: gate::git and lane_git have no timeout.
 # Open gap: lane-git-output-bounds: oracle and Rust have no byte/entry bound;
