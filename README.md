@@ -515,6 +515,7 @@ required-input, exit-code, command and value-check refusal order.
 preserving optional-field truthiness without reading Git or authorizing evidence.
 Legacy definition hashing streams Python-compatible Git-entry/argv bytes,
 including surrogateescaped filenames; native lane hashing remains unchanged.
+Legacy lane-entry parsing preserves integer lexemes and reports unsupported JSON explicitly.
 
 ### Main-push tree-equality evidence
 
