@@ -3960,12 +3960,25 @@ fn legacy_lane_for_resolves_accepted_and_branch_configs_before_schema() {
         ("uppercase", "error"),
         ("nonancestor", "error"),
         ("none", "none"),
+        // These normalization regressions take their complete expected result only from Python.
+        ("path_order", ""),
+        ("path_duplicate", ""),
+        ("absent_empty", ""),
     ] {
         let mut f = Fixture::new();
         let legacy = ".st/required-lanes.json";
         let preferred = ".fractal/required-lanes.json";
         let mut document = json!({"version":1,"lanes":{CHECK:{"argv":["tools/graph"],
             "definition_paths":["tools"]}}});
+        match case {
+            "path_order" => {
+                document["lanes"][CHECK]["definition_paths"] = json!(["source.txt", "tools"])
+            }
+            "path_duplicate" => {
+                document["lanes"][CHECK]["definition_paths"] = json!(["tools", "tools"])
+            }
+            _ => {}
+        }
         if case == "schema_same" {
             document["lanes"][CHECK]["argv"] = json!([]);
         }
@@ -4002,6 +4015,11 @@ fn legacy_lane_for_resolves_accepted_and_branch_configs_before_schema() {
             "branch_replacement" => f.write(legacy, document.to_string()),
             "preferred_unreadable" => f.write(preferred, b"\xff"),
             "unrelated" => document["lanes"]["another"] = json!({"irrelevant":true}),
+            "path_order" => {
+                document["lanes"][CHECK]["definition_paths"] = json!(["tools", "source.txt"])
+            }
+            "path_duplicate" => document["lanes"][CHECK]["definition_paths"] = json!(["tools"]),
+            "absent_empty" => document["lanes"][CHECK]["absent_paths"] = json!([]),
             "different" => document["lanes"][CHECK]["argv"] = json!(["changed"]),
             "schema_diff" => document["lanes"][CHECK]["argv"] = json!([]),
             "missing_branch" | "missing_selected" => {
@@ -4013,7 +4031,14 @@ fn legacy_lane_for_resolves_accepted_and_branch_configs_before_schema() {
         }
         if matches!(
             case,
-            "unrelated" | "different" | "schema_diff" | "missing_branch" | "missing_selected"
+            "unrelated"
+                | "different"
+                | "schema_diff"
+                | "missing_branch"
+                | "missing_selected"
+                | "path_order"
+                | "path_duplicate"
+                | "absent_empty"
         ) {
             f.write(legacy, document.to_string());
         }
@@ -4090,7 +4115,9 @@ print(json.dumps(result))
             String::from_utf8_lossy(&output.stderr)
         );
         let expected: Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(actual["reason"], reason, "{case}");
+        if !reason.is_empty() {
+            assert_eq!(actual["reason"], reason, "{case}");
+        }
         assert_eq!(actual, expected, "{case}");
     }
 }
