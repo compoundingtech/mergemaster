@@ -1,4 +1,5 @@
 //! Guarded, lexeme-preserving lane entries; conservative failures are not missing lanes.
+use super::lanes::string;
 pub use crate::evidence::legacy_json::Value;
 use crate::evidence::{legacy_json, legacy_policy::PolicyError};
 /// Maximum simultaneously open JSON containers, including the root.
@@ -108,6 +109,46 @@ pub fn selected(text: &str, lane: &str) -> Result<Option<Value>, PolicyError> {
         return Err(refusal("lane-entry-float-text"));
     }
     Ok(Some(entry))
+}
+fn encode(value: &Value, out: &mut String) {
+    match value {
+        Value::Null => out.push_str("null"),
+        Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        Value::Number(n) => out.push_str(if n == "-0" { "0" } else { n }),
+        Value::String(s) => string(s, out).expect("infallible string sink"),
+        Value::Array(a) => {
+            out.push('[');
+            for (i, value) in a.iter().enumerate() {
+                if i != 0 {
+                    out.push(',');
+                }
+                encode(value, out);
+            }
+            out.push(']');
+        }
+        Value::Object(m) => {
+            out.push('{');
+            for (i, (key, value)) in m.iter().enumerate() {
+                if i != 0 {
+                    out.push(',');
+                }
+                string(key, out).expect("infallible string sink");
+                out.push(':');
+                encode(value, out);
+            }
+            out.push('}');
+        }
+    }
+}
+/// Compare this serialized text before validating the lane schema.
+pub fn canonical(text: &str, lane: &str) -> Result<Option<String>, PolicyError> {
+    selected(text, lane).map(|entry| {
+        entry.map(|entry| {
+            let mut text = String::new();
+            encode(&entry, &mut text);
+            text
+        })
+    })
 }
 
 #[cfg(test)]
