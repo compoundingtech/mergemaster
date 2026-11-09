@@ -1,4 +1,5 @@
 //! Legacy lane declarations and definition bytes; no Git reads or native hashing.
+use crate::evidence::legacy_json::string;
 use crate::evidence::legacy_policy::{PolicyError, declared_paths, selected_entry};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -104,27 +105,6 @@ pub(super) fn codepoints(bytes: &[u8]) -> impl Iterator<Item = u32> + '_ {
             .map(u32::from)
             .chain(part.invalid().iter().map(|b| 0xdc00 + u32::from(*b)))
     })
-}
-pub(super) fn string(value: &str, out: &mut impl Write) -> fmt::Result {
-    out.write_char('"')?;
-    for ch in value.chars() {
-        match ch {
-            '"' => out.write_str("\\\"")?,
-            '\\' => out.write_str("\\\\")?,
-            '\x08' => out.write_str("\\b")?,
-            '\x0c' => out.write_str("\\f")?,
-            '\n' => out.write_str("\\n")?,
-            '\r' => out.write_str("\\r")?,
-            '\t' => out.write_str("\\t")?,
-            ' '..='~' => out.write_char(ch)?,
-            _ => {
-                for unit in ch.encode_utf16(&mut [0; 2]) {
-                    write!(out, "\\u{unit:04x}")?;
-                }
-            }
-        }
-    }
-    out.write_char('"')
 }
 fn strings(values: &[String], out: &mut impl Write) -> fmt::Result {
     out.write_char('[')?;
