@@ -4211,3 +4211,134 @@ print(json.dumps([[m,h,p.encode('utf-8','surrogateescape').hex()] for m,h,p in
         String::from_utf8_lossy(&child.stderr)
     );
 }
+
+#[test]
+fn legacy_input_indexes_and_note_presence_match_real_oracle() {
+    use mergemaster_evidence::evidence::legacy_verify::discovery::{
+        input_refs, records_under, with_note_for,
+    };
+    let f = Fixture::new();
+    for (commit, tree) in [
+        (format!("{}\n", f.head), f.tree.clone()),
+        (f.head.clone(), format!("{}\n", f.tree)),
+    ] {
+        assert_eq!(
+            with_note_for(&f.repo, &[commit], &tree).unwrap_err().reason,
+            "error"
+        );
+    }
+    assert!(records_under(&f.repo, &["--help".into()]).is_err());
+    let blob = f.git(
+        &["hash-object", "-w", "--stdin"],
+        b"not a signed statement\n",
+    );
+    let note_tree = f.git(
+        &["mktree"],
+        format!("100644 blob {blob}\t{}\n", f.tree).as_bytes(),
+    );
+    let directory_tree = f.git(
+        &["mktree"],
+        format!("040000 tree {}\t{}\n", f.tree, f.tree).as_bytes(),
+    );
+    let empty = f.git(&["mktree"], b"");
+    let make = |tree: &str, name: &str| f.git(&["commit-tree", tree, "-m", name], b"");
+    let present = make(&note_tree, "present");
+    let directory = make(&directory_tree, "directory is present too");
+    let missing = make(&empty, "missing");
+    let key = "a".repeat(40);
+    let tag = format!("refs/tags/evidence/input/{CHECK}/{key}/");
+    let note = format!("refs/notes/evidence-input/{CHECK}/{key}/");
+    for (prefix, id) in [
+        (&tag, &missing),
+        (&tag, &present),
+        (&note, &present),
+        (&note, &directory),
+        (&note, &blob),
+    ] {
+        f.git(&["update-ref", &format!("{prefix}{id}"), id], b"");
+    }
+    for (name, target) in [
+        (format!("{tag}{}", f.head), present.as_str()),
+        (format!("{tag}bad"), present.as_str()),
+        (format!("{tag}{}/nested", f.base), present.as_str()),
+    ] {
+        f.git(&["update-ref", &name, target], b"");
+    }
+    let queries = vec![
+        (CHECK.to_owned(), key.clone()),
+        ("other".into(), key.clone()),
+        ("".into(), key.clone()),
+        ("_bad".into(), key.clone()),
+        ("é".into(), key.clone()),
+        ("a".repeat(101), key.clone()),
+        (CHECK.into(), "A".repeat(40)),
+        (CHECK.into(), "a".repeat(39)),
+        (CHECK.into(), "a".repeat(64)),
+    ];
+    let batches = vec![
+        vec![],
+        vec![
+            present.clone(),
+            missing.clone(),
+            directory.clone(),
+            blob.clone(),
+            present.clone(),
+            f.head.clone(),
+        ],
+        vec![directory.clone(), present.clone()],
+    ];
+    let prefixes = vec![
+        vec![tag.clone(), note.clone()],
+        vec![note.clone(), tag.clone()],
+        vec![tag.clone(), tag.clone()],
+        vec![tag.trim_end_matches('/').into()],
+    ];
+    let refs: Vec<_> = queries
+        .iter()
+        .map(|(check, key)| input_refs(&f.repo, check, key).unwrap())
+        .collect();
+    let candidates: Vec<_> = prefixes
+        .iter()
+        .map(|paths| records_under(&f.repo, paths).unwrap())
+        .collect();
+    let notes: Vec<_> = batches
+        .iter()
+        .map(|ids| with_note_for(&f.repo, ids, &f.tree).unwrap())
+        .collect();
+    let root = std::env::var("MERGEMASTER_PYTHON_ORACLE")
+        .expect("MERGEMASTER_PYTHON_ORACLE must point to the pinned Python oracle");
+    let script = r#"
+import json, runpy, sys
+o = runpy.run_path(sys.argv[1] + '/scripts/evidence-verify')
+repo, tree = sys.argv[2:4]
+queries, prefixes, batches = map(json.loads,sys.argv[4:])
+print(json.dumps(dict(
+    refs=[o['input_refs'](repo,c,k) for c,k in queries],
+    candidates=[o['records_under'](repo,p) for p in prefixes],
+    notes=[o['with_note_for'](repo,b,tree) for b in batches])))
+"#;
+    let output = f
+        .command("python3")
+        .args([
+            "-c",
+            script,
+            &root,
+            f.repo.to_str().unwrap(),
+            &f.tree,
+            &json!(queries).to_string(),
+            &json!(prefixes).to_string(),
+            &json!(batches).to_string(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let expected: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        json!({"refs":refs,"candidates":candidates,"notes":notes}),
+        expected
+    );
+}

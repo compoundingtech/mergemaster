@@ -1,4 +1,5 @@
 //! Legacy policy evaluation, separate from native gate authorization.
+pub mod discovery;
 pub mod events;
 pub mod inputs;
 pub mod judgment;
