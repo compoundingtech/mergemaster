@@ -60,6 +60,23 @@ fn canonical_text_and_conservative_refusals_match_oracle_inventory() {
         ));
     }
     let valid = r#"{"argv":["run"],"definition_paths":["src"]}"#;
+    // Compare raw declarations, not schema-normalized order, duplicates or omitted fields.
+    for (left, right) in [
+        (
+            r#"{"argv":["run"],"definition_paths":["src","tools"]}"#,
+            r#"{"argv":["run"],"definition_paths":["tools","src"]}"#,
+        ),
+        (
+            r#"{"argv":["run"],"definition_paths":["src","src"]}"#,
+            valid,
+        ),
+        (
+            valid,
+            r#"{"argv":["run"],"definition_paths":["src"],"absent_paths":[]}"#,
+        ),
+    ] {
+        cases.push(([doc(left), doc(right)], [None, None]));
+    }
     let zero_input = doc(r#"{"argv":["run"],"definition_paths":["src"],"tree_inputs":0.0}"#);
     cases.push((
         [zero_input.clone(), zero_input],
