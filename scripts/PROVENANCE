@@ -26,6 +26,8 @@
 # selected-input history scan (243 blob-selector pairs, maximum depth 8).
 # Rust parity: selected-content-layout (523-548). Layout resolution uses the
 # supplied tree; a present invalid preferred file never falls back to legacy.
+# Rust parity: input-projection (566-605). Raw names/modes, component exclusions,
+# resolved selector identity, missing selections and empty/whole trees match.
 # Hardening divergence: discovery-input-hardening rejects invalid ref prefixes,
 # non-OID commits, LF/CR/NUL note paths and malformed batch frames. Python callers
 # never supply these; its suffix-only test counts ambiguous replies as present (impossible with full OIDs).

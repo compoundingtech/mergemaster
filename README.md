@@ -539,6 +539,8 @@ floats, JSON extensions and nesting above 127 containers refuse with named
 `selection::selected` resolves the preferred `.fractal`/legacy `.st` layout at
 the supplied Git tree and reads strict UTF-8 there, never from the checkout.
 Selected blobs above 16 MiB refuse with `error` before decoding or selection.
+`projection::project` computes legacy reduced Git-tree keys, retaining raw names,
+symlink/gitlink modes and canonical selector entries; empty projections have no key. Selected reads require full tree OIDs.
 
 ### Main-push tree-equality evidence
 

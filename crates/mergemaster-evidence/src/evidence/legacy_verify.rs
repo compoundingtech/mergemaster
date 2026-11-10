@@ -6,6 +6,7 @@ pub mod judgment;
 pub mod lane_entry;
 pub mod lane_git;
 pub mod lanes;
+pub mod projection;
 pub mod routing;
 pub mod selection;
 pub mod selection_json;
