@@ -1071,3 +1071,157 @@ the owner UI, revoke/rotate and reseed the same secret through a trusted
 secret-management path, then use `APP_ADOPT_SLUG` with `pnpm run deploy` and
 unset it afterward. `APP_REPOSITORY` selects the entry for conversion/adoption
 (default `graph`); adding future repositories requires one table entry each.
+
+## Historical Python proof pilot (review-only `proof/step-d`)
+
+`tools/historical-proof/` compares unchanged Python verifiers from Fractal
+`e2721e52463428b4ff655addee129cecd2839763` and mergemaster
+`9b11253604566a764791f68558e449b36f7f38f9`. This branch is for independent review,
+not a main-branch cutover. It changes no `scripts/` oracle or native call path.
+Python 3.11+, Git and `ssh-keygen` suffice; do not run Cargo or Nix on dev3.
+
+Export the two immutable sources (including sibling scripts), then run the
+local signed-fixture acceptance. These commands use disposable `/var/tmp`
+storage and generate only synthetic signing keys:
+
+```bash
+export DROOT=/var/tmp/mm-step-d
+export FRACTAL_SOURCE_BARE="$HOME/.megarepo/github.com/compoundingtech/fractal/.bare"
+export MM_SOURCE_BARE="$HOME/.megarepo/github.com/compoundingtech/mergemaster/.bare"
+export FRACTAL_IMPL=e2721e52463428b4ff655addee129cecd2839763
+export MM_IMPL=9b11253604566a764791f68558e449b36f7f38f9
+export LC_ALL=C TZ=UTC
+umask 077
+mkdir -p "$DROOT/implementations/fractal" "$DROOT/implementations/mm"
+git --git-dir="$FRACTAL_SOURCE_BARE" archive "$FRACTAL_IMPL" scripts \
+  | tar -x -C "$DROOT/implementations/fractal"
+git --git-dir="$MM_SOURCE_BARE" archive "$MM_IMPL" scripts \
+  | tar -x -C "$DROOT/implementations/mm"
+export FRACTAL_SCRIPTS="$DROOT/implementations/fractal/scripts"
+export MM_SCRIPTS="$DROOT/implementations/mm/scripts"
+TMPDIR=/var/tmp PYTHONDONTWRITEBYTECODE=1 \
+  PROOF_TEST_RECEIPT="$DROOT/test-receipt" \
+  python3 tools/historical-proof/test_clock_adapter.py
+```
+
+The test loads the existing committed `evidence-verify-test` fixture builder;
+it does not execute its unrelated tests. It signs real Git records with fresh
+Ed25519 keys, and tests BOTH verifiers at a deliberately old fixed instant and
+two days later. Single-check, per-crate `--members`, aggregate `--require-all`
+and the verifier's signed log-shadow view must change from satisfied/fresh
+to rejected/stale. The log-view path is `evidence-verify.log_view`; it is not
+the log publisher's `evidence-log` CLI (that CLI already has `--now`).
+The adapter changes only the imported verifier's global `datetime` class,
+never timestamps, trust rules, sibling functions or script bytes.
+
+**Accepted-BASE helper is explicit policy input.** The MM pin does not include
+`rust-test-keys`. Just as Fractal's accepted-base `ci-evidence-gate` does, the
+driver stages `BASE:scripts/rust-test-keys` next to BOTH unchanged verifiers.
+At the approved BASE the helper blob is
+`a37998a626583209e45a9f9fbb1921f661e916a2`.
+The receipt records its BASE, blob OID and SHA-256. Source exports and MM's
+`scripts/` are never patched. A separate test verifies that omitting the helper
+fails explicitly, rather than silently replacing the members path.
+
+The same acceptance run invokes the actual driver on a tiny two-lane signed
+corpus, requires all four requested products and zero semantic diffs, resumes
+without rerunning completed cases, and then mutates ONLY a disposable copy
+of one verifier to require exactly one unexplained diff. A wrong manifest
+digest must refuse before replay. Optional retained test receipts are private
+synthetic artifacts, not the archived-evidence proof.
+
+### Authorized dev5 pilot invocation
+
+The Phase A receipt is a prerequisite, not supplied by this repository.
+Obtain its exact sorted unpeeled `<oid> <ref>` LF manifest and freeze timestamp,
+and prepare an independently retained, offline `code.git` with matching
+tags/notes/log refs and all subject/code objects. Fetch/clone admission is
+separate: the 10 GB profile below does not authorize an oversized download.
+The receipt's namespace scope must cover the driver's all-tags/all-notes/log
+equality check; a narrower archive requires explicit review, not ref deletion.
+`PHASE_A_SHA256` and `PHASE_A_FREEZE_UTC` below MUST come from that receipt.
+
+Run in an attachable named PTY, after checking deployed dev5 admission capacity:
+
+```bash
+# DROOT is the authorized private dev5 allocation, not the local test directory.
+# PHASE_A_SHA256 and PHASE_A_FREEZE_UTC are exact independently supplied inputs.
+gate-slot --lane build --profile disk=10000000000 -- \
+  python3 tools/historical-proof/driver.py replay-shard \
+    --scratch-root "$DROOT/pilot" --repo "$DROOT/code.git" \
+    --manifest "$DROOT/inputs/archive.local.manifest" \
+    --manifest-sha256 "$PHASE_A_SHA256" \
+    --fractal-scripts "$DROOT/implementations/fractal/scripts" \
+    --mergemaster-scripts "$DROOT/implementations/mm/scripts" \
+    --clock "$PHASE_A_FREEZE_UTC" --base "$FRACTAL_IMPL" \
+    --repository compoundingtech/fractal --selection pilot \
+    --workers 2 --time-budget-seconds 1200
+```
+
+Repeat the identical command after releasing/reacquiring the slot for each
+20-minute shard. Do not use `--class gate`. Two worker threads each run the
+two implementation processes sequentially, so at most two oracle processes
+run concurrently. A bounded in-flight case that times out is unresolved,
+never equal-error success. Source/manifest/clock/BASE/driver/adapter/allowlist
+changes invalidate resume; use a new result root. No production signing,
+notification, publication, GC or network command is issued by this driver.
+Use a worker account without network or signer capability; environment flags
+alone are not an OS sandbox. Do not supply production private keys.
+
+### Products and interpretation
+
+The driver indexes every evidence alias, batch-reads unique record objects and
+statement blobs, and records malformed/unavailable/index-inconsistent subjects.
+All manifest refs (including non-evidence tags and log heads) remain accounted
+for in `refs.jsonl`. Cases retain the full visible-ref digest, target commit,
+accepted BASE, UTC clock, input bindings and argv. Current eight-lane and
+historical-only names lacking policy become explicit `not-defined` cases.
+Per-check/member and aggregate cases are separate. Protected-file and
+preferred-host behavior comes from accepted-BASE wrapper constants; run-ranked
+vectors come from observed inputs and are explicitly frozen sizing vectors,
+not reconstructed historical event authority or inferred branch points.
+
+Pilot selection is deterministic: up to 100 distinct cases per lane and
+1,000 unique record checks, preserving pass/reject observations and special
+modes when available before filling by case digest. Observation labels are
+selection hints, NOT trusted verdicts. Small corpora are not padded with
+duplicate cases: `selection_counts` shows requested/available/selected counts.
+`--selection all` selects all generated frozen vectors for fixture work; it
+does not authorize a full archive run or establish exhaustive historical-event
+coverage. Missing historical visibility is always `context_unresolved`.
+
+Each atomic `cases/<digest>.json` checkpoint binds the source receipt.
+`decisions.jsonl` retains per-implementation exit status, JSON validity,
+normalized verdict/satisfied checks/selected OIDs/reject classes, exact
+invocation, raw artifact hashes and duration. `raw/` retains stdout/stderr.
+`diffs.jsonl` contains semantic mismatches with both objects, first divergent
+field, context digest and pending independent disposition; it never auto-accepts
+a decision difference. `lane-summary.json` separates raw, allowlisted and
+unexplained counts plus satisfied/rejected/expired/error and selected-record
+coverage for each implementation. Equal infrastructure errors stay unresolved.
+
+`allowlist.json` is a fixed proposal requiring independent CI Manager review
+BEFORE an archive pilot: only human-readable `detail` fields and JSON object
+ordering are ignored. Semantic arrays retain order. No record, reason, lane,
+input, veto, skipped-newer or log-view field is removed. No runtime allowlist
+extension is supported; a change requires a fresh reviewed receipt/run.
+
+`coverage.json` exposes pending cases, record issues, selection shortfalls,
+explicit not-defined lanes and zero actual-historical/native coverage.
+`receipt.json` binds expected source pins, actual source file hashes, runtime,
+manifest, helper, clock, driver, adapter and allowlist. Operators must attach
+the immutable export provenance: labels alone do not authenticate an arbitrary
+source directory. `resources.json` records wall time, child peak RSS and
+retained scratch bytes/free space; include code mirror and transfer/packed
+size when sizing a full run at measured peak +25%. `products.json` hashes all
+retained products. Exit 1 means unexplained diffs, record issues or unresolved
+oracle execution; exit 2 is an input/setup refusal. Pending shard work is
+visible even when the completed shard itself exits 0.
+
+**Not a D GO:** the real Phase A archive, 100/lane +1,000-record dev5 pilot,
+log/log-watch consumer notification/restoration/GC-read fixture replay,
+independent review and exhaustive corpus execution are NOT established by
+these tiny fixtures. Log-shadow clock coverage does not replace that mandatory
+consumer receipt. Native Rust replay is intentionally excluded by CI Manager's
+Python-plus-log decision; E must leave native call paths unchanged. Shadow C
+and historical D populations are not combined.

@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "ignored_message_fields": ["detail"],
+  "ordering": "JSON object key order only; explicitly set-valued satisfied_checks and selected_records are sorted",
+  "forbidden": ["exit_status", "verdict", "reason", "record", "decided_by", "inputs", "lanes", "log", "veto", "skipped_newer"],
+  "approval": "Frozen proposal for independent CI Manager review before archive pilot; no runtime extensions"
+}
