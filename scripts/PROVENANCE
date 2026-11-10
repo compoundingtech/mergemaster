@@ -28,6 +28,11 @@
 # resync-blob scripts/fractal-test-report-test b0dc50163986760343d7eb67c701cb4b775e9945
 # resync-blob scripts/lane-definition-closure 492b3741b117092395855d9790dc96e6ce3612e6
 # resync-blob scripts/lane-definition-closure-test 635945d2a01f18e9c4716c50a2eb9803896cbb08
+# resync-blob scripts/evidence-flip-ready ce94216c0435711419e1b2bc5acc996e2ac926b9
+# resync-blob scripts/evidence-flip-ready-test 16e505355c4092c880c3f5e283baa8c0996cea4b
+# resync-blob scripts/evidence-verify-test 08d11cc7ba5e8a3d5ffb59fadb9eb49238aec95f
+# resync-blob scripts/st-test 087ae7d9f3d1106a38eedc1e911caeeaf46a96ae
+# resync-blob scripts/fractal-test-test decb42b9d442807c9601b473c190b3743b24c4c0
 # scripts/fractal-test-test: apply the fixture maintenance-isolation patch from
 # https://github.com/compoundingtech/fractal/pull/4398 (5f995f26e5).
 # The source_blob column remains the original import; mergemaster_blob includes applied patches.
