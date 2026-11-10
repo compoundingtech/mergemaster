@@ -17,16 +17,17 @@ The default development shell provides both suites' real tool dependencies
 and pinned source inputs. Script tests run on the host, not inside a Nix
 derivation or a nested bubblewrap sandbox.
 
-Rust signer/verifier parity tests read the immutable v0.5.0 Python source pinned
+Rust signer/verifier parity tests read the immutable v0.6.0 Python source pinned
 by the `python-oracle` flake input, not the working-tree scripts.
 `MERGEMASTER_PYTHON_ORACLE` names that source root and is required for those tests;
 the dev shell and `checks.evidence` set it automatically. The production package
 does not depend on the oracle or run its parity tests.
 
-`checks.oracle-scripts` compares every remaining working-tree script's bytes and
-executable bits with the pinned oracle. Deletions are allowed; additions or edits
-fail. The explicit exemptions are repository-owned `PROVENANCE`, `test-scripts`,
-`parity-drift`, and `parity-drift-test`, rather than copied upstream scripts.
+`checks.oracle-scripts` compares copied scripts' bytes and executable bits with
+the pinned oracle in both directions: additions, deletions and edits fail.
+Only repository-owned `PROVENANCE` and `test-scripts` are exempt. The retired
+Python parity-drift tools are absent from both trees; the scheduled drift check
+continues to use the Rust CLI.
 
 For development:
 

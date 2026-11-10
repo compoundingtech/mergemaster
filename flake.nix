@@ -11,7 +11,7 @@
     flake = false;
   };
   inputs.python-oracle = {
-    url = "github:compoundingtech/mergemaster/1392a516e969be46d9516d904b76a4db98c55030";
+    url = "github:compoundingtech/mergemaster/cff667cd53bdb6c024f9d7a06259b8f9a3fbb0cb";
     flake = false;
   };
 
@@ -61,7 +61,6 @@
             # Inspect every Git-source entry, including names cleanSource excludes.
             src = self;
             MERGEMASTER_PYTHON_ORACLE = "${python-oracle}";
-            MERGEMASTER_FRACTAL_FIXTURE = "${fractal-fixture}";
           } ''
             python3 -B "$src/tests/test-oracle-scripts.py"
             python3 -B "$src/tests/oracle_scripts.py"
