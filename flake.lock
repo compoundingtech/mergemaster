@@ -42,17 +42,17 @@
     "fractal-fixture": {
       "flake": false,
       "locked": {
-        "lastModified": 1794265163,
-        "narHash": "sha256-pGJRiUHcongVBrYEWT2w3TZTS8UdcZJjHRJvTDhrpYg=",
+        "lastModified": 1794333982,
+        "narHash": "sha256-EYnLgrxDCQXThOybpPxr2okTy7BpcHkzjLvBsaAZ+vM=",
         "owner": "compoundingtech",
         "repo": "fractal",
-        "rev": "e2721e52463428b4ff655addee129cecd2839763",
+        "rev": "787e8ed592dff34d2bdc2a2b0b584482da567e7f",
         "type": "github"
       },
       "original": {
         "owner": "compoundingtech",
         "repo": "fractal",
-        "rev": "e2721e52463428b4ff655addee129cecd2839763",
+        "rev": "787e8ed592dff34d2bdc2a2b0b584482da567e7f",
         "type": "github"
       }
     },
