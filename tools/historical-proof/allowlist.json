@@ -1,7 +1,8 @@
 {
-  "version": 1,
-  "ignored_message_fields": ["detail"],
+  "version": 2,
+  "ignored_message_paths": [["detail"], ["lanes", "*", "detail"]],
   "ordering": "JSON object key order only; explicitly set-valued satisfied_checks and selected_records are sorted",
+  "path_matching": "Exact root-relative path; * matches one lane name only. Only string diagnostic values at those paths are ignored; inputs and signed statements are never matched.",
   "forbidden": ["exit_status", "verdict", "reason", "record", "decided_by", "inputs", "lanes", "log", "veto", "skipped_newer"],
   "approval": "Frozen proposal for independent CI Manager review before archive pilot; no runtime extensions"
 }

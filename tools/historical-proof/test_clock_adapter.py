@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Focused clock and tiny signed-corpus acceptance (only stdlib/git/ssh-keygen)."""
 import contextlib
+import copy
 from datetime import timedelta
 import importlib.machinery
 import importlib.util
@@ -29,6 +30,38 @@ def fixture_module():
     module.NOW = instant(AT)
     return module
 
+
+class DecisionContract(unittest.TestCase):
+    def test_only_diagnostic_detail_paths_are_allowlisted(self):
+        original = {'satisfied': False, 'reason': 'wrong_inputs', 'detail': 'diagnostic',
+                    'lanes': {'unit': {'satisfied': False, 'reason': 'wrong_inputs', 'detail': 'lane diagnostic'}},
+                    'inputs': {'detail': 'signed input'},
+                    'statement': {'predicate': {'observed': {'inputs': {'detail': 'signed statement input'}}}},
+                    'other': {'detail': 'semantic value'}, 'items': [{'detail': 'array value'}]}
+        for path, allowlisted in ((('detail',), True), (('lanes', 'unit', 'detail'), True),
+                                  (('inputs', 'detail'), False),
+                                  (('statement', 'predicate', 'observed', 'inputs', 'detail'), False),
+                                  (('other', 'detail'), False), (('items', 0, 'detail'), False)):
+            with self.subTest(path=path):
+                changed = copy.deepcopy(original)
+                target = changed
+                for key in path[:-1]:
+                    target = target[key]
+                target[path[-1]] = 'different'
+                self.assertEqual(driver.normalize(1, original) == driver.normalize(1, changed), allowlisted)
+
+    def test_equal_nested_infrastructure_errors_are_not_meaningful_parity(self):
+        failures = [
+            {'satisfied': False, 'reason': 'crate_uncovered', 'missing': {'example': 'error'}},
+            {'satisfied': False, 'decision': 'reject', 'lanes': {'unit': {'satisfied': False, 'reason': 'error'}}},
+        ]
+        for value in failures:
+            with self.subTest(value=value):
+                self.assertEqual(driver.normalize(1, value), driver.normalize(1, copy.deepcopy(value)))
+                self.assertTrue(driver.is_unresolved(1, value))
+        self.assertFalse(driver.is_unresolved(1, {'satisfied': False, 'reason': 'too_old'}))
+        self.assertFalse(driver.is_unresolved(0, {'satisfied': True, 'inputs': {'reason': 'error'},
+                                                'statement': {'predicate': {'observed': {'inputs': {'reason': 'error'}}}}}))
 
 class ClockAdapter(unittest.TestCase):
     def setUp(self):
@@ -70,7 +103,7 @@ class ClockAdapter(unittest.TestCase):
             self.staged[name] = target
         module = load(self.staged['fractal'] / 'evidence-verify', AT)
         crate_key = module.member_keys(str(self.f.repo), self.tree, self.commit)['example']
-        self.unit = self.f.note(self.commit, self.tree, self.key, 'machine/ci1')
+        self.unit = self.f.note(self.commit, self.tree, self.key, 'machine/ci1', inputs={'detail': 'signed semantic input'})
         self.member = self.f.note(self.commit, self.tree, self.key, 'machine/ci1', check='rust-tests',
                                   inputs={'crate': 'example', 'source_inputs': crate_key, 'tests_run': '1'})
         log = self.fixtures.EvidenceLogView()
@@ -111,17 +144,55 @@ class ClockAdapter(unittest.TestCase):
         self.assertEqual((code, value['reason']), (1, 'error'))
         self.assertIn('rust-test-keys is not next to', value['detail'])
 
-    def test_tiny_signed_corpus_and_exactly_one_injected_diff(self):
+    def driver_command(self, output, fractal=FRACTAL, mergemaster=MM):
         manifest = self.root / 'archive.manifest'
         refs = driver.git(self.f.repo, 'for-each-ref', '--format=%(objectname) %(refname)', *driver.PREFIXES)
         manifest.write_bytes(b''.join(line + b'\n' for line in sorted(refs.splitlines())))
-        digest = driver.sha(manifest.read_bytes())
+        return [sys.executable, str(Path(driver.__file__)), 'replay-shard', '--scratch-root', str(output),
+                '--repo', str(self.f.repo), '--manifest', str(manifest),
+                '--manifest-sha256', driver.sha(manifest.read_bytes()),
+                '--fractal-scripts', str(fractal), '--mergemaster-scripts', str(mergemaster),
+                '--clock', AT, '--base', self.commit, '--repository', 'org/repo', '--selection', 'pilot']
+
+    def test_driver_marks_both_sides_nested_errors_unresolved(self):
+        sources = {}
+        for name, source in [('fractal', FRACTAL), ('mergemaster', MM)]:
+            target = self.root / ('fault-' + name)
+            shutil.copytree(source, target)
+            script = target / 'evidence-verify'
+            # Disposable fault-injection vectors, never the pinned source exports.
+            script.write_text(script.read_text() + '''
+_fixture_main = main
+def main(argv):
+    if '--members' in argv:
+        print(json.dumps({'satisfied': False, 'reason': 'crate_uncovered', 'missing': {'example': 'error'}}))
+        return 1
+    if '--require-all' in argv:
+        print(json.dumps({'satisfied': False, 'decision': 'reject', 'lanes': {'unit': {'satisfied': False, 'reason': 'error'}}}))
+        return 1
+    return _fixture_main(argv)
+''')
+            sources[name] = target
+        output = self.root / 'nested-errors'
+        done = subprocess.run(self.driver_command(output, sources['fractal'], sources['mergemaster']),
+                              capture_output=True, text=True)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertEqual((output / 'diffs.jsonl').read_text(), '')
+        coverage = json.loads((output / 'coverage.json').read_text())
+        self.assertEqual(coverage['unresolved_cases'], 2)
+        summary = json.loads((output / 'lane-summary.json').read_text())
+        self.assertEqual(summary['rust-tests']['unresolved'], 1)
+        self.assertEqual(summary['__aggregate__']['unresolved'], 1)
+        rows = [json.loads(line) for line in (output / 'decisions.jsonl').read_text().splitlines()]
+        failures = [row for row in rows if row['lane'] in ('rust-tests', '__aggregate__')]
+        self.assertEqual(len(failures), 4)
+        self.assertTrue(all(row['unresolved'] for row in failures))
+
+    def test_tiny_signed_corpus_and_exactly_one_injected_diff(self):
+        # End-to-end injected difference targets an input literally named "detail".
 
         def replay(output, scripts=MM, expected=0):
-            command = [sys.executable, str(Path(driver.__file__)), 'replay-shard', '--scratch-root', str(output),
-                       '--repo', str(self.f.repo), '--manifest', str(manifest), '--manifest-sha256', digest,
-                       '--fractal-scripts', str(FRACTAL), '--mergemaster-scripts', str(scripts),
-                       '--clock', AT, '--base', self.commit, '--repository', 'org/repo', '--selection', 'pilot']
+            command = self.driver_command(output, mergemaster=scripts)
             result = subprocess.run(command, capture_output=True, text=True)
             self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
             for name in ('decisions.jsonl', 'diffs.jsonl', 'lane-summary.json', 'coverage.json'):
@@ -142,6 +213,12 @@ class ClockAdapter(unittest.TestCase):
         before = (good / 'decisions.jsonl').read_bytes()
         subprocess.run(command, check=True, capture_output=True)
         self.assertEqual((good / 'decisions.jsonl').read_bytes(), before)
+        changed_repository = command.copy()
+        changed_repository[changed_repository.index('--repository') + 1] = 'different/repository'
+        refused = subprocess.run(changed_repository, capture_output=True, text=True)
+        self.assertEqual(refused.returncode, 2)
+        self.assertIn('resume receipt differs', refused.stderr)
+        self.assertEqual((good / 'decisions.jsonl').read_bytes(), before)
         bad = self.root / 'injected'
         shutil.copytree(MM, bad)
         path = bad / 'evidence-verify'
@@ -149,7 +226,7 @@ class ClockAdapter(unittest.TestCase):
         # Mutation confined to disposable test oracle. Exactly the unit single-check path changes.
         needle = "result = verify(args.repo, tree, args.check, keys, command, kinds, bind, args.max_age, args.runner_prefix,"
         self.assertEqual(text.count(needle), 1)
-        text = text.replace("        print(json.dumps(result, indent=2))\n        return 0\n    except Failure", "        if args.check == 'unit':\n            result['satisfied'] = False\n        print(json.dumps(result, indent=2))\n        return 0\n    except Failure")
+        text = text.replace("        print(json.dumps(result, indent=2))\n        return 0\n    except Failure", "        result['inputs']['detail'] = 'injected semantic input difference'\n        print(json.dumps(result, indent=2))\n        return 0\n    except Failure")
         self.assertNotEqual(text, path.read_text())
         path.write_text(text)
         changed = self.root / 'changed'

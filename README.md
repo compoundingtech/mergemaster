@@ -1126,8 +1126,11 @@ fails explicitly, rather than silently replacing the members path.
 The same acceptance run invokes the actual driver on a tiny two-lane signed
 corpus, requires all four requested products and zero semantic diffs, resumes
 without rerunning completed cases, and then mutates ONLY a disposable copy
-of one verifier to require exactly one unexplained diff. A wrong manifest
-digest must refuse before replay. Optional retained test receipts are private
+of one verifier's input named `detail` to require exactly one unexplained diff.
+Regression vectors preserve `inputs.detail` and signed-statement input names,
+classify equal nested member/aggregate infrastructure errors as unresolved,
+and refuse resume with a changed `--repository` or manifest digest.
+Optional retained test receipts are private
 synthetic artifacts, not the archived-evidence proof.
 
 ### Authorized dev5 pilot invocation
@@ -1162,8 +1165,8 @@ Repeat the identical command after releasing/reacquiring the slot for each
 20-minute shard. Do not use `--class gate`. Two worker threads each run the
 two implementation processes sequentially, so at most two oracle processes
 run concurrently. A bounded in-flight case that times out is unresolved,
-never equal-error success. Source/manifest/clock/BASE/driver/adapter/allowlist
-changes invalidate resume; use a new result root. No production signing,
+never equal-error success. Source/manifest/clock/BASE/repository/driver/adapter/
+allowlist changes invalidate resume; use a new result root. No production signing,
 notification, publication, GC or network command is issued by this driver.
 Use a worker account without network or signer capability; environment flags
 alone are not an OS sandbox. Do not supply production private keys.
@@ -1198,18 +1201,23 @@ invocation, raw artifact hashes and duration. `raw/` retains stdout/stderr.
 field, context digest and pending independent disposition; it never auto-accepts
 a decision difference. `lane-summary.json` separates raw, allowlisted and
 unexplained counts plus satisfied/rejected/expired/error and selected-record
-coverage for each implementation. Equal infrastructure errors stay unresolved.
+coverage for each implementation. Equal infrastructure errors stay unresolved,
+including `lanes.<check>.reason=error` and `missing.<crate>=error`; signed input
+values named `reason` or `decision` are not infrastructure diagnostics.
 
 `allowlist.json` is a fixed proposal requiring independent CI Manager review
-BEFORE an archive pilot: only human-readable `detail` fields and JSON object
-ordering are ignored. Semantic arrays retain order. No record, reason, lane,
-input, veto, skipped-newer or log-view field is removed. No runtime allowlist
-extension is supported; a change requires a fresh reviewed receipt/run.
+BEFORE an archive pilot: only string diagnostics at root `detail` and
+`lanes.<check>.detail` and JSON object ordering are ignored. The allowlist uses
+exact root-relative path arrays, with `*` matching one lane name only.
+`inputs.detail`, `statement.predicate.observed.inputs.detail`, arbitrary nested
+`detail` values and semantic array order are preserved. No record, reason,
+lane result, input, veto, skipped-newer or log-view field is removed.
+No runtime extension is supported; a change requires a fresh reviewed receipt/run.
 
 `coverage.json` exposes pending cases, record issues, selection shortfalls,
 explicit not-defined lanes and zero actual-historical/native coverage.
 `receipt.json` binds expected source pins, actual source file hashes, runtime,
-manifest, helper, clock, driver, adapter and allowlist. Operators must attach
+manifest, repository identity, helper, clock, driver, adapter and allowlist. Operators must attach
 the immutable export provenance: labels alone do not authenticate an arbitrary
 source directory. `resources.json` records wall time, child peak RSS and
 retained scratch bytes/free space; include code mirror and transfer/packed
@@ -1229,15 +1237,15 @@ and historical D populations are not combined.
 ### Signed log consumer fixture receipt
 
 The separate `consumer_fixtures.py` runner closes the synthetic consumer-fixture
-item above, without changing the reviewed pilot driver, clock adapter or
-allowlist. It verifies the exact pinned Git blob IDs of `evidence-log`,
+item above, using the pilot driver's shared diagnostic-path normalizer,
+clock adapter and fixed allowlist. It verifies the exact pinned Git blob IDs of `evidence-log`,
 `evidence-log-watch`, `evidence-verify` and the existing signed fixture builder
 before executing either implementation. Run it with a NEW private scratch root:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 \
   python3 tools/historical-proof/consumer_fixtures.py \
-    --scratch-root /var/tmp/mm-step-d/consumer-receipt-final \
+    --scratch-root /var/tmp/mm-step-d/consumer-receipt-reviewed-fixes \
     --fractal-scripts /var/tmp/mm-step-d/implementations/fractal/scripts \
     --mergemaster-scripts /var/tmp/mm-step-d/implementations/mm/scripts \
     --clock 2024-01-02T03:04:05Z

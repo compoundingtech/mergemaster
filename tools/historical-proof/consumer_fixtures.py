@@ -13,7 +13,7 @@ import sys
 import tempfile
 
 from clock_adapter import instant
-from driver import HERE, PINS, encoded, git, normalize, save, sha
+from driver import HERE, PINS, encoded, git, has_infrastructure_error, normalize, save, sha
 
 BLOBS = {'evidence-log': '73e22e8252a1ceab4eba0324a0063c97f1d75b18',
          'evidence-log-watch': 'f580ed13fe4f8130ec936dfeefb64f6c3b97b2f1',
@@ -98,7 +98,7 @@ class Replay:
         require(done.returncode == expected, f'{case}: exit {done.returncode}, expected {expected}: {value}, {done.stderr!r}')
         for key, expected_value in (fields or {}).items():
             require(value.get(key) == expected_value, f'{case}: {key}={value.get(key)!r}, expected {expected_value!r}')
-        require(value.get('reason') != 'error', f'{case}: equal infrastructure errors cannot pass')
+        require(not has_infrastructure_error(value), f'{case}: equal infrastructure errors cannot pass')
         snapshot = self.snapshot()
         payload = dict(value)
         payload['consumer_snapshot'] = snapshot

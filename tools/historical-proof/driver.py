@@ -24,6 +24,7 @@ CURRENT = ['typescript-client', 'fractal-web', 'linux-gate', 'genie-freshness',
            'ci-script-tests', 'rust-tests', 'linux-clippy', 'linux-fleet-compat']
 PREFIXES = ('refs/tags/', 'refs/notes/', 'refs/evidence-log/')
 EVIDENCE_PREFIXES = ('refs/tags/evidence/', 'refs/notes/evidence/', 'refs/notes/evidence-input/')
+DIAGNOSTIC_DETAIL_PATHS = (('detail',), ('lanes', '*', 'detail'))
 
 
 def encoded(value):
@@ -112,17 +113,44 @@ def normalize(code, value):
             for item in node:
                 walk(item)
 
-    def semantic(node):
+    def semantic(node, path=()):
         if isinstance(node, dict):
-            return {k: semantic(v) for k, v in node.items() if not (k == 'detail' and isinstance(v, str))}
+            result = {}
+            for key, item in node.items():
+                child_path = path + (key,)
+                diagnostic = any(len(child_path) == len(allowed) and
+                                 all((expected == '*' and isinstance(actual, str)) or actual == expected
+                                     for actual, expected in zip(child_path, allowed))
+                                 for allowed in DIAGNOSTIC_DETAIL_PATHS)
+                if not (diagnostic and isinstance(item, str)):
+                    result[key] = semantic(item, child_path)
+            return result
         if isinstance(node, list):
-            return [semantic(v) for v in node]
+            return [semantic(item, path + (index,)) for index, item in enumerate(node)]
         return node
 
     walk(value)
     return {'exit_status': code, 'verdict': value.get('decision', value.get('satisfied')),
             'satisfied_checks': sorted(satisfied), 'selected_records': sorted(records),
             'reject_reason_class': sorted(reasons), 'semantic': semantic(value)}
+
+
+def has_infrastructure_error(value):
+    """Inspect verifier diagnostic locations, never signed statement/input contents."""
+    if not isinstance(value, dict):
+        return False
+    if value.get('reason') == 'error' or value.get('decision') == 'error':
+        return True
+    lanes = value.get('lanes', {})
+    if isinstance(lanes, dict) and any(has_infrastructure_error(lane) for lane in lanes.values()):
+        return True
+    missing = value.get('missing', {})
+    return isinstance(missing, dict) and any(
+        reason == 'error' or has_infrastructure_error(reason) for reason in missing.values())
+
+
+def is_unresolved(code, value, json_valid=True):
+    return code not in (0, 1) or not json_valid or has_infrastructure_error(value)
 
 
 def record_probe(args):
@@ -305,7 +333,7 @@ def run(args):
     if args.workers != 2 or args.time_budget_seconds > 1200 or args.time_budget_seconds <= 0:
         raise ValueError('approved pilot requires 2 workers and shards of at most 1200 seconds')
     allowlist = json.loads((HERE / 'allowlist.json').read_text())
-    if allowlist['ignored_message_fields'] != ['detail']:
+    if allowlist['ignored_message_paths'] != [list(path) for path in DIAGNOSTIC_DETAIL_PATHS]:
         raise ValueError('allowlist changed: independent review required')
     root.mkdir(parents=True, exist_ok=True)
     implementations = {}
@@ -336,6 +364,7 @@ def run(args):
             break
     keys.write_bytes(git(args.repo, 'cat-file', 'blob', f'{args.base}:{key_path}') if key_path else b'')
     receipt = {'manifest': args.manifest_sha256, 'clock': args.clock, 'base': args.base,
+               'repository': args.repository,
                'expected_source_pins': PINS, 'implementations': hashes, 'helper': {'base': args.base, 'blob': helper_oid,
                'sha256': sha(helper)}, 'adapter': sha((HERE / 'clock_adapter.py').read_bytes()),
                'driver': sha(Path(__file__).read_bytes()), 'allowlist': sha(encoded(allowlist)),
@@ -411,7 +440,7 @@ def run(args):
                 except (ValueError, UnicodeError):
                     value, valid = {'reason': 'invalid_json'}, False
                 normalized = normalize(code, value)
-                unresolved = code not in (0, 1) or not valid or value.get('reason') == 'error' or value.get('decision') == 'error'
+                unresolved = is_unresolved(code, value, valid)
                 rows.append({'case_id': case['id'], 'lane': case['lane'], 'implementation': name,
                              'argv': command, 'normalized': normalized, 'json_valid': valid, 'unresolved': unresolved,
                              'stdout_sha256': sha(stdout), 'stderr_sha256': sha(stderr), 'duration_s': time.monotonic() - before})
