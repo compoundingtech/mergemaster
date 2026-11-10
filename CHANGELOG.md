@@ -1,8 +1,16 @@
 # Changelog
 
-## Unreleased
+## [0.6.1] - 2026-11-10
 
-- Guard the six-script R2 Fractal resync with immutable revisions, exact blobs and executable modes; expire the exception on the next oracle repin (#115).
+### Added
+
+- Rust legacy tree-record discovery preserves tree-tag-before-note ordering, exact record suffix identity and first-layout width filtering in SHA-1 and SHA-256 repositories. (#121, slice 3f-1)
+- Rust legacy statement-shape validation covers decoded test records, zoned ISO calendar/week clocks, schema bool/float equality and integer-only exit codes. JSON byte decoding remains a separate port slice. (#122, slice 3f-2a)
+
+### Changed
+
+- Pin the immutable Python oracle to v0.6.0 and retire the first resync exception; retain the v0.5.0 oracle separately for the retired Python parity reporter's differential tests. (#120)
+- Mirror six scripts and four policy/input fixtures verbatim from Fractal `787e8ed5`, including caller-side partial-clone hydration and signer refusal of missing objects. Guard the script resync with immutable revisions, exact blobs and executable modes until the next oracle repin. (#123, #124; exit tracking #115)
 
 ## [0.6.0] - 2026-11-10
 
@@ -122,3 +130,4 @@
 [0.4.0]: https://github.com/compoundingtech/mergemaster/compare/v0.1.0...v0.4.0
 [0.5.0]: https://github.com/compoundingtech/mergemaster/compare/v0.4.0...v0.5.0
 [0.6.0]: https://github.com/compoundingtech/mergemaster/compare/v0.5.0...v0.6.0
+[0.6.1]: https://github.com/compoundingtech/mergemaster/compare/v0.6.0...v0.6.1
