@@ -121,6 +121,23 @@
         "type": "github"
       }
     },
+    "python-oracle-parity": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1793953851,
+        "narHash": "sha256-NL/NWSn+YfpwP7h+CGZkeNmRh9hnQOH3OkF9GtyPXgM=",
+        "owner": "compoundingtech",
+        "repo": "mergemaster",
+        "rev": "1392a516e969be46d9516d904b76a4db98c55030",
+        "type": "github"
+      },
+      "original": {
+        "owner": "compoundingtech",
+        "repo": "mergemaster",
+        "rev": "1392a516e969be46d9516d904b76a4db98c55030",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "effect-utils": "effect-utils",
@@ -129,7 +146,8 @@
           "effect-utils",
           "nixpkgs"
         ],
-        "python-oracle": "python-oracle"
+        "python-oracle": "python-oracle",
+        "python-oracle-parity": "python-oracle-parity"
       }
     },
     "systems": {

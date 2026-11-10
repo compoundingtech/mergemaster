@@ -164,7 +164,9 @@ history or a missing watermark is an error in either mode.
 The workflow builds the Rust binary from the checkout's locked Nix flake before
 fetching upstream history, retaining read-only permissions and advisory reporting.
 The Rust differential integration test compares the unchanged Python implementation
-and assertions from `MERGEMASTER_PYTHON_ORACLE` against real local Git histories.
+and assertions from `MERGEMASTER_PYTHON_PARITY_ORACLE` against real local Git histories.
+This separate `python-oracle-parity` input retains v0.5.0's retired reporter and suite;
+the dev shell and `checks.evidence` set it without adding a runtime dependency.
 The command defaults to `scripts/PROVENANCE` at the caller's Git top level; outside
 a checkout, pass `--provenance`.
 
