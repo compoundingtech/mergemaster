@@ -5,8 +5,14 @@ fn legacy_statement_shapes_match_oracle() {
     let tree = "a".repeat(40);
     let valid = json!({"_type":"https://in-toto.io/Statement/v1","predicateType":"https://compounding.tech/fractal/evidence/gate/v1",
         "subject":[{"name":"b".repeat(40),"digest":{"gitTree":tree}}],"predicate":{"schema_version":1,"change_id":"change","tier":"full","signer":null,
-        "observed_at":"2026-01-01T12:30:00Z","observed":{"kind":"tests","runner":"wrapper","checks":{"check":{"command":[""],"exit_code":0,"output_sha256":"c".repeat(64)}}}}});
+        "observed_at":"2026-01-01T12:30:00Z","observed":{"kind":"tests","runner":"wrapper","inputs":{},"checks":{"check":{"command":[""],"exit_code":0,"output_sha256":"c".repeat(64)}}}}});
     let mut cases = vec![valid.to_string(), "null".into(), "{}".into(), "[".into()];
+    let mut absent_inputs = valid.clone();
+    absent_inputs["predicate"]["observed"]
+        .as_object_mut()
+        .unwrap()
+        .remove("inputs");
+    cases.push(absent_inputs.to_string());
     let mutations: Json = serde_json::from_str(r#"[
       ["/_type",["wrong",null]], ["/predicateType",["https://smalltalk.dev/evidence/gate/v1","wrong"]],
       ["/subject",[[],null]], ["/subject/0/name",["bad",null]],
@@ -27,26 +33,12 @@ fn legacy_statement_shapes_match_oracle() {
             cases.push(v.to_string());
         }
     }
-    for time in [
-        "2026-01-01",
-        "2026-01-01T12:30:00",
-        "20260101T1230Z",
-        "2026-W01-1T12Z",
-        "2026W011T12Z",
-        "2026-W01T12Z",
-        "2026W01T12Z",
-        "2026-01-01🐍12:30:00,123456789+013045.25",
-        "2026-01-01Z12Z",
-        "2026-01-01T12.5-00",
-        "2026-01-01T24Z",
-        "2026-02-30T12Z",
-        "0000-01-01T12Z",
-        "2026-01-01T12+24:00",
-        "2026-01-01T12+00:99",
-        "2026-01-01T12+23:59:59.99",
-        "2026-01-01T12+",
-        "2026-01-01T1Z",
-    ] {
+    for time in concat!(
+        "2026-01-01|2026-01-01T12:30:00|20260101T1230Z|2026-W01-1T12Z|2026W011T12Z|2026-W01T12Z|2026W01T12Z|",
+        "2026-01-01🐍12:30:00,123456789+013045.25|2026-01-01Z12Z|2026-01-01T12.5-00|2026-01-01T24Z|2026-01-01T24:00Z|",
+        "2026-1-1T12:00Z|2026-W1T12Z|26-01-01T12Z|2026- 1-01T12Z|2026-02-30T12Z|0000-01-01T12Z|",
+        "2026-01-01T12+24:00|2026-01-01T12+00:99|2026-01-01T12+23:59:59.99|2026-01-01T12+|2026-01-01T1Z"
+    ).split('|') {
         let mut v = valid.clone();
         v["predicate"]["observed_at"] = json!(time);
         cases.push(v.to_string());

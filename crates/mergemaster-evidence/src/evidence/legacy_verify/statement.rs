@@ -55,6 +55,18 @@ fn zoned_time(s: &str) -> bool {
     };
     let date = [10, 8, 7].into_iter().find_map(|end| {
         let head = s.get(..end)?;
+        if !"dddd-dd-dd|dddddddd|dddd-Wdd-d|ddddWddd|dddd-Wdd|ddddWdd"
+            .split('|')
+            .any(|shape| {
+                shape.len() == head.len()
+                    && shape
+                        .bytes()
+                        .zip(head.bytes())
+                        .all(|(p, b)| (p == b'd' && b.is_ascii_digit()) || (p != b'd' && p == b))
+            })
+        {
+            return None;
+        }
         let parsed = ["%Y-%m-%d", "%Y%m%d", "%G-W%V-%u", "%GW%V%u"]
             .into_iter()
             .find_map(|f| NaiveDate::parse_from_str(head, f).ok())
