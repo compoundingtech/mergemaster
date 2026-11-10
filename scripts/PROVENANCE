@@ -30,7 +30,9 @@
 # widths of 40 or 64; legacy callers derive these from validated tree IDs.
 # Rust parity: statement shape, 3f-2a (637-665): decoded tests records, zoned ISO
 # calendar/week clocks, schema bool/float equality and integer-only exit codes.
-# JSON byte decoding (635-636,666-667) remains 3f-2b, not a silently narrower decoder.
+# Rust parity: 3f-2b-1 ports json.loads' byte transport at 636: BOM/NUL encoding
+# detection and UTF-8/16/32 surrogatepass decoding, returning Python code points.
+# JSON grammar/values and exception behavior (635-636,666-667) remain 3f-2b-2.
 # Rust parity: workflow-job-selection (462-520). Raw top-level/job bytes and
 # dependency closure match; workflow layout is not interpreted as general YAML.
 # Shared legacy JSON guards/encoding preserve lane behavior; native and push

@@ -98,4 +98,10 @@ print(json.dumps([o['statement_of'](s.encode(),sys.argv[2]) is not None for s in
     )
     .unwrap();
     assert_eq!(parsed["predicate"]["change_id"], "change");
+    assert_eq!(
+        parsed["predicate"]["observed"]["checks"]["check"]["command"]
+            .as_array()
+            .unwrap()[0],
+        ""
+    );
 }
