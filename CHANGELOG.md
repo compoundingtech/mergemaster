@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Guard the six-script R2 Fractal resync with immutable revisions, exact blobs and executable modes; expire the exception on the next oracle repin (#115).
+
 ## [0.6.0] - 2026-11-10
 
 ### Added
