@@ -67,6 +67,7 @@
             # Inspect every Git-source entry, including names cleanSource excludes.
             src = self;
             MERGEMASTER_PYTHON_ORACLE = "${python-oracle}";
+            MERGEMASTER_FRACTAL_FIXTURE = "${fractal-fixture}";
           } ''
             python3 -B "$src/tests/test-oracle-scripts.py"
             python3 -B "$src/tests/oracle_scripts.py"

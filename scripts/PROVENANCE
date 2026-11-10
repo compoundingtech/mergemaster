@@ -1,6 +1,17 @@
 # Source: compoundingtech/fractal
 # Commit: e83871ec919f95b3b3e2a9a1cd211c2ac37babda
 # Scripts copied as-is except the documented upstream patches below; Git blob SHA-1 hashes (not file SHA-1 hashes).
+# R2 resync exception; exit: https://github.com/compoundingtech/mergemaster/issues/115
+# The original extraction Commit above is historical; this resync starts at the current fixture revision.
+# Pending requires oracle bytes; the target fixture activates exact upstream bytes and modes.
+# resync-original e2721e52463428b4ff655addee129cecd2839763
+# resync-rev 787e8ed592dff34d2bdc2a2b0b584482da567e7f
+# resync-blob scripts/evidence-sign ea0ab64b5efc631c624cc974208bf05234839433
+# resync-blob scripts/evidence-sign-hardening-test 7da656fdc8f2b4b499fa099c93efa34884434004
+# resync-blob scripts/evidence-verify-test 6b9d6c5f403fae4fcb1a516562e06f8d5cfc0cc7
+# resync-blob scripts/evidence-wrap-test 711847812a5d703fa9f2056468970f89a0f57c53
+# resync-blob scripts/lane-definition-closure 5a844628e821bb51e6ab3fc2b38088a37c3c47c4
+# resync-blob scripts/st-test feb0d16374a2dfb78af20357166f56225df46774
 # scripts/fractal-test-test: apply the fixture maintenance-isolation patch from
 # https://github.com/compoundingtech/fractal/pull/4398 (5f995f26e5).
 # The source_blob column remains the original import; mergemaster_blob includes applied patches.
