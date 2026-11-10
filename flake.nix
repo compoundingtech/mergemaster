@@ -11,11 +11,16 @@
     flake = false;
   };
   inputs.python-oracle = {
+    url = "github:compoundingtech/mergemaster/cff667cd53bdb6c024f9d7a06259b8f9a3fbb0cb";
+    flake = false;
+  };
+  # The Python parity reporter was retired before the main oracle's v0.6.0 pin.
+  inputs.python-oracle-parity = {
     url = "github:compoundingtech/mergemaster/1392a516e969be46d9516d904b76a4db98c55030";
     flake = false;
   };
 
-  outputs = { self, nixpkgs, effect-utils, fractal-fixture, python-oracle }:
+  outputs = { self, nixpkgs, effect-utils, fractal-fixture, python-oracle, python-oracle-parity }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
@@ -54,6 +59,7 @@
           evidence = (packageFor system).overrideAttrs (_: {
             doCheck = true;
             MERGEMASTER_PYTHON_ORACLE = "${python-oracle}";
+            MERGEMASTER_PYTHON_PARITY_ORACLE = "${python-oracle-parity}";
             MERGEMASTER_FRACTAL_FIXTURE = "${fractal-fixture}";
           });
           oracle-scripts = pkgs.runCommand "mergemaster-oracle-scripts" {
@@ -61,7 +67,6 @@
             # Inspect every Git-source entry, including names cleanSource excludes.
             src = self;
             MERGEMASTER_PYTHON_ORACLE = "${python-oracle}";
-            MERGEMASTER_FRACTAL_FIXTURE = "${fractal-fixture}";
           } ''
             python3 -B "$src/tests/test-oracle-scripts.py"
             python3 -B "$src/tests/oracle_scripts.py"
@@ -96,6 +101,7 @@
           MERGEMASTER_EFFECT_UTILS = "${effect-utils}";
           MERGEMASTER_FRACTAL_FIXTURE = "${fractal-fixture}";
           MERGEMASTER_PYTHON_ORACLE = "${python-oracle}";
+          MERGEMASTER_PYTHON_PARITY_ORACLE = "${python-oracle-parity}";
         }; });
     };
 }

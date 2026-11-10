@@ -1,38 +1,6 @@
 # Source: compoundingtech/fractal
 # Commit: e83871ec919f95b3b3e2a9a1cd211c2ac37babda
 # Scripts copied as-is except the documented upstream patches below; Git blob SHA-1 hashes (not file SHA-1 hashes).
-# Resync exception; exit: https://github.com/compoundingtech/mergemaster/issues/115
-# Pending until the fixture reaches this revision; no copied-script exception before activation.
-# resync-rev e2721e52463428b4ff655addee129cecd2839763
-# resync-blob scripts/ci-evidence-gate 2952f89514a584465a428017b3f3e8ea043f41b2
-# resync-blob scripts/ci-evidence-gate-test 38a34e7d48ed407b428f739c0f3d38b151fced59
-# resync-blob scripts/ci-signed-tree 77a560621f8182d2ca19f622782ff24c95e7d514
-# resync-blob scripts/ci-signed-tree-test 91612975e7ae383ca5c55b94a19af20b0b1c7df2
-# resync-blob scripts/evidence-gc 1340a798f6bda78ad6319352fabd8de2050312f9
-# resync-blob scripts/evidence-gc-test 3c7482d742f104780158789154491d290ab7a693
-# resync-blob scripts/evidence-gc-timer dd5781ab377653d43b1cfda67a46e897ec0e51d8
-# resync-blob scripts/evidence-log 73e22e8252a1ceab4eba0324a0063c97f1d75b18
-# resync-blob scripts/evidence-log-test 746aa09bc2363c2d57523220c084fb6a4e34ef66
-# resync-blob scripts/evidence-log-timer 85ffab484040914c4ae14f72b86cc70c97b7e358
-# resync-blob scripts/evidence-log-watch f580ed13fe4f8130ec936dfeefb64f6c3b97b2f1
-# resync-blob scripts/evidence-log-watch-test e29deab9f1bfdfa27989e618de577e5f748871e4
-# resync-blob scripts/evidence-log.service 341638d61c71d41358e2b147d141ce76b6d6c06e
-# resync-blob scripts/evidence-presign-worker d68abbd4351ee70449a517e2c9566b54239e34be
-# resync-blob scripts/evidence-queue-signer 0be3140016868d1e383d9c301c1e229066c6dd22
-# resync-blob scripts/evidence-queue-signer-test e5c8a3c7cc59e4bf6343a9f5a8601e5ba45cbc43
-# resync-blob scripts/evidence-skip-report 2bdb6c3ebee8bb381c93c736cc99c22cbb82c0b3
-# resync-blob scripts/evidence-skip-report-test 2d51833fa53146709634090bd75ebf8dc4a91c50
-# resync-blob scripts/evidence-wrap b31f1737e55f187471cd15b8d0b938dd982c72a0
-# resync-blob scripts/evidence-wrap-test 603ae3a411bfcd31e70160f7fba05854ec38df36
-# resync-blob scripts/fractal-test-report 52ebcb098a323b013eba5b136457393ef88e2951
-# resync-blob scripts/fractal-test-report-test b0dc50163986760343d7eb67c701cb4b775e9945
-# resync-blob scripts/lane-definition-closure 492b3741b117092395855d9790dc96e6ce3612e6
-# resync-blob scripts/lane-definition-closure-test 635945d2a01f18e9c4716c50a2eb9803896cbb08
-# resync-blob scripts/evidence-flip-ready ce94216c0435711419e1b2bc5acc996e2ac926b9
-# resync-blob scripts/evidence-flip-ready-test 16e505355c4092c880c3f5e283baa8c0996cea4b
-# resync-blob scripts/evidence-verify-test 08d11cc7ba5e8a3d5ffb59fadb9eb49238aec95f
-# resync-blob scripts/st-test 087ae7d9f3d1106a38eedc1e911caeeaf46a96ae
-# resync-blob scripts/fractal-test-test decb42b9d442807c9601b473c190b3743b24c4c0
 # scripts/fractal-test-test: apply the fixture maintenance-isolation patch from
 # https://github.com/compoundingtech/fractal/pull/4398 (5f995f26e5).
 # The source_blob column remains the original import; mergemaster_blob includes applied patches.
