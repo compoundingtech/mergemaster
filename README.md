@@ -534,8 +534,11 @@ Legacy `discovery::input_refs` and `with_note_for` find indexed candidates and
 batch note-entry presence only; neither establishes statement or signer trust.
 `discovery::tree_refs` and `legacy_refs` complete tree/first-layout candidate
 discovery (3f-1), including SHA-1/SHA-256 suffix identity and tag-first deduplication.
-Remaining record loading: 3f-2 statement validation (`statement_of`, 633-667),
-then 3f-3 Git record layout/parent/subject checks and owned cache (`read_statement`
+`statement::statement_of` validates decoded statements (3f-2a), preserving raw
+number lexemes and requiring zoned Python ISO calendar/week timestamps.
+Remaining 3f-2b: Python-compatible JSON byte decoding (including UTF-16/32,
+extensions, lone surrogates and nesting) before this guard; no decoder cutover yet.
+Then 3f-3 Git record layout/parent/subject checks and owned cache (`read_statement`
 and `load`, 720-765). Signature verification (768-773) follows before selection
 (3g) and require-all (3h); none of these candidate indexes establishes trust.
 Lane discovery uses the gate's sanitized Git command and rejects malformed or

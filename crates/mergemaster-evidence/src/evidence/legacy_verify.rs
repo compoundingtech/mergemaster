@@ -10,6 +10,7 @@ pub mod projection;
 pub mod routing;
 pub mod selection;
 pub mod selection_json;
+pub mod statement;
 pub mod workflow;
 use super::legacy_policy::kind_rules::KindRule;
 use serde::Serialize;
