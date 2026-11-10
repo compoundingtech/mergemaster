@@ -4417,11 +4417,20 @@ print(json.dumps(dict(
             (format!("{tag}bad"), &first),
             (format!("{tag}{}/nested", "c".repeat(tree.len())), &first),
             (format!("refs/notes/evidence/{second}"), &first),
-            (format!("refs/notes/evidence/{}", "A".repeat(tree.len())), &first),
+            (
+                format!("refs/notes/evidence/{}", "A".repeat(tree.len())),
+                &first,
+            ),
             (format!("refs/notes/evidence/{}", "d".repeat(39)), &first),
             (format!("refs/notes/evidence/{absent}/nested"), &first),
-            (format!("refs/notes/evidence-input/{CHECK}/{tree}/{first}"), &first),
-            (format!("refs/tags/evidence/input/{CHECK}/{tree}/{first}"), &first),
+            (
+                format!("refs/notes/evidence-input/{CHECK}/{tree}/{first}"),
+                &first,
+            ),
+            (
+                format!("refs/tags/evidence/input/{CHECK}/{tree}/{first}"),
+                &first,
+            ),
             (format!("refs/tags/evidence/{tree}-other/{first}"), &first),
         ] {
             git(&["update-ref", &name, target], b"");
@@ -4434,12 +4443,19 @@ print(json.dumps(dict(
         assert_eq!(candidates, tags); // Namespace order, then deduplicated note.
         assert_eq!(legacy_refs(&repo, tree.len()).unwrap().len(), 2);
         assert!(legacy_refs(&repo, 41).is_err());
-        for invalid in ["--help".to_owned(), tree.to_uppercase(), format!("{tree}\n")] {
+        for invalid in [
+            "--help".to_owned(),
+            tree.to_uppercase(),
+            format!("{tree}\n"),
+        ] {
             assert!(tree_refs(&repo, &invalid).is_err());
         }
         // GC of first-layout refs leaves tree-indexed candidates untouched.
         for id in [&first, &third] {
-            git(&["update-ref", "-d", &format!("refs/notes/evidence/{id}")], b"");
+            git(
+                &["update-ref", "-d", &format!("refs/notes/evidence/{id}")],
+                b"",
+            );
         }
         compare();
         assert_eq!(legacy_refs(&repo, tree.len()).unwrap().len(), 0);

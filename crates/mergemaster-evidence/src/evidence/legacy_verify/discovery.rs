@@ -55,6 +55,7 @@ pub fn records_under(repo: &Path, prefixes: &[String]) -> Result<Vec<String>, Po
     Ok(found)
 }
 /// First-layout notes only: the complete suffix must equal the object it names.
+/// Ref names are unique, so matching first-layout IDs need no deduplication.
 pub fn legacy_refs(repo: &Path, width: usize) -> Result<Vec<String>, PolicyError> {
     if !matches!(width, 40 | 64) {
         return Err(error("invalid record object-id width"));
