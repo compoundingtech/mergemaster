@@ -6,6 +6,8 @@ from pathlib import Path
 import re
 
 EXEMPT = {"PROVENANCE", "test-scripts", "parity-drift", "parity-drift-test"}
+ORIGINAL = "e83871ec919f95b3b3e2a9a1cd211c2ac37babda"
+TARGET = "e2721e52463428b4ff655addee129cecd2839763"
 
 
 def blob(data):
@@ -28,8 +30,8 @@ def table(text):
             rows[path] = oid
     if len(revisions) != 1 or len(original) != 1 or not rows:
         raise ValueError("resync requires one target, one original revision and paths")
-    if not all(re.fullmatch(r"[0-9a-f]{40}", r) for r in revisions + original):
-        raise ValueError("invalid resync revision")
+    if ORIGINAL == TARGET or original[0] != ORIGINAL or revisions[0] != TARGET:
+        raise ValueError("resync revision differs from approved constants")
     return revisions[0], original[0], rows
 
 
@@ -40,10 +42,10 @@ def snapshot(path):
 
 
 def check(src, oracle, fixture, fixture_rev):
-    target, original, rows = table((src / "scripts/PROVENANCE").read_text())
-    if fixture_rev not in (original, target):
-        raise ValueError("fixture revision differs from PROVENANCE")
-    active = fixture_rev == target
+    _, _, rows = table((src / "scripts/PROVENANCE").read_text())
+    if fixture_rev not in (ORIGINAL, TARGET):
+        raise ValueError("fixture revision differs from approved constants")
+    active = fixture_rev == TARGET
     for path, oid in rows.items():
         local, old = snapshot(src / path), snapshot(oracle / path)
         if blob(old[0]) == oid:

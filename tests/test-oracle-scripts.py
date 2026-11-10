@@ -2,7 +2,7 @@ import tempfile
 from pathlib import Path
 import unittest
 
-from oracle_scripts import blob, check
+from oracle_scripts import ORIGINAL, TARGET, blob, check
 
 
 class ResyncGuard(unittest.TestCase):
@@ -12,7 +12,7 @@ class ResyncGuard(unittest.TestCase):
         self.src, self.oracle, self.fixture = [Path(self.temp.name) / p for p in ("src", "oracle", "fixture")]
         for root in (self.src, self.oracle, self.fixture):
             (root / "scripts").mkdir(parents=True)
-        self.old, self.target = "a" * 40, "b" * 40
+        self.old, self.target = ORIGINAL, TARGET
         self.oid = blob(b"new")
         self.write(self.src, "one", b"new")
         self.write(self.oracle, "one", b"old")
@@ -77,6 +77,32 @@ class ResyncGuard(unittest.TestCase):
     def test_expiry_is_byte_identical_even_if_modes_differ(self):
         self.write(self.oracle, "one", b"new", 0o644)
         with self.assertRaisesRegex(ValueError, "expired"):
+            self.run_check()
+
+    def test_manifest_cannot_retarget_approved_revisions(self):
+        for original, target in [("c" * 40, "c" * 40), (ORIGINAL, "c" * 40),
+                                 (TARGET, TARGET), (ORIGINAL, ORIGINAL)]:
+            self.old, self.target = original, target
+            self.manifest()
+            with self.assertRaisesRegex(ValueError, "approved constants"):
+                self.run_check(target)
+
+    def test_duplicate_or_malformed_rows(self):
+        path = self.src / "scripts/PROVENANCE"
+        original = path.read_text()
+        for row in [f"# resync-blob scripts/one {self.oid}",
+                    "# resync-blob scripts/../escape " + self.oid,
+                    "# resync-blob scripts/two invalid",
+                    "# resync-blob scripts/two"]:
+            path.write_text(original + row + "\n")
+            with self.assertRaises(ValueError):
+                self.run_check()
+
+    def test_listed_symlink_is_not_a_script(self):
+        path = self.src / "scripts/one"
+        path.unlink()
+        path.symlink_to(self.fixture / "scripts/one")
+        with self.assertRaisesRegex(ValueError, "not a regular script"):
             self.run_check()
 
 
