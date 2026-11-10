@@ -10,7 +10,11 @@ fn clock(s: &str, offset: bool) -> bool {
     let (main, fraction) = s
         .split_once(['.', ','])
         .map_or((s, None), |(a, b)| (a, Some(b)));
-    if fraction.is_some_and(|v| v.is_empty() || !v.bytes().all(|b| b.is_ascii_digit())) {
+    if fraction.is_some_and(|v| {
+        v.is_empty()
+            || !v.bytes().all(|b| b.is_ascii_digit())
+            || main.len() != if main.contains(':') { 8 } else { 6 }
+    }) {
         return false;
     }
     let extended = main.contains(':');
@@ -37,14 +41,17 @@ fn clock(s: &str, offset: bool) -> bool {
         number = number * 10 + u32::from(b - b'0');
         count += 1;
         if count.is_multiple_of(2) {
-            if !offset && number >= if count == 2 { 24 } else { 60 } {
+            if !offset && number >= if count == 2 { 25 } else { 60 } {
                 return false;
             }
             seconds += number * [3600, 60, 1][count / 2 - 1];
             number = 0;
         }
     }
-    !offset || seconds < 86400
+    seconds < 86400
+        || (!offset
+            && seconds == 86400
+            && fraction.unwrap_or("").bytes().take(6).all(|b| b == b'0'))
 }
 fn zoned_time(s: &str) -> bool {
     // Python replaces every Z before fromisoformat, including a separator Z.
@@ -79,9 +86,9 @@ fn zoned_time(s: &str) -> bool {
                     .ok()
                 })
             })?;
-        (parsed.year() >= 1 && parsed.year() <= 9999).then_some(end)
+        (parsed.year() >= 1 && parsed.year() <= 9999).then_some((end, parsed))
     });
-    let Some(end) = date else {
+    let Some((end, date)) = date else {
         return false;
     };
     let Some(tail) = s
@@ -93,7 +100,9 @@ fn zoned_time(s: &str) -> bool {
     let Some(zone) = tail.find(['+', '-']) else {
         return false;
     };
-    clock(&tail[..zone], false) && clock(&tail[zone + 1..], true)
+    clock(&tail[..zone], false)
+        && clock(&tail[zone + 1..], true)
+        && (!tail.starts_with("24") || date.succ_opt().is_some_and(|d| d.year() <= 9999))
 }
 /// Validate a decoded legacy tests statement, retaining unknown fields and number lexemes.
 /// JSON byte decoding belongs to the record loader, not this structural guard.
