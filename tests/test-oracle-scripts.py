@@ -74,6 +74,11 @@ class ResyncGuard(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.run_check()
 
+    def test_unlisted_addition_is_refused(self):
+        self.write(self.src, "not-in-oracle-or-table", b"new")
+        with self.assertRaisesRegex(ValueError, "not a regular script"):
+            self.run_check()
+
     def test_expiry_is_byte_identical_even_if_modes_differ(self):
         self.write(self.oracle, "one", b"new", 0o644)
         with self.assertRaisesRegex(ValueError, "expired"):

@@ -16,10 +16,29 @@ IMPORT = "import { evidenceGateJobs as makeGateJobs, evidencePresignNoticeJob, e
 ACTIONS = "const adapterActions = { checkout: 'actions/checkout@v4', uploadArtifact: 'actions/upload-artifact@v4', downloadArtifact: 'actions/download-artifact@v4' }\n"
 
 
-def replace_lines(source, start, end, expected, replacement):
-    lines = source.splitlines(keepends=True)
-    assert expected in lines[start - 1], (start, lines[start - 1])
-    return ''.join(lines[:start - 1]) + replacement + ''.join(lines[end:])
+def source_block(source, anchor, end, following):
+    anchors = list(re.finditer(r'^' + re.escape(anchor) + r'[^\n]*\n', source, re.M))
+    assert len(anchors) == 1, f'{anchor!r}: expected one anchor, found {len(anchors)}'
+    start, body = anchors[0].start(), anchors[0].end()
+    boundary = re.search(r'^' + re.escape(following), source[body:], re.M)
+    assert boundary, f'{anchor!r}: missing following boundary {following!r}'
+    # Bound the search so a missing closer cannot consume the next job's closer.
+    closers = list(re.finditer(r'^' + re.escape(end) + r'\n',
+                               source[body:body + boundary.start()], re.M))
+    assert len(closers) == 1, f'{anchor!r}: expected one closing line {end!r}, found {len(closers)}'
+    return start, body + closers[0].end()
+
+
+def replace_block(source, anchor, end, following, replacement):
+    start, stop = source_block(source, anchor, end, following)
+    return source[:start] + replacement + source[stop:]
+
+
+def signing_needs(source, anchor, following):
+    start, stop = source_block(source, anchor, '    },', following)
+    needs = re.findall(r'^      needs: (.+),$', source[start:stop], re.M)
+    assert len(needs) == 1, f'{anchor!r}: expected one needs line, found {len(needs)}'
+    return needs[0]
 
 
 def job_blocks(text):
@@ -76,22 +95,22 @@ with tempfile.TemporaryDirectory(prefix='workflow-adapters-', dir=ROOT / 'tmp') 
                 for name in ('fleet', 'evidence-observe', 'signed-tree')}
     source = (FIXTURE / '.github/workflows/fleet.yml.genie.ts').read_text()
     signing = "{ actions: adapterActions, checkoutSteps: fullHistoryCheckoutSteps({ 'persist-credentials': false }, { name: 'Check out the tested commit', 'continue-on-error': true }), environment: evidenceEnvironment, stageNames: evidenceStageNames, stepNames: evidenceStepNames, laneNames: evidenceLaneNames, webNoteEnv: fractalWebNoteEnv, needs: "
-    aggregate_needs = source.splitlines()[725].strip().removeprefix('needs: ').removesuffix(',')
-    rust_needs = source.splitlines()[847].strip().removeprefix('needs: ').removesuffix(',')
-    # Work backwards so the pinned source ranges remain stable. Assertions catch pin drift.
-    source = replace_lines(source, 846, 928, "'evidence-note-rust-tests':", "    'evidence-note-rust-tests': evidenceRustTestSigningJob(" + signing + rust_needs + " }),\n")
-    source = replace_lines(source, 723, 837, "'evidence-note-linux-gate':", "    'evidence-note-linux-gate': evidenceAggregateSigningJob(" + signing + aggregate_needs + " }),\n")
-    source = replace_lines(source, 406, 431, "'evidence-source':", "    'evidence-source': evidenceSourceJob(readFileSync(new URL('../../scripts/ci-evidence-source', import.meta.url), 'utf8'), adapterActions),\n")
-    source = replace_lines(source, 356, 378, 'const presignNoticeJob =', "const presignNoticeJob = evidencePresignNoticeJob({ checks: evidenceGateChecks, actions: adapterActions })\n")
-    source = replace_lines(source, 282, 351, 'const evidenceGateJobs =', "const evidenceGateJobs = makeGateJobs({ checks: evidenceGateChecks, runInputs: evidenceGateRunInputs, actions: adapterActions })\n")
+    aggregate_needs = signing_needs(source, "    'evidence-note-linux-gate':", "    'evidence-note-rust-tests':")
+    rust_needs = signing_needs(source, "    'evidence-note-rust-tests':", '    ...buildFractalWebJobs(')
+    # Replace whole anchored blocks; assertions still catch missing or duplicate blocks.
+    source = replace_block(source, "    'evidence-note-rust-tests':", "    },", '    ...buildFractalWebJobs(', "    'evidence-note-rust-tests': evidenceRustTestSigningJob(" + signing + rust_needs + " }),\n")
+    source = replace_block(source, "    'evidence-note-linux-gate':", "    },", "    'evidence-note-rust-tests':", "    'evidence-note-linux-gate': evidenceAggregateSigningJob(" + signing + aggregate_needs + " }),\n")
+    source = replace_block(source, "    'evidence-source':", "    },", '    ...evidenceGateJobs,', "    'evidence-source': evidenceSourceJob(readFileSync(new URL('../../scripts/ci-evidence-source', import.meta.url), 'utf8'), adapterActions),\n")
+    source = replace_block(source, 'const presignNoticeJob =', '}', 'export const buildFleetWorkflow', "const presignNoticeJob = evidencePresignNoticeJob({ checks: evidenceGateChecks, actions: adapterActions })\n")
+    source = replace_block(source, 'const evidenceGateJobs =', '}]))', 'const presignNoticeJob =', "const evidenceGateJobs = makeGateJobs({ checks: evidenceGateChecks, runInputs: evidenceGateRunInputs, actions: adapterActions })\n")
     (workflows / 'fleet.yml.genie.ts').write_text(IMPORT + ACTIONS + source)
-    for name, start, end, anchor, replacement in (
-        ('evidence-observe', 33, 56, 'observe:', '    observe: evidenceObserveJob([evidenceGroup, evidenceRunner], adapterActions),\n'),
-        ('signed-tree', 18, 39, "'signed-tree':", "    'signed-tree': signedTreeJob(adapterActions),\n"),
+    for name, anchor, replacement in (
+        ('evidence-observe', '    observe:', '    observe: evidenceObserveJob([evidenceGroup, evidenceRunner], adapterActions),\n'),
+        ('signed-tree', "    'signed-tree':", "    'signed-tree': signedTreeJob(adapterActions),\n"),
     ):
         original = (FIXTURE / f'.github/workflows/{name}.yml.genie.ts').read_text()
         (workflows / f'{name}.yml.genie.ts').write_text(
-            IMPORT + ACTIONS + replace_lines(original, start, end, anchor, replacement))
+            IMPORT + ACTIONS + replace_block(original, anchor, '    },', '  },', replacement))
     generate(work, workflows, scratch)
     for name in ('fleet', 'evidence-observe', 'signed-tree'):
         actual = (workflows / f'{name}.yml').read_bytes()
