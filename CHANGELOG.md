@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.6.0] - 2026-11-10
+
+### Added
+
+- Native Rust parity-drift reporting preserves Python history boundaries and protected-ref behavior; the scheduled drift workflow now uses the Rust CLI. (#67, #71, #80)
+- Rust legacy-policy parsing covers selected check headers, declared paths, commands, input ordering, signer-level overrides and normalized kind rules. (#88–#94)
+- Rust legacy record judgment covers event routing, shards, ranked inputs, trust, age and ordered lane/input guards, with lazy lane lookup and microsecond-compatible timestamps. (#95–#100, #104, #105)
+- Rust lane support includes selected schemas, exact definition digests and canonical entry text, Git entry discovery, hardened tree parsing and accepted-base/branch-point resolution. (#99, #101–#103, #106–#108)
+- Rust input projection discovers Git inputs, selects workflow jobs and JSON entries, reads bounded selected content and projects the resulting Git tree. (#109–#114)
+
+### Changed
+
+- Pin an immutable Python oracle for Rust/keygen differential tests and guard remaining copied scripts against drift; formatter and warnings-denied Clippy checks are required by the Nix check suite. (#72, #73, #75, #76, #78, #79)
+- Resync 29 scripts and their fixture witnesses verbatim from Fractal `e2721e52`, with a bounded oracle-check exception and a copied-suite runner that executes the checked working-tree scripts. Workflow adapter tests locate source blocks by strict anchors rather than old line numbers. (#116, #117)
+- The Rust port remains incremental: copied Python entrypoints and the pinned v0.5.0 oracle remain in use; the post-release oracle convergence is tracked separately in #115.
+
+### Fixed
+
+- Inspect shallow legacy observations without weakening signature trust; align runner-kind matching, non-push newest-valid-pass selection and exact age boundaries with the oracle, and pin native gate status/GitHub-output contracts. (#82–#87)
+- Cover degraded and unaccepted-level selection cases with distinct signer keys, and reduce equal-time record-ID ordering fixture flakiness. (#86, #91)
+
 ## [0.5.0] - 2026-11-06
 
 ### Changed
@@ -96,3 +117,4 @@
 [0.3.0]: https://github.com/compoundingtech/mergemaster/compare/v0.2.0...v0.3.0
 [0.4.0]: https://github.com/compoundingtech/mergemaster/compare/v0.1.0...v0.4.0
 [0.5.0]: https://github.com/compoundingtech/mergemaster/compare/v0.4.0...v0.5.0
+[0.6.0]: https://github.com/compoundingtech/mergemaster/compare/v0.5.0...v0.6.0
