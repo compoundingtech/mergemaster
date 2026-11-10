@@ -54,6 +54,41 @@ pub fn records_under(repo: &Path, prefixes: &[String]) -> Result<Vec<String>, Po
     }
     Ok(found)
 }
+/// First-layout notes only: the complete suffix must equal the object it names.
+pub fn legacy_refs(repo: &Path, width: usize) -> Result<Vec<String>, PolicyError> {
+    if !matches!(width, 40 | 64) {
+        return Err(error("invalid record object-id width"));
+    }
+    let listing = text(
+        repo,
+        &[
+            "for-each-ref",
+            "--format=%(objectname) %(refname)",
+            "--end-of-options",
+            &format!("refs/notes/evidence/{}", "?".repeat(width)),
+        ],
+    )
+    .map_err(error)?;
+    Ok(listing
+        .lines()
+        .filter_map(|line| {
+            let (id, name) = line.split_once(' ')?;
+            (oid(id).is_ok() && name.strip_prefix("refs/notes/evidence/") == Some(id))
+                .then(|| id.to_owned())
+        })
+        .collect())
+}
+/// Tags precede notes; these are candidates, not validated records.
+pub fn tree_refs(repo: &Path, tree: &str) -> Result<Vec<String>, PolicyError> {
+    oid(tree).map_err(error)?;
+    records_under(
+        repo,
+        &[
+            format!("refs/tags/evidence/{tree}/"),
+            format!("refs/notes/evidence/{tree}/"),
+        ],
+    )
+}
 pub fn input_refs(repo: &Path, check: &str, key: &str) -> Result<Vec<String>, PolicyError> {
     if !(1..=100).contains(&check.len())
         || !check.as_bytes()[0].is_ascii_alphanumeric()
