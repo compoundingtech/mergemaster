@@ -1225,3 +1225,50 @@ these tiny fixtures. Log-shadow clock coverage does not replace that mandatory
 consumer receipt. Native Rust replay is intentionally excluded by CI Manager's
 Python-plus-log decision; E must leave native call paths unchanged. Shadow C
 and historical D populations are not combined.
+
+### Signed log consumer fixture receipt
+
+The separate `consumer_fixtures.py` runner closes the synthetic consumer-fixture
+item above, without changing the reviewed pilot driver, clock adapter or
+allowlist. It verifies the exact pinned Git blob IDs of `evidence-log`,
+`evidence-log-watch`, `evidence-verify` and the existing signed fixture builder
+before executing either implementation. Run it with a NEW private scratch root:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 \
+  python3 tools/historical-proof/consumer_fixtures.py \
+    --scratch-root /var/tmp/mm-step-d/consumer-receipt-final \
+    --fractal-scripts /var/tmp/mm-step-d/implementations/fractal/scripts \
+    --mergemaster-scripts /var/tmp/mm-step-d/implementations/mm/scripts \
+    --clock 2024-01-02T03:04:05Z
+```
+
+The result is `receipt.json`, per-implementation raw stdout/stderr and decision
+JSON, and `diffs.jsonl`. The receipt hashes the exact sources, runner, existing
+normalizer/adapter/allowlist and all decision/raw artifacts, and reports PASS
+or DIFF per consumer path. Every case asserts its expected exit status and
+domain outcome before comparison, so two failing processes cannot earn PASS.
+The same existing normalizer compares exit status, verdict, satisfied-check
+set, selected record OIDs and rejection classes, plus the complete semantic
+consumer output, emitted watch messages, recorded notification lines, watcher
+state, synthetic remote/local refs, signed log contents and signer validation.
+
+Both implementations reset the SAME absolute fixture paths to identical
+retained Git objects and use the same fresh synthetic keys. The verifier uses
+the datetime adapter. Log and watch use their existing explicit `--now` flags
+on EVERY invocation; deterministic offsets from the pinned fixture clock
+exercise time transitions, not the wall clock. Each decision records its
+effective UTC instant. Fresh/stale log-shadow reads, rejected log-key trust,
+stall/deduplicate/repeat/recovery notifications, damaged watcher-copy recovery,
+deleted signed-record restoration/readback, and signed GC-line reads before
+and after a new record are exercised. The watcher itself reads heartbeat time;
+it does not authenticate log signatures, so signature validation is separately
+asserted through Git and the verifier.
+
+Notifications go only to a recording Python argv. Publication, restoration,
+ref deletion and signed GC checkpoints operate solely on fresh `/var/tmp`
+fixture repositories. No production endpoint, notification, signer, GC
+application or Git object GC is invoked. Private synthetic keys are removed
+after the run; public accepted keys and content-addressed fixture objects remain.
+Real archive replay, dev5 admission, the 100/lane +1,000-record pilot and
+exhaustive D acceptance remain NOT RUN. Native paths remain unchanged.
