@@ -7,7 +7,7 @@
   inputs.effect-utils.inputs.nixpkgs.url = "github:NixOS/nixpkgs/4ba99f3209788ed04f01af38f77ddb803ad6ec63";
   inputs.effect-utils.inputs.tsgo.inputs.nixpkgsUnstable.url = "github:NixOS/nixpkgs/44a91898084f46797b5fac650c7e8c9ac38c43d4";
   inputs.fractal-fixture = {
-    url = "github:compoundingtech/fractal/e2721e52463428b4ff655addee129cecd2839763";
+    url = "github:compoundingtech/fractal/787e8ed592dff34d2bdc2a2b0b584482da567e7f";
     flake = false;
   };
   inputs.python-oracle = {
