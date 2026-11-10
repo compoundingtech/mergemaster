@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fetch the pinned Fractal fixture through shallow Git rather than GitHub's commit-tarball endpoint, preserving its source bytes and revision.
+
 ## [0.6.1] - 2026-11-10
 
 ### Added

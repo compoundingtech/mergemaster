@@ -44,16 +44,17 @@
       "locked": {
         "lastModified": 1794333982,
         "narHash": "sha256-EYnLgrxDCQXThOybpPxr2okTy7BpcHkzjLvBsaAZ+vM=",
-        "owner": "compoundingtech",
-        "repo": "fractal",
+        "ref": "refs/heads/main",
         "rev": "787e8ed592dff34d2bdc2a2b0b584482da567e7f",
-        "type": "github"
+        "shallow": true,
+        "type": "git",
+        "url": "https://github.com/compoundingtech/fractal"
       },
       "original": {
-        "owner": "compoundingtech",
-        "repo": "fractal",
         "rev": "787e8ed592dff34d2bdc2a2b0b584482da567e7f",
-        "type": "github"
+        "shallow": true,
+        "type": "git",
+        "url": "https://github.com/compoundingtech/fractal"
       }
     },
     "nixpkgs": {
