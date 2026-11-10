@@ -532,6 +532,12 @@ trees, preserving raw changed-path bytes and accepted-base existence checks.
 checks ancestry and compares canonical entries before accepted-lane validation.
 Legacy `discovery::input_refs` and `with_note_for` find indexed candidates and
 batch note-entry presence only; neither establishes statement or signer trust.
+`discovery::tree_refs` and `legacy_refs` complete tree/first-layout candidate
+discovery (3f-1), including SHA-1/SHA-256 suffix identity and tag-first deduplication.
+Remaining record loading: 3f-2 statement validation (`statement_of`, 633-667),
+then 3f-3 Git record layout/parent/subject checks and owned cache (`read_statement`
+and `load`, 720-765). Signature verification (768-773) follows before selection
+(3g) and require-all (3h); none of these candidate indexes establishes trust.
 Lane discovery uses the gate's sanitized Git command and rejects malformed or
 unterminated ls-tree rows; shared subprocess timeout/output bounds remain open.
 `workflow::workflow_job` selects exact generated-workflow text and transitive

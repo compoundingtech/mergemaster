@@ -4342,3 +4342,122 @@ print(json.dumps(dict(
         expected
     );
 }
+
+#[test]
+fn legacy_tree_record_indexes_match_real_oracle() {
+    use mergemaster_evidence::evidence::legacy_verify::discovery::{legacy_refs, tree_refs};
+    let root = std::env::var("MERGEMASTER_PYTHON_ORACLE")
+        .expect("MERGEMASTER_PYTHON_ORACLE must point to the pinned Python oracle");
+    for format in ["sha1", "sha256"] {
+        let f = Fixture::new();
+        // Reinitialize a separate repository so the same matrix covers both widths.
+        let repo = f.root.path().join(format);
+        fs::create_dir(&repo).unwrap();
+        let git = |args: &[&str], input: &[u8]| {
+            let mut routed = vec!["-C", repo.to_str().unwrap()];
+            routed.extend_from_slice(args);
+            f.git(&routed, input)
+        };
+        git(&["init", "-q", &format!("--object-format={format}")], b"");
+        let tree = git(&["mktree"], b"");
+        let other = "a".repeat(tree.len());
+        let absent = "b".repeat(tree.len());
+        let first = git(&["hash-object", "-w", "--stdin"], b"first");
+        let second = git(&["hash-object", "-w", "--stdin"], b"second");
+        let third = git(&["hash-object", "-w", "--stdin"], b"third");
+        let queries = [&tree, &other, &absent];
+        let compare = || {
+            let trees: Vec<_> = queries
+                .iter()
+                .map(|tree| tree_refs(&repo, tree).unwrap())
+                .collect();
+            let old: Vec<_> = [40, 64]
+                .into_iter()
+                .map(|width| legacy_refs(&repo, width).unwrap())
+                .collect();
+            let output = f
+                .command("python3")
+                .args([
+                    "-c",
+                    r#"
+import json, runpy, sys
+o = runpy.run_path(sys.argv[1] + '/scripts/evidence-verify')
+repo = sys.argv[2]
+print(json.dumps(dict(
+    trees=[o['tree_refs'](repo,t) for t in json.loads(sys.argv[3])],
+    old=[o['legacy_refs'](repo,w) for w in [40,64]])))
+"#,
+                    &root,
+                    repo.to_str().unwrap(),
+                    &json!(queries).to_string(),
+                ])
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let expected: Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(json!({"trees":trees,"old":old}), expected, "{format}");
+        };
+        compare(); // Empty namespaces.
+        let tag = format!("refs/tags/evidence/{tree}/");
+        let note = format!("refs/notes/evidence/{tree}/");
+        for (name, target) in [
+            (format!("{tag}{second}"), &second),
+            (format!("{tag}{first}"), &first),
+            (format!("{note}{second}"), &second),
+            (format!("{note}{third}"), &third),
+            (format!("refs/tags/evidence/{other}/{third}"), &third),
+            (format!("refs/notes/evidence/{first}"), &first),
+            (format!("refs/notes/evidence/{third}"), &third),
+            // Wrong target, malformed suffix and nested suffix cannot be records.
+            (format!("{tag}{third}"), &first),
+            (format!("{tag}bad"), &first),
+            (format!("{tag}{}/nested", "c".repeat(tree.len())), &first),
+            (format!("refs/notes/evidence/{second}"), &first),
+            (
+                format!("refs/notes/evidence/{}", "A".repeat(tree.len())),
+                &first,
+            ),
+            (format!("refs/notes/evidence/{}", "d".repeat(39)), &first),
+            (format!("refs/notes/evidence/{absent}/nested"), &first),
+            (
+                format!("refs/notes/evidence-input/{CHECK}/{tree}/{first}"),
+                &first,
+            ),
+            (
+                format!("refs/tags/evidence/input/{CHECK}/{tree}/{first}"),
+                &first,
+            ),
+            (format!("refs/tags/evidence/{tree}-other/{first}"), &first),
+        ] {
+            git(&["update-ref", &name, target], b"");
+        }
+        compare();
+        let candidates = tree_refs(&repo, &tree).unwrap();
+        let mut tags = vec![first.clone(), second.clone()];
+        tags.sort();
+        tags.push(third.clone());
+        assert_eq!(candidates, tags); // Namespace order, then deduplicated note.
+        assert_eq!(legacy_refs(&repo, tree.len()).unwrap().len(), 2);
+        assert!(legacy_refs(&repo, 41).is_err());
+        for invalid in [
+            "--help".to_owned(),
+            tree.to_uppercase(),
+            format!("{tree}\n"),
+        ] {
+            assert!(tree_refs(&repo, &invalid).is_err());
+        }
+        // GC of first-layout refs leaves tree-indexed candidates untouched.
+        for id in [&first, &third] {
+            git(
+                &["update-ref", "-d", &format!("refs/notes/evidence/{id}")],
+                b"",
+            );
+        }
+        compare();
+        assert_eq!(legacy_refs(&repo, tree.len()).unwrap().len(), 0);
+    }
+}
