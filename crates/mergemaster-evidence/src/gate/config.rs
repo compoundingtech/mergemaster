@@ -346,7 +346,7 @@ mod environment_compat_tests {
                 ),
             )]),
         };
-        assert!(environment.systems.get(&current_system()).is_none());
+        assert!(!environment.systems.contains_key(&current_system()));
     }
 }
 
