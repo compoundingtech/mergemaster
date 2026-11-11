@@ -60,9 +60,10 @@ write('tool-pin.json', {'version': 1, 'repository': 'compoundingtech/mergemaster
 root = node.parents[1]
 assert str(root).startswith('/nix/store/')
 identity = 'nix:' + str(root)
-write('environment.json', {'version': 1, 'system': f'{platform.machine()}-linux', 'toolchain': {
+system = f'{platform.machine()}-linux'
+write('environment.json', {'version': 1, 'systems': {system: {
     'runtime': {'name': 'node', 'identity': identity},
-    'dependencies': {'modules': {'name': 'modules', 'identity': 'git:' + dep_commit}}}})
+    'dependencies': {'modules': {'name': 'modules', 'identity': 'git:' + dep_commit}}}}})
 (repo / 'check.cjs').write_text('const fs=require("node:fs"); const value=require(process.argv[2]+"/fixture"); '
                                'if(value!==42) process.exit(1); fs.writeFileSync(process.argv[3]+"/output",String(value)); console.log("PASS node_modules -> scratch");\n')
 argv = [str(node), 'check.cjs', str(deps), str(scratch)]
@@ -118,7 +119,7 @@ if a.derivation:
     configuration['toolchain']['dependencies']['nix-tool'] = str(nix.parents[1])
     config.write_text(json.dumps(configuration))
     environment = json.loads((repo / '.mergemaster/environment.json').read_text())
-    environment['toolchain']['dependencies']['nix-tool'] = {'name': 'nix', 'identity': 'nix:' + str(nix.parents[1])}
+    environment['systems'][system]['dependencies']['nix-tool'] = {'name': 'nix', 'identity': 'nix:' + str(nix.parents[1])}
     write('environment.json', environment)
     shutil.copytree(deps / 'fixture', repo / 'fixture/node_modules/fixture')
     (repo / 'builder.cjs').write_text('const fs=require("node:fs"); const value=require(process.env.src+"/node_modules/fixture"); '

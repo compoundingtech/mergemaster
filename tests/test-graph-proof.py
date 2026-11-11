@@ -59,9 +59,10 @@ run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', key])
 (repo / '.mergemaster').mkdir()
 (repo / '.mergemaster/evidence-keys').write_text('agent/fixture ' + key.with_suffix('.pub').read_text())
 write('tool-pin.json', {'version': 1, 'repository': 'compoundingtech/mergemaster', 'revision': 'a' * 40})
-write('environment.json', {'version': 1, 'system': f'{platform.machine()}-linux', 'toolchain': {
+system = f'{platform.machine()}-linux'
+write('environment.json', {'version': 1, 'systems': {system: {
     'runtime': {'name': 'node', 'identity': 'sha256:' + hashlib.sha256(node.read_bytes()).hexdigest()},
-    'dependencies': {'vitest-closure': {'name': 'vitest-closure', 'identity': 'git:' + closure}}}})
+    'dependencies': {'vitest-closure': {'name': 'vitest-closure', 'identity': 'git:' + closure}}}}})
 check = 'graph-full-check'
 argv = [str(node), 'tools/graph', 'check', '--full']
 write('lanes.json', {'version': 1, 'pull_request': {'same_repository': True,

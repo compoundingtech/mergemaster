@@ -111,6 +111,12 @@ fn configuration(path: &Path, repo: &Path) -> Result<SignConfig> {
         "invalid signer configuration"
     );
     ensure!(config.ssh_key.is_absolute(), "signing key must be absolute");
+    if let Some(path) = config.path.as_deref() {
+        ensure!(
+            std::env::split_paths(path).all(|dir| dir.is_absolute()),
+            "trusted executable search path must be absolute-only"
+        );
+    }
     let key = std::fs::symlink_metadata(&config.ssh_key)?;
     ensure!(
         key.is_file() && !key.file_type().is_symlink(),
@@ -179,6 +185,44 @@ fn measure(
     Ok(None)
 }
 
+/// Resolve a lane `argv[0]` to a canonical executable path. Absolute paths
+/// keep the historic strict behavior. Relative names resolve against the
+/// caller's PATH first (matching execution), then the account's trusted
+/// search path (the isolated signer worker's PATH carries only
+/// git/ssh-keygen). The caller must check closure membership, so a hostile
+/// PATH cannot smuggle in an unmeasured binary.
+fn resolve_lane_executable(config: &SignConfig, argv0: &str) -> Result<PathBuf> {
+    ensure!(
+        !Path::new(argv0)
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir)),
+        "Nix lanes require argv[0] without parent-directory escapes"
+    );
+    let resolved = if Path::new(argv0).is_absolute() {
+        PathBuf::from(argv0)
+    } else {
+        let mut directories = std::env::var_os("PATH")
+            .map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
+            .unwrap_or_default();
+        if let Some(path) = config.path.as_deref() {
+            directories.extend(std::env::split_paths(path));
+        }
+        directories
+            .into_iter()
+            .map(|directory| directory.join(argv0))
+            .find(|candidate| candidate.is_file())
+            .context("lane executable not found on trusted search path")?
+    };
+    ensure!(
+        !resolved
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir)),
+        "Nix lanes require argv[0] without parent-directory escapes"
+    );
+    std::fs::canonicalize(&resolved)
+        .with_context(|| format!("lane executable is not a resolvable file: {argv0}"))
+}
+
 /// Independently measure provisioned artifacts and bind execution to Nix closure bytes.
 pub fn measure_toolchain(
     repo: &Path,
@@ -188,44 +232,29 @@ pub fn measure_toolchain(
     bind_execution: bool,
 ) -> Result<BTreeMap<String, String>> {
     let config = configuration(path, repo)?;
-    let system = format!(
-        "{}-{}",
-        std::env::consts::ARCH,
-        if cfg!(target_os = "macos") {
-            "darwin"
-        } else {
-            std::env::consts::OS
-        }
-    );
+    let system = config::current_system();
+    let toolchain = environment
+        .systems
+        .get(&system)
+        .with_context(|| format!("committed environment has no toolchain for {system}"))?;
     ensure!(
-        environment.system == system,
-        "runtime platform does not match committed environment"
-    );
-    ensure!(
-        config.toolchain.dependencies.len() == environment.toolchain.dependencies.len(),
+        config.toolchain.dependencies.len() == toolchain.dependencies.len(),
         "dependency measurement set differs"
     );
     let artifacts = std::iter::once((
         "runtime",
-        &environment.toolchain.runtime,
+        &toolchain.runtime,
         Some(&config.toolchain.runtime),
     ))
-    .chain(
-        environment
-            .toolchain
-            .dependencies
-            .iter()
-            .map(|(name, artifact)| {
-                (
-                    name.as_str(),
-                    artifact,
-                    config.toolchain.dependencies.get(name),
-                )
-            }),
-    );
-    let needs_nix = environment.toolchain.runtime.identity.starts_with("nix:")
-        || environment
-            .toolchain
+    .chain(toolchain.dependencies.iter().map(|(name, artifact)| {
+        (
+            name.as_str(),
+            artifact,
+            config.toolchain.dependencies.get(name),
+        )
+    }));
+    let needs_nix = toolchain.runtime.identity.starts_with("nix:")
+        || toolchain
             .dependencies
             .values()
             .any(|a| a.identity.starts_with("nix:"));
@@ -233,12 +262,8 @@ pub fn measure_toolchain(
     let mut claims = BTreeMap::new();
     let mut executable_bound = false;
     let executable = if needs_nix && bind_execution {
-        let argv0 = Path::new(command.first().context("missing lane executable")?);
-        ensure!(
-            argv0.is_absolute(),
-            "Nix lanes require absolute argv[0] from the measured closure"
-        );
-        Some(std::fs::canonicalize(argv0)?)
+        let argv0 = command.first().context("missing lane executable")?;
+        Some(resolve_lane_executable(&config, argv0)?)
     } else {
         None
     };
@@ -426,8 +451,12 @@ pub(super) fn derivation(
         .find_map(|path| path.to_str().filter(|path| config::nix_store_path(path)))
         .context("Nix executable must reside in a store artifact")?;
     ensure!(
-        std::iter::once(&environment.toolchain.runtime)
-            .chain(environment.toolchain.dependencies.values())
+        environment
+            .systems
+            .values()
+            .flat_map(|toolchain| {
+                std::iter::once(&toolchain.runtime).chain(toolchain.dependencies.values())
+            })
             .any(|artifact| artifact.identity == format!("nix:{root}")),
         "declare the Nix executable's store root as a nix: artifact"
     );
@@ -762,6 +791,77 @@ json.dump([signer.unsafe_file(p, types.SimpleNamespace(st_mode=m, st_uid=u)) is 
                 expected,
                 "{path} mode={mode:o} uid={uid}"
             );
+        }
+    }
+
+    #[test]
+    fn relative_argv0_resolves_via_caller_path_first() {
+        let caller = tempfile::tempdir().unwrap();
+        let trusted = tempfile::tempdir().unwrap();
+        let name = "lane-tool";
+        std::fs::write(caller.path().join(name), "caller").unwrap();
+        std::fs::write(trusted.path().join(name), "trusted").unwrap();
+        let config = sign_config(Some(trusted.path().to_string_lossy().into_owned()));
+        let old = std::env::var_os("PATH");
+        unsafe { std::env::set_var("PATH", caller.path()) };
+        let resolved = resolve_lane_executable(&config, name).unwrap();
+        match old {
+            Some(value) => unsafe { std::env::set_var("PATH", value) },
+            None => unsafe { std::env::remove_var("PATH") },
+        }
+        assert_eq!(resolved, caller.path().join(name).canonicalize().unwrap());
+    }
+
+    #[test]
+    fn relative_argv0_falls_back_to_trusted_search_path() {
+        let trusted = tempfile::tempdir().unwrap();
+        let name = "fallback-tool";
+        std::fs::write(trusted.path().join(name), "trusted").unwrap();
+        let config = sign_config(Some(trusted.path().to_string_lossy().into_owned()));
+        let old = std::env::var_os("PATH");
+        unsafe { std::env::set_var("PATH", "/nonexistent-lane-dir") };
+        let resolved = resolve_lane_executable(&config, name).unwrap();
+        match old {
+            Some(value) => unsafe { std::env::set_var("PATH", value) },
+            None => unsafe { std::env::remove_var("PATH") },
+        }
+        assert_eq!(resolved, trusted.path().join(name).canonicalize().unwrap());
+    }
+
+    #[test]
+    fn parent_directory_escapes_are_refused() {
+        let config = sign_config(None);
+        let error = resolve_lane_executable(&config, "../escape").unwrap_err();
+        assert!(error.to_string().contains("parent-directory escapes"));
+        // `Path::components` lexically hides `..` after an absolute prefix
+        // in a single literal like `/bin/../escape` (it reports RootDir +
+        // ParentDir, which *is* caught) — but a traversal that survives
+        // joining, e.g. `sub/../../escape` through a relative PATH entry,
+        // must also be refused after the join.
+        let joined = std::path::Path::new("sub").join("../../escape");
+        assert!(
+            joined
+                .components()
+                .any(|part| matches!(part, std::path::Component::ParentDir))
+        );
+        assert!(
+            resolve_lane_executable(&config, "/../escape")
+                .unwrap_err()
+                .to_string()
+                .contains("parent-directory escapes")
+        );
+    }
+
+    fn sign_config(path: Option<String>) -> SignConfig {
+        SignConfig {
+            version: 1,
+            signer: "agent/fixture".into(),
+            ssh_key: PathBuf::from("/tmp/signing-key"),
+            path,
+            toolchain: Measurements {
+                runtime: PathBuf::from("/tmp/runtime"),
+                dependencies: BTreeMap::new(),
+            },
         }
     }
 }

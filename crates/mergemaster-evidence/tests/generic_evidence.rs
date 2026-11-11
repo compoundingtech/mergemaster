@@ -96,8 +96,8 @@ impl Fixture {
                 "linux"
             }
         );
-        f.write(".mergemaster/environment.json", json!({"version":1,"system":system,
-            "toolchain":{"runtime":artifact("shell", &f.runtime),"dependencies":{"fixture":artifact("fixture", &f.dependency)}}}).to_string());
+        f.write(".mergemaster/environment.json", json!({"version":1,"systems":{system:
+            {"runtime":artifact("shell", &f.runtime),"dependencies":{"fixture":artifact("fixture", &f.dependency)}}}}).to_string());
         f.write(".mergemaster/lanes.json", json!({"version":1,
             "pull_request":{"same_repository":true,"authors":{"mode":"none"},"base_relation":"ancestor"},
             "protected_paths":[],"lanes":{CHECK:{"argv":f.argv(),"definition_paths":["tools"],

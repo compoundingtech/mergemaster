@@ -396,11 +396,12 @@ and dependency closure; no Nix file is required:
 ```json
 {
   "version": 1,
-  "system": "x86_64-linux",
-  "toolchain": {
-    "runtime": {"name": "bun", "identity": "sha256:<64-hex-runtime-artifact-digest>"},
-    "dependencies": {
-      "external-library": {"name": "external-library", "identity": "git:<40-hex-commit>"}
+  "systems": {
+    "x86_64-linux": {
+      "runtime": {"name": "bun", "identity": "sha256:<64-hex-runtime-artifact-digest>"},
+      "dependencies": {
+        "external-library": {"name": "external-library", "identity": "git:<40-hex-commit>"}
+      }
     }
   }
 }
@@ -719,7 +720,7 @@ with mode 0600. Its schema is:
 Each measurement path corresponds to the same named artifact in the committed
 `environment.json`. A `sha256:` identity measures a file's complete bytes; a
 `git:` identity requires a checkout at that exact commit with no dirty,
-untracked or ignored files. The measured system must equal the declared system.
+untracked or ignored files. The signing host platform must be a declared system key; the toolchain for that key binds execution.
 Setup must actually use these artifacts and include the full dependency closure.
 The wrapper and signer measure them independently; neither executes a consumer
 setup script with signing authority.
