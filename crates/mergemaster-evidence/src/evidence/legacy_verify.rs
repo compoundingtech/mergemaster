@@ -14,6 +14,7 @@ pub mod routing;
 pub mod selection;
 pub mod selection_json;
 pub mod signature;
+pub mod stale;
 pub mod statement;
 pub mod statement_bytes;
 pub mod statement_document;

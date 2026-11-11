@@ -588,6 +588,8 @@ Policy/Git errors abort without returning partial groups. Check selection and
 miss precedence remain separate; partitioned signatures alone do not authorize a check.
 `raw_batch::RawBatch` provides scanner-specific one-request exchanges, 128-byte headers
 and pre-read 1MiB body limits; explicit finish validates status, errors/drop kill and reap.
+`stale::other_trees_have` scans raw notes for check membership, not trusted statements.
+Reached 1MiB/depth256 overflow refuses; a true match stops before later body reads.
 Lane discovery uses the gate's sanitized Git command and rejects malformed or
 unterminated ls-tree rows; shared subprocess timeout/output bounds remain open.
 `workflow::workflow_job` selects exact generated-workflow text and transitive

@@ -127,3 +127,18 @@ fn actual_git_supports_both_formats_missing_objects_and_size_refusal() {
         assert!(batch.child.is_none());
     }
 }
+
+#[test]
+fn scanner_match_drops_owned_child_without_consuming_later_overflow() {
+    let id = "a".repeat(40);
+    let body = br#"{"predicate":{"observed":{"checks":"check"}}}"#;
+    let mut bytes = format!("{id} blob {}\n", body.len()).into_bytes();
+    bytes.extend_from_slice(body);
+    bytes.extend_from_slice(format!("\n{id} blob 1048577\n").as_bytes());
+    let batch = fixture(&bytes, 0);
+    #[cfg(target_os = "linux")]
+    let pid = batch.child.as_ref().unwrap().id();
+    assert!(super::super::stale::bodies_have(batch, &[id.clone(), id], "check").unwrap());
+    #[cfg(target_os = "linux")]
+    assert!(!Path::new(&format!("/proc/{pid}")).exists());
+}
