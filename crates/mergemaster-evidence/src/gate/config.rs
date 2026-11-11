@@ -118,11 +118,53 @@ pub struct EnvironmentDeclaration {
     pub paths: Vec<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
+/// Committed environments are keyed by host platform (`systems`). The
+/// pre-multisystem shape (`system` + `toolchain`) is accepted on read and
+/// folds into a single-entry systems map, so existing consumer checkouts
+/// keep verifying without a flag day. Serialization always emits `systems`.
+#[derive(Debug, Serialize)]
 pub struct Environment {
     pub version: u32,
     pub systems: BTreeMap<String, Toolchain>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EnvironmentCurrent {
+    version: u32,
+    systems: BTreeMap<String, Toolchain>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EnvironmentLegacy {
+    version: u32,
+    system: String,
+    toolchain: Toolchain,
+}
+
+impl<'de> Deserialize<'de> for Environment {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        if raw.get("systems").is_some() {
+            let current: EnvironmentCurrent =
+                serde_json::from_value(raw).map_err(serde::de::Error::custom)?;
+            Ok(Self {
+                version: current.version,
+                systems: current.systems,
+            })
+        } else {
+            let legacy: EnvironmentLegacy =
+                serde_json::from_value(raw).map_err(serde::de::Error::custom)?;
+            Ok(Self {
+                version: legacy.version,
+                systems: BTreeMap::from([(legacy.system, legacy.toolchain)]),
+            })
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -233,6 +275,78 @@ mod missing_config_tests {
             "BASE configuration missing: .mergemaster/lanes.json"
         );
         assert!(!anyhow::anyhow!("invalid lanes policy").is::<super::MissingConfig>());
+    }
+}
+
+#[cfg(test)]
+mod environment_compat_tests {
+    use super::{Environment, current_system};
+    use std::collections::BTreeMap;
+
+    fn toolchain(identity: &str) -> super::Toolchain {
+        super::Toolchain {
+            runtime: super::Artifact {
+                name: "runtime".into(),
+                identity: identity.into(),
+            },
+            dependencies: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn legacy_shape_folds_into_single_entry_systems_map() {
+        let system = current_system();
+        let raw = serde_json::json!({
+            "version": 1,
+            "system": system,
+            "toolchain": {
+                "runtime": {"name": "runtime", "identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+                "dependencies": {}
+            }
+        });
+        let environment: Environment = serde_json::from_value(raw).unwrap();
+        assert_eq!(environment.version, 1);
+        assert_eq!(environment.systems.len(), 1);
+        assert!(environment.systems.contains_key(&system));
+        super::validate_environment(&environment).unwrap();
+        let reserialized = serde_json::to_value(&environment).unwrap();
+        assert!(reserialized.get("systems").is_some());
+        assert!(reserialized.get("system").is_none());
+        assert!(reserialized.get("toolchain").is_none());
+    }
+
+    #[test]
+    fn mixed_old_and_new_fields_are_rejected() {
+        let system = current_system();
+        let bad = serde_json::json!({
+            "version": 1,
+            "systems": {},
+            "system": system,
+            "toolchain": {
+                "runtime": {"name": "runtime", "identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+                "dependencies": {}
+            }
+        });
+        assert!(serde_json::from_value::<Environment>(bad).is_err());
+    }
+
+    #[test]
+    fn system_mismatch_refuses_lookup() {
+        let other = if current_system().starts_with("x86_64") {
+            "aarch64-linux"
+        } else {
+            "x86_64-linux"
+        };
+        let environment = Environment {
+            version: 1,
+            systems: BTreeMap::from([(
+                other.to_owned(),
+                toolchain(
+                    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                ),
+            )]),
+        };
+        assert!(environment.systems.get(&current_system()).is_none());
     }
 }
 
