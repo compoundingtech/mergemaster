@@ -580,6 +580,11 @@ It ports ordered structural candidate gathering (957-981), input-key projection,
 and default crate/key equality, not test-count policy or signature authorization.
 Any load error aborts collection without returning a partial candidate set; budget
 exhaustion remains latched even for later calls with no matching records.
+`trust::partition` preserves ordered trusted/untrusted/degraded groups (982-995):
+only G with a nonempty principal equal to the statement signer is trusted; B/N
+is bad_signature, other mismatches untrusted_signer, and degraded skips signatures.
+Policy/Git errors abort without returning partial groups. Check selection and
+miss precedence remain separate; partitioned signatures alone do not authorize a check.
 Lane discovery uses the gate's sanitized Git command and rejects malformed or
 unterminated ls-tree rows; shared subprocess timeout/output bounds remain open.
 `workflow::workflow_job` selects exact generated-workflow text and transitive

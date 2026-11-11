@@ -75,7 +75,10 @@
 # (915-925) ports only default needs_tests=False equality; test-count policy waits
 # for member orchestration. Check-owned cache persists across member calls; any
 # error aborts the entire collection, and a latched budget refuses even empty calls.
-# No trust classification (982-1008), stale-tree decisions or CLI wiring yet.
+# Rust parity: trust partition (982-995), preserving group order and principal
+# equality. Degraded bypasses signatures; B/N are bad_signature, other mismatches
+# untrusted_signer. Policy/Git failures propagate, never candidate classifications.
+# Check membership/miss precedence (996-1008), stale scan and CLI wiring remain.
 # Rust parity: signature (768-773), Git SSH status/principal with explicit signer
 # and revocation files; unsigned, untrusted, revoked and invalid statuses remain
 # data for the later selection gate, never implicit authorization. Sanitized Git
