@@ -37,7 +37,17 @@ for fmt in ['sha1','sha256']:
   cases.append(dict(name=fmt+'-'+name,repo=str(repo),commit=commit,keys=str(allowed),revocations=str(revocations),expected=result))
  add('trusted',signed); add('unsigned-replacement',unsigned); add('forged',forged)
  add('unknown',signed,empty); add('missing-allowed',signed,missing)
- add('revoked',signed,keys,revoking); add('missing-revocations',signed,keys,missing)
+ add('revoked',signed,keys,revoking)
+ add('missing-revocations',signed,keys,missing); cases[-1]['revocation_refusal']=True
+ directory=root/(fmt+'-directory'); directory.mkdir()
+ unreadable=root/(fmt+'-unreadable'); unreadable.write_text(''); unreadable.chmod(0)
+ dangling=root/(fmt+'-dangling'); dangling.symlink_to(missing)
+ linked=root/(fmt+'-linked'); linked.symlink_to(revoked)
+ for name,path in [('directory',directory),('unreadable',unreadable),('dangling',dangling)]:
+  add('revocations-'+name,signed,keys,path); cases[-1]['revocation_refusal']=True
+ add('revocations-valid-symlink',signed,keys,linked)
+ relative=repo/'local-revocations'; relative.write_text('')
+ add('revocations-relative',signed,keys,pathlib.Path('local-revocations'))
  add('missing-commit','f'*len(signed))
  # Principal text is returned verbatim; it is not statement-signer authorization.
  aliases=root/(fmt+'-aliases'); aliases.write_text('one,two '+public+'\n')
@@ -84,7 +94,11 @@ print(json.dumps(cases))
             case["keys"].as_str().unwrap(),
             case["revocations"].as_str().unwrap(),
         );
-        if let Some(marker) = case["marker"].as_str() {
+        if case["revocation_refusal"] == true {
+            let error = actual.unwrap_err();
+            assert_eq!(error.reason, "error", "{}", case["name"]);
+            assert!(error.detail.contains("revocation"), "{}", case["name"]);
+        } else if let Some(marker) = case["marker"].as_str() {
             let (status, _) = actual.unwrap();
             assert_ne!(status, "G", "{}", case["name"]);
             assert!(!Path::new(marker).exists(), "{}", case["name"]);
@@ -100,4 +114,19 @@ print(json.dumps(cases))
             );
         }
     }
+}
+
+#[test]
+fn missing_revocations_refuse_before_git_or_revision_validation() {
+    let root = tempfile::tempdir().unwrap();
+    let missing = root.path().join("missing");
+    let error = signature(
+        root.path(),
+        "not-an-oid",
+        "unused",
+        missing.to_str().unwrap(),
+    )
+    .unwrap_err();
+    assert_eq!(error.reason, "error");
+    assert!(error.detail.contains("revocation file is unavailable"));
 }

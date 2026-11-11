@@ -566,8 +566,12 @@ a 1 MiB flat array needs up to 524,288 nodes (36 MiB at 72 B/node), 4 MiB indice
 Loader errors, including either cap refusal, abort the whole check rather than
 skipping a record. `signature::signature` ports Git SSH status/principal inspection
 (768-773), overriding repository signature programs and using explicit signer and
-revocation files. Returned statuses are not authorization: selection (3g) and
-require-all (3h) remain; candidate indexes and structural records establish no trust.
+revocation files. Before any Git/status work it requires a readable regular
+revocation file (symlinks to valid files allowed); absent, dangling, directory and
+no-read-bit paths refuse with a revocation-specific error. This is fail-closed
+against Python until fractal#6429 is resynced. Returned statuses are not
+authorization: selection (3g) and require-all (3h) remain; candidate indexes and
+structural records establish no trust.
 Lane discovery uses the gate's sanitized Git command and rejects malformed or
 unterminated ls-tree rows; shared subprocess timeout/output bounds remain open.
 `workflow::workflow_job` selects exact generated-workflow text and transitive
