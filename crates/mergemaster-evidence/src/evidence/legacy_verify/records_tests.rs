@@ -3,7 +3,7 @@ use super::*;
 fn records_match_python_oracle() {
     let script = r#"
 import copy,json,os,pathlib,runpy,subprocess,sys
-o=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify'); cases=[]
+o=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify'); cases=[]; cached=[]
 for fmt in ['sha1','sha256']:
  repo=pathlib.Path(sys.argv[2])/fmt
  subprocess.run(['git','init','--bare','--object-format='+fmt,str(repo)],check=True,stdout=subprocess.DEVNULL)
@@ -50,7 +50,25 @@ for fmt in ['sha1','sha256']:
  add('shallow',shallow=True)
  add('cap-exact',padding=1024*1024); add('cap-over',padding=1024*1024+1)
  for depth in [256,257,497,498]: add('depth-'+str(depth),depth=depth)
-print(json.dumps(cases))
+ good=next(c['commit'] for c in cases if c['name']==fmt+'-valid')
+ bad=next(c['commit'] for c in cases if c['name']==fmt+'-malformed-json'); wrong='0'*len(subject)
+ first=o['load'](str(repo),good); first['predicate']['change_id']='mutated'
+ flags={'independent':o['load'](str(repo),good)['predicate']['change_id']=='change'}
+ assert o['load'](str(repo),bad) is None and o['load'](str(repo),good,wrong) is None
+ moved=repo.with_name(fmt+'-moved'); repo.rename(moved)
+ def fails(path,c,t=None):
+  try: o['load'](path,c,t)
+  except o['Failure']: return True
+  return False
+ flags.update(positive_hit=o['load'](str(repo),good) is not None,negative_hit=o['load'](str(repo),bad) is None,
+  tree_hit=o['load'](str(repo),good,wrong) is None,tree_identity=fails(str(repo),good,empty),
+  commit_identity=fails(str(repo),missing),repo_identity=fails(str(moved/'absent'),good),lexical_repo_identity=fails(str(repo)+'/.',good))
+ moved.rename(repo); flags['retry']=o['load'](str(repo),good,empty) is not None
+ try: [o['load'](str(repo),c) for c in [good,missing]]; flags['whole_error']=False
+ except o['Failure']: flags['whole_error']=True
+ assert all(flags.values())
+ cached.append(dict(repo=str(repo),good=good,bad=bad,tree=empty,missing=missing,format=fmt,flags=flags))
+print(json.dumps(dict(records=cases,cache=cached)))
 "#;
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle required");
     let temp = tempfile::tempdir().unwrap();
@@ -64,7 +82,7 @@ print(json.dumps(cases))
         String::from_utf8_lossy(&output.stderr)
     );
     let cases: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    for case in cases.as_array().unwrap() {
+    for case in cases["records"].as_array().unwrap() {
         let tree = case["tree"].as_str();
         let actual = read_statement(
             Path::new(case["repo"].as_str().unwrap()),
@@ -89,6 +107,72 @@ print(json.dumps(cases))
                 "{}",
                 case["name"]
             );
+        }
+    }
+    for case in cases["cache"].as_array().unwrap() {
+        let repo = Path::new(case["repo"].as_str().unwrap());
+        let good = case["good"].as_str().unwrap();
+        let bad = case["bad"].as_str().unwrap();
+        let tree = case["tree"].as_str().unwrap();
+        let missing = case["missing"].as_str().unwrap();
+        let mut cache = RecordCache::default();
+        let first = cache.load(repo, good, None).unwrap().unwrap();
+        let second = cache.load(repo, good, None).unwrap().unwrap();
+        let points = |doc: &Document| {
+            string(
+                field(
+                    doc,
+                    field(doc, doc.root(), "predicate").unwrap(),
+                    "change_id",
+                )
+                .unwrap(),
+            )
+            .unwrap()
+            .as_ptr()
+        };
+        let independent = points(&first) != points(&second);
+        let wrong = "0".repeat(good.len());
+        assert!(cache.load(repo, bad, None).unwrap().is_none());
+        assert!(cache.load(repo, good, Some(&wrong)).unwrap().is_none());
+        let moved = repo.with_extension("moved");
+        std::fs::rename(repo, &moved).unwrap();
+        let mut flags = serde_json::json!({
+            "independent": independent,
+            "positive_hit": cache.load(repo, good, None).unwrap().is_some(),
+            "negative_hit": cache.load(repo, bad, None).unwrap().is_none(),
+            "tree_hit": cache.load(repo, good, Some(&wrong)).unwrap().is_none(),
+            "tree_identity": cache.load(repo, good, Some(tree)).is_err(),
+            "commit_identity": cache.load(repo, missing, None).is_err(),
+            "repo_identity": cache.load(&moved.join("absent"), good, None).is_err(),
+            "lexical_repo_identity": cache.load(&repo.join("."), good, None).is_err(),
+        });
+        assert_eq!(cache.values.len(), 3); // Errors never become cached refusals.
+        std::fs::rename(&moved, repo).unwrap();
+        flags["retry"] = serde_json::json!(cache.load(repo, good, Some(tree)).unwrap().is_some());
+        let whole = [good, missing]
+            .into_iter()
+            .map(|id| cache.load(repo, id, None))
+            .collect::<Result<Vec<_>, _>>();
+        flags["whole_error"] = serde_json::json!(whole.unwrap_err().reason == "error");
+        assert_eq!(flags, case["flags"]);
+        for (suffix, reason) in [
+            ("depth-257", "statement-too-deep"),
+            ("cap-over", "statement-too-large"),
+        ] {
+            let name = format!("{}-{suffix}", case["format"].as_str().unwrap());
+            let cap = cases["records"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|c| c["name"] == name)
+                .unwrap();
+            let before = cache.values.len();
+            let mixed = [good, cap["commit"].as_str().unwrap()]
+                .into_iter()
+                .map(|id| cache.load(repo, id, None))
+                .collect::<Result<Vec<_>, _>>();
+            assert_eq!(mixed.unwrap_err().reason, reason); // No partial successful check.
+            assert_eq!(cache.values.len(), before);
         }
     }
     assert_eq!(

@@ -108,3 +108,32 @@ fn container_limit_counts_arrays_objects_and_empty_roots() {
         }
     }
 }
+#[test]
+fn cloning_owns_nested_values_and_surrogate_keys() {
+    let text = format!(
+        "{}{{\"\\ud800\":\"kept\"}}{}",
+        "[".repeat(MAX_CONTAINER_DEPTH - 1),
+        "]".repeat(MAX_CONTAINER_DEPTH - 1)
+    );
+    let original = Document::from_bytes(text.as_bytes()).unwrap();
+    let mut copy = original.clone();
+    let Some(Node::String(value)) = copy.nodes.last_mut() else {
+        panic!("string leaf");
+    };
+    value[0] = 88;
+    assert!(matches!(original.nodes.last(), Some(Node::String(v)) if v == &[107, 101, 112, 116]));
+    let (Node::Object(a), Node::Object(b)) = (
+        &original.nodes[MAX_CONTAINER_DEPTH - 1],
+        &copy.nodes[MAX_CONTAINER_DEPTH - 1],
+    ) else {
+        panic!("object leaf");
+    };
+    assert_ne!(
+        a.keys().next().unwrap().as_ptr(),
+        b.keys().next().unwrap().as_ptr()
+    );
+    let (Node::Array(a), Node::Array(b)) = (original.root(), copy.root()) else {
+        panic!("array root");
+    };
+    assert_ne!(a.as_ptr(), b.as_ptr());
+}
