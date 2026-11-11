@@ -17,6 +17,7 @@ pub mod statement;
 pub mod statement_bytes;
 pub mod statement_document;
 pub mod statement_tokens;
+pub mod trust;
 pub mod workflow;
 use super::legacy_policy::kind_rules::KindRule;
 use serde::Serialize;
