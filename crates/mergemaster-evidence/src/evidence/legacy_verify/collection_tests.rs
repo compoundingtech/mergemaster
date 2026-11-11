@@ -79,15 +79,18 @@ print(json.dumps(results))
                 .collect(repo, tree, "check", paths.as_deref(), crate_key)
                 .unwrap();
             assert_eq!(
-                serde_json::json!(actual.iter().map(|c| &c.commit).collect::<Vec<_>>()),
+                serde_json::json!(actual.records.iter().map(|c| &c.commit).collect::<Vec<_>>()),
                 call["expected"]
             );
         }
         let initial = collector.collect(repo, tree, "check", None, None).unwrap();
-        assert!(!initial.is_empty());
+        assert!(!initial.records.is_empty());
         for _ in 0..52 {
             let repeated = collector.collect(repo, tree, "check", None, None).unwrap();
-            assert!(Arc::ptr_eq(&initial[0].statement, &repeated[0].statement));
+            assert!(Arc::ptr_eq(
+                &initial.records[0].statement,
+                &repeated.records[0].statement
+            ));
         }
         let failed = collector.collect(
             repo,
@@ -106,6 +109,7 @@ print(json.dumps(results))
             !CandidateCollector::for_check()
                 .collect(repo, tree, "check", None, None)
                 .unwrap()
+                .records
                 .is_empty()
         );
     }

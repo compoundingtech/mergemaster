@@ -13,6 +13,10 @@ pub struct Candidate {
     pub commit: String,
     pub statement: Arc<Document>,
 }
+pub struct Collected {
+    pub records: Vec<Candidate>,
+    pub legacy: Vec<String>,
+}
 fn input<'a>(doc: &'a Document, key: &str) -> Option<&'a [u32]> {
     let predicate = field(doc, doc.root(), "predicate")?;
     let observed = field(doc, predicate, "observed")?;
@@ -44,15 +48,16 @@ impl CandidateCollector {
         check: &str,
         inputs: Option<&[String]>,
         crate_key: Option<(&str, &str)>,
-    ) -> Result<Vec<Candidate>, PolicyError> {
+    ) -> Result<Collected, PolicyError> {
         self.cache.check_budget()?;
         let legacy = discovery::legacy_refs(repo, tree.len())?;
-        let commits: Vec<_> = discovery::tree_refs(repo, tree)?
-            .into_iter()
-            .chain(legacy)
-            .collect::<IndexSet<_>>()
-            .into_iter()
-            .collect();
+        let mut commits: IndexSet<_> = discovery::tree_refs(repo, tree)?.into_iter().collect();
+        for commit in &legacy {
+            if !commits.contains(commit) {
+                commits.insert(commit.clone());
+            }
+        }
+        let commits: Vec<_> = commits.into_iter().collect();
         let mut mine = IndexMap::new();
         for commit in discovery::with_note_for(repo, &commits, tree)? {
             if let Some(statement) = self.cache.load(repo, commit, Some(tree))? {
@@ -80,10 +85,13 @@ impl CandidateCollector {
                 }
             }
         }
-        Ok(mine
-            .into_iter()
-            .map(|(commit, statement)| Candidate { commit, statement })
-            .collect())
+        Ok(Collected {
+            records: mine
+                .into_iter()
+                .map(|(commit, statement)| Candidate { commit, statement })
+                .collect(),
+            legacy,
+        })
     }
 }
 #[cfg(test)]
