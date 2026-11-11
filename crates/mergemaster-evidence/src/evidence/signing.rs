@@ -222,11 +222,22 @@ pub fn measure_toolchain(
         let resolved = if Path::new(argv0).is_absolute() {
             PathBuf::from(argv0)
         } else {
-            let path = std::env::var_os("PATH").context("lane executable requires PATH")?;
-            std::env::split_paths(&path)
+            // Wrap resolves against the caller's PATH (matching execution);
+            // the isolated signer worker falls back to the account's trusted
+            // search path, since its process PATH carries only git/ssh-keygen.
+            // Either way the canonicalized file must sit inside a measured
+            // closure, so a hostile PATH cannot smuggle in an unmeasured binary.
+            let mut directories = std::env::var_os("PATH")
+                .map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
+                .unwrap_or_default();
+            if let Some(path) = config.path.as_deref() {
+                directories.extend(std::env::split_paths(path));
+            }
+            directories
+                .into_iter()
                 .map(|directory| directory.join(argv0))
                 .find(|candidate| candidate.is_file())
-                .context("lane executable not found on PATH")?
+                .context("lane executable not found on trusted search path")?
         };
         ensure!(
             !resolved
