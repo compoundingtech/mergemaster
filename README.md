@@ -539,8 +539,10 @@ number lexemes and requiring zoned Python ISO calendar/week timestamps.
 `statement_bytes::decode_json_bytes` ports Python's BOM/NUL-based UTF-8/16/32
 transport detection and surrogatepass decoding (3f-2b-1), retaining code points
 including lone surrogates rather than replacing them with invalid Rust strings.
-Remaining 3f-2b-2: JSON grammar/values, extensions, surrogate object keys and
-parser limits, then byte-to-statement integration; no decoder cutover yet.
+`statement_tokens::Tokens` ports lossless strings and numeric literals (3f-2b-2a),
+including lone surrogates, nonfinite floats and the 4300-digit integer limit.
+Remaining 3f-2b-2b: iterative container grammar and ordered values; then 3f-2b-2c
+structural-guard/exception integration. Tokens alone never validate a statement.
 Then 3f-3 Git record layout/parent/subject checks and owned cache (`read_statement`
 and `load`, 720-765). Signature verification (768-773) follows before selection
 (3g) and require-all (3h); none of these candidate indexes establishes trust.
