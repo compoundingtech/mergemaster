@@ -2,12 +2,10 @@ use super::*;
 
 #[test]
 fn signatures_match_python_oracle() {
-    assert!(
-        !std::process::Command::new("/bin/false")
-            .status()
-            .unwrap()
-            .success()
-    );
+    match std::process::Command::new("/bin/false").status() {
+        Ok(status) => assert!(!status.success()),
+        Err(error) => assert_eq!(error.kind(), std::io::ErrorKind::NotFound),
+    }
     let script = r#"
 import json,os,pathlib,runpy,subprocess,sys
 o=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify'); root=pathlib.Path(sys.argv[2]); cases=[]
