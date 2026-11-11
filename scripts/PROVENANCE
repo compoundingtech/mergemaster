@@ -78,7 +78,10 @@
 # Rust parity: trust partition (982-995), preserving group order and principal
 # equality. Degraded bypasses signatures; B/N are bad_signature, other mismatches
 # untrusted_signer. Policy/Git failures propagate, never candidate classifications.
-# Check membership/miss precedence (996-1008) and CLI wiring remain.
+# Joined prefix (996-1008): single-source Collected{records,legacy}, exact miss
+# precedence, errors remain Err(Failure). Python957 creates an empty revocation file,
+# never populated; keep through995, drop before996. No caller revocations consulted.
+# attempts=0 normalizes absent Python metadata, not CLI wire parity. CLI remains.
 # Raw scan transport prerequisite (1395-1406): one request/reply, 128-byte headers,
 # 1MiB declared-body cap before allocation/read; missing is distinct from errors.
 # Header/body overflow refuses stale-scan-header-too-large/stale-scan-too-large;

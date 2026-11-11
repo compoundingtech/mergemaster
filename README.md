@@ -585,7 +585,9 @@ exhaustion remains latched even for later calls with no matching records.
 only G with a nonempty principal equal to the statement signer is trusted; B/N
 is bad_signature, other mismatches untrusted_signer, and degraded skips signatures.
 Policy/Git errors abort without returning partial groups. Check selection and
-miss precedence remain separate; partitioned signatures alone do not authorize a check.
+miss precedence use `prefix::candidates` (996-1008), not final check authorization.
+It owns an EMPTY revocation file like Python957, not caller revocations; never use
+this prefix for an API promising external revocation enforcement.
 `raw_batch::RawBatch` provides scanner-specific one-request exchanges, 128-byte headers
 and pre-read 1MiB body limits; explicit finish validates status, errors/drop kill and reap.
 `stale::other_trees_have` scans raw notes for check membership, not trusted statements.
