@@ -84,12 +84,14 @@ print(json.dumps([o['statement_of'](s.encode(),sys.argv[2]) is not None for s in
     let expected: Vec<bool> = serde_json::from_slice(&output.stdout).unwrap();
     for (case, expected) in cases.iter().zip(expected) {
         assert_eq!(
-            statement_of(case.as_bytes(), &tree).is_some(),
+            statement_of(case.as_bytes(), &tree).unwrap().is_some(),
             expected,
             "{case}"
         );
     }
-    let parsed = statement_of(valid.to_string().as_bytes(), &tree).unwrap();
+    let parsed = statement_of(valid.to_string().as_bytes(), &tree)
+        .unwrap()
+        .unwrap();
     let at = |v, key| field(&parsed, v, key).unwrap();
     let predicate = at(parsed.root(), "predicate");
     assert!(text(at(predicate, "change_id"), "change"));
@@ -100,9 +102,12 @@ print(json.dumps([o['statement_of'](s.encode(),sys.argv[2]) is not None for s in
     ));
     let mut bounded = valid.to_string().into_bytes();
     bounded.resize(MAX_STATEMENT_BYTES, b' ');
-    assert!(statement_of(&bounded, &tree).is_some());
+    assert!(statement_of(&bounded, &tree).unwrap().is_some());
     bounded.push(b' ');
-    assert!(statement_of(&bounded, &tree).is_none());
+    assert_eq!(
+        statement_of(&bounded, &tree).unwrap_err().reason,
+        "statement-too-large"
+    );
     let zero = super::super::statement_document::Document::from_bytes(b"-0").unwrap();
     assert!(matches!(zero.root(), Node::Integer(n) if n == "0"));
 }

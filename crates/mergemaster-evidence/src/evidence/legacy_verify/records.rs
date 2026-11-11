@@ -67,7 +67,7 @@ pub fn read_statement(
         MAX_STATEMENT_BYTES,
     )
     .map_err(error)?;
-    let Some(doc) = statement_of(&blob, path) else {
+    let Some(doc) = statement_of(&blob, path)? else {
         return Ok(None);
     };
     let subjects = array(field(&doc, doc.root(), "subject").expect("validated subject")).unwrap();

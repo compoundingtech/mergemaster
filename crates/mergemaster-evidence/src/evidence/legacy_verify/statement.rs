@@ -1,5 +1,6 @@
 //! Legacy tests statements; structural validity grants no signature trust.
-use super::statement_document::{Document, Node};
+use super::statement_document::{Document, Error, MAX_CONTAINER_DEPTH, Node};
+use crate::evidence::legacy_policy::PolicyError;
 use chrono::{Datelike, NaiveDate};
 fn nonblank(s: &[u32]) -> bool {
     s.iter().any(|p| {
@@ -161,12 +162,27 @@ fn zoned_time(points: &[u32]) -> bool {
 /// Rust-only cap: Python's reader is unbounded. Checked before any JSON allocation.
 pub const MAX_STATEMENT_BYTES: usize = 1024 * 1024;
 /// Decode and validate a legacy tests statement; this grants no signature trust.
-pub fn statement_of(blob: &[u8], tree: &str) -> Option<Document> {
+pub fn statement_of(blob: &[u8], tree: &str) -> Result<Option<Document>, PolicyError> {
     if blob.len() > MAX_STATEMENT_BYTES {
-        return None;
+        return Err(PolicyError {
+            reason: "statement-too-large",
+            detail: format!("record statement exceeds {MAX_STATEMENT_BYTES} bytes"),
+        });
     }
-    let doc = Document::from_bytes(blob).ok()?;
-    let get = |v, key| field(&doc, v, key);
+    let doc = match Document::from_bytes(blob) {
+        Ok(doc) => doc,
+        Err(Error::NestingLimit) => {
+            return Err(PolicyError {
+                reason: "statement-too-deep",
+                detail: format!("record statement exceeds {MAX_CONTAINER_DEPTH} containers"),
+            });
+        }
+        Err(_) => return Ok(None),
+    };
+    Ok(valid(&doc, tree).map(|()| doc))
+}
+fn valid(doc: &Document, tree: &str) -> Option<()> {
+    let get = |v, key| field(doc, v, key);
     let v = doc.root();
     let p = get(v, "predicate")?;
     let subjects = array(get(v, "subject")?)?;
@@ -230,7 +246,7 @@ pub fn statement_of(blob: &[u8], tree: &str) -> Option<Document> {
             return None;
         }
     }
-    Some(doc)
+    Some(())
 }
 #[cfg(test)]
 #[path = "statement_tests.rs"]

@@ -1,6 +1,8 @@
 //! Python JSON containers in a flat arena: parsing, traversal and drop never recurse.
 use super::statement_tokens::{self, Token, Tokens};
 use indexmap::IndexMap;
+/// Inclusive container depth, counting arrays, objects and an empty root container.
+pub const MAX_CONTAINER_DEPTH: usize = 256;
 
 #[derive(Debug)]
 pub enum Node {
@@ -23,6 +25,7 @@ pub enum Error {
     Invalid,
     IntegerLimit,
     ExtraData,
+    NestingLimit,
 }
 #[derive(Clone, Copy)]
 enum State {
@@ -109,6 +112,9 @@ impl Document {
                 _ => return Err(Error::Invalid),
             };
             let container = matches!(node, Node::Array(_) | Node::Object(_));
+            if container && stack.len() >= MAX_CONTAINER_DEPTH {
+                return Err(Error::NestingLimit);
+            }
             let id = nodes.len();
             nodes.push(node);
             if let Some(frame) = stack.last_mut() {

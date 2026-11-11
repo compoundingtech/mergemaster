@@ -546,6 +546,11 @@ including lone surrogates, nonfinite floats and the 4300-digit integer limit.
 owning deeply nested values without recursive drop. Overwritten values remain
 unreachable in its private arena until document drop. The statement entrypoint
 refuses blobs above 1 MiB before parsing (a Rust-only guard; Python has no cap).
+The document parser also caps nesting at 256 containers, including the root and
+empty arrays/objects. Byte-statement and record APIs return `statement-too-deep`
+above that depth. This is a deterministic, fail-closed guard before the owned
+cache port: Python's end-to-end deepcopy fails at interpreter-dependent depths.
+Depth does not bound arena node count; the 1 MiB statement-byte cap bounds nodes.
 `records::read_statement` adds bounded Git capture and record layout/parent/subject
 checks (3f-3a), with `statement-too-large` distinct from malformed-record refusal.
 Missing subjects are allowed without lazy fetch. Remaining 3f-3b: owned `load`
