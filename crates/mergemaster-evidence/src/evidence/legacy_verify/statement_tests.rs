@@ -84,24 +84,25 @@ print(json.dumps([o['statement_of'](s.encode(),sys.argv[2]) is not None for s in
     let expected: Vec<bool> = serde_json::from_slice(&output.stdout).unwrap();
     for (case, expected) in cases.iter().zip(expected) {
         assert_eq!(
-            crate::evidence::legacy_json::parse(case.as_bytes())
-                .ok()
-                .and_then(|v| statement_of(v, &tree))
-                .is_some(),
+            statement_of(case.as_bytes(), &tree).is_some(),
             expected,
             "{case}"
         );
     }
-    let parsed = statement_of(
-        crate::evidence::legacy_json::parse(valid.to_string().as_bytes()).unwrap(),
-        &tree,
-    )
-    .unwrap();
-    assert_eq!(parsed["predicate"]["change_id"], "change");
-    assert_eq!(
-        parsed["predicate"]["observed"]["checks"]["check"]["command"]
-            .as_array()
-            .unwrap()[0],
+    let parsed = statement_of(valid.to_string().as_bytes(), &tree).unwrap();
+    let at = |v, key| field(&parsed, v, key).unwrap();
+    let predicate = at(parsed.root(), "predicate");
+    assert!(text(at(predicate, "change_id"), "change"));
+    let check = at(at(at(predicate, "observed"), "checks"), "check");
+    assert!(text(
+        parsed.node(array(at(check, "command")).unwrap()[0]),
         ""
-    );
+    ));
+    let mut bounded = valid.to_string().into_bytes();
+    bounded.resize(MAX_STATEMENT_BYTES, b' ');
+    assert!(statement_of(&bounded, &tree).is_some());
+    bounded.push(b' ');
+    assert!(statement_of(&bounded, &tree).is_none());
+    let zero = super::super::statement_document::Document::from_bytes(b"-0").unwrap();
+    assert!(matches!(zero.root(), Node::Integer(n) if n == "0"));
 }

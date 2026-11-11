@@ -39,6 +39,17 @@ for name,data in {
 }.items(): cases.append((name,bytes.fromhex(data)))
 for count in [4300,4301]: cases.append(('integer-'+str(count),(text[:-1]+',"extra":'+'9'*count+'}').encode()))
 for count in [100,2000]: cases.append(('depth-'+str(count),(text[:-1]+',"extra":'+'['*count+'0'+']'*count+'}').encode()))
+for field in ['change_id','signer','runner','command','inputs','checks','observed_at']:
+ v=copy.deepcopy(valid); p=v['predicate']; o=p['observed']
+ if field=='observed_at': p[field]='2026-01-01\ud80012:30Z'
+ elif field in ['change_id','signer']: p[field]='\ud800'
+ elif field=='command': o['checks']['check'][field]=['\ud800','']
+ elif field=='inputs': o[field]={'\ud800':'\udfff'}
+ elif field=='checks': o[field]={'\udfff':o[field]['check']}
+ else: o[field]='\ud800'
+ cases.append(('guard-surrogate-'+field,json.dumps(v).encode()))
+for suffix in ['x','{}',',','\u00a0']:
+ cases.append(('extra-'+repr(suffix),(text+suffix).encode()))
 results=[]
 for name,blob in cases:
  try: points=list(map(ord,blob.decode(json.detect_encoding(blob),'surrogatepass')))
@@ -62,5 +73,11 @@ print(json.dumps(results))
         let bytes: Vec<u8> = serde_json::from_value(case["bytes"].clone()).unwrap();
         let expected: Option<Vec<u32>> = serde_json::from_value(case["points"].clone()).unwrap();
         assert_eq!(decode_json_bytes(&bytes), expected, "{}", case["name"]);
+        assert_eq!(
+            super::super::statement::statement_of(&bytes, &"a".repeat(40)).is_some(),
+            case["statement"].as_bool().unwrap(),
+            "{}",
+            case["name"]
+        );
     }
 }

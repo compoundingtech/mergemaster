@@ -96,7 +96,12 @@ impl Document {
             let node = match token {
                 Token::Null => Node::Null,
                 Token::Bool(v) => Node::Bool(v),
-                Token::Integer(v) => Node::Integer(v),
+                Token::Integer(mut v) => {
+                    if v == "-0" {
+                        v.remove(0);
+                    }
+                    Node::Integer(v)
+                }
                 Token::Float(v) => Node::Float(v),
                 Token::String(v) => Node::String(v),
                 Token::Punctuation(b'[') => Node::Array(Vec::new()),

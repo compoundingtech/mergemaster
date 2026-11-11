@@ -534,8 +534,8 @@ Legacy `discovery::input_refs` and `with_note_for` find indexed candidates and
 batch note-entry presence only; neither establishes statement or signer trust.
 `discovery::tree_refs` and `legacy_refs` complete tree/first-layout candidate
 discovery (3f-1), including SHA-1/SHA-256 suffix identity and tag-first deduplication.
-`statement::statement_of` validates decoded statements (3f-2a), preserving raw
-number lexemes and requiring zoned Python ISO calendar/week timestamps.
+`statement::statement_of` decodes and validates byte statements (3f-2b-2c), retaining
+lossless Python strings, canonical integer zero and zoned ISO calendar/week clocks.
 `statement_bytes::decode_json_bytes` ports Python's BOM/NUL-based UTF-8/16/32
 transport detection and surrogatepass decoding (3f-2b-1), retaining code points
 including lone surrogates rather than replacing them with invalid Rust strings.
@@ -544,8 +544,8 @@ including lone surrogates, nonfinite floats and the 4300-digit integer limit.
 `statement_document::Document` adds iterative container grammar and ordered keys
 (3f-2b-2b), preserving duplicate-key position, rejecting extra top-level data and
 owning deeply nested values without recursive drop. Overwritten values remain
-unreachable in its private arena until document drop. Remaining 3f-2b-2c:
-structural-guard/exception integration; parsing alone never validates a statement.
+unreachable in its private arena until document drop. The statement entrypoint
+refuses blobs above 16 MiB before parsing (a Rust-only guard; Python has no cap).
 Then 3f-3 Git record layout/parent/subject checks and owned cache (`read_statement`
 and `load`, 720-765). Signature verification (768-773) follows before selection
 (3g) and require-all (3h); none of these candidate indexes establishes trust.
