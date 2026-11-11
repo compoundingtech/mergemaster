@@ -38,7 +38,7 @@ for name,data in {
  'utf8-double-bom':'efbbbfefbbbf','utf16-double-bom':'fffefffe','utf32-double-bom':'fffe0000fffe0000'
 }.items(): cases.append((name,bytes.fromhex(data)))
 for count in [4300,4301]: cases.append(('integer-'+str(count),(text[:-1]+',"extra":'+'9'*count+'}').encode()))
-for count in [100,2000]: cases.append(('depth-'+str(count),(text[:-1]+',"extra":'+'['*count+'0'+']'*count+'}').encode()))
+for depth in [101,256,257,497,498,2001]: cases.append(('depth-'+str(depth),(text[:-1]+',"extra":'+'['*(depth-1)+'0'+']'*(depth-1)+'}').encode()))
 for field in ['change_id','signer','runner','command','inputs','checks','observed_at']:
  v=copy.deepcopy(valid); p=v['predicate']; o=p['observed']
  if field=='observed_at': p[field]='2026-01-01\ud80012:30Z'
@@ -73,11 +73,23 @@ print(json.dumps(results))
         let bytes: Vec<u8> = serde_json::from_value(case["bytes"].clone()).unwrap();
         let expected: Option<Vec<u32>> = serde_json::from_value(case["points"].clone()).unwrap();
         assert_eq!(decode_json_bytes(&bytes), expected, "{}", case["name"]);
-        assert_eq!(
-            super::super::statement::statement_of(&bytes, &"a".repeat(40)).is_some(),
-            case["statement"].as_bool().unwrap(),
-            "{}",
-            case["name"]
-        );
+        let actual = super::super::statement::statement_of(&bytes, &"a".repeat(40));
+        let depth = case["name"]
+            .as_str()
+            .unwrap()
+            .strip_prefix("depth-")
+            .and_then(|d| d.parse::<usize>().ok())
+            .unwrap_or(0);
+        if depth > super::super::statement_document::MAX_CONTAINER_DEPTH {
+            assert!(case["statement"].as_bool().unwrap());
+            assert_eq!(actual.unwrap_err().reason, "statement-too-deep");
+        } else {
+            assert_eq!(
+                actual.unwrap().is_some(),
+                case["statement"].as_bool().unwrap(),
+                "{}",
+                case["name"]
+            );
+        }
     }
 }

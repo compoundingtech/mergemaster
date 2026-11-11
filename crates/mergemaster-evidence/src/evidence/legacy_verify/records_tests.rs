@@ -19,14 +19,22 @@ for fmt in ['sha1','sha256']:
   'subject':[{'name':subject,'digest':{'gitTree':empty}}],
   'predicate':{'schema_version':1,'change_id':'change','tier':'full','signer':None,
   'observed_at':'2026-01-01T00:00:00Z','observed':{'kind':'tests','runner':'r','checks':{}}}}
- def add(name,value=valid,parents=None,rows=None,path=empty,mode='100644',encoding='utf-8',expected_tree=empty,padding=0,message='record',shallow=False):
+ def add(name,value=valid,parents=None,rows=None,path=empty,mode='100644',encoding='utf-8',expected_tree=empty,padding=0,message='record',shallow=False,depth=0):
   data=json.dumps(value).encode(encoding) if not isinstance(value,bytes) else value
+  if depth: data=data[:-1]+b',"extra":'+b'['*(depth-1)+b'0'+b']'*(depth-1)+b'}'
   data+=b' '*max(0,padding-len(data)); b=blob(data)
   t=tree(rows if rows is not None else [(mode,'blob',b,path)])
   c=commit(t,[subject] if parents is None else parents,message)
   if shallow: (repo/'shallow').write_text(c+'\n')
   expected=o['read_statement'](str(repo),c,expected_tree) is not None
-  cases.append(dict(repo=str(repo),name=fmt+'-'+name,commit=c,tree=expected_tree,expected=expected,oversize=padding>1024*1024,listing_over=name=='listing-over'))
+  if depth in [497,498]:
+   ref='refs/tags/evidence/'+empty+'/'+c; git('update-ref',ref,c)
+   keys=repo/'keys'; keys.write_text('')
+   cli=subprocess.run([sys.executable,sys.argv[1]+'/scripts/evidence-verify','--repo',str(repo),'--tree',empty,'--check','check','--keys',str(keys)],env=os.environ|{'TMPDIR':str(repo)},capture_output=True,text=True)
+   result=json.loads(cli.stdout); git('update-ref','-d',ref)
+   assert cli.returncode==1 and result['reason']==('error' if depth==498 else 'bad_signature')
+   assert ('RecursionError' in result['detail'])==(depth==498)
+  cases.append(dict(repo=str(repo),name=fmt+'-'+name,commit=c,tree=expected_tree,expected=expected,oversize=padding>1024*1024,listing_over=name=='listing-over',depth=depth))
   return c
  add('valid'); add('unbound',expected_tree=None); add('wrong-request',expected_tree='0'*len(subject))
  add('empty',rows=[]); b=blob(b'x'); add('multiple',rows=[('100644','blob',b,'a'),('100644','blob',b,'b')])
@@ -41,6 +49,7 @@ for fmt in ['sha1','sha256']:
  add('utf16',encoding='utf-16'); add('message-parent',message='parent '+missing)
  add('shallow',shallow=True)
  add('cap-exact',padding=1024*1024); add('cap-over',padding=1024*1024+1)
+ for depth in [256,257,497,498]: add('depth-'+str(depth),depth=depth)
 print(json.dumps(cases))
 "#;
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle required");
@@ -70,6 +79,9 @@ print(json.dumps(cases))
             let error = actual.unwrap_err();
             assert_eq!(error.reason, "error");
             assert!(error.detail.contains("Git output exceeds 1048576 bytes"));
+        } else if case["depth"].as_u64().unwrap() > 256 {
+            assert!(case["expected"].as_bool().unwrap()); // Python read, not load.
+            assert_eq!(actual.unwrap_err().reason, "statement-too-deep");
         } else {
             assert_eq!(
                 actual.unwrap().is_some(),

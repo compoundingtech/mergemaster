@@ -41,6 +41,15 @@
 # Rust-only guard: statement blobs above 1 MiB refuse before decoding; Python's
 # read_statement (743) and git capture (75-80) impose no byte bound. Local Fractal
 # store: 29,883 distinct statements, largest 2,245 bytes, p99 2,058 bytes.
+# Rust-only depth guard: 256 containers inclusive (arrays/objects, root/empty
+# included); byte-statement and record APIs return statement-too-deep above it.
+# Local Fractal statements: maximum depth 6, p99 6. Depth does not bound arena
+# node count (breadth is independent); the 1 MiB statement-byte cap bounds nodes.
+# Pinned Python byte decoding/read_statement accept 498 and deeper. Only load's
+# deepcopy refuses end to end (CLI reason=error), observed first at depth 498.
+# Depths 257-497 are an explicit fail-closed divergence. The observed Python
+# boundary of 497 accepted containers depends on interpreter recursion limits,
+# not a contract; no Rust legacy-verifier CLI exists yet.
 # Rust parity: 3f-3a read_statement (732-765), record layout and raw parents,
 # present-subject tree binding and missing-subject acceptance without lazy fetch.
 # Parity caveat (758-762): every subject-probe Failure counts as absent, including

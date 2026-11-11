@@ -15,13 +15,15 @@ for depth in [2000,50000]: cases.append(b'['*depth+b'0'+b']'*depth)
 cases.append(b'{"k":'*2000+b'null'+b'}'*2000)
 results=[]
 for blob in cases:
+ depth=0
  try:
-  value=j.loads(blob); flat=[]; stack=[value]
+  value=j.loads(blob); flat=[]; stack=[(value,1)]
   while stack:
-   v=stack.pop()
-   if isinstance(v,list): flat.append(['array',len(v)]); stack.extend(reversed(v))
+   v,d=stack.pop()
+   if isinstance(v,(list,dict)): depth=max(depth,d)
+   if isinstance(v,list): flat.append(['array',len(v)]); stack.extend((c,d+1) for c in reversed(v))
    elif isinstance(v,dict):
-    flat.append(['object',[list(map(ord,k)) for k in v]]); stack.extend(reversed(v.values()))
+    flat.append(['object',[list(map(ord,k)) for k in v]]); stack.extend((c,d+1) for c in reversed(v.values()))
    elif v is None: flat.append(['null'])
    elif isinstance(v,bool): flat.append(['bool',v])
    elif isinstance(v,int): flat.append(['integer',str(v)])
@@ -31,7 +33,7 @@ for blob in cases:
  except j.JSONDecodeError as e: result=['extra' if e.msg=='Extra data' else 'invalid']
  except UnicodeError: result=['encoding']
  except RecursionError: result=['recursion']
- results.append(dict(bytes=list(blob),result=result))
+ results.append(dict(bytes=list(blob),result=result,depth=depth))
 print(json.dumps(results))
 "#;
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle required");
@@ -47,6 +49,14 @@ print(json.dumps(results))
     let cases: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     for (index, case) in cases.as_array().unwrap().iter().enumerate() {
         let bytes: Vec<u8> = serde_json::from_value(case["bytes"].clone()).unwrap();
+        if case["depth"].as_u64().unwrap() > MAX_CONTAINER_DEPTH as u64 {
+            assert_eq!(case["result"][0], "ok"); // Explicit conservative divergence.
+            assert_eq!(
+                Document::from_bytes(&bytes).unwrap_err(),
+                Error::NestingLimit
+            );
+            continue;
+        }
         let actual = match Document::from_bytes(&bytes) {
             Err(e) => json!([match e {
                 Error::Encoding => "encoding",
@@ -77,5 +87,24 @@ print(json.dumps(results))
             }
         };
         assert_eq!(actual, case["result"], "fixture {index}");
+    }
+}
+#[test]
+fn container_limit_counts_arrays_objects_and_empty_roots() {
+    for depth in [MAX_CONTAINER_DEPTH, MAX_CONTAINER_DEPTH + 1] {
+        for (open, close, empty) in [("[", "]", "[]"), ("{\"k\":", "}", "{}")] {
+            let bytes = format!(
+                "{}{}{}",
+                open.repeat(depth - 1),
+                empty,
+                close.repeat(depth - 1)
+            );
+            let parsed = Document::from_bytes(bytes.as_bytes());
+            if depth == MAX_CONTAINER_DEPTH {
+                assert!(parsed.is_ok());
+            } else {
+                assert_eq!(parsed.unwrap_err(), Error::NestingLimit);
+            }
+        }
     }
 }
