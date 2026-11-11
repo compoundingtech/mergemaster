@@ -188,44 +188,29 @@ pub fn measure_toolchain(
     bind_execution: bool,
 ) -> Result<BTreeMap<String, String>> {
     let config = configuration(path, repo)?;
-    let system = format!(
-        "{}-{}",
-        std::env::consts::ARCH,
-        if cfg!(target_os = "macos") {
-            "darwin"
-        } else {
-            std::env::consts::OS
-        }
-    );
+    let system = config::current_system();
+    let toolchain = environment
+        .systems
+        .get(&system)
+        .with_context(|| format!("committed environment has no toolchain for {system}"))?;
     ensure!(
-        environment.system == system,
-        "runtime platform does not match committed environment"
-    );
-    ensure!(
-        config.toolchain.dependencies.len() == environment.toolchain.dependencies.len(),
+        config.toolchain.dependencies.len() == toolchain.dependencies.len(),
         "dependency measurement set differs"
     );
     let artifacts = std::iter::once((
         "runtime",
-        &environment.toolchain.runtime,
+        &toolchain.runtime,
         Some(&config.toolchain.runtime),
     ))
-    .chain(
-        environment
-            .toolchain
-            .dependencies
-            .iter()
-            .map(|(name, artifact)| {
-                (
-                    name.as_str(),
-                    artifact,
-                    config.toolchain.dependencies.get(name),
-                )
-            }),
-    );
-    let needs_nix = environment.toolchain.runtime.identity.starts_with("nix:")
-        || environment
-            .toolchain
+    .chain(toolchain.dependencies.iter().map(|(name, artifact)| {
+        (
+            name.as_str(),
+            artifact,
+            config.toolchain.dependencies.get(name),
+        )
+    }));
+    let needs_nix = toolchain.runtime.identity.starts_with("nix:")
+        || toolchain
             .dependencies
             .values()
             .any(|a| a.identity.starts_with("nix:"));
@@ -233,12 +218,26 @@ pub fn measure_toolchain(
     let mut claims = BTreeMap::new();
     let mut executable_bound = false;
     let executable = if needs_nix && bind_execution {
-        let argv0 = Path::new(command.first().context("missing lane executable")?);
+        let argv0 = command.first().context("missing lane executable")?;
+        let resolved = if Path::new(argv0).is_absolute() {
+            PathBuf::from(argv0)
+        } else {
+            let path = std::env::var_os("PATH").context("lane executable requires PATH")?;
+            std::env::split_paths(&path)
+                .map(|directory| directory.join(argv0))
+                .find(|candidate| candidate.is_file())
+                .context("lane executable not found on PATH")?
+        };
         ensure!(
-            argv0.is_absolute(),
-            "Nix lanes require absolute argv[0] from the measured closure"
+            !resolved
+                .components()
+                .any(|part| matches!(part, std::path::Component::ParentDir)),
+            "Nix lanes require argv[0] without parent-directory escapes"
         );
-        Some(std::fs::canonicalize(argv0)?)
+        Some(
+            std::fs::canonicalize(&resolved)
+                .with_context(|| format!("lane executable is not a resolvable file: {argv0}"))?,
+        )
     } else {
         None
     };
@@ -426,8 +425,12 @@ pub(super) fn derivation(
         .find_map(|path| path.to_str().filter(|path| config::nix_store_path(path)))
         .context("Nix executable must reside in a store artifact")?;
     ensure!(
-        std::iter::once(&environment.toolchain.runtime)
-            .chain(environment.toolchain.dependencies.values())
+        environment
+            .systems
+            .values()
+            .flat_map(|toolchain| {
+                std::iter::once(&toolchain.runtime).chain(toolchain.dependencies.values())
+            })
             .any(|artifact| artifact.identity == format!("nix:{root}")),
         "declare the Nix executable's store root as a nix: artifact"
     );

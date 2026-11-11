@@ -6,6 +6,20 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::Path};
 
+/// The signing or verifying host's platform, matching the keys of
+/// `Environment::systems`.
+pub fn current_system() -> String {
+    format!(
+        "{}-{}",
+        std::env::consts::ARCH,
+        if cfg!(target_os = "macos") {
+            "darwin"
+        } else {
+            std::env::consts::OS
+        }
+    )
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ToolPin {
@@ -108,8 +122,7 @@ pub struct EnvironmentDeclaration {
 #[serde(deny_unknown_fields)]
 pub struct Environment {
     pub version: u32,
-    pub system: String,
-    pub toolchain: Toolchain,
+    pub systems: BTreeMap<String, Toolchain>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -475,39 +488,43 @@ fn validate_keys(bytes: &[u8]) -> Result<()> {
 fn validate_environment(environment: &Environment) -> Result<()> {
     ensure!(
         environment.version == 1
-            && matches!(
-                environment.system.as_str(),
+            && !environment.systems.is_empty()
+            && environment.systems.keys().all(|system| matches!(
+                system.as_str(),
                 "x86_64-linux" | "aarch64-linux" | "x86_64-darwin" | "aarch64-darwin"
-            ),
+            )),
         "unsupported environment"
     );
-    for (name, artifact) in std::iter::once(("runtime", &environment.toolchain.runtime)).chain(
-        environment
-            .toolchain
-            .dependencies
-            .iter()
-            .map(|(name, artifact)| (name.as_str(), artifact)),
-    ) {
-        ensure!(
-            nonempty(name) && nonempty(&artifact.name),
-            "invalid toolchain artifact"
-        );
-        let valid = artifact
-            .identity
-            .strip_prefix("sha256:")
-            .is_some_and(|hash| hash.len() == 64 && hash.bytes().all(|c| c.is_ascii_hexdigit()))
-            || artifact
+    for toolchain in environment.systems.values() {
+        for (name, artifact) in std::iter::once(("runtime", &toolchain.runtime)).chain(
+            toolchain
+                .dependencies
+                .iter()
+                .map(|(name, artifact)| (name.as_str(), artifact)),
+        ) {
+            ensure!(
+                nonempty(name) && nonempty(&artifact.name),
+                "invalid toolchain artifact"
+            );
+            let valid = artifact
                 .identity
-                .strip_prefix("git:")
-                .is_some_and(full_commit)
-            || artifact
-                .identity
-                .strip_prefix("nix:")
-                .is_some_and(nix_store_path);
-        ensure!(
-            valid,
-            "toolchain artifacts require immutable sha256, git or nix identities"
-        );
+                .strip_prefix("sha256:")
+                .is_some_and(|hash| {
+                    hash.len() == 64 && hash.bytes().all(|c| c.is_ascii_hexdigit())
+                })
+                || artifact
+                    .identity
+                    .strip_prefix("git:")
+                    .is_some_and(full_commit)
+                || artifact
+                    .identity
+                    .strip_prefix("nix:")
+                    .is_some_and(nix_store_path);
+            ensure!(
+                valid,
+                "toolchain artifacts require immutable sha256, git or nix identities"
+            );
+        }
     }
     Ok(())
 }
@@ -672,13 +689,13 @@ pub fn expected_inputs(
         &lane.environment.paths,
         environment_files,
     ))?;
-    let toolchain_sha = hash(&(1, &environment.toolchain))?;
+    let toolchain_sha = hash(&(1, &environment.systems))?;
     let lane_sha = hash(&(1, check, lane, definition_files))?;
     let mut inputs = BTreeMap::from([
         ("environment_sha256".to_owned(), environment_sha),
         ("toolchain_sha256".to_owned(), toolchain_sha),
         ("lane_definition_sha256".to_owned(), lane_sha),
-        ("system".to_owned(), environment.system.clone()),
+        ("system".to_owned(), current_system()),
     ]);
     if !lane.inputs.is_empty() || !lane.scratch.is_empty() {
         crate::evidence::workspace::validate(repo, head, lane)?;

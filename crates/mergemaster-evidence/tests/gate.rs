@@ -71,8 +71,8 @@ impl Fixture {
         );
         f.write(".mergemaster/tool-pin.json", json!({"version":1,"repository":"compoundingtech/mergemaster","revision":"a".repeat(40)}).to_string());
         f.write(".mergemaster/environment.json", json!({
-            "version":1,"system":"x86_64-linux",
-            "toolchain":{"runtime":{"name":"bun","identity":format!("sha256:{}", "a".repeat(64))},"dependencies":{}}
+            "version":1,"systems":{"x86_64-linux":
+            {"runtime":{"name":"bun","identity":format!("sha256:{}", "a".repeat(64))},"dependencies":{}}}
         }).to_string());
         f.write(
             ".mergemaster/lanes.json",
