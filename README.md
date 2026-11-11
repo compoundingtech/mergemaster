@@ -537,6 +537,12 @@ batch note-entry presence only; neither establishes statement or signer trust.
 discovery (3f-1), including SHA-1/SHA-256 suffix identity and tag-first deduplication.
 `statement::statement_of` decodes and validates byte statements (3f-2b-2c), retaining
 lossless Python strings, canonical integer zero and zoned ISO calendar/week clocks.
+The same statement-time parser also returns exact signed UTC epoch microseconds
+for later selection: offset fractions/sign, negative epochs and fractions beyond
+six digits follow Python. It preserves arbitrary-codepoint separators and does
+not narrow statement timestamps to chrono's RFC3339/whole-second-offset domain.
+Its domain is zoned statement times, not Python parse_time's naive-date/time domain;
+the existing public Clock and judgment API are unchanged.
 `statement_bytes::decode_json_bytes` ports Python's BOM/NUL-based UTF-8/16/32
 transport detection and surrogatepass decoding (3f-2b-1), retaining code points
 including lone surrogates rather than replacing them with invalid Rust strings.
