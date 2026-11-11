@@ -4,6 +4,17 @@
 
 - Fetch the pinned Fractal fixture through shallow Git rather than GitHub's commit-tarball endpoint, preserving its source bytes and revision.
 
+## [0.7.0] - 2026-11-12
+
+### Added
+
+- Multi-system environments: `environment.json` carries a `systems` map from platform to toolchain, so x86_64 and aarch64 hosts each measure and sign with their own toolchain. The `system` input claim records the signing host; `toolchain_sha256` binds the whole map. Legacy single-system files still verify. (#151)
+- Lane `argv[0]` resolves against the measured closure: absolute paths as before, or a PATH-resolved executable (signer worker falls back to the account trusted search path) that must canonicalize inside a measured Nix closure. Script-argv lanes keep execution binding. (#151)
+
+### Changed
+
+- Batch `tracked_clean` blob reads through one `git cat-file --batch` session, cutting `evidence wrap` overhead from ~9 s to a fraction of a second on factory-sized trees. (#147)
+
 ## [0.6.1] - 2026-11-10
 
 ### Added
