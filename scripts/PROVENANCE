@@ -57,11 +57,19 @@
 # Hardening: bounded stdout, full record OIDs and statement-too-large diagnostic;
 # listing and raw-commit captures also refuse above 1 MiB.
 # Rust parity: 3f-3b load (720-729), exact repo/commit/optional-tree cache keys,
-# cached structural refusals and independently owned document copies. Errors are
-# retried, not cached; like verified (961-964), any load error aborts the whole
+# cached structural refusals; 3g-1 replaces deepcopy with immutable shared Arcs.
+# Errors are retried, not cached; like verified (961-964), any load error aborts the whole
 # check. Rust-only size/depth errors follow that same fail-closed propagation,
 # not per-record skipping. Trusted-writer availability (#138 P3) remains a named
 # policy risk, unchanged here; the mixed valid-plus-cap-error fixture pins it.
+# Rust-only check-scoped budget: 4194304 units, 8192 entries; exhausted budgets
+# latch record-budget-exceeded and abort the whole check. Unique documents/keys
+# charged once; member hits free. Units: 2/node, 4/object entry, 2/cache entry,
+# 1/text point, integer digit, array index or key byte. 128 B/unit conservative
+# retained-allocation envelope (~512 MiB), not RSS; charged after parsing.
+# Excluded 1 MiB flat-array transient: 524288 nodes * 72 B = 36 MiB, plus 4 MiB
+# indices + 4 MiB decoder + 1 MiB input + 1 MiB scalars + 18 MiB arena growth = ~64 MiB
+# (~70 MiB with compile-time Node<=80 B); allocator/runtime overhead is extra.
 # Rust parity: signature (768-773), Git SSH status/principal with explicit signer
 # and revocation files; unsigned, untrusted, revoked and invalid statuses remain
 # data for the later selection gate, never implicit authorization. Sanitized Git

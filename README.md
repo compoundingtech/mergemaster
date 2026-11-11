@@ -553,9 +553,16 @@ cache port: Python's end-to-end deepcopy fails at interpreter-dependent depths.
 Depth does not bound arena node count; the 1 MiB statement-byte cap bounds nodes.
 `records::read_statement` adds bounded Git capture and record layout/parent/subject
 checks (3f-3a), with `statement-too-large` distinct from malformed-record refusal.
-Missing subjects are allowed without lazy fetch. `records::RecordCache::load`
-adds invocation-owned caching (3f-3b), keyed by exact repository spelling, commit
-and optional tree; results are independent owned copies and errors are not cached.
+Missing subjects are allowed without lazy fetch. `records::RecordCache`
+is constructed per candidate/check with `for_check`, with exact repo/commit/optional-tree keys.
+Immutable `Arc` documents are interned per repo/commit; member hits are free and errors uncached.
+Limits: 4,194,304 units and 8,192 entries; `record-budget-exceeded` latches and aborts the check.
+Units charge two/node, four/object entry, two/cache entry, one/text point,
+integer digit, array index or key byte: a conservative 128 B/unit retained-allocation
+envelope (~512 MiB), not RSS. Charging occurs after parsing. Excluded transient:
+a 1 MiB flat array needs up to 524,288 nodes (36 MiB at 72 B/node), 4 MiB indices,
+4 MiB decoded text, 1 MiB input and up to 1 MiB scalar payload; arena growth adds
+18 MiB (~64 MiB total, ~70 MiB at Node<=80 B). Allocator/runtime overhead is extra.
 Loader errors, including either cap refusal, abort the whole check rather than
 skipping a record. `signature::signature` ports Git SSH status/principal inspection
 (768-773), overriding repository signature programs and using explicit signer and
