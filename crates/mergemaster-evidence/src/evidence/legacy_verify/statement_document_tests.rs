@@ -5,7 +5,7 @@ fn containers_match_python_oracle() {
     let script = r#"
 import json,runpy,struct,sys
 j=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify')['json']
-cases=[b'',b'[]',b'{}',b'[{},[],true,null,1.5]',b'{"b":1,"a":2,"b":3}',
+cases=[b'-0',b'',b'[]',b'{}',b'[{},[],true,null,1.5]',b'{"b":1,"a":2,"b":3}',
  b'{"x":[],"x":{}}',br'{"\ud800":1,"\ud800":2,"\udfff":3}',
  br'{"x":[NaN,Infinity,-Infinity,"\ud800"]}',b'[1,]',b'{"a":1,}',
  b'[1 2]',b'{"a" 1}',b'{"a":}',b'{1:2}',b'[,1]',b'{,}',b'[}',b'{]',
@@ -68,7 +68,7 @@ print(json.dumps(results))
                         }
                         Node::Null => json!(["null"]),
                         Node::Bool(v) => json!(["bool", v]),
-                        Node::Integer(v) => json!(["integer", if v == "-0" { "0" } else { v }]),
+                        Node::Integer(v) => json!(["integer", v]),
                         Node::Float(v) => json!(["float", format!("{:016x}", v.to_bits())]),
                         Node::String(v) => json!(["string", v]),
                     });

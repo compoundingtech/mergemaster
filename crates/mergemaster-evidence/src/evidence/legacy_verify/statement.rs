@@ -1,10 +1,43 @@
 //! Legacy tests statements; structural validity grants no signature trust.
-pub use crate::evidence::legacy_json::Value;
-use crate::evidence::oid;
+use super::statement_document::{Document, Node};
 use chrono::{Datelike, NaiveDate};
-fn nonblank(s: &str) -> bool {
-    !s.trim_matches(|c: char| c.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&c))
-        .is_empty()
+fn nonblank(s: &[u32]) -> bool {
+    s.iter().any(|p| {
+        char::from_u32(*p)
+            .is_none_or(|c| !(c.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&c)))
+    })
+}
+fn string(v: &Node) -> Option<&[u32]> {
+    if let Node::String(s) = v {
+        Some(s)
+    } else {
+        None
+    }
+}
+fn text(v: &Node, expected: &str) -> bool {
+    string(v).is_some_and(|s| s.iter().copied().eq(expected.chars().map(u32::from)))
+}
+fn object(v: &Node) -> Option<&indexmap::IndexMap<Vec<u32>, usize>> {
+    if let Node::Object(v) = v {
+        Some(v)
+    } else {
+        None
+    }
+}
+fn array(v: &Node) -> Option<&[usize]> {
+    if let Node::Array(v) = v {
+        Some(v)
+    } else {
+        None
+    }
+}
+fn field<'a>(doc: &'a Document, v: &Node, key: &str) -> Option<&'a Node> {
+    // All guard field names are static ASCII and shorter than this stack buffer.
+    let mut points = [0; 32];
+    for (p, b) in points.iter_mut().zip(key.bytes()) {
+        *p = u32::from(b);
+    }
+    object(v)?.get(&points[..key.len()]).map(|id| doc.node(*id))
 }
 fn clock(s: &str, offset: bool) -> bool {
     let (main, fraction) = s
@@ -53,15 +86,31 @@ fn clock(s: &str, offset: bool) -> bool {
             && seconds == 86400
             && fraction.unwrap_or("").bytes().take(6).all(|b| b == b'0'))
 }
-fn zoned_time(s: &str) -> bool {
+fn zoned_time(points: &[u32]) -> bool {
     // Python replaces every Z before fromisoformat, including a separator Z.
-    let s = if s.contains('Z') {
-        std::borrow::Cow::Owned(s.replace('Z', "+00:00"))
+    let expanded;
+    let s = if points.contains(&90) {
+        expanded = points
+            .iter()
+            .flat_map(|p| {
+                if *p == 90 {
+                    &[43, 48, 48, 58, 48, 48][..]
+                } else {
+                    std::slice::from_ref(p)
+                }
+            })
+            .copied()
+            .collect::<Vec<_>>();
+        &expanded[..]
     } else {
-        std::borrow::Cow::Borrowed(s)
+        points
     };
     let date = [10, 8, 7].into_iter().find_map(|end| {
-        let head = s.get(..end)?;
+        let mut bytes = [0; 10];
+        for (b, p) in bytes.iter_mut().zip(s.get(..end)?) {
+            *b = u8::try_from(*p).ok().filter(u8::is_ascii)?;
+        }
+        let head = std::str::from_utf8(&bytes[..end]).ok()?;
         if !"dddd-dd-dd|dddddddd|dddd-Wdd-d|ddddWddd|dddd-Wdd|ddddWdd"
             .split('|')
             .any(|shape| {
@@ -91,10 +140,15 @@ fn zoned_time(s: &str) -> bool {
     let Some((end, date)) = date else {
         return false;
     };
-    let Some(tail) = s
-        .get(end..)
-        .and_then(|v| v.chars().next().map(|c| &v[c.len_utf8()..]))
-    else {
+    // Consume exactly one Python code point as separator, including a surrogate.
+    // The date and clock themselves remain strict ASCII; no sentinel substitution.
+    let Some(tail) = s.get(end + 1..).and_then(|points| {
+        points
+            .iter()
+            .map(|p| u8::try_from(*p).ok().filter(u8::is_ascii))
+            .collect::<Option<Vec<_>>>()
+            .and_then(|b| String::from_utf8(b).ok())
+    }) else {
         return false;
     };
     let Some(zone) = tail.find(['+', '-']) else {
@@ -104,63 +158,79 @@ fn zoned_time(s: &str) -> bool {
         && clock(&tail[zone + 1..], true)
         && (!tail.starts_with("24") || date.succ_opt().is_some_and(|d| d.year() <= 9999))
 }
-/// Validate a decoded legacy tests statement, retaining unknown fields and number lexemes.
-/// JSON byte decoding belongs to the record loader, not this structural guard.
-pub fn statement_of(v: Value, tree: &str) -> Option<Value> {
-    let p = &v["predicate"];
-    let subjects = v["subject"].as_array()?;
-    let observed = &p["observed"];
-    let schema_one = matches!(&p["schema_version"], Value::Bool(true))
-        || p["schema_version"]
-            .as_number()
-            .is_some_and(|n| n.parse::<f64>().ok() == Some(1.0));
-    if v["_type"] != "https://in-toto.io/Statement/v1"
-        || !matches!(
-            v["predicateType"].as_str(),
-            Some(
-                "https://compounding.tech/fractal/evidence/gate/v1"
-                    | "https://smalltalk.dev/evidence/gate/v1"
-            )
-        )
-        || subjects.len() != 1
-        || oid(subjects[0]["name"].as_str()?).is_err()
-        || subjects[0]["digest"].as_object()?.len() != 1
-        || subjects[0]["digest"]["gitTree"].as_str() != Some(tree)
+/// Rust-only cap: Python's reader is unbounded. Checked before any JSON allocation.
+pub const MAX_STATEMENT_BYTES: usize = 16 * 1024 * 1024;
+/// Decode and validate a legacy tests statement; this grants no signature trust.
+pub fn statement_of(blob: &[u8], tree: &str) -> Option<Document> {
+    if blob.len() > MAX_STATEMENT_BYTES {
+        return None;
+    }
+    let doc = Document::from_bytes(blob).ok()?;
+    let get = |v, key| field(&doc, v, key);
+    let v = doc.root();
+    let p = get(v, "predicate")?;
+    let subjects = array(get(v, "subject")?)?;
+    if subjects.len() != 1 {
+        return None;
+    }
+    let subject = doc.node(subjects[0]);
+    let observed = get(p, "observed")?;
+    let schema_one = match get(p, "schema_version")? {
+        Node::Bool(true) => true,
+        Node::Integer(n) => n == "1",
+        Node::Float(n) => *n == 1.0,
+        _ => false,
+    };
+    let name = string(get(subject, "name")?)?;
+    let hex = |s: &[u32]| {
+        s.iter()
+            .all(|p| (48..=57).contains(p) || (97..=102).contains(p))
+    };
+    if !text(get(v, "_type")?, "https://in-toto.io/Statement/v1")
+        || ![
+            "https://compounding.tech/fractal/evidence/gate/v1",
+            "https://smalltalk.dev/evidence/gate/v1",
+        ]
+        .iter()
+        .any(|t| get(v, "predicateType").is_some_and(|v| text(v, t)))
+        || ![40, 64].contains(&name.len())
+        || !hex(name)
+        || object(get(subject, "digest")?)?.len() != 1
+        || !text(get(get(subject, "digest")?, "gitTree")?, tree)
         || !schema_one
-        || !nonblank(p["change_id"].as_str()?)
-        || !matches!(p["tier"].as_str(), Some("full" | "degraded" | "test"))
-        || !matches!(p.get("signer")?, Value::Null | Value::String(_))
-        || observed["kind"] != "tests"
-        || !observed["runner"].is_string()
-        || !zoned_time(p["observed_at"].as_str()?)
+        || !nonblank(string(get(p, "change_id")?)?)
+        || !["full", "degraded", "test"]
+            .iter()
+            .any(|t| get(p, "tier").is_some_and(|v| text(v, t)))
+        || !matches!(get(p, "signer")?, Node::Null | Node::String(_))
+        || !text(get(observed, "kind")?, "tests")
+        || string(get(observed, "runner")?).is_none()
+        || !zoned_time(string(get(p, "observed_at")?)?)
     {
         return None;
     }
-    if let Some(inputs) = observed.get("inputs") {
-        for (key, value) in inputs.as_object()? {
-            if !nonblank(key) || !nonblank(value.as_str()?) {
+    if let Some(inputs) = get(observed, "inputs") {
+        for (key, value) in object(inputs)? {
+            if !nonblank(key) || !nonblank(string(doc.node(*value))?) {
                 return None;
             }
         }
     }
-    for (name, check) in observed["checks"].as_object()? {
-        let command = check["command"].as_array()?;
-        let code = check["exit_code"].as_number()?;
-        let hash = check["output_sha256"].as_str()?;
+    for (name, check) in object(get(observed, "checks")?)? {
+        let check = doc.node(*check);
+        let command = array(get(check, "command")?)?;
+        let hash = string(get(check, "output_sha256")?)?;
         if !nonblank(name)
             || command.is_empty()
-            || !command.iter().all(Value::is_string)
-            || code.contains(['.', 'e', 'E'])
-            || code.trim_start_matches('-').len() > 4300
+            || !command.iter().all(|id| string(doc.node(*id)).is_some())
+            || !matches!(get(check, "exit_code")?, Node::Integer(_))
             || hash.len() != 64
-            || !hash
-                .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            || !hex(hash)
         {
             return None;
         }
     }
-    Some(v)
+    Some(doc)
 }
 #[cfg(test)]
 #[path = "statement_tests.rs"]
