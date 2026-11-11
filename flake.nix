@@ -52,7 +52,19 @@
           };
         };
     in {
-      packages = forAllSystems (system: { default = packageFor system; });
+      packages = forAllSystems (system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+          cc = pkgs.pkgsStatic.stdenv.cc;
+        in {
+          default = packageFor system;
+          # Native musl headers/libs plus compiler/binutils wrappers, never host glibc.
+          release-musl-toolchain = pkgs.runCommand "mergemaster-musl-toolchain" {} ''
+            mkdir -p "$out/bin"
+            ln -s ${cc}/bin/${cc.targetPrefix}cc "$out/bin/musl-gcc"
+            ln -s ${cc.bintools}/bin/${cc.bintools.targetPrefix}ar "$out/bin/musl-ar"
+          '';
+        });
       checks = forAllSystems (system:
         let pkgs = import nixpkgs { inherit system; };
         in {
