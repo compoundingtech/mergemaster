@@ -295,7 +295,10 @@ pub(super) fn tracked_clean(repo: &Path) -> Result<bool> {
         let object = fields.next().context("missing tree object")?;
         requests.push((mode.to_owned(), object.to_owned(), path[1..].to_vec()));
     }
-    let ids: Vec<String> = requests.iter().map(|(_, object, _)| object.clone()).collect();
+    let ids: Vec<String> = requests
+        .iter()
+        .map(|(_, object, _)| object.clone())
+        .collect();
     let committed = git::blob_contents(repo, &ids)?;
     for ((mode, _, raw_path), body) in requests.into_iter().zip(committed) {
         let path = repo.join(std::str::from_utf8(&raw_path)?);

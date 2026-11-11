@@ -163,7 +163,6 @@ pub fn blob_contents(repo: &Path, ids: &[String]) -> Result<Vec<Vec<u8>>> {
     result
 }
 
-
 fn blob_size(output: &mut impl BufRead, id: &str) -> Result<u64> {
     let mut header = String::new();
     output.read_line(&mut header)?;
