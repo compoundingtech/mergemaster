@@ -4,7 +4,7 @@ use indexmap::IndexMap;
 /// Inclusive container depth, counting arrays, objects and an empty root container.
 pub const MAX_CONTAINER_DEPTH: usize = 256;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum Node {
     Null,
     Bool(bool),
@@ -14,11 +14,16 @@ pub enum Node {
     Array(Vec<usize>),
     Object(IndexMap<Vec<u32>, usize>),
 }
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Document {
     nodes: Vec<Node>,
     root: usize,
 }
+const _: () = {
+    assert!(std::mem::size_of::<Node>() <= 80);
+    assert!(std::mem::size_of::<Document>() <= 32);
+    assert!(std::mem::size_of::<std::sync::Arc<Document>>() <= 8);
+};
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     Encoding,
@@ -41,6 +46,24 @@ struct Frame {
     key: Option<Vec<u32>>,
 }
 impl Document {
+    /// Two units/node, four/object entry, one/text point, integer digit or array index.
+    /// Includes duplicate-key orphan nodes; conservative retained allocation charge.
+    pub(super) fn ownership_units(&self) -> usize {
+        2 * self.nodes.len()
+            + self
+                .nodes
+                .iter()
+                .map(|node| match node {
+                    Node::String(text) => text.len(),
+                    Node::Integer(text) => text.len(),
+                    Node::Array(items) => items.len(),
+                    Node::Object(items) => {
+                        4 * items.len() + items.keys().map(Vec::len).sum::<usize>()
+                    }
+                    _ => 0,
+                })
+                .sum::<usize>()
+    }
     pub fn root(&self) -> &Node {
         &self.nodes[self.root]
     }

@@ -11,6 +11,7 @@ use indexmap::{Equivalent, IndexMap};
 use std::{
     ffi::{OsStr, OsString},
     path::Path,
+    sync::Arc,
 };
 fn error(detail: impl ToString) -> PolicyError {
     PolicyError {
@@ -124,6 +125,7 @@ struct Key<R, C, T> {
     commit: C,
     tree: T,
 }
+const _: () = assert!(std::mem::size_of::<(OwnedKey, Option<Arc<Document>>, usize)>() <= 88);
 type OwnedKey = Key<OsString, String, Option<String>>;
 impl Equivalent<OwnedKey> for Key<&OsStr, &str, Option<&str>> {
     fn equivalent(&self, key: &OwnedKey) -> bool {
@@ -132,30 +134,97 @@ impl Equivalent<OwnedKey> for Key<&OsStr, &str, Option<&str>> {
             && self.tree == key.tree.as_deref()
     }
 }
-/// Invocation-owned cache of immutable records, including structural refusals.
-/// Keys retain exact repository spelling; hits allocate only the returned copy.
-#[derive(Default)]
+/// Per candidate/check, never a process-global budget.
+pub const MAX_RECORD_UNITS: usize = 4 * 1024 * 1024;
+pub const MAX_RECORD_ENTRIES: usize = 8192;
+/// Check-owned cache of shared immutable records; hits allocate no document data.
+/// Logical units bound ownership, not RSS; refusals latch and abort the whole check.
 pub struct RecordCache {
-    values: IndexMap<OwnedKey, Option<Document>>,
+    values: IndexMap<OwnedKey, Option<Arc<Document>>>,
+    documents: IndexMap<OwnedKey, Arc<Document>>,
+    remaining_units: usize,
+    exhausted: bool,
 }
 impl RecordCache {
+    /// Construct once for one candidate/check, shared across its member crates.
+    pub fn for_check() -> Self {
+        Self {
+            values: IndexMap::new(),
+            documents: IndexMap::new(),
+            remaining_units: MAX_RECORD_UNITS,
+            exhausted: false,
+        }
+    }
+    fn key_units(key: &Key<&OsStr, &str, Option<&str>>) -> usize {
+        key.repo
+            .len()
+            .saturating_add(key.commit.len())
+            .saturating_add(key.tree.map_or(0, str::len))
+            .saturating_add(2)
+    }
+    fn charge(&mut self, units: usize, entry: bool) -> Result<(), PolicyError> {
+        if self.exhausted
+            || units > self.remaining_units
+            || (entry && self.values.len() >= MAX_RECORD_ENTRIES)
+        {
+            self.exhausted = true;
+            return Err(PolicyError {
+                reason: "record-budget-exceeded",
+                detail: "check record ownership or cache entry limit exceeded".into(),
+            });
+        }
+        self.remaining_units -= units;
+        Ok(())
+    }
     /// Any error, including a cap refusal, must abort the caller's whole check.
     pub fn load(
         &mut self,
         repo: &Path,
         commit: &str,
         tree: Option<&str>,
-    ) -> Result<Option<Document>, PolicyError> {
+    ) -> Result<Option<Arc<Document>>, PolicyError> {
         let key = Key {
             repo: repo.as_os_str(),
             commit,
             tree,
         };
-        if let Some(value) = self.values.get(&key) {
-            return Ok(value.clone());
+        if let Some(index) = self.values.get_index_of(&key) {
+            self.charge(0, false)?;
+            return Ok(self.values[index].clone());
         }
+        // Refuse an exhausted invocation/entry limit before reading another record.
+        self.charge(0, true)?;
         // Failed reads are not inserted, matching assignment only after Python returns.
-        let value = read_statement(repo, commit, tree)?;
+        let parsed = read_statement(repo, commit, tree)?;
+        let identity = Key {
+            repo: key.repo,
+            commit,
+            tree: None,
+        };
+        let retained = self.documents.get(&identity).cloned();
+        let extra = if parsed.is_some() && retained.is_none() {
+            parsed
+                .as_ref()
+                .map_or(0, Document::ownership_units)
+                .saturating_add(Self::key_units(&identity))
+        } else {
+            0
+        };
+        self.charge(Self::key_units(&key).saturating_add(extra), true)?;
+        let value = parsed.map(|document| {
+            retained.unwrap_or_else(|| {
+                let document = Arc::new(document);
+                self.documents.insert(
+                    OwnedKey {
+                        repo: key.repo.to_owned(),
+                        commit: commit.to_owned(),
+                        tree: None,
+                    },
+                    Arc::clone(&document),
+                );
+                document
+            })
+        });
         self.values.insert(
             Key {
                 repo: key.repo.to_owned(),

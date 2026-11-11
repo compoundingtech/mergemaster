@@ -50,6 +50,9 @@ for fmt in ['sha1','sha256']:
  add('shallow',shallow=True)
  add('cap-exact',padding=1024*1024); add('cap-over',padding=1024*1024+1)
  for depth in [256,257,497,498]: add('depth-'+str(depth),depth=depth)
+ for index in range(3):
+  add('wide-'+str(index),value=json.dumps(valid).encode()[:-1]+b',"extra":['+b'0,'*500000+str(index).encode()+b']}')
+ for index in range(125): add('member-'+str(index),message='member '+str(index))
  good=next(c['commit'] for c in cases if c['name']==fmt+'-valid')
  bad=next(c['commit'] for c in cases if c['name']==fmt+'-malformed-json'); wrong='0'*len(subject)
  first=o['load'](str(repo),good); first['predicate']['change_id']='mutated'
@@ -115,29 +118,17 @@ print(json.dumps(dict(records=cases,cache=cached)))
         let bad = case["bad"].as_str().unwrap();
         let tree = case["tree"].as_str().unwrap();
         let missing = case["missing"].as_str().unwrap();
-        let mut cache = RecordCache::default();
+        budget_boundaries(repo, good, bad);
+        let mut cache = RecordCache::for_check();
         let first = cache.load(repo, good, None).unwrap().unwrap();
         let second = cache.load(repo, good, None).unwrap().unwrap();
-        let points = |doc: &Document| {
-            string(
-                field(
-                    doc,
-                    field(doc, doc.root(), "predicate").unwrap(),
-                    "change_id",
-                )
-                .unwrap(),
-            )
-            .unwrap()
-            .as_ptr()
-        };
-        let independent = points(&first) != points(&second);
+        assert!(Arc::ptr_eq(&first, &second)); // Shared, immutable ownership.
         let wrong = "0".repeat(good.len());
         assert!(cache.load(repo, bad, None).unwrap().is_none());
         assert!(cache.load(repo, good, Some(&wrong)).unwrap().is_none());
         let moved = repo.with_extension("moved");
         std::fs::rename(repo, &moved).unwrap();
         let mut flags = serde_json::json!({
-            "independent": independent,
             "positive_hit": cache.load(repo, good, None).unwrap().is_some(),
             "negative_hit": cache.load(repo, bad, None).unwrap().is_none(),
             "tree_hit": cache.load(repo, good, Some(&wrong)).unwrap().is_none(),
@@ -149,12 +140,18 @@ print(json.dumps(dict(records=cases,cache=cached)))
         assert_eq!(cache.values.len(), 3); // Errors never become cached refusals.
         std::fs::rename(&moved, repo).unwrap();
         flags["retry"] = serde_json::json!(cache.load(repo, good, Some(tree)).unwrap().is_some());
+        assert_eq!(cache.documents.len(), 1); // None/Some(tree) share the same document.
         let whole = [good, missing]
             .into_iter()
             .map(|id| cache.load(repo, id, None))
             .collect::<Result<Vec<_>, _>>();
         flags["whole_error"] = serde_json::json!(whole.unwrap_err().reason == "error");
-        assert_eq!(flags, case["flags"]);
+        let mut expected = case["flags"].clone();
+        assert_eq!(
+            expected.as_object_mut().unwrap().remove("independent"),
+            Some(true.into())
+        );
+        assert_eq!(flags, expected);
         for (suffix, reason) in [
             ("depth-257", "statement-too-deep"),
             ("cap-over", "statement-too-large"),
@@ -174,11 +171,111 @@ print(json.dumps(dict(records=cases,cache=cached)))
             assert_eq!(mixed.unwrap_err().reason, reason); // No partial successful check.
             assert_eq!(cache.values.len(), before);
         }
+        let mut wide = RecordCache::for_check();
+        for index in 0..3 {
+            let name = format!("{}-wide-{index}", case["format"].as_str().unwrap());
+            let record = cases["records"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|c| c["name"] == name)
+                .unwrap();
+            let result = wide.load(repo, record["commit"].as_str().unwrap(), None);
+            if index < 2 {
+                assert!(result.unwrap().is_some());
+            } else {
+                assert_eq!(result.unwrap_err().reason, "record-budget-exceeded");
+            }
+        }
+        let prefix = format!("{}-member-", case["format"].as_str().unwrap());
+        let records: Vec<_> = cases["records"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|c| c["name"].as_str().unwrap().starts_with(&prefix))
+            .collect();
+        let mut members = RecordCache::for_check();
+        for member in 0..52 {
+            let before = members.remaining_units;
+            for record in &records {
+                assert!(
+                    members
+                        .load(repo, record["commit"].as_str().unwrap(), Some(tree))
+                        .unwrap()
+                        .is_some()
+                );
+            }
+            if member > 0 {
+                assert_eq!(members.remaining_units, before);
+            }
+        }
+        assert_eq!(members.documents.len(), 125);
     }
     assert_eq!(
         read_statement(temp.path(), "--help", None)
             .unwrap_err()
             .reason,
         "error"
+    );
+}
+
+fn budget_boundaries(repo: &Path, good: &str, bad: &str) {
+    let document = read_statement(repo, good, None).unwrap().unwrap();
+    let key = Key {
+        repo: repo.as_os_str(),
+        commit: good,
+        tree: None,
+    };
+    let cost = document.ownership_units() + 2 * RecordCache::key_units(&key);
+    let mut cache = RecordCache::for_check();
+    cache.remaining_units = cost;
+    assert!(cache.load(repo, good, None).unwrap().is_some());
+    assert_eq!(cache.remaining_units, 0); // Exact budget accepted.
+    assert_eq!(
+        cache.load(repo, bad, None).unwrap_err().reason,
+        "record-budget-exceeded"
+    );
+    assert_eq!(
+        cache.load(repo, good, None).unwrap_err().reason,
+        "record-budget-exceeded"
+    );
+    let mut over = RecordCache::for_check();
+    over.remaining_units = cost - 1;
+    assert_eq!(
+        over.load(repo, good, None).unwrap_err().reason,
+        "record-budget-exceeded"
+    );
+    assert!(over.values.is_empty() && over.documents.is_empty());
+    let mut negative = RecordCache::for_check();
+    negative.remaining_units = RecordCache::key_units(&Key {
+        repo: repo.as_os_str(),
+        commit: bad,
+        tree: None,
+    });
+    assert!(negative.load(repo, bad, None).unwrap().is_none());
+    assert_eq!(negative.remaining_units, 0);
+    assert!(negative.load(repo, bad, None).unwrap().is_none());
+}
+
+#[test]
+fn negative_entries_also_reach_the_entry_limit() {
+    let mut cache = RecordCache::for_check();
+    cache.charge(MAX_RECORD_UNITS, false).unwrap();
+    assert!(cache.charge(1, false).is_err());
+    cache = RecordCache::for_check();
+    for index in 0..MAX_RECORD_ENTRIES {
+        cache.values.insert(
+            Key {
+                repo: "repo".into(),
+                commit: index.to_string(),
+                tree: None,
+            },
+            None,
+        );
+    }
+    cache.charge(0, false).unwrap(); // Exactly the entry limit permits hits.
+    assert_eq!(
+        cache.charge(0, true).unwrap_err().reason,
+        "record-budget-exceeded"
     );
 }
