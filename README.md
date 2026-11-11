@@ -937,6 +937,9 @@ executables on GitHub-hosted runners. A pushed `vX.Y.Z` tag publishes
 `mergemaster-aarch64-unknown-linux-musl`, and `SHA256SUMS`, with GitHub
 build-provenance attestations for all three assets. Builds use locked Cargo
 dependencies and reject an ELF interpreter or dynamic shared-library dependency.
+Release setup uses rustup's self-contained musl CRT and the runner's native
+linker, without contacting Ubuntu apt mirrors; GCC and readelf must already
+be present on both runner images.
 Git and OpenSSH remain runtime prerequisites for evidence operations.
 Before building a pushed tag, the workflow requires `vX.Y.Z` to match the
 `package.version` in `crates/mergemaster-evidence/Cargo.toml` exactly.
