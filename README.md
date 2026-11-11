@@ -557,8 +557,10 @@ Missing subjects are allowed without lazy fetch. `records::RecordCache::load`
 adds invocation-owned caching (3f-3b), keyed by exact repository spelling, commit
 and optional tree; results are independent owned copies and errors are not cached.
 Loader errors, including either cap refusal, abort the whole check rather than
-skipping a record. Signature verification (768-773), selection (3g) and require-all
-(3h) remain; candidate indexes and structural records alone establish no trust.
+skipping a record. `signature::signature` ports Git SSH status/principal inspection
+(768-773), overriding repository signature programs and using explicit signer and
+revocation files. Returned statuses are not authorization: selection (3g) and
+require-all (3h) remain; candidate indexes and structural records establish no trust.
 Lane discovery uses the gate's sanitized Git command and rejects malformed or
 unterminated ls-tree rows; shared subprocess timeout/output bounds remain open.
 `workflow::workflow_job` selects exact generated-workflow text and transitive

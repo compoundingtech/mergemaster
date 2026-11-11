@@ -62,6 +62,10 @@
 # check. Rust-only size/depth errors follow that same fail-closed propagation,
 # not per-record skipping. Trusted-writer availability (#138 P3) remains a named
 # policy risk, unchanged here; the mixed valid-plus-cap-error fixture pins it.
+# Rust parity: signature (768-773), Git SSH status/principal with explicit signer
+# and revocation files; unsigned, untrusted, revoked and invalid statuses remain
+# data for the later selection gate, never implicit authorization. Sanitized Git
+# ignores replace objects and overrides repository signature executables.
 # Rust parity: workflow-job-selection (462-520). Raw top-level/job bytes and
 # dependency closure match; workflow layout is not interpreted as general YAML.
 # Shared legacy JSON guards/encoding preserve lane behavior; native and push
