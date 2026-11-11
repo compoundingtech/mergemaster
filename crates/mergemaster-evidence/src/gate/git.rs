@@ -122,6 +122,47 @@ pub fn blob_digests(repo: &Path, ids: &BTreeSet<&str>) -> Result<BTreeMap<String
 pub fn validate_blobs(repo: &Path, ids: &BTreeSet<&str>) -> Result<()> {
     blobs(repo, ids, false).map(|_| ())
 }
+/// Stream committed blob bytes once per object, in request order, without one
+/// process per file. Fails closed on a truncated body, a missing terminator,
+/// or any absent/non-blob object.
+pub fn blob_contents(repo: &Path, ids: &[String]) -> Result<Vec<Vec<u8>>> {
+    let mut child = command(repo)
+        .args(["cat-file", "--batch"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("running trusted Git plumbing")?;
+    let result = (|| {
+        let mut input = child.stdin.take().context("Git batch stdin")?;
+        let mut output = BufReader::new(child.stdout.take().context("Git batch stdout")?);
+        let mut bodies = Vec::with_capacity(ids.len());
+        for id in ids {
+            ensure!(super::config::full_commit(id), "invalid blob ID");
+            writeln!(input, "{id}")?;
+            input.flush()?;
+            let size = blob_size(&mut output, id)?;
+            let count: usize = size.try_into().context("Git blob size overflow")?;
+            let mut body = vec![0; count];
+            output.read_exact(&mut body).context("truncated Git blob")?;
+            let mut newline = [0];
+            output.read_exact(&mut newline)?;
+            ensure!(&newline == b"\n", "invalid Git blob terminator");
+            bodies.push(body);
+        }
+        Ok(bodies)
+    })();
+    if result.is_err() {
+        let _ = child.kill();
+    }
+    let status = child.wait()?;
+    ensure!(
+        status.success() || result.is_err(),
+        "Git plumbing failed ({status})"
+    );
+    result
+}
+
 
 fn blob_size(output: &mut impl BufRead, id: &str) -> Result<u64> {
     let mut header = String::new();

@@ -275,7 +275,10 @@ pub(super) fn tracked_clean(repo: &Path) -> Result<bool> {
     {
         return Ok(false);
     }
+    // Collect every tracked blob first so one `cat-file --batch` session serves
+    // all comparisons; the previous code spawned one Git process per file.
     let tree = git::git(repo, &["ls-tree", "-r", "-z", "HEAD"])?;
+    let mut requests: Vec<(String, String, Vec<u8>)> = Vec::new();
     for entry in tree.split(|b| *b == 0).filter(|entry| !entry.is_empty()) {
         let (metadata, path) = entry.split_at(
             entry
@@ -290,7 +293,12 @@ pub(super) fn tracked_clean(repo: &Path) -> Result<bool> {
             "workspace inputs must be tracked blobs"
         );
         let object = fields.next().context("missing tree object")?;
-        let path = repo.join(std::str::from_utf8(&path[1..])?);
+        requests.push((mode.to_owned(), object.to_owned(), path[1..].to_vec()));
+    }
+    let ids: Vec<String> = requests.iter().map(|(_, object, _)| object.clone()).collect();
+    let committed = git::blob_contents(repo, &ids)?;
+    for ((mode, _, raw_path), body) in requests.into_iter().zip(committed) {
+        let path = repo.join(std::str::from_utf8(&raw_path)?);
         let metadata = match std::fs::symlink_metadata(&path) {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
@@ -309,8 +317,7 @@ pub(super) fn tracked_clean(repo: &Path) -> Result<bool> {
             }
             hash_file(&path)?
         };
-        let committed = git::git(repo, &["cat-file", "blob", object])?;
-        if actual != hex::encode(Sha256::digest(committed)) {
+        if actual != hex::encode(Sha256::digest(body)) {
             return Ok(false);
         }
     }
