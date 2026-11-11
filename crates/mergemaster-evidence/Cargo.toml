@@ -40,6 +40,7 @@ base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 clap = { version = "4", features = ["derive", "env"] }
 hex = "0.4"
+indexmap = "2"
 jsonwebtoken = { version = "11.1", features = ["aws_lc_rs"] }
 libc = "0.2"
 serde = { version = "1", features = ["derive"] }
