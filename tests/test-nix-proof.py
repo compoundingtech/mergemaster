@@ -119,7 +119,7 @@ if a.derivation:
     configuration['toolchain']['dependencies']['nix-tool'] = str(nix.parents[1])
     config.write_text(json.dumps(configuration))
     environment = json.loads((repo / '.mergemaster/environment.json').read_text())
-    environment['toolchain']['dependencies']['nix-tool'] = {'name': 'nix', 'identity': 'nix:' + str(nix.parents[1])}
+    environment['systems'][system]['dependencies']['nix-tool'] = {'name': 'nix', 'identity': 'nix:' + str(nix.parents[1])}
     write('environment.json', environment)
     shutil.copytree(deps / 'fixture', repo / 'fixture/node_modules/fixture')
     (repo / 'builder.cjs').write_text('const fs=require("node:fs"); const value=require(process.env.src+"/node_modules/fixture"); '
