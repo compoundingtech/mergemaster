@@ -8,6 +8,7 @@ pub mod lane_entry;
 pub mod lane_git;
 pub mod lanes;
 pub mod projection;
+pub mod raw_batch;
 pub mod records;
 pub mod routing;
 pub mod selection;
