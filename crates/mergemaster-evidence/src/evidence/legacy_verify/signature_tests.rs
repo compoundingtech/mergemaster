@@ -2,6 +2,12 @@ use super::*;
 
 #[test]
 fn signatures_match_python_oracle() {
+    assert!(
+        !std::process::Command::new("/bin/false")
+            .status()
+            .unwrap()
+            .success()
+    );
     let script = r#"
 import json,os,pathlib,runpy,subprocess,sys
 o=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify'); root=pathlib.Path(sys.argv[2]); cases=[]
@@ -38,6 +44,17 @@ for fmt in ['sha1','sha256']:
  # Principal text is returned verbatim; it is not statement-signer authorization.
  aliases=root/(fmt+'-aliases'); aliases.write_text('one,two '+public+'\n')
  add('aliases',signed,aliases)
+ marker=root/(fmt+'-marker'); program=root/(fmt+'-fake-gpg')
+ program.write_text('#!/bin/sh\n: > \"'+str(marker)+'\"\nprintf \"[GNUPG:] NEWSIG\\\\n[GNUPG:] GOODSIG 0123456789ABCDEF forged@example.invalid\\\\n[GNUPG:] VALIDSIG '+('A'*40)+' 2026-01-01 1 0 4 0 1 10 00 '+('A'*40)+'\\\\n[GNUPG:] TRUST_FULLY 0 pgp\\\\n\"\n')
+ program.chmod(0o700)
+ for setting in ['gpg.program','gpg.openpgp.program','gpg.x509.program']:
+  git('config',setting,str(program))
+ for kind,header in [('pgp','PGP SIGNATURE'),('x509','SIGNED MESSAGE')]:
+  raw=git('--no-replace-objects','cat-file','commit',unsigned).replace(b'\n\n',('\ngpgsig -----BEGIN '+header+'-----\n fake\n -----END '+header+'-----\n\n').encode(),1)
+  fake=git('hash-object','-t','commit','-w','--stdin',data=raw).decode().strip()
+  add('hostile-'+kind,fake)
+  cases[-1].update(marker=str(marker),python_invoked=marker.exists())
+  marker.unlink(missing_ok=True)
 print(json.dumps(cases))
 "#;
     let oracle = std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap();
@@ -54,13 +71,26 @@ print(json.dumps(cases))
     );
     let cases: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
     for case in cases {
+        if let Some(marker) = case["marker"].as_str() {
+            assert_eq!(
+                case["python_invoked"],
+                case["expected"][0] == "G",
+                "{}",
+                case["name"]
+            );
+            assert!(!Path::new(marker).exists());
+        }
         let actual = signature(
             Path::new(case["repo"].as_str().unwrap()),
             case["commit"].as_str().unwrap(),
             case["keys"].as_str().unwrap(),
             case["revocations"].as_str().unwrap(),
         );
-        if case["expected"].is_null() {
+        if let Some(marker) = case["marker"].as_str() {
+            let (status, _) = actual.unwrap();
+            assert_ne!(status, "G", "{}", case["name"]);
+            assert!(!Path::new(marker).exists(), "{}", case["name"]);
+        } else if case["expected"].is_null() {
             assert_eq!(actual.unwrap_err().reason, "error", "{}", case["name"]);
         } else {
             let (status, principal) = actual.unwrap();

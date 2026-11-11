@@ -25,6 +25,13 @@ pub fn signature(
             "gpg.format=ssh",
             "-c",
             "gpg.ssh.program=ssh-keygen",
+            // Git dispatches by signature header, not only gpg.format.
+            "-c",
+            "gpg.program=/bin/false",
+            "-c",
+            "gpg.openpgp.program=/bin/false",
+            "-c",
+            "gpg.x509.program=/bin/false",
             "-c",
             &format!("gpg.ssh.allowedSignersFile={keys}"),
             "-c",
