@@ -205,3 +205,43 @@ fn projection_object_output_is_exactly_one_oid_and_newline() {
         ));
     }
 }
+
+#[test]
+fn option_terminator_named_entries_do_not_contaminate_projections() {
+    for format in ["sha1", "sha256"] {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        let run = |args: &[&str]| String::from_utf8(git(repo, args).unwrap()).unwrap();
+        run(&["init", &format!("--object-format={format}")]);
+        std::fs::write(repo.join("unrelated"), b"wanted").unwrap();
+        run(&["add", "--all"]);
+        let expected = run(&["write-tree"]).trim().to_owned();
+        for directory in [false, true] {
+            let path = repo.join("--");
+            if directory {
+                std::fs::create_dir(&path).unwrap();
+                std::fs::write(path.join("child"), b"unwanted").unwrap();
+            } else {
+                std::fs::write(&path, b"unwanted").unwrap();
+            }
+            run(&["add", "--all"]);
+            let tree = run(&["write-tree"]);
+            assert_eq!(
+                project(repo, tree.trim(), &["unrelated".into()]).unwrap(),
+                Some(expected.clone())
+            );
+            assert_eq!(
+                project(repo, tree.trim(), &["missing".into()]).unwrap(),
+                None
+            );
+            let selected = project(repo, tree.trim(), &["--".into()]).unwrap().unwrap();
+            assert_eq!(
+                run(&["ls-tree", "-r", "--name-only", &selected]),
+                if directory { "--/child\n" } else { "--\n" }
+            );
+            if !directory {
+                std::fs::remove_file(path).unwrap();
+            }
+        }
+    }
+}

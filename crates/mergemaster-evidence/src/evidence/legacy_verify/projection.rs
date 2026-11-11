@@ -127,7 +127,6 @@ pub fn project(repo: &Path, tree: &str, paths: &[String]) -> Result<Option<Strin
             tree,
         ];
         if !whole {
-            args.push("--");
             args.extend(plain);
         }
         parse_entries(&git(repo, &args).map_err(error)?, &mut entries)?;

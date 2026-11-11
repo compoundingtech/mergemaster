@@ -106,7 +106,9 @@
 # Rust parity: input-projection (566-605). Raw names/modes, component exclusions,
 # resolved selector identity, missing selections and empty/whole trees match.
 # Projection hardening: validate full tree OIDs before every fast path; ls-tree
-# ends option parsing explicitly. input_git discards stderr and caps stdout at
+# ends option parsing before the tree, with no post-tree terminator (it would be a
+# literal pathspec, contaminating projections with root "--" entries).
+# input_git discards stderr and caps stdout at
 # 65 bytes (SHA-256 hex OID plus LF; SHA-1 uses 41; update-index emits zero).
 # Overflow refuses with projection-output-too-large, never truncated success.
 # OID output must match the repository's object format and end in exactly one LF;
