@@ -541,8 +541,11 @@ transport detection and surrogatepass decoding (3f-2b-1), retaining code points
 including lone surrogates rather than replacing them with invalid Rust strings.
 `statement_tokens::Tokens` ports lossless strings and numeric literals (3f-2b-2a),
 including lone surrogates, nonfinite floats and the 4300-digit integer limit.
-Remaining 3f-2b-2b: iterative container grammar and ordered values; then 3f-2b-2c
-structural-guard/exception integration. Tokens alone never validate a statement.
+`statement_document::Document` adds iterative container grammar and ordered keys
+(3f-2b-2b), preserving duplicate-key position, rejecting extra top-level data and
+owning deeply nested values without recursive drop. Overwritten values remain
+unreachable in its private arena until document drop. Remaining 3f-2b-2c:
+structural-guard/exception integration; parsing alone never validates a statement.
 Then 3f-3 Git record layout/parent/subject checks and owned cache (`read_statement`
 and `load`, 720-765). Signature verification (768-773) follows before selection
 (3g) and require-all (3h); none of these candidate indexes establishes trust.
