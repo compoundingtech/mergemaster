@@ -77,6 +77,11 @@
 # to /bin/false. Fail-closed divergence: Python dispatches non-SSH headers to
 # repository-configured programs, which can forge a G result (SHA-1 fixtures);
 # Rust never executes those programs. SHA-256 fixtures also refuse non-SSH.
+# 3g-2 fail-closed divergence: before Git/status work, revocations must be a
+# readable regular file with read permission bits; valid symlinks are allowed,
+# absent/dangling/directory/unreadable paths refuse with reason=error. Python
+# signature:768-773 does not check this (absent path can yield G); fractal#6429
+# owns the Python follow-up. Repository-relative regular-file paths retain parity.
 # Rust parity: workflow-job-selection (462-520). Raw top-level/job bytes and
 # dependency closure match; workflow layout is not interpreted as general YAML.
 # Shared legacy JSON guards/encoding preserve lane behavior; native and push
