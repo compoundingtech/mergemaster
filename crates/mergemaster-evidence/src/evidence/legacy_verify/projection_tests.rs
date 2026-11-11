@@ -137,3 +137,71 @@ print(json.dumps(results))
         assert_eq!(*actual, expected, "{}", cases[i]);
     }
 }
+
+#[test]
+fn projection_validates_before_all_fast_paths() {
+    for tree in ["--help", "HEAD", "", &"a".repeat(39), &"g".repeat(40)] {
+        for paths in [vec![], vec![".".into()], vec!["x::key".into()]] {
+            let failure = project(Path::new("/nonexistent"), tree, &paths).unwrap_err();
+            assert_eq!(failure.reason, "error");
+            assert_eq!(failure.detail, "invalid tree object ID");
+        }
+    }
+    for tree in ["a".repeat(40), "b".repeat(64)] {
+        assert_eq!(
+            project(Path::new("/nonexistent"), &tree, &[".".into()]).unwrap(),
+            Some(tree)
+        );
+    }
+}
+
+#[test]
+fn projection_plumbing_output_is_bounded_and_never_truncated() {
+    for format in ["sha1", "sha256"] {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        git(repo, &["init", &format!("--object-format={format}")]).unwrap();
+        let blob = input_git(repo, &["hash-object", "--stdin"], b"fixture", None).unwrap();
+        assert_eq!(blob.len(), if format == "sha1" { 41 } else { 65 });
+        for bytes in [0, 64, 65, 32 * 1024] {
+            git(repo, &["config", "projection.fixture", &"x".repeat(bytes)]).unwrap();
+            let result = input_git(repo, &["config", "--get", "projection.fixture"], b"", None);
+            if bytes < MAX_PROJECTION_OUTPUT {
+                assert_eq!(
+                    result.unwrap_err().detail,
+                    "unexpected Git projection output"
+                );
+            } else {
+                let failure = result.unwrap_err();
+                assert_eq!(failure.reason, "projection-output-too-large");
+            }
+        }
+        assert_eq!(
+            input_git(repo, &["update-index", "-z", "--index-info"], b"", None).unwrap(),
+            b""
+        );
+        let tree = input_git(repo, &["write-tree"], b"", None).unwrap();
+        assert_eq!(tree.len(), blob.len());
+        assert!(input_git(repo, &["not-a-git-command"], b"", None).is_err());
+    }
+}
+
+#[test]
+fn projection_object_output_is_exactly_one_oid_and_newline() {
+    for width in [40, 64] {
+        let oid = "a".repeat(width);
+        assert!(valid_output(format!("{oid}\n").as_bytes(), width));
+        for bad in [
+            oid.clone(),
+            format!("{oid}\n\n"),
+            format!("{oid}\0"),
+            format!("{}\n", "g".repeat(width)),
+        ] {
+            assert!(!valid_output(bad.as_bytes(), width));
+        }
+        assert!(!valid_output(
+            format!("{oid}\n").as_bytes(),
+            if width == 40 { 64 } else { 40 }
+        ));
+    }
+}

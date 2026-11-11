@@ -587,6 +587,10 @@ the supplied Git tree and reads strict UTF-8 there, never from the checkout.
 Selected blobs above 16 MiB refuse with `error` before decoding or selection.
 `projection::project` computes legacy reduced Git-tree keys, retaining raw names,
 symlink/gitlink modes and canonical selector entries; empty projections have no key. Selected reads require full tree OIDs.
+Projection validates full tree OIDs before fast paths and ends Git option parsing.
+Its write plumbing discards stderr and permits at most 65 stdout bytes, requiring
+exactly one repository-format hex OID plus LF (or empty update-index output).
+Overflow refuses with `projection-output-too-large`; malformed output refuses with `error`.
 
 ### Main-push tree-equality evidence
 
