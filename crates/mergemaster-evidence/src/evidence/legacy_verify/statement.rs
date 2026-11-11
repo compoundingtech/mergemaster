@@ -7,7 +7,7 @@ fn nonblank(s: &[u32]) -> bool {
             .is_none_or(|c| !(c.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&c)))
     })
 }
-fn string(v: &Node) -> Option<&[u32]> {
+pub(super) fn string(v: &Node) -> Option<&[u32]> {
     if let Node::String(s) = v {
         Some(s)
     } else {
@@ -24,14 +24,14 @@ fn object(v: &Node) -> Option<&indexmap::IndexMap<Vec<u32>, usize>> {
         None
     }
 }
-fn array(v: &Node) -> Option<&[usize]> {
+pub(super) fn array(v: &Node) -> Option<&[usize]> {
     if let Node::Array(v) = v {
         Some(v)
     } else {
         None
     }
 }
-fn field<'a>(doc: &'a Document, v: &Node, key: &str) -> Option<&'a Node> {
+pub(super) fn field<'a>(doc: &'a Document, v: &Node, key: &str) -> Option<&'a Node> {
     // All guard field names are static ASCII and shorter than this stack buffer.
     let mut points = [0; 32];
     for (p, b) in points.iter_mut().zip(key.bytes()) {
@@ -159,7 +159,7 @@ fn zoned_time(points: &[u32]) -> bool {
         && (!tail.starts_with("24") || date.succ_opt().is_some_and(|d| d.year() <= 9999))
 }
 /// Rust-only cap: Python's reader is unbounded. Checked before any JSON allocation.
-pub const MAX_STATEMENT_BYTES: usize = 16 * 1024 * 1024;
+pub const MAX_STATEMENT_BYTES: usize = 1024 * 1024;
 /// Decode and validate a legacy tests statement; this grants no signature trust.
 pub fn statement_of(blob: &[u8], tree: &str) -> Option<Document> {
     if blob.len() > MAX_STATEMENT_BYTES {

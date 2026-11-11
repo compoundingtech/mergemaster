@@ -545,10 +545,12 @@ including lone surrogates, nonfinite floats and the 4300-digit integer limit.
 (3f-2b-2b), preserving duplicate-key position, rejecting extra top-level data and
 owning deeply nested values without recursive drop. Overwritten values remain
 unreachable in its private arena until document drop. The statement entrypoint
-refuses blobs above 16 MiB before parsing (a Rust-only guard; Python has no cap).
-Then 3f-3 Git record layout/parent/subject checks and owned cache (`read_statement`
-and `load`, 720-765). Signature verification (768-773) follows before selection
-(3g) and require-all (3h); none of these candidate indexes establishes trust.
+refuses blobs above 1 MiB before parsing (a Rust-only guard; Python has no cap).
+`records::read_statement` adds bounded Git capture and record layout/parent/subject
+checks (3f-3a), with `statement-too-large` distinct from malformed-record refusal.
+Missing subjects are allowed without lazy fetch. Remaining 3f-3b: owned `load`
+cache (720-729), then signature verification (768-773), selection (3g) and
+require-all (3h); candidate indexes and structural records alone establish no trust.
 Lane discovery uses the gate's sanitized Git command and rejects malformed or
 unterminated ls-tree rows; shared subprocess timeout/output bounds remain open.
 `workflow::workflow_job` selects exact generated-workflow text and transitive
