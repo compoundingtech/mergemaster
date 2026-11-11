@@ -4,7 +4,7 @@ use indexmap::IndexMap;
 /// Inclusive container depth, counting arrays, objects and an empty root container.
 pub const MAX_CONTAINER_DEPTH: usize = 256;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Node {
     Null,
     Bool(bool),
@@ -14,7 +14,7 @@ pub enum Node {
     Array(Vec<usize>),
     Object(IndexMap<Vec<u32>, usize>),
 }
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Document {
     nodes: Vec<Node>,
     root: usize,

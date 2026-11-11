@@ -553,9 +553,12 @@ cache port: Python's end-to-end deepcopy fails at interpreter-dependent depths.
 Depth does not bound arena node count; the 1 MiB statement-byte cap bounds nodes.
 `records::read_statement` adds bounded Git capture and record layout/parent/subject
 checks (3f-3a), with `statement-too-large` distinct from malformed-record refusal.
-Missing subjects are allowed without lazy fetch. Remaining 3f-3b: owned `load`
-cache (720-729), then signature verification (768-773), selection (3g) and
-require-all (3h); candidate indexes and structural records alone establish no trust.
+Missing subjects are allowed without lazy fetch. `records::RecordCache::load`
+adds invocation-owned caching (3f-3b), keyed by exact repository spelling, commit
+and optional tree; results are independent owned copies and errors are not cached.
+Loader errors, including either cap refusal, abort the whole check rather than
+skipping a record. Signature verification (768-773), selection (3g) and require-all
+(3h) remain; candidate indexes and structural records alone establish no trust.
 Lane discovery uses the gate's sanitized Git command and rejects malformed or
 unterminated ls-tree rows; shared subprocess timeout/output bounds remain open.
 `workflow::workflow_job` selects exact generated-workflow text and transitive

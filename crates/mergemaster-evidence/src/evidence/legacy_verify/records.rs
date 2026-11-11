@@ -7,7 +7,11 @@ use crate::{
     evidence::{legacy_policy::PolicyError, oid},
     gate::git::git_bounded,
 };
-use std::path::Path;
+use indexmap::{Equivalent, IndexMap};
+use std::{
+    ffi::{OsStr, OsString},
+    path::Path,
+};
 fn error(detail: impl ToString) -> PolicyError {
     PolicyError {
         reason: "error",
@@ -112,6 +116,56 @@ pub fn read_statement(
         return Ok(None);
     }
     Ok(Some(doc))
+}
+
+#[derive(Hash, PartialEq, Eq)]
+struct Key<R, C, T> {
+    repo: R,
+    commit: C,
+    tree: T,
+}
+type OwnedKey = Key<OsString, String, Option<String>>;
+impl Equivalent<OwnedKey> for Key<&OsStr, &str, Option<&str>> {
+    fn equivalent(&self, key: &OwnedKey) -> bool {
+        self.repo == key.repo.as_os_str()
+            && self.commit == key.commit.as_str()
+            && self.tree == key.tree.as_deref()
+    }
+}
+/// Invocation-owned cache of immutable records, including structural refusals.
+/// Keys retain exact repository spelling; hits allocate only the returned copy.
+#[derive(Default)]
+pub struct RecordCache {
+    values: IndexMap<OwnedKey, Option<Document>>,
+}
+impl RecordCache {
+    /// Any error, including a cap refusal, must abort the caller's whole check.
+    pub fn load(
+        &mut self,
+        repo: &Path,
+        commit: &str,
+        tree: Option<&str>,
+    ) -> Result<Option<Document>, PolicyError> {
+        let key = Key {
+            repo: repo.as_os_str(),
+            commit,
+            tree,
+        };
+        if let Some(value) = self.values.get(&key) {
+            return Ok(value.clone());
+        }
+        // Failed reads are not inserted, matching assignment only after Python returns.
+        let value = read_statement(repo, commit, tree)?;
+        self.values.insert(
+            Key {
+                repo: key.repo.to_owned(),
+                commit: commit.to_owned(),
+                tree: tree.map(str::to_owned),
+            },
+            value.clone(),
+        );
+        Ok(value)
+    }
 }
 #[cfg(test)]
 #[path = "records_tests.rs"]
