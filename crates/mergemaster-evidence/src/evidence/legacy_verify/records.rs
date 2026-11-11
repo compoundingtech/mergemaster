@@ -155,6 +155,9 @@ impl RecordCache {
             exhausted: false,
         }
     }
+    pub(super) fn check_budget(&mut self) -> Result<(), PolicyError> {
+        self.charge(0, false)
+    }
     fn key_units(key: &Key<&OsStr, &str, Option<&str>>) -> usize {
         key.repo
             .len()

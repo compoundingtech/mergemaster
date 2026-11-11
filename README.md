@@ -575,6 +575,11 @@ check and use. Missing policy refusal is fail-closed against Python until fracta
 is resynced. Returned statuses are not
 authorization: selection (3g) and require-all (3h) remain; candidate indexes and
 structural records establish no trust.
+`collection::CandidateCollector::for_check` owns the shared cache across member calls.
+It ports ordered structural candidate gathering (957-981), input-key projection,
+and default crate/key equality, not test-count policy or signature authorization.
+Any load error aborts collection without returning a partial candidate set; budget
+exhaustion remains latched even for later calls with no matching records.
 Lane discovery uses the gate's sanitized Git command and rejects malformed or
 unterminated ls-tree rows; shared subprocess timeout/output bounds remain open.
 `workflow::workflow_job` selects exact generated-workflow text and transitive
