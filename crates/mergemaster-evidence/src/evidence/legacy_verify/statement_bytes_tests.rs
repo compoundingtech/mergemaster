@@ -74,7 +74,7 @@ print(json.dumps(results))
         let expected: Option<Vec<u32>> = serde_json::from_value(case["points"].clone()).unwrap();
         assert_eq!(decode_json_bytes(&bytes), expected, "{}", case["name"]);
         assert_eq!(
-            super::statement::statement_of(&bytes, &"a".repeat(40)).is_some(),
+            super::super::statement::statement_of(&bytes, &"a".repeat(40)).is_some(),
             case["statement"].as_bool().unwrap(),
             "{}",
             case["name"]
