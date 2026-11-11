@@ -43,6 +43,8 @@
 # store: 29,883 distinct statements, largest 2,245 bytes, p99 2,058 bytes.
 # Rust parity: 3f-3a read_statement (732-765), record layout and raw parents,
 # present-subject tree binding and missing-subject acceptance without lazy fetch.
+# Parity caveat (758-762): every subject-probe Failure counts as absent, including
+# non-missing-object failures. Tighten both implementations together after cutover.
 # Hardening: bounded stdout, full record OIDs and statement-too-large diagnostic;
 # listing and raw-commit captures also refuse above 1 MiB. Cache remains 3f-3b.
 # Rust parity: workflow-job-selection (462-520). Raw top-level/job bytes and

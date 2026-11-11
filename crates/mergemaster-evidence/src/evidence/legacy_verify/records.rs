@@ -94,6 +94,8 @@ pub fn read_statement(
         return Ok(None);
     }
     // A missing subject is allowed in shallow/partial stores, never lazily fetched.
+    // Oracle parity (evidence-verify:758-762): every probe failure counts as absent,
+    // not only missing objects. Tighten Python and Rust together after cutover.
     let present = git_bounded(
         repo,
         &[

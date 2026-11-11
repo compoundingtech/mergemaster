@@ -19,24 +19,27 @@ for fmt in ['sha1','sha256']:
   'subject':[{'name':subject,'digest':{'gitTree':empty}}],
   'predicate':{'schema_version':1,'change_id':'change','tier':'full','signer':None,
   'observed_at':'2026-01-01T00:00:00Z','observed':{'kind':'tests','runner':'r','checks':{}}}}
- def add(name,value=valid,parents=None,rows=None,path=empty,mode='100644',encoding='utf-8',expected_tree=empty,padding=0,message='record'):
+ def add(name,value=valid,parents=None,rows=None,path=empty,mode='100644',encoding='utf-8',expected_tree=empty,padding=0,message='record',shallow=False):
   data=json.dumps(value).encode(encoding) if not isinstance(value,bytes) else value
   data+=b' '*max(0,padding-len(data)); b=blob(data)
   t=tree(rows if rows is not None else [(mode,'blob',b,path)])
   c=commit(t,[subject] if parents is None else parents,message)
+  if shallow: (repo/'shallow').write_text(c+'\n')
   expected=o['read_statement'](str(repo),c,expected_tree) is not None
-  cases.append(dict(repo=str(repo),name=fmt+'-'+name,commit=c,tree=expected_tree,expected=expected,oversize=padding>1024*1024))
+  cases.append(dict(repo=str(repo),name=fmt+'-'+name,commit=c,tree=expected_tree,expected=expected,oversize=padding>1024*1024,listing_over=name=='listing-over'))
   return c
  add('valid'); add('unbound',expected_tree=None); add('wrong-request',expected_tree='0'*len(subject))
  add('empty',rows=[]); b=blob(b'x'); add('multiple',rows=[('100644','blob',b,'a'),('100644','blob',b,'b')])
  add('executable',mode='100755'); add('symlink',mode='120000'); add('bad-path',path='not-an-oid')
+ add('subtree',rows=[('040000','tree',tree([('100644','blob',b,empty)]),'nested')])
+ add('listing-over',path='x'*(1024*1024))
  add('malformed-json',value=b'{'); add('no-parent',parents=[]); add('wrong-parent',parents=[missing]); add('two-parents',parents=[subject,missing])
  v=copy.deepcopy(valid); v['subject'][0]['name']=missing; add('missing-subject',value=v,parents=[missing])
  v=copy.deepcopy(valid); v['subject'][0]['digest']['gitTree']='0'*len(subject); add('wrong-digest',value=v)
  other=commit(tree([('100644','blob',b,'file')]))
  v=copy.deepcopy(valid); v['subject'][0]['name']=other; add('present-wrong-tree',value=v,parents=[other])
  add('utf16',encoding='utf-16'); add('message-parent',message='parent '+missing)
- c=add('shallow'); (repo/'shallow').write_text(c+'\n')
+ add('shallow',shallow=True)
  add('cap-exact',padding=1024*1024); add('cap-over',padding=1024*1024+1)
 print(json.dumps(cases))
 "#;
@@ -62,6 +65,11 @@ print(json.dumps(cases))
         if case["oversize"] == true {
             assert!(case["expected"].as_bool().unwrap());
             assert_eq!(actual.unwrap_err().reason, "statement-too-large");
+        } else if case["listing_over"] == true {
+            assert!(!case["expected"].as_bool().unwrap());
+            let error = actual.unwrap_err();
+            assert_eq!(error.reason, "error");
+            assert!(error.detail.contains("Git output exceeds 1048576 bytes"));
         } else {
             assert_eq!(
                 actual.unwrap().is_some(),
