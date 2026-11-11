@@ -48,6 +48,7 @@ for fmt in ['sha1','sha256']:
  add('revocations-valid-symlink',signed,keys,linked)
  relative=repo/'local-revocations'; relative.write_text('')
  add('revocations-relative',signed,keys,pathlib.Path('local-revocations'))
+ cases[-1]['checked_path']=str(relative)
  add('missing-commit','f'*len(signed))
  # Principal text is returned verbatim; it is not statement-signer authorization.
  aliases=root/(fmt+'-aliases'); aliases.write_text('one,two '+public+'\n')
@@ -63,6 +64,34 @@ for fmt in ['sha1','sha256']:
   add('hostile-'+kind,fake)
   cases[-1].update(marker=str(marker),python_invoked=marker.exists())
   marker.unlink(missing_ok=True)
+ # Git resolves relative policy paths from the worktree root, not -C's subdirectory.
+ git('update-ref','refs/heads/fixture',signed)
+ work=root/(fmt+'-work')
+ subprocess.run(['git','clone','--quiet','--no-checkout',str(repo),str(work)],check=True)
+ nested=work/'nested'; nested.mkdir()
+ bare_repo=repo
+ for name,top,child in [('root-empty-sub-revoked','',public+'\n'),('root-revoked-sub-empty',public+'\n',''),('root-missing-sub-empty',None,'')]:
+  if top is not None: (work/name).write_text(top)
+  (nested/name).write_text(child)
+  repo=nested
+  add(name,signed,keys,pathlib.Path(name))
+  cases[-1]['checked_path']=str(work/name)
+  if top is None: cases[-1]['revocation_refusal']=True
+ repo=work
+ ordinary=work/'ordinary'; ordinary.write_text('')
+ add('worktree-relative',signed,keys,pathlib.Path('ordinary'))
+ cases[-1]['checked_path']=str(ordinary)
+ repo=nested
+ absolute=work/'absolute'; absolute.write_text(public+'\n')
+ add('nested-absolute',signed,keys,absolute)
+ cases[-1]['checked_path']=str(absolute)
+ repo=bare_repo/'objects'
+ bare_policy=bare_repo/'bare-policy'; bare_policy.write_text(public+'\n')
+ child_policy=repo/'bare-policy'; child_policy.write_text('')
+ add('bare-subdirectory-relative',signed,keys,pathlib.Path('bare-policy'))
+ cases[-1]['checked_path']=str(child_policy)
+ add('bare-subdirectory-missing',signed,keys,pathlib.Path('missing-bare-policy'))
+ cases[-1].update(checked_path=str(repo/'missing-bare-policy'),revocation_refusal=True)
 print(json.dumps(cases))
 "#;
     let oracle = std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap();
@@ -87,6 +116,18 @@ print(json.dumps(cases))
                 case["name"]
             );
             assert!(!Path::new(marker).exists());
+        }
+        if let Some(expected) = case["checked_path"].as_str() {
+            assert_eq!(
+                revocation_path(
+                    Path::new(case["repo"].as_str().unwrap()),
+                    Path::new(case["revocations"].as_str().unwrap())
+                )
+                .unwrap(),
+                Path::new(expected),
+                "{}",
+                case["name"]
+            );
         }
         let actual = signature(
             Path::new(case["repo"].as_str().unwrap()),

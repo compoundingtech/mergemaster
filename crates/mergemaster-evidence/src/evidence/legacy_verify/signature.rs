@@ -3,7 +3,34 @@ use crate::{
     evidence::{legacy_policy::PolicyError, oid},
     gate::git::git,
 };
-use std::{fs::File, os::unix::fs::PermissionsExt, path::Path};
+use std::{
+    fs::File,
+    os::unix::fs::PermissionsExt,
+    path::{Path, PathBuf},
+};
+
+fn revocation_path(repo: &Path, supplied: &Path) -> anyhow::Result<PathBuf> {
+    if supplied.is_absolute() {
+        return Ok(supplied.to_owned());
+    }
+    // Git show moves to the worktree root, but bare repositories retain -C's cwd.
+    let bare = git(repo, &["rev-parse", "--is-bare-repository"])?;
+    let root = match bare.as_slice() {
+        b"true\n" => std::path::absolute(repo)?,
+        b"false\n" => {
+            let output = String::from_utf8(git(repo, &["rev-parse", "--show-toplevel"])?)?;
+            PathBuf::from(
+                output
+                    .strip_suffix('\n')
+                    .ok_or_else(|| anyhow::anyhow!("unterminated Git root"))?,
+            )
+        }
+        _ => anyhow::bail!("invalid Git repository kind"),
+    };
+    let path = root.join(supplied);
+    anyhow::ensure!(path.is_absolute(), "Git root is not absolute");
+    Ok(path)
+}
 
 /// Inspect one record using the supplied signer and revocation files, not repo overrides.
 /// A successful Git invocation can return an untrusted status (including `N`).
@@ -18,17 +45,19 @@ pub fn signature(
         reason: "error",
         detail,
     };
-    let supplied = Path::new(revocations);
-    let relative = (!supplied.is_absolute()).then(|| repo.join(supplied));
-    let path = relative.as_deref().unwrap_or(supplied);
-    let metadata = std::fs::metadata(path)
+    let path = revocation_path(repo, Path::new(revocations))
+        .map_err(|e| error(format!("revocation path resolution failed: {e}")))?;
+    let checked = path
+        .to_str()
+        .ok_or_else(|| error("revocation path is not UTF-8".into()))?;
+    let metadata = std::fs::metadata(&path)
         .map_err(|e| error(format!("revocation file is unavailable: {e}")))?;
     if !metadata.is_file() || metadata.permissions().mode() & 0o444 == 0 {
         return Err(error(
             "revocation path is not a readable regular file".into(),
         ));
     }
-    File::open(path).map_err(|e| error(format!("revocation file is unreadable: {e}")))?;
+    File::open(&path).map_err(|e| error(format!("revocation file is unreadable: {e}")))?;
     oid(commit).map_err(|e| error(e.to_string()))?;
     let shown = git(
         repo,
@@ -47,7 +76,7 @@ pub fn signature(
             "-c",
             &format!("gpg.ssh.allowedSignersFile={keys}"),
             "-c",
-            &format!("gpg.ssh.revocationFile={revocations}"),
+            &format!("gpg.ssh.revocationFile={checked}"),
             "show",
             "-s",
             "--format=%G?%x00%GS",
