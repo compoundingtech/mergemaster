@@ -30,11 +30,13 @@ jobs:
     env:
       RUST_TOOLCHAIN: 1.93.0
       TARGET: ${{ matrix.target }}
-      RUSTFLAGS: '-C target-feature=+crt-static -C linker=musl-gcc'
+      # Rust supplies its CRT; the pinned Nix compiler supplies musl C headers/libs.
+      RUSTFLAGS: '-C target-feature=+crt-static -C link-self-contained=yes'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: DeterminateSystems/determinate-nix-action@92957199488000b908fdad19f63711000965d8f3 # v3
       - name: Validate release tag
         if: github.event_name == 'push'
         env:
@@ -51,12 +53,19 @@ jobs:
             echo "Release tag $RELEASE_TAG does not match package version $version." >&2
             exit 1
           }
-      - name: Install native musl toolchain
+      - name: Install pinned musl toolchain and Rust target
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y musl-tools binutils
+          command -v readelf
+          toolchain="$(nix build .#release-musl-toolchain --no-link --print-out-paths)"
+          target_env="${TARGET//-/_}"
+          cargo_target_env="${target_env^^}"
+          {
+            echo "CC_$target_env=$toolchain/bin/musl-gcc"
+            echo "AR_$target_env=$toolchain/bin/musl-ar"
+            echo "CARGO_TARGET_${cargo_target_env}_LINKER=$toolchain/bin/musl-gcc"
+          } >> "$GITHUB_ENV"
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --target "$TARGET"
       - name: Build locked release binary
         shell: bash
