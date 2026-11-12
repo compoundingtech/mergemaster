@@ -315,10 +315,18 @@ pub(super) fn verify_toolchain_claims(
     measured: &BTreeMap<String, String>,
     reported: &BTreeMap<String, String>,
 ) -> Result<()> {
+    let mut execution_claims_match = true;
+    for (key, value) in measured {
+        if reported.get(key) != Some(value) {
+            ensure!(
+                !key.starts_with("nix_closure_sha256:"),
+                "independent Nix closure digest mismatch"
+            );
+            execution_claims_match = false;
+        }
+    }
     ensure!(
-        measured
-            .iter()
-            .all(|(key, value)| reported.get(key) == Some(value)),
+        execution_claims_match,
         "independent Nix toolchain claim mismatch"
     );
     Ok(())
@@ -779,6 +787,30 @@ mod hardening_tests {
                     "{key}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn closure_digest_mismatch_precedes_execution_claim_diagnostics() {
+        let closure_key = "nix_closure_sha256:nix:/nix/store/runtime";
+        let measured = BTreeMap::from([
+            (
+                "executed_executable".into(),
+                "/nix/store/runtime/bin/bun".into(),
+            ),
+            (closure_key.into(), "a".repeat(64)),
+        ]);
+        for tamper_executable in [false, true] {
+            let mut reported = measured.clone();
+            reported.insert(closure_key.into(), "b".repeat(64));
+            if tamper_executable {
+                reported.remove("executed_executable");
+            }
+            let error = verify_toolchain_claims(&measured, &reported).unwrap_err();
+            assert!(
+                error.to_string().contains("closure digest mismatch"),
+                "{error}"
+            );
         }
     }
 
