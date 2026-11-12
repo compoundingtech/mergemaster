@@ -8,6 +8,7 @@ import re
 EXEMPT = {"PROVENANCE", "test-scripts"}
 ORIGINAL = "e2721e52463428b4ff655addee129cecd2839763"
 TARGET = "787e8ed592dff34d2bdc2a2b0b584482da567e7f"
+LOCAL_PATCHES = {"scripts/ci-signed-tree", "scripts/ci-signed-tree-test"}
 
 
 def blob(data):
@@ -35,6 +36,20 @@ def table(text):
     return rows
 
 
+def local_patches(text, resync):
+    rows = {}
+    for line in text.splitlines():
+        if not line.startswith("# local-patch "):
+            continue
+        path, source, destination = line.removeprefix("# local-patch ").split()
+        if path not in LOCAL_PATCHES or path in rows or path in resync:
+            raise ValueError("invalid/duplicate/overlapping local patch path")
+        if not all(re.fullmatch(r"[0-9a-f]{40}", oid) for oid in (source, destination)) or source == destination:
+            raise ValueError("invalid local patch blobs")
+        rows[path] = source, destination
+    return rows
+
+
 def snapshot(path):
     if path.is_symlink() or not path.is_file():
         raise ValueError(f"{path}: not a regular script")
@@ -42,7 +57,9 @@ def snapshot(path):
 
 
 def check(src, oracle, fixture=None, fixture_rev=ORIGINAL):
-    rows = table((src / "scripts/PROVENANCE").read_text())
+    text = (src / "scripts/PROVENANCE").read_text()
+    rows = table(text)
+    patches = local_patches(text, rows)
     if fixture_rev not in (ORIGINAL, TARGET):
         raise ValueError("fixture revision differs from approved constants")
     for path, oid in rows.items():
@@ -55,11 +72,17 @@ def check(src, oracle, fixture=None, fixture_rev=ORIGINAL):
                 raise ValueError(f"{path}: resync bytes/mode/blob mismatch")
         elif local != old:
             raise ValueError(f"{path}: pending resync must still equal oracle")
+    for path, (source, destination) in patches.items():
+        local, old = snapshot(src / path), snapshot(oracle / path)
+        if local[0] == old[0]:
+            raise ValueError(f"{path}: expired local patch; remove it")
+        if blob(old[0]) != source or blob(local[0]) != destination or local[1] != old[1]:
+            raise ValueError(f"{path}: local patch bytes/mode/blob mismatch")
     for path in sorted((src / "scripts").rglob("*")):
         if path.is_dir() and not path.is_symlink():
             continue
         relative = path.relative_to(src).as_posix()
-        if relative[8:] in EXEMPT or relative in rows:
+        if relative[8:] in EXEMPT or relative in rows or relative in patches:
             continue
         if snapshot(path) != snapshot(oracle / relative):
             raise ValueError(f"{relative}: differs from pinned oracle")

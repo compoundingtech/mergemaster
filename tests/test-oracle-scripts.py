@@ -105,6 +105,47 @@ class ResyncGuard(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not a regular script"):
             self.run_check()
 
+    def patch_manifest(self, name="ci-signed-tree", source=b"old", destination=b"patched"):
+        path = self.src / "scripts/PROVENANCE"
+        path.write_text(path.read_text() + f"# local-patch scripts/{name} {blob(source)} {blob(destination)}\n")
+
+    def test_local_patch_pins_both_blobs_and_mode(self):
+        for name in ("ci-signed-tree", "ci-signed-tree-test"):
+            self.write(self.src, name, b"patched")
+            self.write(self.oracle, name, b"old")
+            self.patch_manifest(name)
+        self.run_check()
+        for root, data, mode in [(self.src, b"edited", 0o755), (self.oracle, b"edited", 0o755),
+                                 (self.src, b"patched", 0o644)]:
+            self.write(root, "ci-signed-tree", data, mode)
+            with self.assertRaisesRegex(ValueError, "local patch bytes/mode/blob mismatch"):
+                self.run_check()
+            self.write(root, "ci-signed-tree", b"patched" if root == self.src else b"old")
+        self.write(self.oracle, "ci-signed-tree", b"patched")
+        with self.assertRaisesRegex(ValueError, "expired local patch"):
+            self.run_check()
+
+    def test_local_patch_rejects_unapproved_duplicate_overlap_and_bad_blobs(self):
+        for row in ["# local-patch scripts/one " + blob(b"old") + " " + blob(b"new"),
+                    "# local-patch scripts/ci-signed-tree invalid " + blob(b"new"),
+                    "# local-patch scripts/ci-signed-tree " + blob(b"old") + " " + blob(b"old")]:
+            self.manifest()
+            path = self.src / "scripts/PROVENANCE"
+            path.write_text(path.read_text() + row + "\n")
+            with self.assertRaises(ValueError):
+                self.run_check()
+        self.manifest()
+        self.patch_manifest()
+        self.patch_manifest()
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            self.run_check()
+        self.manifest()
+        self.patch_manifest()
+        path = self.src / "scripts/PROVENANCE"
+        path.write_text(path.read_text() + f"# resync-blob scripts/ci-signed-tree {blob(b'new')}\n")
+        with self.assertRaisesRegex(ValueError, "overlapping"):
+            self.run_check()
+
 
     def test_repository_owned_exemptions(self):
         for name in EXEMPT - {"PROVENANCE"}:

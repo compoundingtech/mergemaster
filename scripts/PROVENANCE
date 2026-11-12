@@ -12,6 +12,15 @@
 # resync-blob scripts/evidence-wrap-test 711847812a5d703fa9f2056468970f89a0f57c53
 # resync-blob scripts/lane-definition-closure 5a844628e821bb51e6ab3fc2b38088a37c3c47c4
 # resync-blob scripts/st-test feb0d16374a2dfb78af20357166f56225df46774
+# Intentional local divergence for external Fractal consumers (see mergemaster#141):
+# ci-signed-tree resolves evidence-verify beside its own real file, retaining the
+# consumer cwd, verifier argv, policy/key/lane inputs and shadow-job behavior.
+# The regression uses a failing consumer verifier and an input-index-only note.
+# Local patches pin oracle and local blobs plus equal executable modes; unlike
+# resync rows, they do not claim these bytes came from the Fractal fixture.
+# Remove each exception when an oracle repin includes the patch.
+# local-patch scripts/ci-signed-tree 77a560621f8182d2ca19f622782ff24c95e7d514 2bdd0922a31a6dad544bf6826666efeec68a3466
+# local-patch scripts/ci-signed-tree-test 91612975e7ae383ca5c55b94a19af20b0b1c7df2 9b1877c7407fe1128620fb94e376b66a7fcca8d2
 # scripts/fractal-test-test: apply the fixture maintenance-isolation patch from
 # https://github.com/compoundingtech/fractal/pull/4398 (5f995f26e5).
 # The source_blob column remains the original import; mergemaster_blob includes applied patches.
@@ -275,8 +284,8 @@ scripts/ci-evidence-slo	8009b173d74522847dd27f6c77091faf6756e9f5	8009b173d745228
 scripts/ci-evidence-slo-test	eb3b138cb5b605da1a330475b0383889fd256ccd	eb3b138cb5b605da1a330475b0383889fd256ccd
 scripts/ci-evidence-source	bc2c6547366bf804397959045c78f50f4484a767	bc2c6547366bf804397959045c78f50f4484a767
 scripts/ci-evidence-source-test	b75b580fd63ae46ba22e24227599e0fc2a7d9053	b75b580fd63ae46ba22e24227599e0fc2a7d9053
-scripts/ci-signed-tree	0939b74bdc4c18220001cb2f6c2d613c0a187fc3	0939b74bdc4c18220001cb2f6c2d613c0a187fc3
-scripts/ci-signed-tree-test	078b3eb80da7cbfdcc1e3a592bc25498ff4a4cba	078b3eb80da7cbfdcc1e3a592bc25498ff4a4cba
+scripts/ci-signed-tree	0939b74bdc4c18220001cb2f6c2d613c0a187fc3	2bdd0922a31a6dad544bf6826666efeec68a3466
+scripts/ci-signed-tree-test	078b3eb80da7cbfdcc1e3a592bc25498ff4a4cba	9b1877c7407fe1128620fb94e376b66a7fcca8d2
 scripts/evidence-flip-ready	65b40aed05785194e50784e3f540d9cb46a98687	37b23f2d03576ae06850f7bf76165bc752f4f206
 scripts/evidence-flip-ready-test	ef720b5192db3870db404c29ab8a927f8bef3568	675ec53a5a480ed75cafdc9f9350199524540848
 scripts/evidence-gc	a314f2d603337539e9ccb42e9afad86943018995	a314f2d603337539e9ccb42e9afad86943018995

@@ -3,8 +3,8 @@
 
 Runs from the BASE branch's checkout (a `pull_request_target` workflow always uses the workflow file of the base branch, so the
 pull request cannot edit or delete it). The pull request's code is never checked out or executed: its head commit is fetched as
-git objects only and read as data (`git rev-parse`, `git ls-tree`, notes). The verifier (`scripts/evidence-verify`), the key list,
-the skip policy and the lane file all come from the base checkout this script runs in.
+git objects only and read as data (`git rev-parse`, `git ls-tree`, notes). The verifier is adjacent to this script; the key list,
+the skip policy and the lane file come from the consumer's base checkout (the working directory).
 
 It asks `evidence-verify --require-all` about the head tree and prints ONE decision line, also written to the step summary:
 
@@ -32,7 +32,7 @@ import time
 
 sys.dont_write_bytecode = True
 
-VERIFIER = 'scripts/evidence-verify'
+VERIFIER = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'evidence-verify')
 POLICY = '.st/evidence-skip-policy.json'
 KEYS = '.st/evidence-keys'
 LANES = '.st/required-lanes.json'
@@ -141,7 +141,7 @@ def main():
         base = base.decode().strip()
         if code != 0 or not OID.match(base):
             return emit(context, 'error', 'no-base-checkout', seconds=elapsed())
-        # Everything that decides comes from this checkout (the base branch tip). Read the policy first: a no-op when nothing requires a note.
+        # Policy inputs come from the consumer checkout (the base branch tip). A no-op when nothing requires a note.
         policy_path = config_path(base, POLICY)
         code, policy = run('git', 'show', f'{base}:{policy_path or POLICY}')
         try:
