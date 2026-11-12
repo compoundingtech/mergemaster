@@ -799,14 +799,18 @@ the object-only gate does not invoke Nix or provision artifacts.
 
 For a non-derivation lane using any Nix artifact, BASE lane `argv[0]` is either absolute or a bare
 name (no slash), and must resolve to an executable inside a measured closure member. Bare names
-search only the `bin/` directories of the closures measured for the lane's environment (runtime
-first, then declared dependencies, in order); the caller's PATH is never consulted, so the same
-lane resolves identically on every system. A relative path with a slash resolves against the
-consumer checkout, as executed. This is the required execution binding, checked independently by
-wrapper and signer; a mutable PATH launcher outside those closures is refused. Scripts, environment
-variables, subprocess selection and transitive runtime behavior remain the cooperative lane author's
-responsibility: this is measured evidence, not a sandbox. Put required runtimes in the declared
-closure and do not use ambient PATH to substitute dependencies.
+search only the `bin/` directories of the closures measured for the lane's environment: the
+`runtime` first, then each `nix:` dependency in byte-lexicographic order of its `environment.json`
+name. The first existing file wins; the caller's PATH is never consulted, so the same lane resolves
+identically on every system. A relative path with a slash resolves against the consumer checkout.
+The resolved path is canonicalized before the membership check, so a closure symlink pointing
+outside the measured closures is refused. The wrapper then executes exactly that canonical path
+(keeping `argv[0]` as the process name), never a PATH lookup, and refuses to sign if the
+resolution differs after execution. This is the required execution binding, checked independently
+by wrapper and signer; a mutable PATH launcher outside those closures is refused. Scripts,
+environment variables, subprocess selection and transitive runtime behavior remain the cooperative
+lane author's responsibility: this is measured evidence, not a sandbox. Put required runtimes in
+the declared closure and do not use ambient PATH to substitute dependencies.
 
 ### Nix flake-check lanes
 

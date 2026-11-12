@@ -186,14 +186,13 @@ fn measure(
 }
 
 /// Resolve a lane `argv[0]` to a canonical executable path. Absolute paths
-/// keep the historic strict behavior. A bare name (no slash) resolves only
-/// against the `bin/` directories of the measured Nix closures for the
-/// lane's environment, in declared order (runtime first, then dependencies),
-/// so lanes stay portable across systems and the caller's PATH — including
-/// agent-policy shims — can never substitute the executable. A relative path
-/// containing a slash resolves against the consumer checkout, matching
-/// execution. The caller must check closure membership, so only a binary
-/// inside a measured closure is accepted.
+/// are taken as given. A bare name (no slash) resolves only against the
+/// `bin/` directories of the measured Nix closures for the lane's
+/// environment: the runtime first, then dependencies in byte-lexicographic
+/// order of their environment names. The caller's PATH (including
+/// agent-policy shims) is never consulted. A relative path containing a slash
+/// resolves against the consumer checkout. The result is canonical, so a
+/// symlink is judged by its target; the caller must check closure membership.
 fn resolve_lane_executable(
     config: &SignConfig,
     toolchain: &config::Toolchain,
@@ -253,13 +252,15 @@ fn resolve_lane_executable(
 }
 
 /// Independently measure provisioned artifacts and bind execution to Nix closure bytes.
+/// Returns the closure claims and, when execution is bound, the canonical executable
+/// inside a measured closure; the wrapper executes exactly that path.
 pub fn measure_toolchain(
     repo: &Path,
     environment: &config::Environment,
     path: &Path,
     command: &[String],
     bind_execution: bool,
-) -> Result<BTreeMap<String, String>> {
+) -> Result<(BTreeMap<String, String>, Option<PathBuf>)> {
     let config = configuration(path, repo)?;
     let system = config::current_system();
     let toolchain = environment
@@ -305,14 +306,18 @@ pub fn measure_toolchain(
             );
             executable_bound |= executable
                 .as_ref()
-                .is_some_and(|exe| closure.keys().any(|root| exe.starts_with(root)));
+                .is_some_and(|exe| inside_closure(exe, closure.keys()));
         }
     }
     ensure!(
         !needs_nix || !bind_execution || executable_bound,
         "lane executable is outside measured Nix closures"
     );
-    Ok(claims)
+    Ok((claims, executable))
+}
+
+fn inside_closure<'a>(executable: &Path, mut roots: impl Iterator<Item = &'a String>) -> bool {
+    roots.any(|root| executable.starts_with(root))
 }
 
 pub fn clean(repo: &Path) -> Result<bool> {
@@ -616,7 +621,7 @@ pub fn run_worker(args: SignArgs) -> Result<()> {
             "command differs from BASE lane"
         );
     }
-    let closures = measure_toolchain(
+    let (closures, _) = measure_toolchain(
         &request.repo,
         &policy.environment,
         &args.config,
@@ -931,6 +936,40 @@ json.dump([signer.unsafe_file(p, types.SimpleNamespace(st_mode=m, st_uid=u)) is 
                 .to_string()
                 .contains("parent-directory escapes")
         );
+    }
+
+    #[test]
+    fn absolute_argv0_outside_closures_is_refused() {
+        let closure = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::create_dir(closure.path().join("bin")).unwrap();
+        let tool = outside.path().join("tool");
+        std::fs::write(&tool, "outside").unwrap();
+        let (config, toolchain, repo) = closure_fixture(closure.path(), &[]);
+        let resolved =
+            resolve_lane_executable(&config, &toolchain, &repo, tool.to_str().unwrap()).unwrap();
+        let roots = [closure.path().canonicalize().unwrap().display().to_string()];
+        assert!(!inside_closure(&resolved, roots.iter()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn closure_symlink_to_outside_target_is_refused() {
+        let closure = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::create_dir(closure.path().join("bin")).unwrap();
+        let target = outside.path().join("tool");
+        std::fs::write(&target, "outside").unwrap();
+        std::os::unix::fs::symlink(&target, closure.path().join("bin/tool")).unwrap();
+        let (config, toolchain, repo) = closure_fixture(closure.path(), &[]);
+        let resolved = resolve_lane_executable(&config, &toolchain, &repo, "tool").unwrap();
+        assert_eq!(resolved, target.canonicalize().unwrap());
+        let roots = [closure.path().canonicalize().unwrap().display().to_string()];
+        assert!(!inside_closure(&resolved, roots.iter()));
+        // Control: a real file in the same closure is accepted.
+        std::fs::write(closure.path().join("bin/real"), "inside").unwrap();
+        let inside = resolve_lane_executable(&config, &toolchain, &repo, "real").unwrap();
+        assert!(inside_closure(&inside, roots.iter()));
     }
 
     fn closure_fixture(
