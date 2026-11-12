@@ -40,7 +40,7 @@ pub(super) fn field<'a>(doc: &'a Document, v: &Node, key: &str) -> Option<&'a No
     }
     object(v)?.get(&points[..key.len()]).map(|id| doc.node(*id))
 }
-fn clock(s: &str, offset: bool) -> bool {
+fn clock(s: &str, offset: bool) -> Option<i64> {
     let (main, fraction) = s
         .split_once(['.', ','])
         .map_or((s, None), |(a, b)| (a, Some(b)));
@@ -49,7 +49,7 @@ fn clock(s: &str, offset: bool) -> bool {
             || !v.bytes().all(|b| b.is_ascii_digit())
             || main.len() != if main.contains(':') { 8 } else { 6 }
     }) {
-        return false;
+        return None;
     }
     let extended = main.contains(':');
     if !(if extended {
@@ -57,7 +57,7 @@ fn clock(s: &str, offset: bool) -> bool {
     } else {
         [2, 4, 6].contains(&main.len())
     }) {
-        return false;
+        return None;
     }
     let mut seconds = 0;
     let mut number = 0;
@@ -65,29 +65,39 @@ fn clock(s: &str, offset: bool) -> bool {
     for (i, b) in main.bytes().enumerate() {
         if extended && i % 3 == 2 {
             if b != b':' {
-                return false;
+                return None;
             }
             continue;
         }
         if !b.is_ascii_digit() {
-            return false;
+            return None;
         }
         number = number * 10 + u32::from(b - b'0');
         count += 1;
         if count.is_multiple_of(2) {
             if !offset && number >= if count == 2 { 25 } else { 60 } {
-                return false;
+                return None;
             }
             seconds += number * [3600, 60, 1][count / 2 - 1];
             number = 0;
         }
     }
-    seconds < 86400
-        || (!offset
-            && seconds == 86400
-            && fraction.unwrap_or("").bytes().take(6).all(|b| b == b'0'))
+    let fraction = fraction.unwrap_or("");
+    let micros = fraction
+        .bytes()
+        .take(6)
+        .fold(0_i64, |n, b| n * 10 + i64::from(b - b'0'))
+        * 10_i64.pow(6 - fraction.len().min(6) as u32);
+    (seconds < 86400 || (!offset && seconds == 86400 && micros == 0))
+        .then_some(i64::from(seconds) * 1_000_000 + micros)
 }
 fn zoned_time(points: &[u32]) -> bool {
+    zoned_time_micros(points).is_some()
+}
+/// UTC epoch microseconds for the zoned statement-time subset of Python parse_time.
+/// Unlike parse_time itself, rejects naive dates/times; preserves surrogate separators.
+/// Years 1..9999 plus sub-day signed offsets fit comfortably in i64.
+pub(super) fn zoned_time_micros(points: &[u32]) -> Option<i64> {
     // Python replaces every Z before fromisoformat, including a separator Z.
     let expanded;
     let s = if points.contains(&90) {
@@ -138,26 +148,31 @@ fn zoned_time(points: &[u32]) -> bool {
             })?;
         (parsed.year() >= 1 && parsed.year() <= 9999).then_some((end, parsed))
     });
-    let Some((end, date)) = date else {
-        return false;
-    };
+    let (end, date) = date?;
     // Consume exactly one Python code point as separator, including a surrogate.
     // The date and clock themselves remain strict ASCII; no sentinel substitution.
-    let Some(tail) = s.get(end + 1..).and_then(|points| {
+    let tail = s.get(end + 1..).and_then(|points| {
         points
             .iter()
             .map(|p| u8::try_from(*p).ok().filter(u8::is_ascii))
             .collect::<Option<Vec<_>>>()
             .and_then(|b| String::from_utf8(b).ok())
-    }) else {
-        return false;
-    };
-    let Some(zone) = tail.find(['+', '-']) else {
-        return false;
-    };
-    clock(&tail[..zone], false)
-        && clock(&tail[zone + 1..], true)
-        && (!tail.starts_with("24") || date.succ_opt().is_some_and(|d| d.year() <= 9999))
+    })?;
+    let zone = tail.find(['+', '-'])?;
+    let local = clock(&tail[..zone], false)?;
+    let offset = clock(&tail[zone + 1..], true)?;
+    if tail.starts_with("24") && !date.succ_opt().is_some_and(|d| d.year() <= 9999) {
+        return None;
+    }
+    let midnight = date.and_hms_opt(0, 0, 0)?.and_utc().timestamp_micros();
+    Some(
+        midnight + local
+            - if tail.as_bytes()[zone] == b'-' {
+                -offset
+            } else {
+                offset
+            },
+    )
 }
 /// Rust-only cap: Python's reader is unbounded. Checked before any JSON allocation.
 pub const MAX_STATEMENT_BYTES: usize = 1024 * 1024;

@@ -38,6 +38,12 @@
 # insertion-ordered duplicate keys, flat ownership and top-level Extra data.
 # Rust parity: 3f-2b-2c integrates byte decoding, lossless structural guards and
 # refusal (633-667), including surrogate timestamp separators and canonical -0.
+# Selection-time prerequisite: reuse the zoned statement parser for exact UTC epoch
+# microseconds (parse_time 629-630, dated 1015-1016), not a competing RFC3339 parser.
+# Fractions truncate to microseconds, offsets retain signed fractional seconds,
+# arbitrary-codepoint separators survive, 24:00 rolls forward except year overflow.
+# This zoned subset deliberately excludes parse_time's naive date/time domain.
+# Years 1..9999 with normalized sub-day offsets fit i64; public Clock is unchanged.
 # Rust-only guard: statement blobs above 1 MiB refuse before decoding; Python's
 # read_statement (743) and git capture (75-80) impose no byte bound. Local Fractal
 # store: 29,883 distinct statements, largest 2,245 bytes, p99 2,058 bytes.
