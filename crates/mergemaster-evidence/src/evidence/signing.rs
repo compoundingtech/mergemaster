@@ -192,6 +192,14 @@ fn measure(
 /// git/ssh-keygen). The caller must check closure membership, so a hostile
 /// PATH cannot smuggle in an unmeasured binary.
 fn resolve_lane_executable(config: &SignConfig, argv0: &str) -> Result<PathBuf> {
+    resolve_lane_executable_with_search_path(config, argv0, std::env::var_os("PATH").as_deref())
+}
+
+fn resolve_lane_executable_with_search_path(
+    config: &SignConfig,
+    argv0: &str,
+    caller_path: Option<&std::ffi::OsStr>,
+) -> Result<PathBuf> {
     ensure!(
         !Path::new(argv0)
             .components()
@@ -201,8 +209,8 @@ fn resolve_lane_executable(config: &SignConfig, argv0: &str) -> Result<PathBuf> 
     let resolved = if Path::new(argv0).is_absolute() {
         PathBuf::from(argv0)
     } else {
-        let mut directories = std::env::var_os("PATH")
-            .map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
+        let mut directories = caller_path
+            .map(|path| std::env::split_paths(path).collect::<Vec<_>>())
             .unwrap_or_default();
         if let Some(path) = config.path.as_deref() {
             directories.extend(std::env::split_paths(path));
@@ -802,13 +810,12 @@ json.dump([signer.unsafe_file(p, types.SimpleNamespace(st_mode=m, st_uid=u)) is 
         std::fs::write(caller.path().join(name), "caller").unwrap();
         std::fs::write(trusted.path().join(name), "trusted").unwrap();
         let config = sign_config(Some(trusted.path().to_string_lossy().into_owned()));
-        let old = std::env::var_os("PATH");
-        unsafe { std::env::set_var("PATH", caller.path()) };
-        let resolved = resolve_lane_executable(&config, name).unwrap();
-        match old {
-            Some(value) => unsafe { std::env::set_var("PATH", value) },
-            None => unsafe { std::env::remove_var("PATH") },
-        }
+        let resolved = resolve_lane_executable_with_search_path(
+            &config,
+            name,
+            Some(caller.path().as_os_str()),
+        )
+        .unwrap();
         assert_eq!(resolved, caller.path().join(name).canonicalize().unwrap());
     }
 
@@ -818,13 +825,12 @@ json.dump([signer.unsafe_file(p, types.SimpleNamespace(st_mode=m, st_uid=u)) is 
         let name = "fallback-tool";
         std::fs::write(trusted.path().join(name), "trusted").unwrap();
         let config = sign_config(Some(trusted.path().to_string_lossy().into_owned()));
-        let old = std::env::var_os("PATH");
-        unsafe { std::env::set_var("PATH", "/nonexistent-lane-dir") };
-        let resolved = resolve_lane_executable(&config, name).unwrap();
-        match old {
-            Some(value) => unsafe { std::env::set_var("PATH", value) },
-            None => unsafe { std::env::remove_var("PATH") },
-        }
+        let resolved = resolve_lane_executable_with_search_path(
+            &config,
+            name,
+            Some(std::ffi::OsStr::new("/nonexistent-lane-dir")),
+        )
+        .unwrap();
         assert_eq!(resolved, trusted.path().join(name).canonicalize().unwrap());
     }
 
