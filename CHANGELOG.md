@@ -3,7 +3,7 @@
 ## Unreleased
 
 - Fetch the pinned Fractal fixture through shallow Git rather than GitHub's commit-tarball endpoint, preserving its source bytes and revision.
-- Resolve a bare lane `argv[0]` against the measured closures' `bin/` directories (runtime first, then dependencies by name), never the caller's PATH, and execute exactly the resolved canonical closure path, so agent-policy shims can neither substitute the lane executable nor diverge from what is attested; missing names now name the searched closures.
+- Make direct execution an explicit `direct_exec: true` lane opt-in (default false, omitted when false), eligible only for exactly `["bun", "<tracked-relative-script>"]` with a `.ts`, `.tsx`, `.js`, `.mjs`, or `.cjs` script, no leading flag, absolute script path, `..` segment, or extra arguments. Execute only the canonical declared Nix runtime's `bin/bun`, never a dependency executable; default bare/relative commands retain PATH/checkout-relative wrapping. Opt-in and absolute Nix executable lanes require signed `executed_executable` (canonical absolute path) and `executed_artifact` (containing Nix artifact identity, runtime for opt-in) inputs, independently checked by the signer and required by the gate. Closure remeasurement is unchanged. (#159)
 - Isolate the policy-path test fixture from host Git configuration and hooks.
 
 ## [0.7.0] - 2026-11-12

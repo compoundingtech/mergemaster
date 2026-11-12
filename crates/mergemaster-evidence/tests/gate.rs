@@ -1528,6 +1528,271 @@ fn base_keys_and_policy_cannot_be_replaced_by_head() {
 }
 
 #[test]
+fn unbound_path_lanes_do_not_require_a_host_toolchain_entry() {
+    let mut f = Fixture::new();
+    let host = mergemaster_evidence::gate::config::current_system();
+    let foreign = if host == "x86_64-linux" {
+        "aarch64-linux"
+    } else {
+        "x86_64-linux"
+    };
+    let mut environment: Value =
+        serde_json::from_slice(&fs::read(f.repo.join(".mergemaster/environment.json")).unwrap())
+            .unwrap();
+    let toolchain = environment["systems"]["x86_64-linux"].take();
+    environment["systems"] = json!({(foreign): toolchain});
+    f.write(".mergemaster/environment.json", environment.to_string());
+    f.base = f.commit("declare a foreign non-Nix toolchain");
+    f.refresh_head();
+    f.note(&f.statement(), &f.key, "tree");
+    assert_eq!(f.decision(&[])["reason"], "satisfied");
+}
+
+fn direct_exec_fixture(argv: Value, direct_exec: bool) -> Fixture {
+    let mut f = Fixture::new();
+    let runtime = format!("/nix/store/{}-bun", "a".repeat(32));
+    let dependency = format!("/nix/store/{}-dependency", "b".repeat(32));
+    f.write(
+        ".mergemaster/environment.json",
+        json!({
+            "version":1,"systems":{(mergemaster_evidence::gate::config::current_system()):{
+                "runtime":{"name":"bun","identity":format!("nix:{runtime}")},
+                "dependencies":{"runtime":{"name":"fixture","identity":format!("nix:{dependency}")}}
+            }}
+        })
+        .to_string(),
+    );
+    let mut policy = Fixture::policy("required_evidence");
+    policy["lanes"][CHECK]["argv"] = argv;
+    policy["lanes"][CHECK]["direct_exec"] = json!(direct_exec);
+    f.write(".mergemaster/lanes.json", policy.to_string());
+    f.write("tools/check.ts", "console.log('check');\n");
+    f.write("-check.ts", "console.log('not a Bun flag');\n");
+    f.base = f.commit("declare execution policy");
+    f.refresh_head();
+    f
+}
+
+#[test]
+fn direct_exec_configuration_refuses_non_script_bun_and_other_commands() {
+    for argv in [
+        json!(["bun", "install"]),
+        json!(["bun", "add"]),
+        json!(["bun", "add", "package"]),
+        json!(["bun", "-g", "tools/check.ts"]),
+        json!(["bun", "x", "tools/check.ts"]),
+        json!(["bun", "run", "tools/check.ts"]),
+        json!(["bun", "--silent", "tools/check.ts"]),
+        json!(["bun", "-check.ts"]),
+        json!(["bun", "tools/../tools/check.ts"]),
+        json!(["bun", "../check.ts"]),
+        json!(["bun", "/tools/check.ts"]),
+        json!(["node", "tools/check.ts"]),
+        json!(["./bun", "tools/check.ts"]),
+        json!(["bun", "tools/check.ts", "--flag"]),
+        json!(["bun"]),
+    ] {
+        let f = direct_exec_fixture(argv.clone(), true);
+        let result = load(&f.repo, &f.base);
+        assert!(result.is_err(), "accepted direct_exec argv: {argv}");
+    }
+}
+
+#[test]
+fn direct_exec_opt_in_changes_lane_hash_but_false_preserves_serialization() {
+    let f = direct_exec_fixture(json!(["bun", "tools/check.ts"]), true);
+    let config = load(&f.repo, &f.base).unwrap();
+    let lane = &config.policy.lanes[CHECK];
+    let inputs = |lane| {
+        expected_inputs(
+            &f.repo,
+            &f.head,
+            CHECK,
+            lane,
+            &config.environment,
+            &config.environment_bytes,
+        )
+        .unwrap()
+    };
+    let enabled = inputs(lane);
+    let mut disabled: mergemaster_evidence::gate::config::Lane =
+        serde_json::from_value(serde_json::to_value(lane).unwrap()).unwrap();
+    disabled.direct_exec = false;
+    let ordinary = inputs(&disabled);
+    assert_ne!(
+        enabled["lane_definition_sha256"],
+        ordinary["lane_definition_sha256"]
+    );
+    assert_eq!(
+        enabled["environment_sha256"],
+        ordinary["environment_sha256"]
+    );
+    assert_eq!(enabled["toolchain_sha256"], ordinary["toolchain_sha256"]);
+    let serialized = serde_json::to_value(&disabled).unwrap();
+    assert!(serialized.get("direct_exec").is_none());
+    let mut omitted = serde_json::to_value(lane).unwrap();
+    omitted.as_object_mut().unwrap().remove("direct_exec");
+    assert_eq!(serialized, omitted);
+    let defaulted: mergemaster_evidence::gate::config::Lane =
+        serde_json::from_value(omitted).unwrap();
+    assert!(!defaulted.direct_exec);
+    assert_eq!(inputs(&defaulted), ordinary);
+}
+
+#[test]
+fn direct_exec_script_must_be_tracked_at_base_and_at_check_head() {
+    let mut f = direct_exec_fixture(json!(["bun", "tools/check.ts"]), true);
+    let config = load(&f.repo, &f.base).unwrap();
+    fs::remove_file(f.repo.join("tools/check.ts")).unwrap();
+    f.refresh_head();
+    // A checkout-local replacement is not a script in the measured HEAD tree.
+    f.write("tools/check.ts", "console.log('untracked replacement');\n");
+    assert!(
+        expected_inputs(
+            &f.repo,
+            &f.head,
+            CHECK,
+            &config.policy.lanes[CHECK],
+            &config.environment,
+            &config.environment_bytes,
+        )
+        .is_err()
+    );
+    assert!(load(&f.repo, &f.head).is_err());
+    let output = f.gate(&[]);
+    assert!(!output.status.success());
+}
+
+#[test]
+fn direct_exec_accepts_only_tracked_supported_script_extensions() {
+    for extension in ["ts", "tsx", "js", "mjs", "cjs"] {
+        let script = format!("tools/check.{extension}");
+        let mut f = direct_exec_fixture(json!(["bun", script]), true);
+        f.write(&script, "console.log('check');\n");
+        f.base = f.commit("track supported script");
+        f.refresh_head();
+        assert!(load(&f.repo, &f.base).is_ok(), "{extension}");
+    }
+    for script in ["tools/missing.ts", "tools/graph"] {
+        let f = direct_exec_fixture(json!(["bun", script]), true);
+        assert!(load(&f.repo, &f.base).is_err(), "{script}");
+    }
+}
+
+#[test]
+fn nix_execution_receipts_are_required_and_bound_to_the_declared_artifact() {
+    let runtime = format!("/nix/store/{}-bun", "a".repeat(32));
+    let dependency = format!("/nix/store/{}-dependency", "b".repeat(32));
+    for direct_exec in [false, true] {
+        for case in [
+            "valid",
+            "absent",
+            "missing_executable",
+            "missing_artifact",
+            "relative_executable",
+            "traversal",
+            "undeclared_artifact",
+            "closure_member",
+            "missing_closure",
+            "dependency_artifact",
+        ] {
+            let argv = if direct_exec {
+                json!(["bun", "tools/check.ts"])
+            } else {
+                json!([format!("{runtime}/bin/bun"), "tools/check.ts"])
+            };
+            let f = direct_exec_fixture(argv.clone(), direct_exec);
+            let mut statement = f.statement();
+            statement["predicate"]["observed"]["checks"][CHECK]["command"] = argv;
+            let inputs = statement["predicate"]["observed"]["inputs"]
+                .as_object_mut()
+                .unwrap();
+            for artifact in [&runtime, &dependency] {
+                inputs.insert(
+                    format!("nix_closure_sha256:nix:{artifact}"),
+                    json!("c".repeat(64)),
+                );
+            }
+            inputs.insert(
+                "executed_executable".into(),
+                json!(format!("{runtime}/bin/bun")),
+            );
+            inputs.insert("executed_artifact".into(), json!(format!("nix:{runtime}")));
+            match case {
+                "absent" => {
+                    inputs.remove("executed_executable");
+                    inputs.remove("executed_artifact");
+                }
+                "missing_executable" => {
+                    inputs.remove("executed_executable");
+                }
+                "missing_artifact" => {
+                    inputs.remove("executed_artifact");
+                }
+                "relative_executable" => {
+                    inputs.insert("executed_executable".into(), json!("bin/bun"));
+                }
+                "traversal" => {
+                    inputs.insert(
+                        "executed_executable".into(),
+                        json!(format!("{runtime}/bin/../bin/bun")),
+                    );
+                }
+                "undeclared_artifact" => {
+                    inputs.insert(
+                        "executed_artifact".into(),
+                        json!(format!("nix:/nix/store/{}-foreign", "c".repeat(32))),
+                    );
+                    inputs.insert(
+                        format!(
+                            "nix_closure_sha256:nix:/nix/store/{}-foreign",
+                            "c".repeat(32)
+                        ),
+                        json!("c".repeat(64)),
+                    );
+                }
+                // A runtime's closure can contain an executable in another store root.
+                "closure_member" => {
+                    inputs.insert(
+                        "executed_executable".into(),
+                        json!(format!("{dependency}/bin/bun")),
+                    );
+                }
+                "missing_closure" => {
+                    inputs.remove(&format!("nix_closure_sha256:nix:{runtime}"));
+                }
+                "dependency_artifact" => {
+                    inputs.insert(
+                        "executed_artifact".into(),
+                        json!(format!("nix:{dependency}")),
+                    );
+                    if direct_exec {
+                        inputs.insert(
+                            "executed_executable".into(),
+                            json!(format!("{dependency}/bin/bun")),
+                        );
+                    }
+                }
+                _ => {}
+            }
+            f.note(&statement, &f.key, "tree");
+            let decision = f.decision(&[]);
+            assert_eq!(
+                decision["decision"],
+                if matches!(case, "valid" | "closure_member")
+                    || (case == "dependency_artifact" && !direct_exec)
+                {
+                    "skip"
+                } else {
+                    "refuse"
+                },
+                "direct_exec={direct_exec}, {case}: {decision}"
+            );
+        }
+    }
+}
+
+#[test]
 fn malformed_base_configuration_is_not_a_computed_decision() {
     for case in [
         "unknown",

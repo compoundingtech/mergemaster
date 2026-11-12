@@ -2,6 +2,7 @@
 /result
 /result-*
 /tmp/
+/TEMPORARY_FILES.md
 /repos/
 /iac/node_modules/
 /iac/.alchemy/

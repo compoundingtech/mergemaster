@@ -185,18 +185,11 @@ fn measure(
     Ok(None)
 }
 
-/// Resolve a lane `argv[0]` to a canonical executable path. Absolute paths
-/// are taken as given. A bare name (no slash) resolves only against the
-/// `bin/` directories of the measured Nix closures for the lane's
-/// environment: the runtime first, then dependencies in byte-lexicographic
-/// order of their environment names. The caller's PATH (including
-/// agent-policy shims) is never consulted. A relative path containing a slash
-/// resolves against the consumer checkout. The result is canonical, so a
-/// symlink is judged by its target; the caller must check closure membership.
+/// Resolve only an explicit Bun script runtime or an already-absolute executable.
+/// Bare non-opted-in commands never enter this path and retain PATH resolution.
 fn resolve_lane_executable(
     config: &SignConfig,
     toolchain: &config::Toolchain,
-    repo: &Path,
     argv0: &str,
 ) -> Result<PathBuf> {
     ensure!(
@@ -207,48 +200,31 @@ fn resolve_lane_executable(
     );
     let resolved = if Path::new(argv0).is_absolute() {
         PathBuf::from(argv0)
-    } else if !argv0.contains('/') {
-        let bins: Vec<(&str, PathBuf)> = std::iter::once((
-            toolchain.runtime.identity.as_str(),
-            config.toolchain.runtime.join("bin"),
-        ))
-        .chain(
-            toolchain
-                .dependencies
-                .iter()
-                .filter_map(|(name, artifact)| {
-                    config
-                        .toolchain
-                        .dependencies
-                        .get(name)
-                        .map(|root| (artifact.identity.as_str(), root.join("bin")))
-                }),
-        )
-        .filter(|(identity, _)| identity.starts_with("nix:"))
-        .collect();
-        bins.iter()
-            .map(|(_, bin)| bin.join(argv0))
-            .find(|candidate| candidate.is_file())
-            .with_context(|| {
-                format!(
-                    "lane executable `{argv0}` not found in measured closures' bin directories: {}",
-                    bins.iter()
-                        .map(|(identity, _)| *identity)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            })?
     } else {
-        repo.join(argv0)
+        ensure!(
+            argv0 == "bun" && toolchain.runtime.identity.starts_with("nix:"),
+            "direct_exec requires the declared Nix Bun runtime"
+        );
+        config.toolchain.runtime.join("bin/bun")
     };
-    ensure!(
-        !resolved
-            .components()
-            .any(|part| matches!(part, std::path::Component::ParentDir)),
-        "Nix lanes require argv[0] without parent-directory escapes"
-    );
-    std::fs::canonicalize(&resolved)
-        .with_context(|| format!("lane executable is not a resolvable file: {argv0}"))
+    std::fs::canonicalize(&resolved).with_context(|| {
+        format!(
+            "lane executable is not a resolvable file: {}",
+            resolved.display()
+        )
+    })
+}
+
+/// Artifact role comes from the declaration field, never a dependency map key.
+fn provisioned_artifacts<'a>(
+    config: &'a SignConfig,
+    toolchain: &'a config::Toolchain,
+) -> impl Iterator<Item = (bool, &'a config::Artifact, Option<&'a PathBuf>)> {
+    std::iter::once((true, &toolchain.runtime, Some(&config.toolchain.runtime))).chain(
+        toolchain.dependencies.iter().map(move |(name, artifact)| {
+            (false, artifact, config.toolchain.dependencies.get(name))
+        }),
+    )
 }
 
 /// Independently measure provisioned artifacts and bind execution to Nix closure bytes.
@@ -259,9 +235,13 @@ pub fn measure_toolchain(
     environment: &config::Environment,
     path: &Path,
     command: &[String],
-    bind_execution: bool,
+    lane: &config::Lane,
 ) -> Result<(BTreeMap<String, String>, Option<PathBuf>)> {
     let config = configuration(path, repo)?;
+    if lane.direct_exec {
+        let head = git::text(repo, &["rev-parse", "HEAD"])?;
+        config::validate_direct_exec(repo, &head, lane)?;
+    }
     let system = config::current_system();
     let toolchain = environment
         .systems
@@ -271,18 +251,7 @@ pub fn measure_toolchain(
         config.toolchain.dependencies.len() == toolchain.dependencies.len(),
         "dependency measurement set differs"
     );
-    let artifacts = std::iter::once((
-        "runtime",
-        &toolchain.runtime,
-        Some(&config.toolchain.runtime),
-    ))
-    .chain(toolchain.dependencies.iter().map(|(name, artifact)| {
-        (
-            name.as_str(),
-            artifact,
-            config.toolchain.dependencies.get(name),
-        )
-    }));
+    let artifacts = provisioned_artifacts(&config, toolchain);
     let needs_nix = toolchain.runtime.identity.starts_with("nix:")
         || toolchain
             .dependencies
@@ -290,30 +259,77 @@ pub fn measure_toolchain(
             .any(|a| a.identity.starts_with("nix:"));
     let nix = needs_nix.then(|| find_tool(&config, "nix")).transpose()?;
     let mut claims = BTreeMap::new();
-    let mut executable_bound = false;
+    let bind_execution = lane.nix_check.is_none()
+        && (lane.direct_exec
+            || command
+                .first()
+                .is_some_and(|arg| Path::new(arg).is_absolute()));
     let executable = if needs_nix && bind_execution {
         let argv0 = command.first().context("missing lane executable")?;
-        Some(resolve_lane_executable(&config, toolchain, repo, argv0)?)
+        Some(resolve_lane_executable(&config, toolchain, argv0)?)
     } else {
         None
     };
-    for (_name, artifact, provisioned) in artifacts {
+    ensure!(
+        !lane.direct_exec || executable.is_some(),
+        "direct_exec requires a measured Nix runtime"
+    );
+    let mut executed_artifact = None;
+    for (is_runtime, artifact, provisioned) in artifacts {
         let provisioned = provisioned.context("missing dependency measurement")?;
         if let Some(closure) = measure(provisioned, artifact, nix.as_deref())? {
             claims.insert(
                 format!("nix_closure_sha256:{}", artifact.identity),
                 super::nix::digest(&closure)?,
             );
-            executable_bound |= executable
+            if executable
                 .as_ref()
-                .is_some_and(|exe| inside_closure(exe, closure.keys()));
+                .is_some_and(|exe| inside_closure(exe, closure.keys()))
+                && (!lane.direct_exec || is_runtime)
+                && executed_artifact.is_none()
+            {
+                executed_artifact = Some(artifact.identity.clone());
+            }
         }
     }
     ensure!(
-        !needs_nix || !bind_execution || executable_bound,
-        "lane executable is outside measured Nix closures"
+        !bind_execution || !needs_nix || executed_artifact.is_some(),
+        "lane executable is outside its measured Nix artifact"
     );
+    if let Some(executable) = &executable {
+        claims.insert(
+            "executed_executable".into(),
+            executable.to_str().context("non-UTF-8 executable")?.into(),
+        );
+        claims.insert(
+            "executed_artifact".into(),
+            executed_artifact.context("missing executable artifact")?,
+        );
+    }
     Ok((claims, executable))
+}
+
+/// The signer and post-launch wrapper require every independently measured claim,
+/// including executable path and owning artifact, to match the receipt.
+pub(super) fn verify_toolchain_claims(
+    measured: &BTreeMap<String, String>,
+    reported: &BTreeMap<String, String>,
+) -> Result<()> {
+    let mut execution_claims_match = true;
+    for (key, value) in measured {
+        if reported.get(key) != Some(value) {
+            ensure!(
+                !key.starts_with("nix_closure_sha256:"),
+                "independent Nix closure digest mismatch"
+            );
+            execution_claims_match = false;
+        }
+    }
+    ensure!(
+        execution_claims_match,
+        "independent Nix toolchain claim mismatch"
+    );
+    Ok(())
 }
 
 fn inside_closure<'a>(executable: &Path, mut roots: impl Iterator<Item = &'a String>) -> bool {
@@ -626,14 +642,9 @@ pub fn run_worker(args: SignArgs) -> Result<()> {
         &policy.environment,
         &args.config,
         &request.command,
-        nix_check.is_none(),
+        lane,
     )?;
-    ensure!(
-        closures
-            .iter()
-            .all(|(key, value)| request.inputs.get(key) == Some(value)),
-        "independent Nix closure digest mismatch"
-    );
+    verify_toolchain_claims(&closures, &request.inputs)?;
     let expected = config::expected_inputs(
         &request.repo,
         &request.head,
@@ -751,6 +762,59 @@ mod hardening_tests {
     use super::*;
 
     #[test]
+    fn signer_refuses_missing_or_tampered_script_and_absolute_executable_claims() {
+        for executable in ["/nix/store/runtime/bin/bun", "/nix/store/policy/bin/shell"] {
+            let measured = BTreeMap::from([
+                ("executed_executable".into(), executable.into()),
+                ("executed_artifact".into(), "nix:/nix/store/runtime".into()),
+                (
+                    "nix_closure_sha256:nix:/nix/store/runtime".into(),
+                    "a".repeat(64),
+                ),
+            ]);
+            verify_toolchain_claims(&measured, &measured).unwrap();
+            for key in ["executed_executable", "executed_artifact"] {
+                let mut missing = measured.clone();
+                missing.remove(key);
+                assert!(
+                    verify_toolchain_claims(&measured, &missing).is_err(),
+                    "{key}"
+                );
+                let mut tampered = measured.clone();
+                tampered.insert(key.into(), "/nix/store/different".into());
+                assert!(
+                    verify_toolchain_claims(&measured, &tampered).is_err(),
+                    "{key}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn closure_digest_mismatch_precedes_execution_claim_diagnostics() {
+        let closure_key = "nix_closure_sha256:nix:/nix/store/runtime";
+        let measured = BTreeMap::from([
+            (
+                "executed_executable".into(),
+                "/nix/store/runtime/bin/bun".into(),
+            ),
+            (closure_key.into(), "a".repeat(64)),
+        ]);
+        for tamper_executable in [false, true] {
+            let mut reported = measured.clone();
+            reported.insert(closure_key.into(), "b".repeat(64));
+            if tamper_executable {
+                reported.remove("executed_executable");
+            }
+            let error = verify_toolchain_claims(&measured, &reported).unwrap_err();
+            assert!(
+                error.to_string().contains("closure digest mismatch"),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
     fn tool_file_hardening_matches_legacy_oracle() {
         let python = PathBuf::from(
             std::env::var_os("MERGEMASTER_PYTHON_ORACLE")
@@ -829,147 +893,101 @@ json.dump([signer.unsafe_file(p, types.SimpleNamespace(st_mode=m, st_uid=u)) is 
     }
 
     #[test]
-    fn bare_argv0_resolves_in_declared_closure_order() {
+    fn bun_resolves_only_from_declared_runtime() {
         let runtime = tempfile::tempdir().unwrap();
         let dep = tempfile::tempdir().unwrap();
         for root in [runtime.path(), dep.path()] {
             std::fs::create_dir(root.join("bin")).unwrap();
+            std::fs::write(root.join("bin/bun"), "bun").unwrap();
         }
-        let name = "lane-tool";
-        std::fs::write(runtime.path().join("bin").join(name), "runtime").unwrap();
-        std::fs::write(dep.path().join("bin").join(name), "dep").unwrap();
-        let (config, toolchain, repo) = closure_fixture(runtime.path(), &[dep.path()]);
-        let resolved = resolve_lane_executable(&config, &toolchain, &repo, name).unwrap();
+        let (config, toolchain, _) = closure_fixture(runtime.path(), &[dep.path()]);
         assert_eq!(
-            resolved,
-            runtime
-                .path()
-                .join("bin")
-                .join(name)
-                .canonicalize()
-                .unwrap()
+            resolve_lane_executable(&config, &toolchain, "bun").unwrap(),
+            runtime.path().join("bin/bun").canonicalize().unwrap()
         );
+        std::fs::remove_file(runtime.path().join("bin/bun")).unwrap();
+        assert!(resolve_lane_executable(&config, &toolchain, "bun").is_err());
     }
 
     #[test]
-    fn bare_argv0_ignores_caller_path_shim() {
-        let shim = tempfile::tempdir().unwrap();
-        let closure = tempfile::tempdir().unwrap();
-        std::fs::create_dir(closure.path().join("bin")).unwrap();
-        let name = "bun";
-        std::fs::write(shim.path().join(name), "shim").unwrap();
-        std::fs::write(closure.path().join("bin").join(name), "measured").unwrap();
-        let (config, toolchain, repo) = closure_fixture(closure.path(), &[]);
-        // The caller PATH may put the shim first; resolution never consults it.
-        let resolved = resolve_lane_executable(&config, &toolchain, &repo, name).unwrap();
-        assert_eq!(
-            resolved,
-            closure
-                .path()
-                .join("bin")
-                .join(name)
-                .canonicalize()
-                .unwrap()
-        );
-    }
-
-    #[test]
-    fn bare_argv0_missing_from_closures_names_searched_identities() {
-        let closure = tempfile::tempdir().unwrap();
-        std::fs::create_dir(closure.path().join("bin")).unwrap();
-        let (config, toolchain, repo) = closure_fixture(closure.path(), &[]);
-        let error = resolve_lane_executable(&config, &toolchain, &repo, "absent-tool")
-            .unwrap_err()
-            .to_string();
-        assert!(
-            error.contains("not found in measured closures' bin directories"),
-            "{error}"
-        );
-        assert!(
-            error.contains(&format!(
-                "nix:{}",
-                closure.path().join("bin").parent().unwrap().display()
-            )) || error.contains("nix:"),
-            "{error}"
-        );
-    }
-
-    #[test]
-    fn relative_argv0_with_slash_stays_relative_to_checkout() {
-        let repo = tempfile::tempdir().unwrap();
-        std::fs::create_dir(repo.path().join("tools")).unwrap();
-        std::fs::write(repo.path().join("tools").join("lane-check.ts"), "check").unwrap();
-        let (config, toolchain, _) = closure_fixture(repo.path(), &[]);
-        let resolved =
-            resolve_lane_executable(&config, &toolchain, repo.path(), "tools/lane-check.ts")
-                .unwrap();
-        assert_eq!(
-            resolved,
-            repo.path()
-                .join("tools/lane-check.ts")
-                .canonicalize()
-                .unwrap()
-        );
+    fn direct_runtime_rejects_non_bun_and_non_nix() {
+        let runtime = tempfile::tempdir().unwrap();
+        let (config, mut toolchain, _) = closure_fixture(runtime.path(), &[]);
+        assert!(resolve_lane_executable(&config, &toolchain, "git").is_err());
+        toolchain.runtime.identity = format!("sha256:{}", "a".repeat(64));
+        assert!(resolve_lane_executable(&config, &toolchain, "bun").is_err());
     }
 
     #[test]
     fn parent_directory_escapes_are_refused() {
-        let repo = tempfile::tempdir().unwrap();
-        let (config, toolchain, _) = closure_fixture(repo.path(), &[]);
-        let error =
-            resolve_lane_executable(&config, &toolchain, repo.path(), "../escape").unwrap_err();
-        assert!(error.to_string().contains("parent-directory escapes"));
-        // `Path::components` lexically hides `..` after an absolute prefix
-        // in a single literal like `/bin/../escape` (it reports RootDir +
-        // ParentDir, which *is* caught) — but a traversal that survives
-        // joining, e.g. `sub/../../escape` through a relative PATH entry,
-        // must also be refused after the join.
-        let joined = std::path::Path::new("sub").join("../../escape");
-        assert!(
-            joined
-                .components()
-                .any(|part| matches!(part, std::path::Component::ParentDir))
-        );
-        assert!(
-            resolve_lane_executable(&config, &toolchain, repo.path(), "/../escape")
-                .unwrap_err()
-                .to_string()
-                .contains("parent-directory escapes")
-        );
+        let runtime = tempfile::tempdir().unwrap();
+        let (config, toolchain, _) = closure_fixture(runtime.path(), &[]);
+        for path in ["../escape", "/../escape"] {
+            assert!(
+                resolve_lane_executable(&config, &toolchain, path)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("parent-directory escapes")
+            );
+        }
     }
 
     #[test]
     fn absolute_argv0_outside_closures_is_refused() {
         let closure = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
-        std::fs::create_dir(closure.path().join("bin")).unwrap();
         let tool = outside.path().join("tool");
         std::fs::write(&tool, "outside").unwrap();
-        let (config, toolchain, repo) = closure_fixture(closure.path(), &[]);
+        let (config, toolchain, _) = closure_fixture(closure.path(), &[]);
         let resolved =
-            resolve_lane_executable(&config, &toolchain, &repo, tool.to_str().unwrap()).unwrap();
+            resolve_lane_executable(&config, &toolchain, tool.to_str().unwrap()).unwrap();
         let roots = [closure.path().canonicalize().unwrap().display().to_string()];
         assert!(!inside_closure(&resolved, roots.iter()));
     }
 
     #[cfg(unix)]
     #[test]
-    fn closure_symlink_to_outside_target_is_refused() {
-        let closure = tempfile::tempdir().unwrap();
-        let outside = tempfile::tempdir().unwrap();
-        std::fs::create_dir(closure.path().join("bin")).unwrap();
-        let target = outside.path().join("tool");
-        std::fs::write(&target, "outside").unwrap();
-        std::os::unix::fs::symlink(&target, closure.path().join("bin/tool")).unwrap();
-        let (config, toolchain, repo) = closure_fixture(closure.path(), &[]);
-        let resolved = resolve_lane_executable(&config, &toolchain, &repo, "tool").unwrap();
-        assert_eq!(resolved, target.canonicalize().unwrap());
-        let roots = [closure.path().canonicalize().unwrap().display().to_string()];
-        assert!(!inside_closure(&resolved, roots.iter()));
-        // Control: a real file in the same closure is accepted.
-        std::fs::write(closure.path().join("bin/real"), "inside").unwrap();
-        let inside = resolve_lane_executable(&config, &toolchain, &repo, "real").unwrap();
-        assert!(inside_closure(&inside, roots.iter()));
+    fn dependency_named_runtime_never_selects_or_requires_its_bun() {
+        for dependency_has_bun in [false, true] {
+            let runtime = tempfile::tempdir().unwrap();
+            let dependency = tempfile::tempdir().unwrap();
+            let outside = tempfile::tempdir().unwrap();
+            std::fs::create_dir(runtime.path().join("bin")).unwrap();
+            std::fs::create_dir(dependency.path().join("bin")).unwrap();
+            let target = dependency.path().join("real-bun");
+            std::fs::write(&target, "dependency").unwrap();
+            if dependency_has_bun {
+                std::fs::write(dependency.path().join("bin/bun"), "dependency bun").unwrap();
+            }
+            let intermediate = outside.path().join("example-bun");
+            std::os::unix::fs::symlink(&target, &intermediate).unwrap();
+            std::os::unix::fs::symlink(&intermediate, runtime.path().join("bin/bun")).unwrap();
+            let (mut config, mut toolchain, _) =
+                closure_fixture(runtime.path(), &[dependency.path()]);
+            let provisioned = config.toolchain.dependencies.remove("dep0").unwrap();
+            config
+                .toolchain
+                .dependencies
+                .insert("runtime".into(), provisioned);
+            let artifact = toolchain.dependencies.remove("dep0").unwrap();
+            toolchain.dependencies.insert("runtime".into(), artifact);
+            let executable = resolve_lane_executable(&config, &toolchain, "bun").unwrap();
+            assert_eq!(executable, target.canonicalize().unwrap());
+            let select = |direct_exec: bool| {
+                provisioned_artifacts(&config, &toolchain).find_map(
+                    |(is_runtime, artifact, root)| {
+                        let roots = [root.unwrap().canonicalize().unwrap().display().to_string()];
+                        (inside_closure(&executable, roots.iter()) && (!direct_exec || is_runtime))
+                            .then_some(artifact.identity.as_str())
+                    },
+                )
+            };
+            assert_eq!(select(true), None);
+            assert_eq!(
+                select(false),
+                Some(toolchain.dependencies["runtime"].identity.as_str())
+            );
+        }
     }
 
     fn closure_fixture(

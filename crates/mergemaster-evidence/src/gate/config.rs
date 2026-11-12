@@ -71,6 +71,8 @@ pub enum Authors {
 #[serde(deny_unknown_fields)]
 pub struct Lane {
     pub argv: Vec<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub direct_exec: bool,
     pub definition_paths: Vec<String>,
     pub trust_levels: Vec<String>,
     pub mode: String,
@@ -224,6 +226,28 @@ pub fn validate_path(path: &str) -> Result<()> {
                 .all(|part| !part.is_empty() && part != "." && part != ".." && part != ".git"),
         "invalid repository path"
     );
+    Ok(())
+}
+
+/// Explicit direct execution is limited to a single tracked Bun script.
+pub fn validate_direct_exec(repo: &Path, commit: &str, lane: &Lane) -> Result<()> {
+    if !lane.direct_exec {
+        return Ok(());
+    }
+    ensure!(
+        lane.nix_check.is_none() && lane.argv.len() == 2 && lane.argv[0] == "bun",
+        "direct_exec requires exactly bun and a tracked relative script"
+    );
+    let script = &lane.argv[1];
+    validate_path(script)?;
+    ensure!(
+        !script.starts_with('-')
+            && [".ts", ".tsx", ".js", ".mjs", ".cjs"]
+                .iter()
+                .any(|suffix| script.ends_with(suffix)),
+        "direct_exec requires a tracked relative script"
+    );
+    blob(repo, commit, script)?;
     Ok(())
 }
 
@@ -464,6 +488,15 @@ pub fn load(repo: &Path, base: &str) -> Result<Config> {
                 && !lane.remediation_argv.is_empty()
                 && lane.remediation_argv.iter().all(|arg| !arg.contains('\0')),
             "invalid lane argv"
+        );
+        validate_direct_exec(repo, base, lane)?;
+        ensure!(
+            !lane.direct_exec
+                || environment
+                    .systems
+                    .values()
+                    .all(|toolchain| toolchain.runtime.identity.starts_with("nix:")),
+            "direct_exec requires a declared Nix runtime"
         );
         ensure!(
             matches!(
@@ -747,6 +780,7 @@ fn hash(value: &impl Serialize) -> Result<String> {
 
 /// Keep candidate declaration/type checks fail-closed even without a record.
 pub fn validate_candidate(repo: &Path, head: &str, lane: &Lane) -> Result<()> {
+    validate_direct_exec(repo, head, lane)?;
     let tree = read_tree(repo, head)?;
     let environment_files = entries_from(&tree, &lane.environment.paths)?;
     let definition_files = entries_from(&tree, &lane.definition_paths)?;
@@ -781,6 +815,7 @@ pub fn expected_inputs(
         "HEAD is not a commit"
     );
     validate_environment(environment)?;
+    validate_direct_exec(repo, head, lane)?;
     let declared: Environment = decode(environment_bytes, "environment")?;
     ensure!(
         serde_json::to_vec(&declared)? == serde_json::to_vec(environment)?,
