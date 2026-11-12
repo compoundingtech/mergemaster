@@ -508,6 +508,9 @@ then normalize command placeholders and the required-input/binding-key union.
 before returning typed policy rules; raw kind entries are not exposed to callers.
 `legacy_verify::value_checks` judges ranked/base inputs and complete shard results
 without granting signature trust or changing native gate behavior.
+`value_checks_document` applies that same guard body to a validated input object,
+preserving Python code points (including lone surrogates) in keys and values.
+Private borrowed views avoid converting statements into native String maps.
 Event helpers retain signer-level event order when narrowing check permissions
 and identify shard parts only from the configured producer kind and index input.
 Routing requires a signature-verified principal and a validated generic check.
