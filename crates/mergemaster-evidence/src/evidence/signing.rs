@@ -973,7 +973,7 @@ json.dump([signer.unsafe_file(p, types.SimpleNamespace(st_mode=m, st_uid=u)) is 
             toolchain.dependencies.insert("runtime".into(), artifact);
             let executable = resolve_lane_executable(&config, &toolchain, "bun").unwrap();
             assert_eq!(executable, target.canonicalize().unwrap());
-            let select = |direct_exec| {
+            let select = |direct_exec: bool| {
                 provisioned_artifacts(&config, &toolchain).find_map(
                     |(is_runtime, artifact, root)| {
                         let roots = [root.unwrap().canonicalize().unwrap().display().to_string()];
