@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fetch the pinned Fractal fixture through shallow Git rather than GitHub's commit-tarball endpoint, preserving its source bytes and revision.
+- Resolve a bare lane `argv[0]` against the measured closures' `bin/` directories in declared order, never the caller's PATH, so agent-policy shims cannot substitute the lane executable; missing names now name the searched closures.
 
 ## [0.7.0] - 2026-11-12
 
