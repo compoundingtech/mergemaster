@@ -914,18 +914,25 @@ fn execution_claims_valid(
     environment: &config::Environment,
     inputs: &BTreeMap<String, String>,
 ) -> bool {
+    if lane.nix_check.is_some()
+        || (!lane.direct_exec
+            && (!lane
+                .argv
+                .first()
+                .is_some_and(|arg| Path::new(arg).is_absolute())
+                || !environment.systems.values().any(|toolchain| {
+                    std::iter::once(&toolchain.runtime)
+                        .chain(toolchain.dependencies.values())
+                        .any(|artifact| artifact.identity.starts_with("nix:"))
+                })))
+    {
+        return true;
+    }
     let Some(toolchain) = environment.systems.get(&config::current_system()) else {
         return false;
     };
     let artifacts = || std::iter::once(&toolchain.runtime).chain(toolchain.dependencies.values());
-    let required = lane.nix_check.is_none()
-        && (lane.direct_exec
-            || (lane
-                .argv
-                .first()
-                .is_some_and(|arg| Path::new(arg).is_absolute())
-                && artifacts().any(|artifact| artifact.identity.starts_with("nix:"))));
-    if !required {
+    if !lane.direct_exec && !artifacts().any(|artifact| artifact.identity.starts_with("nix:")) {
         return true;
     }
     inputs.get("executed_executable").is_some_and(|path| {

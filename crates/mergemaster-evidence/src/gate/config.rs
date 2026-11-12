@@ -780,6 +780,7 @@ fn hash(value: &impl Serialize) -> Result<String> {
 
 /// Keep candidate declaration/type checks fail-closed even without a record.
 pub fn validate_candidate(repo: &Path, head: &str, lane: &Lane) -> Result<()> {
+    validate_direct_exec(repo, head, lane)?;
     let tree = read_tree(repo, head)?;
     let environment_files = entries_from(&tree, &lane.environment.paths)?;
     let definition_files = entries_from(&tree, &lane.definition_paths)?;

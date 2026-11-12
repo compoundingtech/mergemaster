@@ -1527,6 +1527,27 @@ fn base_keys_and_policy_cannot_be_replaced_by_head() {
     }
 }
 
+#[test]
+fn unbound_path_lanes_do_not_require_a_host_toolchain_entry() {
+    let mut f = Fixture::new();
+    let host = mergemaster_evidence::gate::config::current_system();
+    let foreign = if host == "x86_64-linux" {
+        "aarch64-linux"
+    } else {
+        "x86_64-linux"
+    };
+    let mut environment: Value =
+        serde_json::from_slice(&fs::read(f.repo.join(".mergemaster/environment.json")).unwrap())
+            .unwrap();
+    let toolchain = environment["systems"]["x86_64-linux"].take();
+    environment["systems"] = json!({(foreign): toolchain});
+    f.write(".mergemaster/environment.json", environment.to_string());
+    f.base = f.commit("declare a foreign non-Nix toolchain");
+    f.refresh_head();
+    f.note(&f.statement(), &f.key, "tree");
+    assert_eq!(f.decision(&[])["reason"], "satisfied");
+}
+
 fn direct_exec_fixture(argv: Value, direct_exec: bool) -> Fixture {
     let mut f = Fixture::new();
     let runtime = format!("/nix/store/{}-bun", "a".repeat(32));
@@ -1534,7 +1555,7 @@ fn direct_exec_fixture(argv: Value, direct_exec: bool) -> Fixture {
     f.write(
         ".mergemaster/environment.json",
         json!({
-            "version":1,"systems":{"x86_64-linux":{
+            "version":1,"systems":{(mergemaster_evidence::gate::config::current_system()):{
                 "runtime":{"name":"bun","identity":format!("nix:{runtime}")},
                 "dependencies":{"fixture":{"name":"fixture","identity":format!("nix:{dependency}")}}
             }}
