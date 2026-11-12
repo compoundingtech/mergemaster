@@ -49,8 +49,22 @@ fn input_git(repo: &Path, args: &[&str], input: &[u8]) -> Result<String> {
     Ok(String::from_utf8(output.stdout)?.trim().to_owned())
 }
 
+/// Direct (non-derivation) launch. A bound Nix lane runs the exact canonical executable
+/// the closure binding validated, never a PATH lookup of `argv[0]`; `argv[0]` stays the
+/// process name so multi-call binaries behave as declared.
+fn direct(executable: Option<&Path>, argv: &[String]) -> Command {
+    let Some(executable) = executable else {
+        return Command::new(&argv[0]);
+    };
+    let mut command = Command::new(executable);
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::arg0(&mut command, &argv[0]);
+    command
+}
+
 fn execute(
     repo: &Path,
+    executable: Option<&Path>,
     argv: &[String],
     output: &fs::File,
     git: Option<&Path>,
@@ -59,7 +73,7 @@ fn execute(
         let (launch, home) = super::derivation::isolated(Path::new(&argv[0]), git)?;
         (launch, Some(home))
     } else {
-        (Command::new(&argv[0]), None)
+        (direct(executable, argv), None)
     };
     launch
         .args(&argv[1..])
@@ -105,13 +119,14 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
         &policy.environment,
         &policy.environment_bytes,
     )?;
-    inputs.extend(measure_toolchain(
+    let (toolchain_claims, executable) = measure_toolchain(
         &repo,
         &policy.environment,
         &args.config,
         &args.command,
         lane.nix_check.is_none(),
-    )?);
+    )?;
+    inputs.extend(toolchain_claims);
     let nix_check =
         super::signing::derivation(&repo, &head, lane, &policy.environment, &args.config)?;
     let mut execution = if args.reuse { "reused" } else { "rebuild" };
@@ -145,7 +160,7 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     let preparation = if let Some((derivation, nix, git)) = &nix_check {
         if !args.reuse && !derivation.valid(nix, git)? {
             let argv = super::derivation::argv(&lane.argv[0], &derivation.path, "reused")?;
-            let status = execute(&repo, &argv, &output_file, git_tool)?;
+            let status = execute(&repo, None, &argv, &output_file, git_tool)?;
             if status.success() {
                 None
             } else {
@@ -162,7 +177,13 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     let status = if let Some(status) = preparation {
         status
     } else {
-        execute(&repo, &command, &output_file, git_tool)?
+        execute(
+            &repo,
+            executable.as_deref(),
+            &command,
+            &output_file,
+            git_tool,
+        )?
     };
     if !status.success() && nix_check.is_some() {
         execution = "failed";
@@ -189,7 +210,7 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
         ],
     )?;
     super::workspace::verify(&repo, &head, lane, false)?;
-    let closures = measure_toolchain(
+    let (closures, executed) = measure_toolchain(
         &repo,
         &policy.environment,
         &args.config,
@@ -199,7 +220,8 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     ensure!(
         closures
             .iter()
-            .all(|(key, value)| inputs.get(key) == Some(value)),
+            .all(|(key, value)| inputs.get(key) == Some(value))
+            && executed == executable,
         "Nix closure changed during execution"
     );
     let after = config::expected_inputs(
@@ -314,4 +336,41 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     );
     eprintln!("evidence record {}", response.record);
     Ok(exit_code)
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::direct;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::Path;
+
+    fn script(path: &Path, marker: &str) {
+        std::fs::write(path, format!("#!/bin/sh\necho {marker} \"$0\"\n")).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    #[test]
+    fn bound_lane_runs_closure_binary_despite_path_shim() {
+        let shim = tempfile::tempdir().unwrap();
+        let closure = tempfile::tempdir().unwrap();
+        std::fs::create_dir(closure.path().join("bin")).unwrap();
+        script(&shim.path().join("lane-tool"), "shim");
+        let measured = closure.path().join("bin/lane-tool");
+        script(&measured, "closure");
+        let argv = vec!["lane-tool".to_string()];
+        let path = format!("{}:/usr/bin:/bin", shim.path().display());
+        let run = |executable: Option<&Path>| {
+            let output = direct(executable, &argv)
+                .args(&argv[1..])
+                .env("PATH", &path)
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+            String::from_utf8(output.stdout).unwrap()
+        };
+        // Control: the shim really is first on PATH for an unbound launch.
+        assert!(run(None).starts_with("shim "));
+        // The bound launch executes the validated closure path, not the PATH shim.
+        assert!(run(Some(&measured)).starts_with("closure "));
+    }
 }

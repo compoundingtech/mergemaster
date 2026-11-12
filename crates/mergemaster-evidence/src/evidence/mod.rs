@@ -926,7 +926,10 @@ mod policy_path_tests {
     fn fixture(legacy: Option<&[u8]>, current: Option<&[u8]>) -> (tempfile::TempDir, String) {
         let root = tempfile::tempdir().unwrap();
         let repo = root.path();
-        git(repo, &["init", "-q"], None).unwrap();
+        // Fixture setup uses the sanitized plumbing launcher: no host global/system
+        // config or hooks, so agent-host identity policy cannot reject the fixture.
+        let isolated = |args: &[&str]| crate::gate::git::git(repo, args).unwrap();
+        isolated(&["init", "-q"]);
         for (directory, contents) in [(".st", legacy), (".fractal", current)] {
             if let Some(contents) = contents {
                 std::fs::create_dir(repo.join(directory)).unwrap();
@@ -934,22 +937,17 @@ mod policy_path_tests {
                     .unwrap();
             }
         }
-        git(repo, &["add", "."], None).unwrap();
-        git(
-            repo,
-            &[
-                "-c",
-                "user.name=Fixture",
-                "-c",
-                "user.email=fixture@example.test",
-                "commit",
-                "--allow-empty",
-                "-qm",
-                "policy fixture",
-            ],
-            None,
-        )
-        .unwrap();
+        isolated(&["add", "."]);
+        isolated(&[
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.test",
+            "commit",
+            "--allow-empty",
+            "-qm",
+            "policy fixture",
+        ]);
         let revision = commit(repo, "HEAD").unwrap();
         (root, revision)
     }

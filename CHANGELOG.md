@@ -3,6 +3,8 @@
 ## Unreleased
 
 - Fetch the pinned Fractal fixture through shallow Git rather than GitHub's commit-tarball endpoint, preserving its source bytes and revision.
+- Resolve a bare lane `argv[0]` against the measured closures' `bin/` directories (runtime first, then dependencies by name), never the caller's PATH, and execute exactly the resolved canonical closure path, so agent-policy shims can neither substitute the lane executable nor diverge from what is attested; missing names now name the searched closures.
+- Isolate the policy-path test fixture from host Git configuration and hooks.
 
 ## [0.7.0] - 2026-11-12
 
