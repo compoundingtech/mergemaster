@@ -778,6 +778,11 @@ fn compute(
     candidates
         .sort_by(|a, b| (a.2, failed(&a.1, check), &a.0).cmp(&(b.2, failed(&b.1, check), &b.0)));
     let judge = |statement: &Statement| {
+        if let Fact::Tests { inputs, .. } = &statement.predicate.fact
+            && !execution_claims_valid(lane, &config.environment, inputs)
+        {
+            return "wrong_input";
+        }
         let reason = satisfy(
             statement,
             check,
@@ -902,6 +907,37 @@ fn matches_path(path: &str, prefix: &str) -> bool {
 
 fn failed(statement: &Statement, check: &str) -> bool {
     matches!(&statement.predicate.fact, Fact::Tests {checks, ..} if checks[check].exit_code != 0)
+}
+
+fn execution_claims_valid(
+    lane: &Lane,
+    environment: &config::Environment,
+    inputs: &BTreeMap<String, String>,
+) -> bool {
+    let Some(toolchain) = environment.systems.get(&config::current_system()) else {
+        return false;
+    };
+    let artifacts = || {
+        std::iter::once(&toolchain.runtime).chain(toolchain.dependencies.values())
+    };
+    let required = lane.nix_check.is_none()
+        && (lane.direct_exec
+            || (lane.argv.first().is_some_and(|arg| Path::new(arg).is_absolute())
+                && artifacts().any(|artifact| artifact.identity.starts_with("nix:"))));
+    if !required {
+        return true;
+    }
+    inputs.get("executed_executable").is_some_and(|path| {
+        Path::new(path).is_absolute()
+            && !Path::new(path)
+                .components()
+                .any(|part| matches!(part, std::path::Component::ParentDir))
+    }) && inputs.get("executed_artifact").is_some_and(|identity| {
+        identity.starts_with("nix:")
+            && artifacts().any(|artifact| &artifact.identity == identity)
+            && (!lane.direct_exec || identity == &toolchain.runtime.identity)
+            && inputs.contains_key(&format!("nix_closure_sha256:{identity}"))
+    })
 }
 
 fn satisfy<'a>(

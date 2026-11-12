@@ -49,9 +49,8 @@ fn input_git(repo: &Path, args: &[&str], input: &[u8]) -> Result<String> {
     Ok(String::from_utf8(output.stdout)?.trim().to_owned())
 }
 
-/// Direct (non-derivation) launch. A bound Nix lane runs the exact canonical executable
-/// the closure binding validated, never a PATH lookup of `argv[0]`; `argv[0]` stays the
-/// process name so multi-call binaries behave as declared.
+/// Non-derivation launch. Only opted-in scripts and absolute Nix executables
+/// supply a canonical bound path; all other commands retain normal PATH lookup.
 fn direct(executable: Option<&Path>, argv: &[String]) -> Command {
     let Some(executable) = executable else {
         return Command::new(&argv[0]);
@@ -124,7 +123,7 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
         &policy.environment,
         &args.config,
         &args.command,
-        lane.nix_check.is_none(),
+        lane,
     )?;
     inputs.extend(toolchain_claims);
     let nix_check =
@@ -215,15 +214,10 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
         &policy.environment,
         &args.config,
         &command,
-        lane.nix_check.is_none(),
+        lane,
     )?;
-    ensure!(
-        closures
-            .iter()
-            .all(|(key, value)| inputs.get(key) == Some(value))
-            && executed == executable,
-        "Nix closure changed during execution"
-    );
+    super::signing::verify_toolchain_claims(&closures, &inputs)?;
+    ensure!(executed == executable, "Nix executable changed during execution");
     let after = config::expected_inputs(
         &repo,
         &head,
@@ -372,5 +366,19 @@ mod tests {
         assert!(run(None).starts_with("shim "));
         // The bound launch executes the validated closure path, not the PATH shim.
         assert!(run(Some(&measured)).starts_with("closure "));
+    }
+
+    #[test]
+    fn non_opted_in_package_lane_stays_path_resolved() {
+        let shim = tempfile::tempdir().unwrap();
+        script(&shim.path().join("bun"), "policy-wrapper");
+        let argv = vec!["bun".to_owned(), "install".to_owned()];
+        let output = direct(None, &argv)
+            .args(&argv[1..])
+            .env("PATH", shim.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert!(String::from_utf8(output.stdout).unwrap().starts_with("policy-wrapper "));
     }
 }
