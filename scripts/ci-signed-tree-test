@@ -60,7 +60,7 @@ class SignedTree(unittest.TestCase):
         defaults.update(kwargs)
         return self.f.note(head, tree, self.ci, 'machine/ci1', **defaults)
 
-    def run_job(self, head, number=1, base_changes=None, shallow=False, **env):
+    def run_job(self, head, number=1, base_changes=None, shallow=False, script=None, **env):
         """Run the script in a fresh clone of the repository at main, the way the workflow's checkout of the base branch is: with
         `shallow`, at depth 1 as actions/checkout makes it, from a server that serves partial and by-object fetches as GitHub does."""
         checkout = self.f.root / f'base-checkout-{len(list(self.f.root.glob("base-checkout-*")))}'
@@ -81,7 +81,7 @@ class SignedTree(unittest.TestCase):
                            GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_SYSTEM='/dev/null')
         environment.update(env)
         before = subprocess.run(['git', '-C', str(checkout), 'rev-parse', 'HEAD'], capture_output=True).stdout
-        done = subprocess.run([sys.executable, str(checkout / 'scripts/ci-signed-tree')], cwd=checkout, env=environment, capture_output=True)
+        done = subprocess.run([sys.executable, str(script or checkout / 'scripts/ci-signed-tree')], cwd=checkout, env=environment, capture_output=True)
         self.assertEqual(done.returncode, 0, done.stderr)  # a shadow job never fails
         status = subprocess.run(['git', '-C', str(checkout), 'status', '--porcelain'], capture_output=True).stdout
         self.assertEqual(status, b'', 'the pull request must never be checked out into the base checkout')
@@ -99,6 +99,29 @@ class SignedTree(unittest.TestCase):
         head, tree = self.pull_request({'src.txt': 'one\n'})
         fields = self.run_job(head)
         self.assertEqual((fields['decision'], fields['tree'], fields['lanes']), ('would-reject', tree, 'unit:no_record'))
+
+    def test_external_script_uses_its_adjacent_verifier_not_the_consumers(self):
+        marker = self.f.root / 'consumer-verifier-ran'
+        (self.f.repo / 'scripts/evidence-verify').write_text(
+            f"from pathlib import Path\nPath({str(marker)!r}).write_text('ran')\nraise SystemExit(91)\n")
+        doc = json.loads(two_check_policy('shadow'))
+        doc['checks']['unit']['inputs'] = ['src.txt']
+        self.set_policy(json.dumps(doc))
+        self.f.git('add', '-A')
+        self.f.git('commit', '-q', '-m', 'consumer verifier decoy and input policy')
+        old_head, old_tree = self.pull_request({'src.txt': 'same\n', 'other.txt': 'one\n'}, number=1)
+        key = support.evidence_verify.project(str(self.f.repo), old_tree, ['src.txt'])
+        record = self.note(old_head, old_tree, inputs={'source_inputs': key})
+        self.f.git('update-ref', f'refs/notes/evidence-input/unit/{key}/{record}', record)
+        head, tree = self.pull_request({'src.txt': 'same\n', 'other.txt': 'two\n'}, number=2)
+        self.assertNotEqual(tree, old_tree)
+        fields = self.run_job(head, number=2, script=SCRIPT)
+        self.assertFalse(marker.exists(), 'the consumer verifier ran')
+        self.assertEqual((fields['decision'], fields['tree'], fields['lanes']),
+                         ('would-reject', tree, 'unit:wrong_definition'))
+        fetched = subprocess.run(['git', '-C', str(self.last_checkout), 'for-each-ref', '--format=%(refname)', 'refs/notes/'],
+                                 capture_output=True, text=True).stdout.split()
+        self.assertEqual(fetched, [f'refs/notes/evidence-input/unit/{key}/{record}'])
 
     def test_new_only_layout_still_judges_required_lanes(self):
         """arn:lmig:smalltalk:2026-10-27-dot-fractal-config"""
