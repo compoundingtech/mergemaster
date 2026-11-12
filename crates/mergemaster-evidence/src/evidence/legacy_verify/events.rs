@@ -1,4 +1,5 @@
 //! Legacy event intersections and shard-part classification.
+use super::value_inputs::{InputSource, TextRef};
 use crate::evidence::legacy_policy::PolicyRules;
 use std::collections::BTreeMap;
 pub fn narrowed_events<'a>(
@@ -20,20 +21,27 @@ pub fn narrowed_events<'a>(
     }
 }
 pub fn kind_of(runner: &str) -> Option<&'static str> {
-    match runner {
-        "nix" => Some("nix"),
-        "wrapper" => Some("wrapper"),
-        "sekrets" => Some("sekrets"),
-        _ if runner.starts_with("github:") => Some("observed"),
-        _ => None,
-    }
+    kind_of_text(TextRef::Str(runner))
+}
+pub(super) fn kind_of_text(runner: TextRef<'_>) -> Option<&'static str> {
+    ["nix", "wrapper", "sekrets"]
+        .into_iter()
+        .find(|kind| runner.equals(kind))
+        .or_else(|| runner.starts_with("github:").then_some("observed"))
 }
 pub fn shard_part(
     rules: Option<&PolicyRules>,
     runner: &str,
     inputs: &BTreeMap<String, String>,
 ) -> bool {
-    let Some(kind) = kind_of(runner) else {
+    shard_part_source(rules, TextRef::Str(runner), &InputSource::Native(inputs))
+}
+pub(super) fn shard_part_source(
+    rules: Option<&PolicyRules>,
+    runner: TextRef<'_>,
+    inputs: &InputSource<'_>,
+) -> bool {
+    let Some(kind) = kind_of_text(runner) else {
         return false;
     };
     rules
@@ -41,7 +49,7 @@ pub fn shard_part(
         .and_then(|(_, rule)| rule.values.shard_inputs.as_ref())
         .and_then(|shards| shards.index.as_ref())
         .and_then(|index| inputs.get(index))
-        .is_some_and(|value| !value.is_empty())
+        .is_some_and(|value| value.len() != 0)
 }
 
 #[cfg(test)]

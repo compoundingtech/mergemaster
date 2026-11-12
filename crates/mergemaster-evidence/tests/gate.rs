@@ -3500,6 +3500,26 @@ fn legacy_policy_routing_matches_signed_oracle_reason_order() {
             Ok(json!({"reason":"satisfied","command":routing.command_inputs.command,
                 "events":narrowed_events(rules.header.events.as_deref(), routing.level.map(|level| level.events.as_slice()))}))
         }).unwrap_or_else(|failure| json!({"reason":failure.reason,"attempts":failure.attempts}));
+        let doc = mergemaster_evidence::evidence::legacy_verify::statement_document::Document::from_bytes(
+            &serde_json::to_vec(&typed).unwrap()).unwrap();
+        let points: Vec<u32> = CHECK.chars().map(u32::from).collect();
+        let facts = mergemaster_evidence::evidence::legacy_verify::facts::DocumentFacts::for_check(
+            &doc, &points, PRINCIPAL,
+        )
+        .unwrap();
+        let borrowed = mergemaster_evidence::evidence::legacy_verify::routing::route_document(
+            &rules, &facts, 1,
+        );
+        if let Err(native) = route(&rules, &record, 1) {
+            assert_eq!(native, borrowed.err().unwrap());
+        } else {
+            let borrowed = borrowed.and_then(|routing| {
+                routing.check_document_runner(facts.runner, 1)?;
+                Ok(json!({"reason":"satisfied","command":routing.command_inputs.command,
+                    "events":narrowed_events(rules.header.events.as_deref(), routing.level.map(|level| level.events.as_slice()))}))
+            }).unwrap_or_else(|failure| json!({"reason":failure.reason,"attempts":failure.attempts}));
+            assert_eq!(actual, borrowed, "{case}");
+        }
         let keys = f.root.path().join("routing-keys");
         fs::write(
             &keys,

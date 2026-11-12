@@ -551,6 +551,9 @@ Python strings, command arguments or integer exit codes. Check names are code-po
 slices, including lone surrogates; omitted inputs remain distinguishable from `{}`.
 Its failed/level/time facts match Python's selection helpers, but neither extraction
 nor a supplied principal establishes signature trust or authorizes a record.
+`routing::route_document` shares native routing guards and kind/shard classification
+without narrowing those facts. Its runner-prefix guard remains separate, after any
+required lazy lane lookup; subsequent input/clock/lane judgment is not implied.
 `statement_bytes::decode_json_bytes` ports Python's BOM/NUL-based UTF-8/16/32
 transport detection and surrogatepass decoding (3f-2b-1), retaining code points
 including lone surrogates rather than replacing them with invalid Rust strings.
