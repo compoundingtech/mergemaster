@@ -2,6 +2,7 @@
 pub mod collection;
 pub mod discovery;
 pub mod events;
+pub mod facts;
 pub mod inputs;
 pub mod judgment;
 pub mod lane_entry;
@@ -50,6 +51,11 @@ pub fn value_checks(
     value_checks_source(rule, InputSource::Native(inputs), run, attempts)
 }
 /// Apply value guards to a validated statement's input object without narrowing strings.
+///
+/// # Panics
+/// Requires an already validated input object belonging to `document`, with string
+/// values. Unvalidated non-objects/non-string values or foreign arena IDs may panic;
+/// this is not an entry point for untrusted input.
 pub fn value_checks_document(
     rule: &KindRule,
     document: &statement_document::Document,

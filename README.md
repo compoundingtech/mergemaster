@@ -546,6 +546,11 @@ six digits follow Python. It preserves arbitrary-codepoint separators and does
 not narrow statement timestamps to chrono's RFC3339/whole-second-offset domain.
 Its domain is zoned statement times, not Python parse_time's naive-date/time domain;
 the existing public Clock and judgment API are unchanged.
+`facts::DocumentFacts::for_check` borrows selected-check fields without narrowing
+Python strings, command arguments or integer exit codes. Check names are code-point
+slices, including lone surrogates; omitted inputs remain distinguishable from `{}`.
+Its failed/level/time facts match Python's selection helpers, but neither extraction
+nor a supplied principal establishes signature trust or authorizes a record.
 `statement_bytes::decode_json_bytes` ports Python's BOM/NUL-based UTF-8/16/32
 transport detection and surrogatepass decoding (3f-2b-1), retaining code points
 including lone surrogates rather than replacing them with invalid Rust strings.
