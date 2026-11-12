@@ -215,6 +215,18 @@ fn resolve_lane_executable(
     })
 }
 
+/// Artifact role comes from the declaration field, never a dependency map key.
+fn provisioned_artifacts<'a>(
+    config: &'a SignConfig,
+    toolchain: &'a config::Toolchain,
+) -> impl Iterator<Item = (bool, &'a config::Artifact, Option<&'a PathBuf>)> {
+    std::iter::once((true, &toolchain.runtime, Some(&config.toolchain.runtime))).chain(
+        toolchain.dependencies.iter().map(move |(name, artifact)| {
+            (false, artifact, config.toolchain.dependencies.get(name))
+        }),
+    )
+}
+
 /// Independently measure provisioned artifacts and bind execution to Nix closure bytes.
 /// Returns the closure claims and, when execution is bound, the canonical executable
 /// inside a measured closure; the wrapper executes exactly that path.
@@ -239,18 +251,7 @@ pub fn measure_toolchain(
         config.toolchain.dependencies.len() == toolchain.dependencies.len(),
         "dependency measurement set differs"
     );
-    let artifacts = std::iter::once((
-        "runtime",
-        &toolchain.runtime,
-        Some(&config.toolchain.runtime),
-    ))
-    .chain(toolchain.dependencies.iter().map(|(name, artifact)| {
-        (
-            name.as_str(),
-            artifact,
-            config.toolchain.dependencies.get(name),
-        )
-    }));
+    let artifacts = provisioned_artifacts(&config, toolchain);
     let needs_nix = toolchain.runtime.identity.starts_with("nix:")
         || toolchain
             .dependencies
@@ -274,7 +275,7 @@ pub fn measure_toolchain(
         "direct_exec requires a measured Nix runtime"
     );
     let mut executed_artifact = None;
-    for (name, artifact, provisioned) in artifacts {
+    for (is_runtime, artifact, provisioned) in artifacts {
         let provisioned = provisioned.context("missing dependency measurement")?;
         if let Some(closure) = measure(provisioned, artifact, nix.as_deref())? {
             claims.insert(
@@ -284,7 +285,7 @@ pub fn measure_toolchain(
             if executable
                 .as_ref()
                 .is_some_and(|exe| inside_closure(exe, closure.keys()))
-                && (!lane.direct_exec || name == "runtime")
+                && (!lane.direct_exec || is_runtime)
                 && executed_artifact.is_none()
             {
                 executed_artifact = Some(artifact.identity.clone());
@@ -914,24 +915,47 @@ json.dump([signer.unsafe_file(p, types.SimpleNamespace(st_mode=m, st_uid=u)) is 
 
     #[cfg(unix)]
     #[test]
-    fn runtime_symlink_to_dependency_does_not_select_dependency_artifact() {
-        let runtime = tempfile::tempdir().unwrap();
-        let dependency = tempfile::tempdir().unwrap();
-        std::fs::create_dir(runtime.path().join("bin")).unwrap();
-        let target = dependency.path().join("bun");
-        std::fs::write(&target, "outside").unwrap();
-        std::os::unix::fs::symlink(&target, runtime.path().join("bin/bun")).unwrap();
-        let (config, toolchain, _) = closure_fixture(runtime.path(), &[dependency.path()]);
-        let resolved = resolve_lane_executable(&config, &toolchain, "bun").unwrap();
-        let runtime_roots = [runtime.path().canonicalize().unwrap().display().to_string()];
-        let dependency_roots = [dependency
-            .path()
-            .canonicalize()
-            .unwrap()
-            .display()
-            .to_string()];
-        assert!(!inside_closure(&resolved, runtime_roots.iter()));
-        assert!(inside_closure(&resolved, dependency_roots.iter()));
+    fn dependency_named_runtime_never_selects_or_requires_its_bun() {
+        for dependency_has_bun in [false, true] {
+            let runtime = tempfile::tempdir().unwrap();
+            let dependency = tempfile::tempdir().unwrap();
+            let outside = tempfile::tempdir().unwrap();
+            std::fs::create_dir(runtime.path().join("bin")).unwrap();
+            std::fs::create_dir(dependency.path().join("bin")).unwrap();
+            let target = dependency.path().join("real-bun");
+            std::fs::write(&target, "dependency").unwrap();
+            if dependency_has_bun {
+                std::fs::write(dependency.path().join("bin/bun"), "dependency bun").unwrap();
+            }
+            let intermediate = outside.path().join("example-bun");
+            std::os::unix::fs::symlink(&target, &intermediate).unwrap();
+            std::os::unix::fs::symlink(&intermediate, runtime.path().join("bin/bun")).unwrap();
+            let (mut config, mut toolchain, _) =
+                closure_fixture(runtime.path(), &[dependency.path()]);
+            let provisioned = config.toolchain.dependencies.remove("dep0").unwrap();
+            config
+                .toolchain
+                .dependencies
+                .insert("runtime".into(), provisioned);
+            let artifact = toolchain.dependencies.remove("dep0").unwrap();
+            toolchain.dependencies.insert("runtime".into(), artifact);
+            let executable = resolve_lane_executable(&config, &toolchain, "bun").unwrap();
+            assert_eq!(executable, target.canonicalize().unwrap());
+            let select = |direct_exec| {
+                provisioned_artifacts(&config, &toolchain).find_map(
+                    |(is_runtime, artifact, root)| {
+                        let roots = [root.unwrap().canonicalize().unwrap().display().to_string()];
+                        (inside_closure(&executable, roots.iter()) && (!direct_exec || is_runtime))
+                            .then_some(artifact.identity.as_str())
+                    },
+                )
+            };
+            assert_eq!(select(true), None);
+            assert_eq!(
+                select(false),
+                Some(toolchain.dependencies["runtime"].identity.as_str())
+            );
+        }
     }
 
     fn closure_fixture(

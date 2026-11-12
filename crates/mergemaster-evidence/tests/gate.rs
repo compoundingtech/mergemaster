@@ -1557,7 +1557,7 @@ fn direct_exec_fixture(argv: Value, direct_exec: bool) -> Fixture {
         json!({
             "version":1,"systems":{(mergemaster_evidence::gate::config::current_system()):{
                 "runtime":{"name":"bun","identity":format!("nix:{runtime}")},
-                "dependencies":{"fixture":{"name":"fixture","identity":format!("nix:{dependency}")}}
+                "dependencies":{"runtime":{"name":"fixture","identity":format!("nix:{dependency}")}}
             }}
         })
         .to_string(),
