@@ -21,10 +21,12 @@ pub mod statement_bytes;
 pub mod statement_document;
 pub mod statement_tokens;
 pub mod trust;
+mod value_inputs;
 pub mod workflow;
 use super::legacy_policy::kind_rules::KindRule;
 use serde::Serialize;
 use std::collections::BTreeMap;
+use value_inputs::{InputSource, TextRef};
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct Failure {
@@ -45,14 +47,40 @@ pub fn value_checks(
     run: &BTreeMap<String, String>,
     attempts: usize,
 ) -> Result<(), Failure> {
+    value_checks_source(rule, InputSource::Native(inputs), run, attempts)
+}
+/// Apply value guards to a validated statement's input object without narrowing strings.
+pub fn value_checks_document(
+    rule: &KindRule,
+    document: &statement_document::Document,
+    inputs: &statement_document::Node,
+    run: &BTreeMap<String, String>,
+    attempts: usize,
+) -> Result<(), Failure> {
+    let statement_document::Node::Object(inputs) = inputs else {
+        panic!("validated inputs are an object")
+    };
+    value_checks_source(rule, InputSource::Document(document, inputs), run, attempts)
+}
+fn value_checks_source(
+    rule: &KindRule,
+    inputs: InputSource<'_>,
+    run: &BTreeMap<String, String>,
+    attempts: usize,
+) -> Result<(), Failure> {
     let fail = |reason, key: &str| Failure {
         reason,
         detail: format!("input {key} does not cover this run"),
         attempts,
     };
     for (key, order) in &rule.values.input_order {
-        let rank = |value| order.iter().position(|entry| Some(entry) == value);
-        let run_rank = rank(run.get(key)).ok_or_else(|| fail("no_run_input", key))?;
+        let rank = |value: Option<TextRef<'_>>| {
+            order
+                .iter()
+                .position(|entry| value.is_some_and(|v| v.equals(entry)))
+        };
+        let run_rank =
+            rank(run.get(key).map(|v| TextRef::Str(v))).ok_or_else(|| fail("no_run_input", key))?;
         if rank(inputs.get(key)).is_none_or(|note_rank| note_rank > run_rank) {
             return Err(fail("wrong_input", key));
         }
@@ -62,31 +90,22 @@ pub fn value_checks(
             .get(key)
             .filter(|value| !value.is_empty())
             .ok_or_else(|| fail("no_run_input", key))?;
-        if inputs.get(key) != Some(expected) {
+        if !inputs.get(key).is_some_and(|value| value.equals(expected)) {
             return Err(fail("wrong_input", key));
         }
     }
     if let Some(shards) = &rule.values.shard_inputs {
         let count = inputs
             .get(&shards.count)
-            .and_then(|value| shard_count(value))
+            .and_then(shard_count)
             .ok_or_else(|| fail("wrong_input", &shards.count))?;
-        let complete = inputs.get(&shards.results).is_some_and(|value| {
-            let mut parts = value.split(',');
-            (0..count).all(|index| {
-                parts.next().is_some_and(|part| {
-                    part.split_once('=').is_some_and(|(number, status)| {
-                        status == "success"
-                            && number.len() == if index < 10 { 1 } else { 2 }
-                            && number.parse::<u8>().ok() == Some(index)
-                    })
-                })
-            }) && parts.next().is_none()
-        });
+        let complete = inputs
+            .get(&shards.results)
+            .is_some_and(|value| value.complete_shards(count));
         if !complete
             || (inputs
                 .get("event_name")
-                .is_some_and(|event| event == "pull_request")
+                .is_some_and(|event| event.equals("pull_request"))
                 && shards
                     .pull_request_count
                     .flatten()
@@ -97,17 +116,17 @@ pub fn value_checks(
     }
     Ok(())
 }
-fn shard_count(value: &str) -> Option<u8> {
+fn shard_count(value: TextRef<'_>) -> Option<u8> {
     // unicode-shard-count: ordinary refusal, not Python's numeric conversion exceptions.
-    if value.is_empty() || value.len() > 4300 || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+    if value.len() == 0 || value.len() > 4300 || !value.points().all(|p| (48..=57).contains(&p)) {
         return None;
     }
     value
-        .bytes()
+        .points()
         .try_fold(0_u8, |count, digit| {
             count
                 .checked_mul(10)?
-                .checked_add(digit - b'0')
+                .checked_add(u8::try_from(digit - 48).ok()?)
                 .filter(|count| *count <= 16)
         })
         .filter(|count| *count > 0)
@@ -205,7 +224,14 @@ print(json.dumps(results))
                 .unwrap();
             let inputs = serde_json::from_value(case[1].clone()).unwrap();
             let run = serde_json::from_value(case[2].clone()).unwrap();
-            let actual = value_checks(&rules.kinds[0].1, &inputs, &run, 7)
+            let native = value_checks(&rules.kinds[0].1, &inputs, &run, 7);
+            let document =
+                statement_document::Document::from_bytes(case[1].to_string().as_bytes()).unwrap();
+            assert_eq!(
+                native,
+                value_checks_document(&rules.kinds[0].1, &document, document.root(), &run, 7)
+            );
+            let actual = native
                 .map(|()| json!({"reason":"satisfied"}))
                 .unwrap_or_else(|failure| {
                     assert!(!failure.detail.is_empty());

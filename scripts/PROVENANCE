@@ -180,6 +180,10 @@
 # Arabic-Indic/fullwidth/mathematical digits produce wrong_input, not acceptance.
 # Leading ASCII zeros match Python through 4300 digits. Above 4300 digits and
 # for superscript two, Rust returns wrong_input where Python int raises ValueError.
+# Lossless document input guards share the existing native value-check body.
+# Surrogate keys/values remain code points; no replacement, stripping or new
+# statement refusal. Surrogate counts fail Python's isdigit() guard before int();
+# both implementations return wrong_input for those counts.
 # Conservative divergence: max-age-duration-overflow. At max_age_s >=
 # 86400000000000 Python raises OverflowError; Rust returns reason=error after
 # future_dated, before required inputs. Every record reaching it fails, so no
