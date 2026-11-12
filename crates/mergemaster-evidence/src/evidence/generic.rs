@@ -209,15 +209,13 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
         ],
     )?;
     super::workspace::verify(&repo, &head, lane, false)?;
-    let (closures, executed) = measure_toolchain(
-        &repo,
-        &policy.environment,
-        &args.config,
-        &command,
-        lane,
-    )?;
+    let (closures, executed) =
+        measure_toolchain(&repo, &policy.environment, &args.config, &command, lane)?;
     super::signing::verify_toolchain_claims(&closures, &inputs)?;
-    ensure!(executed == executable, "Nix executable changed during execution");
+    ensure!(
+        executed == executable,
+        "Nix executable changed during execution"
+    );
     let after = config::expected_inputs(
         &repo,
         &head,
@@ -379,6 +377,10 @@ mod tests {
             .output()
             .unwrap();
         assert!(output.status.success());
-        assert!(String::from_utf8(output.stdout).unwrap().starts_with("policy-wrapper "));
+        assert!(
+            String::from_utf8(output.stdout)
+                .unwrap()
+                .starts_with("policy-wrapper ")
+        );
     }
 }

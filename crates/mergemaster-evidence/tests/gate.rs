@@ -1602,7 +1602,10 @@ fn direct_exec_opt_in_changes_lane_hash_but_false_preserves_serialization() {
         enabled["lane_definition_sha256"],
         ordinary["lane_definition_sha256"]
     );
-    assert_eq!(enabled["environment_sha256"], ordinary["environment_sha256"]);
+    assert_eq!(
+        enabled["environment_sha256"],
+        ordinary["environment_sha256"]
+    );
     assert_eq!(enabled["toolchain_sha256"], ordinary["toolchain_sha256"]);
     let serialized = serde_json::to_value(&disabled).unwrap();
     assert!(serialized.get("direct_exec").is_none());
@@ -1689,7 +1692,10 @@ fn nix_execution_receipts_are_required_and_bound_to_the_declared_artifact() {
                     json!("c".repeat(64)),
                 );
             }
-            inputs.insert("executed_executable".into(), json!(format!("{runtime}/bin/bun")));
+            inputs.insert(
+                "executed_executable".into(),
+                json!(format!("{runtime}/bin/bun")),
+            );
             inputs.insert("executed_artifact".into(), json!(format!("nix:{runtime}")));
             match case {
                 "absent" => {
@@ -1717,7 +1723,10 @@ fn nix_execution_receipts_are_required_and_bound_to_the_declared_artifact() {
                         json!(format!("nix:/nix/store/{}-foreign", "c".repeat(32))),
                     );
                     inputs.insert(
-                        format!("nix_closure_sha256:nix:/nix/store/{}-foreign", "c".repeat(32)),
+                        format!(
+                            "nix_closure_sha256:nix:/nix/store/{}-foreign",
+                            "c".repeat(32)
+                        ),
                         json!("c".repeat(64)),
                     );
                 }
@@ -1732,7 +1741,10 @@ fn nix_execution_receipts_are_required_and_bound_to_the_declared_artifact() {
                     inputs.remove(&format!("nix_closure_sha256:nix:{runtime}"));
                 }
                 "dependency_artifact" => {
-                    inputs.insert("executed_artifact".into(), json!(format!("nix:{dependency}")));
+                    inputs.insert(
+                        "executed_artifact".into(),
+                        json!(format!("nix:{dependency}")),
+                    );
                     if direct_exec {
                         inputs.insert(
                             "executed_executable".into(),

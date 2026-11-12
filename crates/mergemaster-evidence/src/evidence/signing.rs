@@ -207,8 +207,12 @@ fn resolve_lane_executable(
         );
         config.toolchain.runtime.join("bin/bun")
     };
-    std::fs::canonicalize(&resolved)
-        .with_context(|| format!("lane executable is not a resolvable file: {}", resolved.display()))
+    std::fs::canonicalize(&resolved).with_context(|| {
+        format!(
+            "lane executable is not a resolvable file: {}",
+            resolved.display()
+        )
+    })
 }
 
 /// Independently measure provisioned artifacts and bind execution to Nix closure bytes.
@@ -255,7 +259,10 @@ pub fn measure_toolchain(
     let nix = needs_nix.then(|| find_tool(&config, "nix")).transpose()?;
     let mut claims = BTreeMap::new();
     let bind_execution = lane.nix_check.is_none()
-        && (lane.direct_exec || command.first().is_some_and(|arg| Path::new(arg).is_absolute()));
+        && (lane.direct_exec
+            || command
+                .first()
+                .is_some_and(|arg| Path::new(arg).is_absolute()));
     let executable = if needs_nix && bind_execution {
         let argv0 = command.first().context("missing lane executable")?;
         Some(resolve_lane_executable(&config, toolchain, argv0)?)
@@ -308,7 +315,9 @@ pub(super) fn verify_toolchain_claims(
     reported: &BTreeMap<String, String>,
 ) -> Result<()> {
     ensure!(
-        measured.iter().all(|(key, value)| reported.get(key) == Some(value)),
+        measured
+            .iter()
+            .all(|(key, value)| reported.get(key) == Some(value)),
         "independent Nix toolchain claim mismatch"
     );
     Ok(())
@@ -749,16 +758,25 @@ mod hardening_tests {
             let measured = BTreeMap::from([
                 ("executed_executable".into(), executable.into()),
                 ("executed_artifact".into(), "nix:/nix/store/runtime".into()),
-                ("nix_closure_sha256:nix:/nix/store/runtime".into(), "a".repeat(64)),
+                (
+                    "nix_closure_sha256:nix:/nix/store/runtime".into(),
+                    "a".repeat(64),
+                ),
             ]);
             verify_toolchain_claims(&measured, &measured).unwrap();
             for key in ["executed_executable", "executed_artifact"] {
                 let mut missing = measured.clone();
                 missing.remove(key);
-                assert!(verify_toolchain_claims(&measured, &missing).is_err(), "{key}");
+                assert!(
+                    verify_toolchain_claims(&measured, &missing).is_err(),
+                    "{key}"
+                );
                 let mut tampered = measured.clone();
                 tampered.insert(key.into(), "/nix/store/different".into());
-                assert!(verify_toolchain_claims(&measured, &tampered).is_err(), "{key}");
+                assert!(
+                    verify_toolchain_claims(&measured, &tampered).is_err(),
+                    "{key}"
+                );
             }
         }
     }
@@ -906,7 +924,12 @@ json.dump([signer.unsafe_file(p, types.SimpleNamespace(st_mode=m, st_uid=u)) is 
         let (config, toolchain, _) = closure_fixture(runtime.path(), &[dependency.path()]);
         let resolved = resolve_lane_executable(&config, &toolchain, "bun").unwrap();
         let runtime_roots = [runtime.path().canonicalize().unwrap().display().to_string()];
-        let dependency_roots = [dependency.path().canonicalize().unwrap().display().to_string()];
+        let dependency_roots = [dependency
+            .path()
+            .canonicalize()
+            .unwrap()
+            .display()
+            .to_string()];
         assert!(!inside_closure(&resolved, runtime_roots.iter()));
         assert!(inside_closure(&resolved, dependency_roots.iter()));
     }

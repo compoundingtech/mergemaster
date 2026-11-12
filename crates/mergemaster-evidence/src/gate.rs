@@ -917,12 +917,13 @@ fn execution_claims_valid(
     let Some(toolchain) = environment.systems.get(&config::current_system()) else {
         return false;
     };
-    let artifacts = || {
-        std::iter::once(&toolchain.runtime).chain(toolchain.dependencies.values())
-    };
+    let artifacts = || std::iter::once(&toolchain.runtime).chain(toolchain.dependencies.values());
     let required = lane.nix_check.is_none()
         && (lane.direct_exec
-            || (lane.argv.first().is_some_and(|arg| Path::new(arg).is_absolute())
+            || (lane
+                .argv
+                .first()
+                .is_some_and(|arg| Path::new(arg).is_absolute())
                 && artifacts().any(|artifact| artifact.identity.starts_with("nix:"))));
     if !required {
         return true;
