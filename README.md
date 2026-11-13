@@ -591,6 +591,9 @@ API; borrowed result consumers need not allocate or copy an event list.
 including lossless command/input/event iterators and deciding/skip metadata.
 Without rules it preserves caller max-age and uses policy=false, enforce=false,
 sample_one_in=1 and no events. JSON serialization/CLI cutover remain separate.
+Joined rules-absent parity tests use actual SHA-1/SHA-256 trees, SSH-signed notes,
+signature partition and Git blob reads through selection/result conversion, including
+Unix non-UTF-8 binding paths, lossless keys, skips/preferences and refusals.
 `statement_bytes::decode_json_bytes` ports Python's BOM/NUL-based UTF-8/16/32
 transport detection and surrogatepass decoding (3f-2b-1), retaining code points
 including lone surrogates rather than replacing them with invalid Rust strings.
