@@ -103,6 +103,9 @@ pub fn candidates(
         failure("no_record", format!("no record for check {}", q.check), 0)
     })
 }
+#[cfg(all(test, unix))]
+#[path = "joined_tests.rs"]
+mod joined_tests;
 #[cfg(test)]
 #[path = "prefix_tests.rs"]
 mod tests;
