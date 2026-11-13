@@ -2,7 +2,7 @@ use super::statement_document::{Document, Node};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Copy)]
-pub(super) enum TextRef<'a> {
+pub(crate) enum TextRef<'a> {
     Str(&'a str),
     Points(&'a [u32]),
 }
@@ -16,7 +16,7 @@ impl TextRef<'_> {
             }
         }
     }
-    pub(super) fn points(self) -> impl Iterator<Item = u32> {
+    pub(crate) fn points(self) -> impl Iterator<Item = u32> {
         let (text, points) = match self {
             Self::Str(text) => (text, &[][..]),
             Self::Points(points) => ("", points),

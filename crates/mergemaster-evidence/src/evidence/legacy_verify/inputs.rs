@@ -22,7 +22,7 @@ pub enum AgeLimit {
     Overflow,
 }
 enum ExpectedCommand<'a> {
-    Text(&'a [String]),
+    Text(&'a [crate::evidence::legacy_policy::normalized_text::NormalizedText]),
     Points(&'a [Vec<u32>]),
 }
 struct Guards<'a> {
@@ -54,7 +54,14 @@ impl CheckSource<'_> {
     }
     fn matches_command(&self, expected: ExpectedCommand<'_>) -> bool {
         match (self, expected) {
-            (Self::Native(check), ExpectedCommand::Text(expected)) => check.command == expected,
+            (Self::Native(check), ExpectedCommand::Text(expected)) => {
+                check.command.len() == expected.len()
+                    && check
+                        .command
+                        .iter()
+                        .zip(expected)
+                        .all(|(actual, expected)| expected.borrowed().equals(actual))
+            }
             (Self::Native(check), ExpectedCommand::Points(expected)) => {
                 check.command.len() == expected.len()
                     && check
@@ -65,10 +72,9 @@ impl CheckSource<'_> {
             }
             (Self::Document(record), ExpectedCommand::Text(expected)) => {
                 record.command().len() == expected.len()
-                    && record
-                        .command()
-                        .zip(expected)
-                        .all(|(actual, expected)| TextRef::Points(actual).equals(expected))
+                    && record.command().zip(expected).all(|(actual, expected)| {
+                        actual.iter().copied().eq(expected.borrowed().points())
+                    })
             }
             (Self::Document(record), ExpectedCommand::Points(expected)) => {
                 record.command().eq(expected.iter().map(Vec::as_slice))

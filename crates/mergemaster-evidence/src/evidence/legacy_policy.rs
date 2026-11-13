@@ -2,6 +2,7 @@
 pub mod check_names;
 pub mod kind_rules;
 pub mod level_rules;
+pub mod normalized_text;
 pub mod value_rules;
 use check_names::{CheckKey, Selection};
 use serde::{
@@ -287,7 +288,7 @@ fn invalid(detail: impl Into<String>) -> PolicyError {
 
 #[derive(Debug, Serialize)]
 pub struct CommandInputs {
-    pub command: Vec<String>,
+    pub command: Vec<normalized_text::NormalizedText>,
     pub required_inputs: Vec<String>,
     #[serde(serialize_with = "serialize_pairs")]
     pub bind_inputs: Vec<(String, String)>,
@@ -321,7 +322,10 @@ pub fn checked_command_inputs(
     )
     .ok_or_else(malformed)?;
     Ok(CommandInputs {
-        command,
+        command: command
+            .into_iter()
+            .map(normalized_text::NormalizedText::Scalar)
+            .collect(),
         required_inputs,
         bind_inputs,
     })

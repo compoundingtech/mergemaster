@@ -16,7 +16,7 @@ v.update(command=None,kinds=(),bind=(),max_age=None,runner_prefix=None,trust_lev
 v['failed'] = lambda entry: entry[1]['predicate']['observed']['checks']['check']['exit_code'] != 0
 exec(compile(ast.fix_missing_locations(ast.Module(body=[judge],type_ignores=[])),str(path),'exec'),v)
 inputs = dict(req='yes',rank='strong',base='same',n='1',r='0=success'); cases = []
-def add(label, observed='2026-01-01T00:00:00Z', now='2026-01-01T00:00:05Z', age=10, changes=None, code=0, command=None, rule_changes=None):
+def add(label, observed='2026-01-01T00:00:00Z', now='2026-01-01T00:00:05Z', age=10, changes=None, code=0, command=None, rule_changes=None, prepared=None):
     rule = dict(command=['true'],required_inputs=['req'],input_order=dict(rank=['strong','weak']),base_inputs=dict(base='.'),shard_inputs=dict(count='n',results='r'))
     rule.update(rule_changes or {}); entry = dict(trust_levels=['agent'],kinds=dict(wrapper=rule))
     if age is not None: entry['max_age_s'] = age
@@ -25,11 +25,14 @@ def add(label, observed='2026-01-01T00:00:00Z', now='2026-01-01T00:00:05Z', age=
     statement = dict(predicate=dict(tier='full',observed_at=observed,observed=dict(runner='wrapper',inputs=values,checks=dict(check=dict(exit_code=code,command=command or ['true'])))))
     if changes is None: del statement['predicate']['observed']['inputs']
     v.update(rules=v['policy_rules'](policy,'check','owner/repo'),now=v['parse_time'](now),run_inputs=dict(rank='weak',base='same'))
+    if prepared:
+        v['rules']['kinds']['wrapper'].update(command=prepared['command'],runner_prefix=prepared['prefix'])
+        statement['predicate']['observed']['runner']=prepared['runner']
     try: expected = v['judge'](('record',statement,'agent/alice'))
     except v['Failure'] as failure: expected = dict(reason=failure.reason,attempts=failure.extra['attempts'])
     except OverflowError: expected = dict(reason='error',attempts=7)
     delta = v['now'] - datetime(1970,1,1,tzinfo=timezone.utc)
-    cases.append(dict(label=ascii(label),policy=policy,raw=json.dumps(statement),expected=expected,exit_code=str(code),now=(delta.days*86400+delta.seconds)*1000000+delta.microseconds))
+    cases.append(dict(label=ascii(label),policy=policy,raw=json.dumps(statement),expected=expected,exit_code=str(code),now=(delta.days*86400+delta.seconds)*1000000+delta.microseconds,prepared=None if prepared is None else dict(command=[list(map(ord,x)) for x in prepared['command']],prefix=list(map(ord,prepared['prefix'])))))
 for offset in ['00:02:00','00:02:00.0000009','00:02:00.000001','00:02:01']:
     add('future '+offset,observed='2026-01-01T'+offset+'Z',now='2026-01-01T00:00:00Z',age=86400000000000,changes={})
 for now in ['2026-01-01T00:00:10Z','2026-01-01T00:00:10.0000009Z','2026-01-01T00:00:10.000001Z','2025-12-31T23:59:59Z']:
@@ -72,6 +75,8 @@ for offset in ('00:02:00','00:02:00.000001','00:02:01'):
     loose('loose future precedence '+offset,expected=['wrong'],code=1,age=10**100,observed='2026-01-01T'+offset+'Z',now='2026-01-01T00:00:00Z')
 for now in ('9999-12-31T23:57:59.999999Z','9999-12-31T23:58:00Z','9999-12-31T23:59:59.999999Z'):
     loose('loose UTC overflow '+now,observed='9999-12-31T23:57:59Z',now=now)
+for command,runner in [(['\ud800'],'x\ud800'),(['\ufffd'],'x\ud800'),(['\ud800'],'x\ufffd'),(['🦀'],'x🦀')]:
+    add('prepared '+repr((command,runner)),command=command,changes={},prepared=dict(command=['🦀'] if command==['🦀'] else ['\ud800'],prefix='x🦀' if command==['🦀'] else 'x\ud800',runner=runner))
 print(json.dumps(cases))
 "#;
     let output = std::process::Command::new("python3")
@@ -84,7 +89,7 @@ print(json.dumps(cases))
         String::from_utf8_lossy(&output.stderr)
     );
     let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(cases.len(), 164);
+    assert_eq!(cases.len(), 168);
     for case in cases {
         let doc = super::super::statement_document::Document::from_bytes(
             case["raw"].as_str().unwrap().as_bytes(),
@@ -112,25 +117,87 @@ print(json.dumps(cases))
                 7,
             )
         } else {
-            let rules = PolicyDocument::parse(case["policy"].as_str().unwrap(), "check")
+            let mut rules = PolicyDocument::parse(case["policy"].as_str().unwrap(), "check")
                 .unwrap()
                 .into_rules("owner/repo")
                 .unwrap();
-            super::super::routing::route_document(&rules, &facts, 7).and_then(|routing| {
-                routing.check_document_runner(facts.runner, 7)?;
-                check_document_inputs(
-                    &rules,
-                    &routing,
-                    &facts,
-                    case["now"].as_i64().unwrap(),
-                    &run,
-                    7,
-                )
-            })
+            use crate::evidence::legacy_policy::normalized_text::NormalizedText;
+            if let Some(prepared) = case["prepared"].as_object() {
+                rules.kinds[0].1.inputs.command =
+                    serde_json::from_value::<Vec<Vec<u32>>>(prepared["command"].clone())
+                        .unwrap()
+                        .into_iter()
+                        .map(NormalizedText::Codepoints)
+                        .collect();
+                rules.kinds[0].1.runner_prefix = Some(NormalizedText::Codepoints(
+                    serde_json::from_value(prepared["prefix"].clone()).unwrap(),
+                ));
+            }
+            let evaluate = |rules: &PolicyRules| {
+                super::super::routing::route_document(rules, &facts, 7).and_then(|routing| {
+                    routing.check_document_runner(facts.runner, 7)?;
+                    check_document_inputs(
+                        rules,
+                        &routing,
+                        &facts,
+                        case["now"].as_i64().unwrap(),
+                        &run,
+                        7,
+                    )
+                })
+            };
+            let first = evaluate(&rules);
+            for (_, kind) in &mut rules.kinds {
+                for text in &mut kind.inputs.command {
+                    *text = NormalizedText::Codepoints(text.borrowed().points().collect());
+                }
+                if let Some(prefix) = &mut kind.runner_prefix {
+                    *prefix = NormalizedText::Codepoints(prefix.borrowed().points().collect());
+                }
+            }
+            let points = evaluate(&rules);
+            assert_eq!(
+                first
+                    .as_ref()
+                    .map(|_| ())
+                    .map_err(|e| (e.reason, e.attempts)),
+                points
+                    .as_ref()
+                    .map(|_| ())
+                    .map_err(|e| (e.reason, e.attempts))
+            );
+            points
         };
         let actual = checked
             .map(|()| json!({"reason":"satisfied"}))
             .unwrap_or_else(|failure| json!({"reason":failure.reason,"attempts":failure.attempts}));
         assert_eq!(actual, case["expected"], "{}", case["label"]);
+    }
+}
+
+#[test]
+fn normalized_policy_text_preserves_native_command_comparisons() {
+    use crate::evidence::legacy_policy::normalized_text::NormalizedText;
+    for (actual, expected) in [("true", "true"), ("🦀", "🦀"), ("🦀", "�")] {
+        let check = crate::evidence::Check {
+            command: vec![actual.into()],
+            exit_code: 0,
+            output_sha256: String::new(),
+        };
+        let scalar = [NormalizedText::Scalar(expected.into())];
+        let points = [NormalizedText::Codepoints(
+            expected.chars().map(u32::from).collect(),
+        )];
+        for command in [&scalar, &points] {
+            assert_eq!(
+                CheckSource::Native(&check).matches_command(ExpectedCommand::Text(command)),
+                actual == expected
+            );
+        }
+        assert!(
+            !CheckSource::Native(&check).matches_command(ExpectedCommand::Text(&[
+                NormalizedText::Codepoints(vec![0xd800])
+            ]))
+        );
     }
 }
