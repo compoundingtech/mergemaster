@@ -339,22 +339,35 @@ pub(super) fn encode_integer(value: &Value, out: &mut String) {
     }
 }
 pub(super) fn string(value: &str, out: &mut impl Write) -> fmt::Result {
+    codepoints(value.chars().map(u32::from), out)
+}
+
+pub(super) fn codepoints(
+    value: impl IntoIterator<Item = u32>,
+    out: &mut impl Write,
+) -> fmt::Result {
     out.write_char('"')?;
-    for ch in value.chars() {
-        match ch {
-            '"' => out.write_str("\\\"")?,
-            '\\' => out.write_str("\\\\")?,
-            '\x08' => out.write_str("\\b")?,
-            '\x0c' => out.write_str("\\f")?,
-            '\n' => out.write_str("\\n")?,
-            '\r' => out.write_str("\\r")?,
-            '\t' => out.write_str("\\t")?,
-            ' '..='~' => out.write_char(ch)?,
-            _ => {
-                for unit in ch.encode_utf16(&mut [0; 2]) {
-                    write!(out, "\\u{unit:04x}")?;
-                }
+    for point in value {
+        match point {
+            0x22 => out.write_str("\\\"")?,
+            0x5c => out.write_str("\\\\")?,
+            8 => out.write_str("\\b")?,
+            12 => out.write_str("\\f")?,
+            10 => out.write_str("\\n")?,
+            13 => out.write_str("\\r")?,
+            9 => out.write_str("\\t")?,
+            0x20..=0x7e => out.write_char(char::from_u32(point).ok_or(fmt::Error)?)?,
+            0..=0xffff => write!(out, "\\u{point:04x}")?,
+            0x10000..=0x10ffff => {
+                let offset = point - 0x10000;
+                write!(
+                    out,
+                    "\\u{:04x}\\u{:04x}",
+                    0xd800 + (offset >> 10),
+                    0xdc00 + (offset & 0x3ff)
+                )?;
             }
+            _ => return Err(fmt::Error),
         }
     }
     out.write_char('"')
