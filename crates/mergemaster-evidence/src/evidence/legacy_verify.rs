@@ -14,6 +14,7 @@ pub mod lanes;
 pub mod ordering;
 pub mod prefix;
 pub mod projection;
+pub mod python_repr;
 pub mod raw_batch;
 pub mod records;
 pub mod require_all;
