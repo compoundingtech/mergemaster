@@ -211,8 +211,9 @@
 # Rust refuses >127, including 1200. Integer cap: 4300 digits.
 # Policy-mode candidate selection 1149-1196 now shares lossless judgment guards;
 # preference, stable ties, conservative failures and deciding/skip metadata match.
+# Policy-mode result dictionary 1135-1146 is a borrowed lossless view; no JSON writer.
 # Unported single-check surfaces, owned by 4d-5 (immutable evidence-verify lines):
-# final result dictionary 1135-1146; members 1198-1312; log shadow 783-912.
+# rules-absent mode; members 1198-1312; log shadow 783-912; CLI serialization.
 # Port: 64351934f2f637f63f44d1f5d72563414135a3cc
 # Scope: scripts/st-test scripts/fractal-test-test; two-hour queue aging.
 # Upstream hunks SHA256: 368ffaff939aecc9bb91e7979a4f273d4fb7ab63aca501c609b34e7614743336

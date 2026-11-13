@@ -18,7 +18,7 @@ pub struct DocumentFacts<'a> {
     pub(super) local_micros: i64,
     /// None represents Python's omitted inputs, equivalent to an empty object.
     pub inputs: Option<&'a Node>,
-    document: &'a Document,
+    pub(super) document: &'a Document,
     command: &'a [usize],
 }
 impl<'a> DocumentFacts<'a> {
