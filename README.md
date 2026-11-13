@@ -646,6 +646,10 @@ Its Display is diagnostic-only; scalar-only serde refuses code-point storage.
 core error carriers. `CurrentTime` returns typed `ClockException`, preserving class
 and lossless detail through judgment and global aggregate aborts, never inferring
 the class from a message. The wire bridge preserves that class without text inference.
+Lane and declared-path diagnostics preserve borrowed Python code-point contexts;
+their missing/shape/argv/path reasons and details follow the pinned source.
+Invalid path text uses the pinned Python repr primitive, not Rust Debug.
+Other policy/judgment diagnostic construction is ported in separate module slices.
 Failure attempts distinguish `None` (absent) from `Some(0)` (explicit zero).
 Exceptions and prefix misses retain absence; degraded records retain their explicit
 count. Zero normalization is confined to existing oracle-test transports, not wire output.

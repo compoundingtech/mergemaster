@@ -13,6 +13,31 @@ impl NormalizedText {
             Self::Codepoints(points) => TextRef::Points(points),
         }
     }
+    /// Concatenate borrowed diagnostic fragments; allocate only the owned result.
+    pub(crate) fn concat<'a>(parts: impl Iterator<Item = TextRef<'a>> + Clone) -> Self {
+        let bytes = parts.clone().try_fold(0, |n, part| match part {
+            TextRef::Str(text) => Some(n + text.len()),
+            TextRef::Points(_) => None,
+        });
+        if let Some(bytes) = bytes {
+            let mut result = String::with_capacity(bytes);
+            for part in parts {
+                if let TextRef::Str(text) = part {
+                    result.push_str(text);
+                }
+            }
+            Self::Scalar(result)
+        } else {
+            let mut result = Vec::with_capacity(parts.clone().map(|p| p.points().count()).sum());
+            for part in parts {
+                result.extend(part.points());
+            }
+            Self::Codepoints(result)
+        }
+    }
+    pub(crate) fn around(prefix: &str, text: TextRef<'_>, suffix: &str) -> Self {
+        Self::concat([TextRef::Str(prefix), text, TextRef::Str(suffix)].into_iter())
+    }
     /// Replace an internal, nonempty ASCII placeholder, preserving Python code points.
     pub(crate) fn replace(self, needle: &str, replacement: TextRef<'_>) -> Self {
         assert!(!needle.is_empty() && needle.is_ascii());
