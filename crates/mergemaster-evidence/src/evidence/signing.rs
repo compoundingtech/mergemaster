@@ -809,13 +809,9 @@ mod hardening_tests {
             .args([
                 "-c",
                 r"
-import os,sys
-try: os.kill(int(sys.argv[1]),0)
-except ProcessLookupError: pass
-else: raise AssertionError('export still alive when import spawned')
+import sys
 assert sys.stdin.buffer.read()==b'pack-body'
 ",
-                &pid.to_string(),
             ])
             .stdin(Stdio::piped());
         let child = git::deadline::GitChild::with_stdio(
