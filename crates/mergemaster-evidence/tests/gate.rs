@@ -3855,14 +3855,27 @@ fn legacy_lazy_lane_and_blob_composition_matches_signed_oracle() {
         lane: Option<LaneDefinition>,
         lane_reads: usize,
         blobs: Vec<String>,
+        failure: Option<&'static str>,
     }
     impl Provider for Source<'_> {
         fn level_lane(&mut self) -> Result<Option<&LaneDefinition>, PolicyError> {
             self.lane_reads += 1;
+            if self.failure == Some("lane") {
+                return Err(PolicyError {
+                    reason: "record-budget-exceeded",
+                    detail: "provider refused".into(),
+                });
+            }
             Ok(self.lane.as_ref())
         }
         fn blob_sha256(&mut self, path: &str) -> Result<Option<String>, PolicyError> {
             self.blobs.push(path.into());
+            if self.failure == Some("blob") {
+                return Err(PolicyError {
+                    reason: "record-budget-exceeded",
+                    detail: "provider refused".into(),
+                });
+            }
             let output = self
                 .fixture
                 .command("git")
@@ -4025,8 +4038,9 @@ fn legacy_lazy_lane_and_blob_composition_matches_signed_oracle() {
             lane: definition(),
             lane_reads: 0,
             blobs: Vec::new(),
+            failure: None,
         };
-        let actual = judge(
+        let checked = judge(
             &rules,
             &record,
             &clock,
@@ -4035,8 +4049,37 @@ fn legacy_lazy_lane_and_blob_composition_matches_signed_oracle() {
             &mut provider,
             1,
         )
-        .map(|_| json!({"reason":"satisfied"}))
-        .unwrap_or_else(|e| json!({"reason":e.reason,"attempts":e.attempts}));
+        .map(|_| ());
+        let doc = mergemaster_evidence::evidence::legacy_verify::statement_document::Document::from_bytes(
+            &serde_json::to_vec(&typed).unwrap()).unwrap();
+        let points: Vec<u32> = CHECK.chars().map(u32::from).collect();
+        let facts = mergemaster_evidence::evidence::legacy_verify::facts::DocumentFacts::for_check(
+            &doc, &points, PRINCIPAL,
+        )
+        .unwrap();
+        let mut borrowed = Source {
+            fixture: &f,
+            lane: definition(),
+            lane_reads: 0,
+            blobs: Vec::new(),
+            failure: None,
+        };
+        let result = mergemaster_evidence::evidence::legacy_verify::judgment::judge_document(
+            &rules,
+            &facts,
+            now.timestamp_micros(),
+            &BTreeMap::new(),
+            given.as_ref(),
+            &mut borrowed,
+            1,
+        )
+        .map(|_| ());
+        assert_eq!(checked, result, "{case}");
+        assert_eq!(provider.lane_reads, borrowed.lane_reads, "{case}");
+        assert_eq!(provider.blobs, borrowed.blobs, "{case}");
+        let actual = checked
+            .map(|()| json!({"reason":"satisfied"}))
+            .unwrap_or_else(|e| json!({"reason":e.reason,"attempts":e.attempts}));
         let keys = f.root.path().join("lazy-keys");
         fs::write(
             &keys,
@@ -4097,6 +4140,137 @@ print(json.dumps(dict(result=result,lane_reads=len(reads),blobs=blobs)))
         assert_eq!(actual, expected["result"], "{case}");
         assert_eq!(json!(provider.lane_reads), expected["lane_reads"], "{case}");
         assert_eq!(json!(provider.blobs), expected["blobs"], "{case}");
+    }
+    // Lossless facts use the same trusted fixture context and real Git blob reads.
+    let f = Fixture::new();
+    let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap();
+    let script = r#"
+import ast, copy, hashlib, json, pathlib, runpy, subprocess, sys
+path = pathlib.Path(sys.argv[1])/'scripts/evidence-verify'; v = runpy.run_path(str(path))
+owner = next(n for n in ast.parse(path.read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='verified')
+judge = copy.deepcopy(next(n for n in owner.body if isinstance(n,ast.FunctionDef) and n.name=='judge'))
+assert isinstance(judge.body[-1],ast.Return)
+judge.body[-1:] = ast.parse("return dict(reason='satisfied')").body
+v.update(command=None,kinds=(),bind=(),max_age=None,runner_prefix=None,trust_levels=None,lane=None,check='check',attempts=7,repo=sys.argv[2],tree=sys.argv[3],run_inputs={})
+v['now'] = v['parse_time']('2025-01-01T00:01:00Z')
+v['failed'] = lambda entry: entry[1]['predicate']['observed']['checks']['check']['exit_code'] != 0
+exec(compile(ast.fix_missing_locations(ast.Module(body=[judge],type_ignores=[])),str(path),'exec'),v)
+digest = hashlib.sha256(subprocess.check_output(['git','-C',sys.argv[2],'show',sys.argv[3]+':source.txt'])).hexdigest()
+original = v['blob_sha256']; cases = []
+def add(label, mode=True, changed=False, definition='a'*64, key='bound', recorded_key=None, bound=digest, given=False, has_lane=True, path='source.txt', failure=None, prefix=None, runner='wrapper'):
+    context = dict(sha256='a'*64,tree_sha256='b'*64,changed=['tools/graph'] if changed else []) if has_lane else None
+    rule = dict(command=['true'],bind_inputs={key:path},by_level={'agent':dict(command=['true'],events=['pull_request'],lane=mode,bind_inputs={key:path})})
+    if prefix is not None: rule['runner_prefix'] = prefix
+    policy = json.dumps(dict(version=1,checks=dict(check=dict(trust_levels=['agent'],kinds=dict(wrapper=rule)))))
+    values = {}
+    if definition is not None: values['lane_definition_sha256'] = definition
+    if bound is not None: values[recorded_key or key] = bound
+    statement = dict(predicate=dict(tier='full',observed_at='2025-01-01T00:01:00Z',observed=dict(runner=runner,inputs=values,checks=dict(check=dict(command=['true'],exit_code=0)))))
+    reads, blobs = [], []
+    def load():
+        reads.append(True)
+        if failure=='lane': raise v['Failure']('record-budget-exceeded','provider refused')
+        return context
+    def blob(*args):
+        blobs.append(args[2])
+        if failure=='blob': raise v['Failure']('record-budget-exceeded','provider refused')
+        return original(*args)
+    v.update(rules=v['policy_rules'](policy,'check','owner/repo'),level_lane=load,lane_once=load,blob_sha256=blob)
+    try: expected = v['judge'](('record',statement,'agent/alice'),lane=context if given else None)
+    except v['Failure'] as error: expected = dict(reason=error.reason,attempts=error.extra.get('attempts',7))
+    cases.append(dict(label=ascii(label),policy=policy,raw=json.dumps(statement),lane=context,given=given,failure=failure,expected=expected,lane_reads=len(reads),blobs=blobs))
+for mode in [True,'tree',False]:
+ for changed in [False,True]:
+  for definition in ['a'*64,'b'*64,'\ud800']: add('definition',mode=mode,changed=changed,definition=definition)
+for bound in [digest,'wrong','\ud800','',None]: add('bound',bound=bound)
+for key,recorded in [('\ufffd','\ufffd'),('\ufffd','\ud800'),('🦀','🦀'),('x'*33,'x'*33),('x'*100,'x'*100)]: add('key '+repr(recorded),key=key,recorded_key=recorded)
+add('missing blob',path='missing.txt')
+add('supplied',given=True)
+add('supplied false-mode edit',mode=False,changed=True,given=True)
+add('no lane before runner',has_lane=False,prefix='github:')
+add('kind before lane',runner='other')
+add('lane error before runner',failure='lane',prefix='github:')
+add('blob error',failure='blob')
+add('missing definition',definition=None)
+print(json.dumps(cases))
+"#;
+    let output = f
+        .command("python3")
+        .args(["-c", script, &root, f.repo.to_str().unwrap(), &f.tree])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(cases.len(), 36);
+    for case in cases {
+        let rules = PolicyDocument::parse(case["policy"].as_str().unwrap(), "check")
+            .unwrap()
+            .into_rules("owner/repo")
+            .unwrap();
+        let doc = mergemaster_evidence::evidence::legacy_verify::statement_document::Document::from_bytes(case["raw"].as_str().unwrap().as_bytes()).unwrap();
+        let facts = mergemaster_evidence::evidence::legacy_verify::facts::DocumentFacts::for_check(
+            &doc,
+            &[99, 104, 101, 99, 107],
+            "agent/alice",
+        )
+        .unwrap();
+        let definition = || {
+            case["lane"].as_object().map(|_| LaneDefinition {
+                sha256: case["lane"]["sha256"].as_str().unwrap().into(),
+                tree_sha256: case["lane"]["tree_sha256"].as_str().unwrap().into(),
+                changed: case["lane"]["changed"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|p| p.as_str().unwrap().as_bytes().to_vec())
+                    .collect(),
+            })
+        };
+        let given = if case["given"].as_bool().unwrap() {
+            definition()
+        } else {
+            None
+        };
+        let failure = match case["failure"].as_str() {
+            Some("lane") => Some("lane"),
+            Some("blob") => Some("blob"),
+            _ => None,
+        };
+        let mut provider = Source {
+            fixture: &f,
+            lane: definition(),
+            lane_reads: 0,
+            blobs: Vec::new(),
+            failure,
+        };
+        let actual = mergemaster_evidence::evidence::legacy_verify::judgment::judge_document(
+            &rules,
+            &facts,
+            1_735_689_660_000_000,
+            &BTreeMap::new(),
+            given.as_ref(),
+            &mut provider,
+            7,
+        )
+        .map(|_| json!({"reason":"satisfied"}))
+        .unwrap_or_else(|error| {
+            if failure.is_some() {
+                assert_eq!(error.detail, "provider refused");
+            }
+            json!({"reason":error.reason,"attempts":error.attempts})
+        });
+        assert_eq!(actual, case["expected"], "{}", case["label"]);
+        assert_eq!(
+            json!(provider.lane_reads),
+            case["lane_reads"],
+            "{}",
+            case["label"]
+        );
+        assert_eq!(json!(provider.blobs), case["blobs"], "{}", case["label"]);
     }
 }
 
