@@ -6,12 +6,12 @@ use super::{
     statement_document::{Document, Node},
     trust::{TrustedCandidate, partition},
 };
-use crate::evidence::legacy_policy::PolicyError;
+use crate::evidence::legacy_policy::{PolicyError, check_names::CheckName};
 use std::path::Path;
 pub struct Request<'a> {
     pub repo: &'a Path,
     pub tree: &'a str,
-    pub check: &'a str,
+    pub check: CheckName<'a>,
     pub keys: &'a str,
     pub inputs: Option<&'a [String]>,
     pub crate_key: Option<(&'a str, &'a str)>,
@@ -53,7 +53,7 @@ pub fn candidates(
             partition(q.repo, collected.records, q.keys, revocations).map_err(phase_error)?;
         (groups, collected.legacy)
     }; // Match957-995: revocation file lives through partition, not the miss scan.
-    let check: Vec<_> = q.check.chars().map(u32::from).collect();
+    let check = q.check.codepoints();
     let had_trusted = !groups.trusted.is_empty();
     let with_check: Vec<_> = groups
         .trusted
