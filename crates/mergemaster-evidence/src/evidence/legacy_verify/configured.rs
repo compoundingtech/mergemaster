@@ -10,9 +10,12 @@ use super::{
     prefix::{Request, candidates},
     trust::TrustedCandidate,
 };
-use crate::evidence::legacy_policy::{PolicyError, PolicyRules};
+use crate::{
+    evidence::legacy_policy::{PolicyError, PolicyRules},
+    gate::git::deadline::GitChild,
+};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, io::Read, path::Path, process::Stdio};
+use std::{collections::BTreeMap, io::Read, path::Path};
 
 // require_all supplies an eager lane, but never a level_lane callback.
 struct RequiredProvider<P>(P);
@@ -109,46 +112,36 @@ impl Provider for GitProvider<'_> {
         Ok(None)
     }
     fn blob_sha256(&mut self, path: &Path) -> Result<Option<String>, PolicyError> {
-        // Python maps Git OSError/nonzero/60s timeout to None. Rust currently has
-        // no subprocess deadline, like the other Git helpers; cross-cutting
-        // deadline parity is required before CLI cutover. Do not buffer a blob
-        // or Git diagnostics while waiting: stdout is hashed, stderr discarded.
+        // Python maps Git OSError/nonzero/60s timeout to None. Hash stdout without
+        // buffering the blob; discarded stderr and one deadline cover its lifetime.
         let mut object = std::ffi::OsString::from(self.tree);
         object.push(":");
         object.push(path);
-        let Ok(mut child) = crate::gate::git::command(self.repo)
-            .args(["cat-file", "blob"])
-            .arg(object)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-        else {
-            return Ok(None);
-        };
-        let mut output = child.stdout.take().expect("piped Git stdout");
-        let mut hash = Sha256::new();
-        let mut buffer = [0; 64 * 1024];
-        let read_ok = loop {
-            match output.read(&mut buffer) {
-                Ok(0) => break true,
-                Ok(n) => hash.update(&buffer[..n]),
-                Err(_) => break false,
-            }
-        };
-        drop(output);
-        if !read_ok {
-            let _ = child.kill();
-        }
-        let status = match child.wait() {
-            Ok(status) => status,
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Ok(None);
-            }
-        };
-        Ok((read_ok && status.success()).then(|| hex::encode(hash.finalize())))
+        Ok(GitChild::spawn(
+            crate::gate::git::command(self.repo)
+                .args(["cat-file", "blob"])
+                .arg(object),
+        )
+        .ok()
+        .and_then(blob_hash))
     }
+}
+fn blob_hash(mut child: GitChild) -> Option<String> {
+    let mut output = child.stdout().ok()?;
+    let mut hash = Sha256::new();
+    let mut buffer = [0; 64 * 1024];
+    loop {
+        match output.read(&mut buffer).ok()? {
+            0 => break,
+            n => hash.update(&buffer[..n]),
+        }
+    }
+    drop(output);
+    child
+        .wait()
+        .ok()?
+        .success()
+        .then(|| hex::encode(hash.finalize()))
 }
 
 #[cfg(all(test, unix))]
