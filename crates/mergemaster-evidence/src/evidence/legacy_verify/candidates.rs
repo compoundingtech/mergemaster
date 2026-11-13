@@ -93,7 +93,7 @@ impl<P: Provider> Provider for LaneOnce<P> {
         }
         Ok(self.lane.as_ref().and_then(Option::as_ref))
     }
-    fn blob_sha256(&mut self, path: &str) -> Result<Option<String>, PolicyError> {
+    fn blob_sha256(&mut self, path: &std::path::Path) -> Result<Option<String>, PolicyError> {
         self.provider.blob_sha256(path)
     }
 }

@@ -16,7 +16,7 @@ fn candidate_walks_and_selection_match_python() {
         fn level_lane(&mut self) -> Result<Option<&LaneDefinition>, PolicyError> {
             panic!("supplied lane")
         }
-        fn blob_sha256(&mut self, _: &str) -> Result<Option<String>, PolicyError> {
+        fn blob_sha256(&mut self, _: &std::path::Path) -> Result<Option<String>, PolicyError> {
             self.1.set(self.1.get() + 1);
             if self.0 {
                 Err(PolicyError {
