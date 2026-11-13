@@ -1,7 +1,7 @@
 //! Lossless borrowed successful-result dictionary; no JSON/CLI serialization.
 use super::{
     Failure,
-    candidates::Prepared,
+    candidates::{Prepared, Rules},
     events::{kind_of_text, narrowed_event_iter},
     facts::DocumentFacts,
     ordering::Decision,
@@ -34,7 +34,7 @@ pub struct Satisfied<'a> {
     level_events: Option<&'a [String]>,
 }
 impl<'a> Satisfied<'a> {
-    /// Policy-mode view of a successful selection; failures are returned unchanged.
+    /// View of a successful selection in either mode; failures are returned unchanged.
     /// `source_inputs` is the exact prefix input key, not recomputed from a record.
     /// # Panics
     /// Requires the same prepared set as the decision, with fully validated statements.
@@ -55,7 +55,30 @@ impl<'a> Satisfied<'a> {
         let digest = field(doc, doc.node(subject[0]), "digest").expect("validated digest");
         let matched_tree =
             string(field(doc, digest, "gitTree").expect("validated tree")).expect("tree string");
-        let header = &prepared.policy.header;
+        let (policy, max_age_s, enforce, sample_one_in, check_events) = match &prepared.rules {
+            Rules::Policy { policy, .. } => {
+                let header = &policy.header;
+                (
+                    true,
+                    header.max_age_s,
+                    header.enforce,
+                    header.sample_one_in,
+                    header.events.as_deref(),
+                )
+            }
+            Rules::Unconfigured(options) => (
+                false,
+                options.max_age.map(|age| match age {
+                    super::inputs::AgeLimit::Seconds(seconds) => seconds,
+                    super::inputs::AgeLimit::Overflow => {
+                        unreachable!("successful judgment cannot overflow")
+                    }
+                }),
+                false,
+                1,
+                None,
+            ),
+        };
         Ok(Self {
             satisfied: true,
             tree,
@@ -67,9 +90,9 @@ impl<'a> Satisfied<'a> {
             tier: facts.tier,
             observed_at: facts.observed_at,
             attempts: prepared.attempts(),
-            policy: true,
-            max_age_s: header.max_age_s,
-            enforce: header.enforce,
+            policy,
+            max_age_s,
+            enforce,
             r#match: if TextRef::Points(matched_tree).equals(tree) {
                 "tree"
             } else {
@@ -77,7 +100,7 @@ impl<'a> Satisfied<'a> {
             },
             matched_tree,
             source_inputs,
-            sample_one_in: header.sample_one_in,
+            sample_one_in,
             decided_by: decision
                 .walk
                 .decided_by
@@ -87,8 +110,11 @@ impl<'a> Satisfied<'a> {
                 .decided_by
                 .map(|_| decision.walk.skipped_newer.as_slice()),
             facts,
-            check_events: header.events.as_deref(),
-            level_events: routing.level.map(|level| level.events.as_slice()),
+            check_events,
+            level_events: routing
+                .as_ref()
+                .and_then(|routing| routing.level)
+                .map(|level| level.events.as_slice()),
         })
     }
     pub fn command(&self) -> impl ExactSizeIterator<Item = &[u32]> {
