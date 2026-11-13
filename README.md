@@ -629,6 +629,16 @@ Python maps Git OSError, nonzero status and its 60-second timeout to no blob.
 Rust maps process/read/status failures to no blob but has no subprocess deadline
 yet, like the other Rust Git helpers. Cross-cutting Git subprocess deadline parity
 is required before CLI cutover; this helper does not add a blob-only deadline.
+`require_all::require_all` validates sorted lossless names before off-skip, resolves
+eager lanes before verification, and returns a complete typed summary or a global
+error, never partial results. Only eager `no_lane` is per-lane; explicit verification
+failures (including Git `error` and `record-budget-exceeded`) remain per-lane, while
+marked non-Failure clock/datetime exceptions abort globally. Each check owns a fresh
+collector, so a budget refusal cannot poison later checks. Decisions aggregate
+reject before would-reject before ok; empty checks are satisfied.
+A missing validated tier is a global internal-invariant PolicyError, never a panic.
+Its private clock seam tests that a later sampling exception or timedelta overflow
+discards earlier successes; production uses the same reached-judgment SystemClock path.
 Joined rules-absent parity tests use actual SHA-1/SHA-256 trees, SSH-signed notes,
 signature partition and Git blob reads through selection/result conversion, including
 Unix non-UTF-8 binding paths, lossless keys, skips/preferences and refusals.
@@ -640,8 +650,8 @@ while escaped controls remain valid. Enumeration does not evaluate policy.
 validation and placeholder normalization, without narrowing names to a regex or UTF-8.
 Normalized policy commands/runner prefixes now own scalar or lossless code-point text
 and borrow the same input/runner guards. Placeholder replacement preserves code points.
-The current serde view still serializes scalar text only; lossless JSON output and
-require-all orchestration remain separate slices. Other raw policy string fields retain
+The current serde view still serializes scalar text only; lossless JSON output
+remains separate from typed require-all orchestration. Other raw policy fields retain
 their existing serde-value domain; this name-boundary port does not widen those fields.
 `statement_bytes::decode_json_bytes` ports Python's BOM/NUL-based UTF-8/16/32
 transport detection and surrogatepass decoding (3f-2b-1), retaining code points
