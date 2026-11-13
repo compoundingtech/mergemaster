@@ -16,6 +16,7 @@ pub mod projection;
 pub mod raw_batch;
 pub mod records;
 pub mod require_all;
+mod require_all_json;
 pub mod result;
 mod result_json;
 pub mod routing;
