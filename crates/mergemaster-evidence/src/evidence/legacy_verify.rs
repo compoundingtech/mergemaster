@@ -17,6 +17,7 @@ pub mod raw_batch;
 pub mod records;
 pub mod require_all;
 pub mod result;
+mod result_json;
 pub mod routing;
 pub mod selection;
 pub mod selection_json;
