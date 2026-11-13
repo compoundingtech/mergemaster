@@ -557,6 +557,9 @@ required lazy lane lookup; subsequent input/clock/lane judgment is not implied.
 `inputs::check_document_inputs` shares the native pre-lane input guard body with
 lossless strings/commands and exact microsecond clocks. Its current clock is UTC
 in Python's years 1..9999; datetime/timedelta overflow refuses with reason `error`.
+`judgment::judge_document` shares selected-record lane and bound-file guards with
+native judgment, preserving lazy provider reads and errors. Its caller must supply
+independently verified principal/lane/hash context; it does not select candidates.
 `statement_bytes::decode_json_bytes` ports Python's BOM/NUL-based UTF-8/16/32
 transport detection and surrogatepass decoding (3f-2b-1), retaining code points
 including lone surrogates rather than replacing them with invalid Rust strings.
