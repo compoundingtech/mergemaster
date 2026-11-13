@@ -605,6 +605,13 @@ API; borrowed result consumers need not allocate or copy an event list.
 including lossless command/input/event iterators and deciding/skip metadata.
 Without rules it preserves caller max-age and uses policy=false, enforce=false,
 sample_one_in=1 and no events. JSON serialization/CLI cutover remain separate.
+Successful views also borrow lossless check names; `CheckName::codepoints` exposes
+their exact identity without using diagnostic Display as serialization.
+`configured::required` joins trusted collection and existing configured selection
+for one required check, returning the selected owned trusted record. Each call owns
+a fresh collector budget; rules supply projection inputs, with no crate binding,
+run inputs, preferences or level-lane callback. Eager lane resolution and per-lane
+refusal/aggregate decisions belong to require-all orchestration, not this helper.
 Joined rules-absent parity tests use actual SHA-1/SHA-256 trees, SSH-signed notes,
 signature partition and Git blob reads through selection/result conversion, including
 Unix non-UTF-8 binding paths, lossless keys, skips/preferences and refusals.

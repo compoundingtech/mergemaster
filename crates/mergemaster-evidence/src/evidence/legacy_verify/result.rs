@@ -9,10 +9,11 @@ use super::{
     statement_document::Node,
     value_inputs::TextRef,
 };
+use crate::evidence::legacy_policy::check_names::CheckName;
 pub struct Satisfied<'a> {
     pub satisfied: bool,
     pub tree: &'a str,
-    pub check: &'a str,
+    pub check: CheckName<'a>,
     pub record: &'a str,
     pub kind: &'static str,
     pub signer: &'a str,
@@ -43,7 +44,7 @@ impl<'a> Satisfied<'a> {
         prepared: &'a Prepared<'a>,
         decision: &'a Decision<'a>,
         tree: &'a str,
-        check: &'a str,
+        check: impl Into<CheckName<'a>>,
         source_inputs: Option<&'a str>,
     ) -> Result<Self, &'a Failure> {
         let (index, routing) = decision.result.as_ref()?;
@@ -82,7 +83,7 @@ impl<'a> Satisfied<'a> {
         Ok(Self {
             satisfied: true,
             tree,
-            check,
+            check: check.into(),
             record: candidate.commit,
             kind: kind_of_text(TextRef::Points(facts.runner)).expect("successful kind"),
             signer: facts.principal,

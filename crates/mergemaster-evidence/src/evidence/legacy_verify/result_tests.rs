@@ -147,7 +147,7 @@ print(json.dumps(fixtures))
                         .all(|(a, b)| std::ptr::eq(a, b))
                 );
                 json!({
-                    "satisfied":result.satisfied,"tree":result.tree,"check":result.check,"record":result.record,
+                    "satisfied":result.satisfied,"tree":result.tree,"check":result.check.to_string(),"record":result.record,
                     "kind":result.kind,"signer":result.signer,"trust_level":result.trust_level,"tier":result.tier,
                     "observed_at":result.observed_at,"command":result.command().collect::<Vec<_>>(),
                     "inputs":result.inputs().collect::<Vec<_>>(),"attempts":result.attempts,"policy":result.policy,

@@ -52,7 +52,7 @@ impl<'a> Prepared<'a> {
     pub fn new(
         policy: &'a PolicyRules,
         mut candidates: Vec<Candidate<'a>>,
-        check: &str,
+        check: impl std::fmt::Display,
     ) -> Result<Self, Failure> {
         let before = candidates.len();
         candidates.retain(|candidate| {

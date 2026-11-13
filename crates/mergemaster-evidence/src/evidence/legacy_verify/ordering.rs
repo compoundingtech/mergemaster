@@ -57,7 +57,7 @@ impl<P: Provider> CheckJudgment<'_, P> {
     pub fn select<'r>(
         &mut self,
         prepared: &Prepared<'r>,
-        check: &str,
+        check: impl std::fmt::Display,
         prefer: Levels<'_>,
     ) -> Decision<'r> {
         let candidates = &prepared.candidates;
