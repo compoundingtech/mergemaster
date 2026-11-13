@@ -554,6 +554,10 @@ nor a supplied principal establishes signature trust or authorizes a record.
 `routing::route_document` shares native routing guards and kind/shard classification
 without narrowing those facts. Its runner-prefix guard remains separate, after any
 required lazy lane lookup; subsequent input/clock/lane judgment is not implied.
+`routing::route_unconfigured` shares tier/kind/level/runner guards when rules are
+absent, retaining optional versus empty caller trust levels and lossless prefixes.
+No policy shard/override/lazy-lane restrictions are invented; signatures and later
+input/lane/binding guards remain independently required.
 `inputs::check_document_inputs` shares the native pre-lane input guard body with
 lossless strings/commands and exact microsecond clocks. Its current clock is UTC
 in Python's years 1..9999; datetime/timedelta overflow refuses with reason `error`.
