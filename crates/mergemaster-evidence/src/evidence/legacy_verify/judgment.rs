@@ -81,7 +81,11 @@ pub fn judge_unconfigured(
     super::routing::route_unconfigured(options.routing, record, attempts)?;
     super::inputs::check_unconfigured_inputs(
         record,
-        clock.epoch_micros(),
+        clock.epoch_micros().map_err(|error| Failure {
+            reason: error.reason,
+            detail: error.detail,
+            attempts,
+        })?,
         options.max_age,
         options.command,
         attempts,
@@ -142,7 +146,7 @@ fn judge_source<'a>(
                 policy,
                 &routing,
                 record,
-                clock.epoch_micros(),
+                clock.epoch_micros().map_err(error)?,
                 run_inputs,
                 attempts,
             )?;
