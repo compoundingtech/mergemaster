@@ -1,5 +1,11 @@
 //! Complete require-all aggregation; global errors never return partial results.
-use super::{Failure, configured, inputs::SystemClock, lane_git, prefix::Request, statement};
+use super::{
+    Failure, configured,
+    inputs::{CurrentTime, SystemClock},
+    lane_git,
+    prefix::Request,
+    statement,
+};
 use crate::evidence::legacy_policy::{PolicyDocument, PolicyError, RequireMode, check_names};
 use std::path::Path;
 
@@ -41,13 +47,35 @@ pub fn require_all<'a>(
     lane_file: Option<(&str, &str)>,
     lane_base: Option<&str>,
 ) -> Result<All<'a>, PolicyError> {
+    with_clock(
+        repo,
+        tree,
+        keys,
+        policy_text,
+        repository,
+        lane_file,
+        lane_base,
+        &mut SystemClock,
+    )
+}
+// The private seam preserves Python's seven inputs plus a deterministic clock capability.
+#[allow(clippy::too_many_arguments)]
+fn with_clock<'a>(
+    repo: &Path,
+    tree: &'a str,
+    keys: &str,
+    policy_text: &str,
+    repository: &str,
+    lane_file: Option<(&str, &str)>,
+    lane_base: Option<&str>,
+    clock: &mut dyn CurrentTime,
+) -> Result<All<'a>, PolicyError> {
     let mut all = All {
         tree,
         satisfied: true,
         decision: Decision::Ok,
         lanes: Vec::new(),
     };
-    let mut clock = SystemClock;
     for check in check_names::sorted(policy_text)? {
         let rules = PolicyDocument::parse(policy_text, check.as_slice())?.into_rules(repository)?;
         if rules.header.require == RequireMode::Off {
@@ -72,7 +100,7 @@ pub fn require_all<'a>(
                 },
                 &rules,
                 lane.as_ref(),
-                &mut clock,
+                clock,
             )
             .map(|selected| {
                 let doc = &selected.candidate.statement;

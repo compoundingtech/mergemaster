@@ -10,7 +10,7 @@ for fmt in ['sha1','sha256']:
  root=pathlib.Path(sys.argv[2])/fmt; root.mkdir(); key=root/'key'
  subprocess.run(['ssh-keygen','-q','-t','ed25519','-N','','-f',str(key)],check=True)
  keys=root/'keys'; keys.write_text('agent/fixture '+key.with_suffix('.pub').read_text())
- for name in ['empty','off','off-bypass','invalid-off','satisfied','shadow','reject','mixed','no-lane','eager-good','eager-after','policy-after','verify-error','budget']:
+ for name in ['empty','off','off-bypass','invalid-off','satisfied','shadow','reject','mixed','no-lane','eager-good','eager-after','policy-after','verify-error','budget','clock-exception','age-overflow']:
   repo=root/name; subprocess.run(['git','init','--bare','--object-format='+fmt,str(repo)],check=True,stdout=subprocess.DEVNULL)
   def git(*args,data=None): return subprocess.check_output(['git','-C',str(repo),*args],input=data)
   git('config','user.name','Fixture'); git('config','user.email','fixture@example.invalid')
@@ -24,9 +24,10 @@ for fmt in ['sha1','sha256']:
   if name=='invalid-off': checks['a']['unexpected']=True
   if name in ['shadow','reject']: checks={'b':entry(name)}
   if name=='mixed': checks={'z':entry(),'c':entry(),'b':entry('shadow'),'a':entry()}
-  if name in ['eager-after','policy-after','budget']: checks={'z':entry(),'b':entry(),'a':entry()}
+  if name in ['eager-after','policy-after','budget','clock-exception','age-overflow']: checks={'z':entry(),'b':entry(),'a':entry()}
   if name=='policy-after': checks['b']['unexpected']=True
   if name=='budget': checks['b']['inputs']=['input']
+  if name=='age-overflow': checks['b']['max_age_s']=86400000000000
   if name in ['no-lane','eager-good','eager-after']:
    lanes={} if name=='no-lane' else {point:dict(argv=['true'],definition_paths=['def']) for point in checks}
    if name=='eager-after': lanes['b']['argv']=[]
@@ -43,7 +44,7 @@ for fmt in ['sha1','sha256']:
    note=tree({target:data}); commit=git('-c','gpg.format=ssh','-c','user.signingkey='+str(key),'commit-tree','-S',note,'-p',parent,data=label.encode()).decode().strip()
    ref='refs/tags/evidence/'+target if target==current else 'refs/tags/evidence/input/b/'+extra_inputs['source_inputs']
    git('update-ref',ref+'/'+commit,commit)
-  record('good',current,['a','z','\ud800','😀'],inputs)
+  record('good',current,['a','z','\ud800','😀']+(['b'] if name in ['clock-exception','age-overflow'] else []),inputs)
   if name=='budget':
    other=tree(); projection=v['project'](str(repo),current,['input'])
    for i in range(3): record('wide'+str(i),other,['b'],{'source_inputs':projection},True)
@@ -51,16 +52,29 @@ for fmt in ['sha1','sha256']:
   use_repo=str(root/'absent') if name in ['off-bypass','verify-error'] else str(repo)
   if name=='off-bypass': lane='malformed lane file never reached'
   policy=json.dumps(dict(version=1,checks=checks))
+  namespace=v['verified'].__globals__; original=namespace['datetime']
+  class Sample(original):
+   calls=0
+   @classmethod
+   def now(cls,tz):
+    cls.calls+=1
+    if cls.calls==2: raise OverflowError('clock refused')
+    return original(2026,1,1,0,1,tzinfo=tz)
+  if name=='clock-exception': namespace['datetime']=Sample
   def verify(text):
    try:
     result=v['require_all'](use_repo,target,str(keys),text,'fixture',None if lane is None else (lane,base))
     result['lanes']=[[list(map(ord,point)),dict(item,tier=list(map(ord,item['tier']))) if item['satisfied'] else {k:item[k] for k in ['require','satisfied','reason','decision']}] for point,item in result['lanes'].items()]
     return result
    except v['Failure'] as e: return dict(global_reason=e.reason)
-  control=json.dumps(dict(version=1,checks={'a':entry()})) if name in ['eager-after','policy-after','budget'] else None
+   except OverflowError: return dict(global_reason='error')
+  control=json.dumps(dict(version=1,checks={'a':entry()})) if name in ['eager-after','policy-after','budget','clock-exception','age-overflow'] else None
   if control: assert verify(control)['satisfied'],name
+  Sample.calls=0
   expected=verify(policy)
-  if name in ['invalid-off','eager-after','policy-after']: assert expected.get('global_reason')=='error',(name,expected)
+  if name=='clock-exception': assert Sample.calls==2,name
+  namespace['datetime']=original
+  if name in ['invalid-off','eager-after','policy-after','clock-exception','age-overflow']: assert expected.get('global_reason')=='error',(name,expected)
   elif name in ['empty','off','off-bypass','satisfied','eager-good','budget']: assert expected['satisfied'],(name,expected)
   else:
    reason={'no-lane':'no_lane','verify-error':'error'}.get(name,'wrong_check')
@@ -92,10 +106,27 @@ print(json.dumps(cases))
         String::from_utf8_lossy(&output.stderr)
     );
     let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(cases.len(), 28);
+    assert_eq!(cases.len(), 32);
+    struct Sampling(usize);
+    impl CurrentTime for Sampling {
+        fn epoch_micros(&mut self) -> Result<i64, PolicyError> {
+            self.0 += 1;
+            if self.0 == 2 {
+                return Err(PolicyError {
+                    reason: "error",
+                    detail: "clock refused".into(),
+                });
+            }
+            Ok(1_767_225_660_000_000)
+        }
+    }
     for case in cases {
         let run = |policy| {
-            require_all(
+            let mut sampling = Sampling(0);
+            let mut system = SystemClock;
+            let injected = case["name"].as_str().unwrap().ends_with("/clock-exception");
+            let clock: &mut dyn CurrentTime = if injected { &mut sampling } else { &mut system };
+            let result = with_clock(
                 Path::new(case["repo"].as_str().unwrap()),
                 case["tree"].as_str().unwrap(),
                 case["keys"].as_str().unwrap(),
@@ -105,7 +136,19 @@ print(json.dumps(cases))
                     .as_str()
                     .map(|text| (text, case["base"].as_str().unwrap())),
                 None,
-            )
+                clock,
+            );
+            if injected {
+                assert_eq!(
+                    sampling.0,
+                    if policy == case["policy"].as_str().unwrap() {
+                        2
+                    } else {
+                        1
+                    }
+                );
+            }
+            result
         };
         if let Some(control) = case["control"].as_str() {
             assert!(run(control).unwrap().satisfied, "{}", case["name"]);
