@@ -575,9 +575,9 @@ must be supplied independently, and candidate selection is not performed.
 `Provider::blob_sha256` borrows a native `Path`, preserving Unix argv path bytes
 through `LaneOnce`; implementations must not convert paths through lossy text.
 Policy UTF-8 binding paths borrow this same interface without allocation.
-`candidates::Prepared` removes passing shard parts while preserving candidate order,
-counts remaining attempts and unions policy kind levels. `LaneOnce` owns one lazy
-lane snapshot per check (including absence); neither API performs final selection.
+`candidates::Prepared::new` removes passing policy shard parts and unions kind levels;
+`Prepared::unconfigured` retains all candidates/order/duplicates and caller restrictions.
+Both share judgment/selection. `LaneOnce` owns one lazy lane snapshot per check.
 `ordering::CheckJudgment::first_valid` walks a supplied order using shared guards;
 `latest_failure_after` preserves inclusive skew, first ties and lazy local-calendar
 overflow refusal. `CheckJudgment::select` adds stable order/preference, conservative
@@ -587,9 +587,10 @@ for membership/preferences without copying. `Unrestricted` means accepted=None;
 absent preferences use an empty view, not `Unrestricted`. No view verifies signers.
 Event narrowing shares one lazy borrowed intersection with the existing collecting
 API; borrowed result consumers need not allocate or copy an event list.
-`result::Satisfied::from_decision` borrows the complete policy-mode result dictionary,
+`result::Satisfied::from_decision` borrows the complete result dictionary in either mode,
 including lossless command/input/event iterators and deciding/skip metadata.
-JSON output and rules-absent mode remain separate; no CLI cutover is implied.
+Without rules it preserves caller max-age and uses policy=false, enforce=false,
+sample_one_in=1 and no events. JSON serialization/CLI cutover remain separate.
 `statement_bytes::decode_json_bytes` ports Python's BOM/NUL-based UTF-8/16/32
 transport detection and surrogatepass decoding (3f-2b-1), retaining code points
 including lone surrogates rather than replacing them with invalid Rust strings.

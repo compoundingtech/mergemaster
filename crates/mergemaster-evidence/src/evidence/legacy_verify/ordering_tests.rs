@@ -108,6 +108,8 @@ cases.extend([
     ['select',[entry('foreign',400,0,'fleet'),passing],['fleet']],
     ['select',[entry('foreign',300,0,'fleet'),entry('failure',180,1,'host')],[]],
     ['select-provider',[passing,passing],[]]])
+cases += [[case[0].replace('select','select-unconfigured'),copy.deepcopy(case[1]),copy.deepcopy(case[2]),levels]
+          for case in list(cases) if case[0].startswith('select') for levels in (None,[],['agent'],['fleet','\ud800'])]
 actual=[]
 for case in cases:
     mode,specs=case[:2]
@@ -116,7 +118,7 @@ for case in cases:
     ns['entries']=[(commit,dict(subject=[dict(digest=dict(gitTree='tree'))],predicate=dict(tier='full',observed_at=time,observed=dict(runner=runner,inputs=dict(lane_definition_sha256=definition,bound='hash'),checks=dict(unit=dict(exit_code=exit,command=['true']))))),level+'/key') for commit,time,exit,level,definition,runner in specs]
     try:
         if mode.startswith('select'):
-            result=ns['selection'](None,'tree','unit',None,['true'],rules=rules,now=ns['parse_time']('2026-01-01T00:05:00Z'),lane=dict(sha256='base',changed=[],tree_sha256='tree'),run_inputs={},prefer_levels=case[2])
+            result=ns['selection'](None,'tree','unit',None,['true'],rules=None if 'unconfigured' in mode else rules,kinds=['wrapper'],trust_levels=case[3] if 'unconfigured' in mode else None,bind=[('bound','path')],now=ns['parse_time']('2026-01-01T00:05:00Z'),lane=dict(sha256='base',changed=[],tree_sha256='tree'),run_inputs={},prefer_levels=case[2])
             verdict=['ok',result['record'],result.get('decided_by'),result.get('skipped_newer',[]),result['attempts']]
         else:
             verdict=ns['verified'](None,'tree','unit',None,['true'],rules=rules,now=ns['parse_time']('2026-01-01T00:05:00Z'),lane=dict(sha256='base',changed=[],tree_sha256='tree'),run_inputs={})
@@ -126,6 +128,7 @@ for case in cases:
         verdict=['error',None,None,[],len(specs)]
     actual.append(verdict+[ns['blob_reads']])
     if mode.startswith('select'): case[2] = [list(map(ord,level)) for level in case[2]]
+    if 'unconfigured' in mode and case[3] is not None: case[3] = [list(map(ord,level)) for level in case[3]]
 print(json.dumps([cases,actual]))
 "#;
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
@@ -140,7 +143,7 @@ print(json.dumps([cases,actual]))
     );
     let (cases, expected): (Vec<Value>, Vec<Value>) =
         serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(cases.len(), 278);
+    assert_eq!(cases.len(), 1230);
     let mut actual = Vec::new();
     for case in &cases {
         let entries = case[1].as_array().unwrap();
@@ -158,7 +161,33 @@ print(json.dumps([cases,actual]))
                     .unwrap(),
             })
             .collect();
-        let prepared = Prepared::new(&rules, candidates, "unit").unwrap();
+        let unconfigured = case[0].as_str().unwrap().contains("unconfigured");
+        let levels: Option<Vec<Vec<u32>>> =
+            serde_json::from_value(case.get(3).cloned().unwrap_or(Value::Null)).unwrap();
+        let kinds = vec!["wrapper".chars().map(u32::from).collect()];
+        let command = vec!["true".chars().map(u32::from).collect()];
+        let bindings = vec![(
+            "bound".chars().map(u32::from).collect(),
+            std::path::PathBuf::from("path"),
+        )];
+        let options = super::super::judgment::Unconfigured {
+            routing: super::super::routing::Unconfigured {
+                kinds: &kinds,
+                trust_levels: levels.as_deref(),
+                runner_prefix: None,
+            },
+            command: Some(&command),
+            max_age: None,
+            bindings: &bindings,
+        };
+        let prepared = if unconfigured {
+            Prepared::unconfigured(&options, candidates)
+        } else {
+            Prepared::new(&rules, candidates, "unit").unwrap()
+        };
+        if unconfigured {
+            assert_eq!(prepared.attempts(), entries.len());
+        }
         let mut walk = Walk::default();
         let reads = std::cell::Cell::new(0);
         let result = if case[0] == "shadow" {

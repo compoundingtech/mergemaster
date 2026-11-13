@@ -37,8 +37,14 @@ pub struct Candidate<'a> {
 }
 pub struct Prepared<'a> {
     pub candidates: Vec<Candidate<'a>>,
-    pub accepted: BTreeSet<&'a str>,
-    pub(super) policy: &'a PolicyRules,
+    pub(super) rules: Rules<'a>,
+}
+pub(super) enum Rules<'a> {
+    Policy {
+        policy: &'a PolicyRules,
+        accepted: BTreeSet<&'a str>,
+    },
+    Unconfigured(&'a super::judgment::Unconfigured<'a>),
 }
 impl<'a> Prepared<'a> {
     /// Policy-mode prelude only: no sorting, judgment, or trust verification.
@@ -80,9 +86,28 @@ impl<'a> Prepared<'a> {
             .collect();
         Ok(Self {
             candidates,
-            accepted,
-            policy,
+            rules: Rules::Policy { policy, accepted },
         })
+    }
+    /// Preserve every candidate/order/duplicate: shard-part filtering requires policy.
+    /// Collection must supply validated, independently trusted candidates for this check.
+    pub fn unconfigured(
+        options: &'a super::judgment::Unconfigured<'a>,
+        candidates: Vec<Candidate<'a>>,
+    ) -> Self {
+        Self {
+            candidates,
+            rules: Rules::Unconfigured(options),
+        }
+    }
+    pub fn accepted_levels(&self) -> Levels<'_> {
+        match &self.rules {
+            Rules::Policy { accepted, .. } => Levels::Policy(accepted),
+            Rules::Unconfigured(options) => options
+                .routing
+                .trust_levels
+                .map_or(Levels::Unrestricted, Levels::Codepoints),
+        }
     }
     pub fn attempts(&self) -> usize {
         self.candidates.len()

@@ -1,8 +1,8 @@
-//! Policy-mode candidate walks and conservative final selection.
+//! Candidate walks and conservative final selection, with or without policy.
 use super::{
     Failure,
-    candidates::{LaneOnce, Levels, Prepared},
-    judgment::{LaneDefinition, Provider, judge_document},
+    candidates::{LaneOnce, Levels, Prepared, Rules},
+    judgment::{LaneDefinition, Provider, judge_document, judge_unconfigured},
     routing::Routing,
 };
 use std::{cmp::Reverse, collections::BTreeMap};
@@ -11,8 +11,10 @@ pub struct Walk {
     pub decided_by: Option<usize>,
     pub skipped_newer: Vec<String>,
 }
+/// A judged candidate index; routing is absent exactly when no policy applies.
+pub type JudgedCandidate<'a> = (usize, Option<Routing<'a>>);
 pub struct Decision<'a> {
-    pub result: Result<(usize, Routing<'a>), Failure>,
+    pub result: Result<JudgedCandidate<'a>, Failure>,
     pub walk: Walk,
 }
 pub struct CheckJudgment<'a, P> {
@@ -22,6 +24,34 @@ pub struct CheckJudgment<'a, P> {
     pub provider: LaneOnce<P>,
 }
 impl<P: Provider> CheckJudgment<'_, P> {
+    fn judge<'r>(
+        &mut self,
+        prepared: &Prepared<'r>,
+        index: usize,
+    ) -> Result<Option<Routing<'r>>, Failure> {
+        let facts = &prepared.candidates[index].facts;
+        match &prepared.rules {
+            Rules::Policy { policy, .. } => judge_document(
+                policy,
+                facts,
+                self.now_micros,
+                self.run_inputs,
+                self.lane,
+                &mut self.provider,
+                prepared.attempts(),
+            )
+            .map(Some),
+            Rules::Unconfigured(options) => judge_unconfigured(
+                options,
+                facts,
+                self.now_micros,
+                self.lane,
+                &mut self.provider,
+                prepared.attempts(),
+            )
+            .map(|()| None),
+        }
+    }
     /// Select within one prepared check, retaining lazy lane state across judgments.
     /// Metadata indices refer to `prepared`; this is not CLI result serialization.
     pub fn select<'r>(
@@ -84,16 +114,9 @@ impl<P: Provider> CheckJudgment<'_, P> {
             if !candidates[chosen].facts.failed() {
                 chosen = latest_failure_after(prepared, chosen)?.unwrap_or(chosen);
             }
-            let routing = judge_document(
-                prepared.policy,
-                &candidates[chosen].facts,
-                self.now_micros,
-                self.run_inputs,
-                self.lane,
-                &mut self.provider,
-                attempts,
-            )
-            .inspect_err(|_| walk.decided_by = Some(chosen))?;
+            let routing = self
+                .judge(prepared, chosen)
+                .inspect_err(|_| walk.decided_by = Some(chosen))?;
             Ok((chosen, routing))
         })();
         Decision { result, walk }
@@ -106,21 +129,13 @@ impl<P: Provider> CheckJudgment<'_, P> {
         prepared: &Prepared<'r>,
         indices: &[usize],
         walk: &mut Walk,
-    ) -> Result<Option<(usize, Routing<'r>)>, Failure> {
+    ) -> Result<Option<JudgedCandidate<'r>>, Failure> {
         for &i in indices {
             let candidate = &prepared.candidates[i];
-            let reason = if !Levels::Policy(&prepared.accepted).contains(candidate.facts.level()) {
+            let reason = if !prepared.accepted_levels().contains(candidate.facts.level()) {
                 "level_not_accepted"
             } else {
-                match judge_document(
-                    prepared.policy,
-                    &candidate.facts,
-                    self.now_micros,
-                    self.run_inputs,
-                    self.lane,
-                    &mut self.provider,
-                    prepared.attempts(),
-                ) {
+                match self.judge(prepared, i) {
                     Ok(routing) => return Ok(Some((i, routing))),
                     Err(failure) if failure.reason == "wrong_definition" => "wrong_definition",
                     Err(failure) => {

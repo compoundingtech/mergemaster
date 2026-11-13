@@ -42,12 +42,13 @@ statement=json.loads(failed['statement'])
 statement['predicate']['observed']['checks']['unit']['exit_code']=1
 failed['statement']=json.dumps(statement)
 fixtures.append(failed)
+fixtures += [dict(fixture,policy=None,age=age) for fixture in list(fixtures) for age in (None,60)]
 for fixture in fixtures:
     ns['entries']=[('record',json.loads(fixture['statement']),fixture['principal'])]
     ns['source_inputs']=fixture['source']
-    rules=ns['policy_rules'](fixture['policy'],'unit','owner/repo')
+    rules=None if fixture['policy'] is None else ns['policy_rules'](fixture['policy'],'unit','owner/repo')
     try:
-        result=ns['verified'](None,'a'*40,'unit',None,command,rules=rules,now=ns['parse_time']('2026-01-01T00:05:00Z'),run_inputs={})
+        result=ns['verified'](None,'a'*40,'unit',None,command if rules is not None else None,rules=rules,kinds=['wrapper'],max_age=fixture.get('age'),now=ns['parse_time']('2026-01-01T00:05:00Z'),run_inputs={})
         for key in ('tier','observed_at','matched_tree'): result[key]=list(map(ord,result[key]))
         result['command']=[list(map(ord,arg)) for arg in result['command']]
         result['inputs']=[[list(map(ord,k)),list(map(ord,v))] for k,v in result['inputs'].items()]
@@ -66,7 +67,7 @@ print(json.dumps(fixtures))
         String::from_utf8_lossy(&output.stderr)
     );
     let fixtures: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(fixtures.len(), 145);
+    assert_eq!(fixtures.len(), 435);
     struct NoGit;
     impl Provider for NoGit {
         fn level_lane(&mut self) -> Result<Option<&LaneDefinition>, PolicyError> {
@@ -77,10 +78,12 @@ print(json.dumps(fixtures))
         }
     }
     for fixture in fixtures {
-        let policy = PolicyDocument::parse(fixture["policy"].as_str().unwrap(), "unit")
-            .unwrap()
-            .into_rules("owner/repo")
-            .unwrap();
+        let policy = fixture["policy"].as_str().map(|policy| {
+            PolicyDocument::parse(policy, "unit")
+                .unwrap()
+                .into_rules("owner/repo")
+                .unwrap()
+        });
         let document = statement_of(
             fixture["statement"].as_str().unwrap().as_bytes(),
             fixture["matched"].as_str().unwrap(),
@@ -93,15 +96,27 @@ print(json.dumps(fixtures))
             fixture["principal"].as_str().unwrap(),
         )
         .unwrap();
-        let prepared = Prepared::new(
-            &policy,
-            vec![Candidate {
-                commit: "record",
-                facts,
-            }],
-            "unit",
-        )
-        .unwrap();
+        let candidates = vec![Candidate {
+            commit: "record",
+            facts,
+        }];
+        let kinds = vec!["wrapper".chars().map(u32::from).collect()];
+        let options = super::super::judgment::Unconfigured {
+            routing: super::super::routing::Unconfigured {
+                kinds: &kinds,
+                trust_levels: None,
+                runner_prefix: None,
+            },
+            command: None,
+            max_age: fixture["age"]
+                .as_u64()
+                .map(super::super::inputs::AgeLimit::Seconds),
+            bindings: &[],
+        };
+        let prepared = match &policy {
+            Some(policy) => Prepared::new(policy, candidates, "unit").unwrap(),
+            None => Prepared::unconfigured(&options, candidates),
+        };
         let decision = CheckJudgment {
             now_micros: 1_767_225_900_000_000,
             run_inputs: &std::collections::BTreeMap::new(),
@@ -109,6 +124,9 @@ print(json.dumps(fixtures))
             provider: LaneOnce::new(NoGit),
         }
         .select(&prepared, "unit", Levels::Utf8(&[]));
+        if let Ok((_, routing)) = &decision.result {
+            assert_eq!(routing.is_none(), policy.is_none());
+        }
         let actual = match Satisfied::from_decision(
             &prepared,
             &decision,

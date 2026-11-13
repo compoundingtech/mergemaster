@@ -51,8 +51,11 @@ fn candidate_prelude_matches_python() {
             .collect();
         actual.push(match Prepared::new(&rules, candidates, "unit") {
             Ok(prepared) => {
+                let Levels::Policy(accepted) = prepared.accepted_levels() else {
+                    unreachable!()
+                };
                 json!({"commits":prepared.candidates.iter().map(|c| c.commit).collect::<Vec<_>>(),
-                "attempts":prepared.attempts(),"accepted":prepared.accepted})
+                "attempts":prepared.attempts(),"accepted":accepted})
             }
             Err(failure) => {
                 json!({"reason":failure.reason,"detail":failure.detail,"attempts":failure.attempts})
