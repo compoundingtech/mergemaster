@@ -1,4 +1,5 @@
 //! Complete legacy kind/level declarations; no record evaluation.
+use super::check_names::CheckName;
 use super::level_rules::{LevelRule, checked_levels, fill, normalized};
 use super::normalized_text::NormalizedText;
 use super::value_rules::{ValueRules, checked_value_rules};
@@ -21,12 +22,13 @@ pub struct KindRule {
     #[serde(serialize_with = "super::serialize_pairs")]
     pub base_inputs: Vec<(String, String)>,
 }
-pub fn checked_kinds(
+pub fn checked_kinds<'a>(
     kinds: Map<String, Value>,
     levels: &[String],
     repository: &str,
-    check: &str,
+    check: impl Into<CheckName<'a>>,
 ) -> Result<Vec<(String, KindRule)>, PolicyError> {
+    let check = check.into();
     kinds
         .into_iter()
         .map(|(kind, raw)| {

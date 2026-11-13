@@ -597,12 +597,14 @@ Unix non-UTF-8 binding paths, lossless keys, skips/preferences and refusals.
 `legacy_policy::check_names` enumerates sorted lossless policy names and selects entries
 by borrowed code points, including lone surrogates. It shares the existing root/entry
 parser without adding statement byte/depth caps; raw string controls are refused,
-while escaped controls remain valid. This is not policy evaluation:
-lossless rule-name interpolation and require-all orchestration remain separate slices.
+while escaped controls remain valid. Enumeration does not evaluate policy.
+`PolicyDocument` also accepts borrowed code-point names through full header/kind/level
+validation and placeholder normalization, without narrowing names to a regex or UTF-8.
 Normalized policy commands/runner prefixes now own scalar or lossless code-point text
 and borrow the same input/runner guards. Placeholder replacement preserves code points.
 The current serde view still serializes scalar text only; lossless JSON output and
-policy-name plumbing into these normalized rules remain separate slices.
+require-all orchestration remain separate slices. Other raw policy string fields retain
+their existing serde-value domain; this name-boundary port does not widen those fields.
 `statement_bytes::decode_json_bytes` ports Python's BOM/NUL-based UTF-8/16/32
 transport detection and surrogatepass decoding (3f-2b-1), retaining code points
 including lone surrogates rather than replacing them with invalid Rust strings.
