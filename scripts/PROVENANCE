@@ -194,6 +194,10 @@
 # 86400000000000 Python raises OverflowError; Rust returns reason=error after
 # future_dated, before required inputs. Every record reaching it fails, so no
 # acceptance widens. Native age logic is unchanged; CLI crash parity is 4d-4.
+# Rules-absent input guards reuse the policy/native guard body, with optional
+# codepoint-preserving command equality and no required/value-input checks.
+# Arbitrarily large positive max_age values retain the same reached-overflow
+# refusal and future_dated precedence; no CLI serialization parity is claimed.
 # Conservative divergence: lane-falsey-noniterable. Null/false/zero optional
 # tree_inputs/absent_paths raise Python TypeError; Rust returns reason=error.
 # The differential matrix includes 0.0/-0.0; whole-run crash parity is 4d-4.

@@ -557,6 +557,10 @@ required lazy lane lookup; subsequent input/clock/lane judgment is not implied.
 `inputs::check_document_inputs` shares the native pre-lane input guard body with
 lossless strings/commands and exact microsecond clocks. Its current clock is UTC
 in Python's years 1..9999; datetime/timedelta overflow refuses with reason `error`.
+`inputs::check_unconfigured_inputs` reuses those guards when rules are absent:
+optional lossless command equality, future/age checks and exit status only.
+It does not perform routing, runner/lane/binding guards, selection or authorization.
+`AgeLimit::Overflow` preserves future-dated precedence for arbitrarily large ages.
 `judgment::judge_document` shares selected-record lane and bound-file guards with
 native judgment, preserving lazy provider reads and errors. Its caller must supply
 independently verified principal/lane/hash context; it does not select candidates.

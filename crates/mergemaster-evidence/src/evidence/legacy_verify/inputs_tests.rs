@@ -51,6 +51,27 @@ add('exit before command',changes={},code=1,command=['bad'])
 add('command before value',changes=dict(rank='bad'),command=['bad'])
 add('overflow before required',age=86400000000000)
 add('omitted inputs')
+def loose(label, actual=['true'], expected=['true'], age=None, code=0, observed='2026-01-01T00:00:00Z', now='2026-01-01T00:00:05Z'):
+    statement=dict(predicate=dict(tier='full',observed_at=observed,observed=dict(runner='wrapper',inputs=dict(req='',rank='bad'),checks=dict(check=dict(exit_code=code,command=actual)))))
+    v.update(rules=None,now=v['parse_time'](now),run_inputs={})
+    try: verdict=v['judge'](('record',statement,'agent/alice'),command=expected,kinds=('wrapper',),max_age=age)
+    except v['Failure'] as e: verdict=dict(reason=e.reason,attempts=e.extra['attempts'])
+    except OverflowError: verdict=dict(reason='error',attempts=7)
+    delta=v['now']-datetime(1970,1,1,tzinfo=timezone.utc)
+    points=None if expected is None else [list(map(ord,arg)) for arg in expected]
+    cases.append(dict(label=ascii(label),policy=None,raw=json.dumps(statement),expected=verdict,exit_code=str(code),now=(delta.days*86400+delta.seconds)*1000000+delta.microseconds,command=points,age=None if age is None else str(age)))
+commands=[['true'],['\ud800'],['\ufffd'],['🦀'],['true','\0'],['true','']]
+for actual in commands:
+    for expected in [None,[]]+commands:
+        for code in (0,-10**100): loose('loose command '+repr((actual,expected,code)),actual,expected,code=code)
+for age in (None,0,1,2,86399999999999,86400000000000,2**64-1,2**64,10**100):
+    loose('loose age '+str(age),age=age)
+for now in ('2026-01-01T00:00:01Z','2026-01-01T00:00:01.0000009Z','2026-01-01T00:00:01.000001Z'):
+    loose('loose exact age '+now,age=1,now=now)
+for offset in ('00:02:00','00:02:00.000001','00:02:01'):
+    loose('loose future precedence '+offset,expected=['wrong'],code=1,age=10**100,observed='2026-01-01T'+offset+'Z',now='2026-01-01T00:00:00Z')
+for now in ('9999-12-31T23:57:59.999999Z','9999-12-31T23:58:00Z','9999-12-31T23:59:59.999999Z'):
+    loose('loose UTC overflow '+now,observed='9999-12-31T23:57:59Z',now=now)
 print(json.dumps(cases))
 "#;
     let output = std::process::Command::new("python3")
@@ -63,12 +84,8 @@ print(json.dumps(cases))
         String::from_utf8_lossy(&output.stderr)
     );
     let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(cases.len(), 50);
+    assert_eq!(cases.len(), 164);
     for case in cases {
-        let rules = PolicyDocument::parse(case["policy"].as_str().unwrap(), "check")
-            .unwrap()
-            .into_rules("owner/repo")
-            .unwrap();
         let doc = super::super::statement_document::Document::from_bytes(
             case["raw"].as_str().unwrap().as_bytes(),
         )
@@ -80,8 +97,26 @@ print(json.dumps(cases))
             ("rank".into(), "weak".into()),
             ("base".into(), "same".into()),
         ]);
-        let actual = super::super::routing::route_document(&rules, &facts, 7)
-            .and_then(|routing| {
+        let checked = if case["policy"].is_null() {
+            let command: Option<Vec<Vec<u32>>> =
+                serde_json::from_value(case["command"].clone()).unwrap();
+            let age = case["age"].as_str().map(|s| {
+                s.parse::<u64>()
+                    .map_or(AgeLimit::Overflow, AgeLimit::Seconds)
+            });
+            check_unconfigured_inputs(
+                &facts,
+                case["now"].as_i64().unwrap(),
+                age,
+                command.as_deref(),
+                7,
+            )
+        } else {
+            let rules = PolicyDocument::parse(case["policy"].as_str().unwrap(), "check")
+                .unwrap()
+                .into_rules("owner/repo")
+                .unwrap();
+            super::super::routing::route_document(&rules, &facts, 7).and_then(|routing| {
                 routing.check_document_runner(facts.runner, 7)?;
                 check_document_inputs(
                     &rules,
@@ -92,6 +127,8 @@ print(json.dumps(cases))
                     7,
                 )
             })
+        };
+        let actual = checked
             .map(|()| json!({"reason":"satisfied"}))
             .unwrap_or_else(|failure| json!({"reason":failure.reason,"attempts":failure.attempts}));
         assert_eq!(actual, case["expected"], "{}", case["label"]);
