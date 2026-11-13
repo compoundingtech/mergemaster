@@ -371,11 +371,20 @@ mod tests {
         let shim = tempfile::tempdir().unwrap();
         script(&shim.path().join("bun"), "policy-wrapper");
         let argv = vec!["bun".to_owned(), "install".to_owned()];
-        let output = direct(None, &argv)
-            .args(&argv[1..])
-            .env("PATH", shim.path())
-            .output()
-            .unwrap();
+        let mut command = direct(None, &argv);
+        command.args(&argv[1..]).env("PATH", shim.path());
+        // A concurrent fork can inherit the shim's write fd until its exec.
+        // Retry only ETXTBSY, at most 100 launches / 990 ms of backoff.
+        let mut attempts = 0;
+        let output = loop {
+            attempts += 1;
+            match command.output() {
+                Err(error) if error.raw_os_error() == Some(libc::ETXTBSY) && attempts < 100 => {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                result => break result.unwrap(),
+            }
+        };
         assert!(output.status.success());
         assert!(
             String::from_utf8(output.stdout)
