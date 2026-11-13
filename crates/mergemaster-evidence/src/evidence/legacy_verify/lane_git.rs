@@ -4,7 +4,10 @@ use super::{
     lanes::{DefinitionEntry, LaneRules, codepoints, definition_digest},
 };
 use crate::{
-    evidence::{legacy_policy::PolicyError, oid},
+    evidence::{
+        legacy_policy::{PolicyError, check_names::CheckName},
+        oid,
+    },
     gate::git::git,
 };
 use std::{collections::BTreeSet, path::Path};
@@ -180,16 +183,17 @@ pub fn read_lanes(repo: &Path, commit: &str) -> Result<String, PolicyError> {
     .map_err(error)?;
     String::from_utf8(shown).map_err(error)
 }
-pub fn lane_for(
+pub fn lane_for<'a>(
     repo: &Path,
     tree: &str,
     lanes: Option<(&str, &str)>,
-    check: &str,
+    check: impl Into<CheckName<'a>>,
     lane_base: Option<&str>,
 ) -> Result<Option<LaneDefinition>, PolicyError> {
     let Some((text, accepted)) = lanes else {
         return Ok(None);
     };
+    let check = check.into();
     crate::evidence::oid(accepted).map_err(error)?;
     let mut definition_base = accepted;
     if let Some(base) = lane_base {
@@ -229,6 +233,29 @@ pub fn lane_for(
     .map_err(error)?;
     lane_definition(repo, &base_tree, tree, LaneRules::parse(text, check)?).map(Some)
 }
+
+/// Only no_lane is a per-lane require-all refusal; every other error aborts.
+pub enum RequiredLane {
+    Ready(Option<LaneDefinition>),
+    Missing(PolicyError),
+}
+pub fn required_lane<'a>(
+    repo: &Path,
+    tree: &str,
+    lanes: Option<(&str, &str)>,
+    check: impl Into<CheckName<'a>>,
+    lane_base: Option<&str>,
+) -> Result<RequiredLane, PolicyError> {
+    match lane_for(repo, tree, lanes, check, lane_base) {
+        Ok(definition) => Ok(RequiredLane::Ready(definition)),
+        Err(error) if error.reason == "no_lane" => Ok(RequiredLane::Missing(error)),
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(test)]
+#[path = "required_lane_tests.rs"]
+mod required_tests;
 
 #[cfg(test)]
 mod tests {

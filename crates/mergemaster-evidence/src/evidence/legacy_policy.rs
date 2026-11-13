@@ -4,7 +4,6 @@ pub mod kind_rules;
 pub mod level_rules;
 pub mod normalized_text;
 pub mod value_rules;
-use super::legacy_verify::value_inputs::TextRef;
 use check_names::{CheckKey, CheckName, Selection};
 use serde::{
     Serialize,
@@ -34,10 +33,7 @@ impl<'a> PolicyDocument<'a> {
         let check = check.into();
         Ok(Self {
             check,
-            entry: match check.text() {
-                TextRef::Str(name) => selected_entry(text, name, "checks")?,
-                TextRef::Points(name) => check_names::selected(text, name)?,
-            },
+            entry: check.entry(text, "checks")?,
         })
     }
     /// Unrelated entries are syntax-checked without bounded numeric conversion.
@@ -63,7 +59,7 @@ impl<'a> PolicyDocument<'a> {
 }
 /// Syntax-check unrelated entries without converting their numeric values.
 pub fn selected_entry(text: &str, name: &str, group: &str) -> Result<Option<Value>, PolicyError> {
-    Ok(entries(text, Selection::Scalar(name), group)?.entry)
+    CheckName::from(name).entry(text, group)
 }
 fn entries(text: &str, selection: Selection<'_>, group: &str) -> Result<Entries, PolicyError> {
     if !super::legacy_json::strict_strings(text) {
@@ -232,7 +228,7 @@ impl CheckHeader {
             None | Some(Value::Null) => None,
             Some(value) => Some(declared_paths(
                 &value,
-                &format!("skip policy for {check}"),
+                format!("skip policy for {check}"),
                 true,
             )?),
         };
@@ -384,7 +380,7 @@ fn short_path(path: &str) -> bool {
 /// Results are deduplicated and sorted; `where_` supplies diagnostic context.
 pub fn declared_paths(
     value: &Value,
-    where_: &str,
+    where_: impl std::fmt::Display,
     selectors: bool,
 ) -> Result<Vec<String>, PolicyError> {
     let error = |message: String| PolicyError {

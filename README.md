@@ -528,7 +528,7 @@ not parsed-value equality; callers compare before validating the lane schema.
 The two outer lane-name maps accept borrowed Python code-point names, including
 lone surrogates; entry values still use the same lexeme-preserving scanner.
 Existing depth/integer/float/extension refusals and canonical comparison remain;
-this does not widen raw lane-entry string values or wire eager lane resolution.
+this does not widen raw lane-entry string values.
 Legacy JSON helpers share integer-only encoding and ASCII string escaping;
 callers guard unsupported number lexemes before encoding.
 `legacy_verify::judgment::judge` routes before lazy lane lookup, then checks the
@@ -538,6 +538,10 @@ Legacy `lane_git::lane_definition` discovers definition/absent files in real Git
 trees, preserving raw changed-path bytes and accepted-base existence checks.
 `lane_git::lane_for` resolves accepted/branch-point lane files independently,
 checks ancestry and compares canonical entries before accepted-lane validation.
+Lane schema and eager resolution accept the same borrowed lossless check names.
+`lane_git::required_lane` separates absent definitions from `no_lane` refusals;
+all other policy/Git/canonicalization errors remain global errors, never misses.
+With no lane file, resolution bypasses validation/Git reads; require-all iteration remains separate.
 Legacy `discovery::input_refs` and `with_note_for` find indexed candidates and
 batch note-entry presence only; neither establishes statement or signer trust.
 `discovery::tree_refs` and `legacy_refs` complete tree/first-layout candidate

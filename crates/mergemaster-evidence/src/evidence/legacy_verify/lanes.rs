@@ -1,6 +1,6 @@
 //! Legacy lane declarations and definition bytes; no Git reads or native hashing.
 use crate::evidence::legacy_json::string;
-use crate::evidence::legacy_policy::{PolicyError, declared_paths, selected_entry};
+use crate::evidence::legacy_policy::{PolicyError, check_names::CheckName, declared_paths};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -15,12 +15,13 @@ pub struct LaneRules {
     pub ci_inputs: Option<Vec<String>>,
 }
 impl LaneRules {
-    pub fn parse(text: &str, lane: &str) -> Result<Self, PolicyError> {
+    pub fn parse<'a>(text: &str, lane: impl Into<CheckName<'a>>) -> Result<Self, PolicyError> {
+        let lane = lane.into();
         let error = || PolicyError {
             reason: "error",
             detail: format!("invalid lane {lane}"),
         };
-        let entry = selected_entry(text, lane, "lanes")?.ok_or_else(|| PolicyError {
+        let entry = lane.entry(text, "lanes")?.ok_or_else(|| PolicyError {
             reason: "no_lane",
             detail: format!("lane {lane} is absent"),
         })?;
