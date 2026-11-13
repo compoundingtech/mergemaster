@@ -143,3 +143,20 @@ fn capture_deadline_handles_null_empty_and_expired_input() {
         );
     }
 }
+
+#[test]
+fn capture_deadline_preserves_partial_stderr_and_reaps() {
+    let mut command = Command::new("python3");
+    command.args(["-c",
+        "import os,signal;os.write(2,('partial-stderr pid='+str(os.getpid())).encode());signal.pause()"
+    ]).stdin(Stdio::null());
+    let error = GitChild::capture(&mut command, None, Duration::from_secs(5)).unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    let detail = error.to_string();
+    assert!(
+        detail.contains("Git subprocess deadline exceeded: partial-stderr pid="),
+        "{detail}"
+    );
+    let pid = detail.rsplit_once('=').unwrap().1.parse().unwrap();
+    assert_reaped(pid);
+}

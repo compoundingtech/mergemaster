@@ -775,6 +775,60 @@ mod hardening_tests {
     use super::*;
 
     #[test]
+    fn signing_pack_deadline_export_is_reaped_before_import_spawn() {
+        use std::time::Duration;
+        let mut export = Command::new("python3");
+        export.args(["-c",
+            "import os,sys;assert sys.stdin.buffer.read()==b'revision\\n';sys.stdout.buffer.write(str(os.getpid()).encode()+b'\\npack-body')"
+        ]).stdin(Stdio::piped());
+        let child = git::deadline::GitChild::with_stdio(
+            &mut export,
+            Duration::from_secs(5),
+            Stdio::piped(),
+            Stdio::inherit(),
+        )
+        .unwrap();
+        let bytes = source_export(child, b"revision\n").unwrap();
+        let split = bytes.iter().position(|b| *b == b'\n').unwrap();
+        let pid: i32 = std::str::from_utf8(&bytes[..split])
+            .unwrap()
+            .parse()
+            .unwrap();
+        let mut status = 0;
+        // SAFETY: status is writable; WNOHANG cannot block; pid is our export child.
+        assert_eq!(
+            unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) },
+            -1
+        );
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ECHILD)
+        );
+        let mut import = Command::new("python3");
+        import
+            .args([
+                "-c",
+                r"
+import os,sys
+try: os.kill(int(sys.argv[1]),0)
+except ProcessLookupError: pass
+else: raise AssertionError('export still alive when import spawned')
+assert sys.stdin.buffer.read()==b'pack-body'
+",
+                &pid.to_string(),
+            ])
+            .stdin(Stdio::piped());
+        let child = git::deadline::GitChild::with_stdio(
+            &mut import,
+            Duration::from_secs(5),
+            Stdio::null(),
+            Stdio::inherit(),
+        )
+        .unwrap();
+        source_import(child, &bytes[split + 1..]).unwrap();
+    }
+
+    #[test]
     fn signing_pack_deadlines_preserve_export_import_and_refusals() {
         use std::time::Duration;
         for exporting in [false, true] {
