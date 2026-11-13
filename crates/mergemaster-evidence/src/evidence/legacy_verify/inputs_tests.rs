@@ -18,7 +18,7 @@ exec(compile(ast.fix_missing_locations(ast.Module(body=[judge],type_ignores=[]))
 inputs = dict(req='yes',rank='strong',base='same',n='1',r='0=success'); cases = []
 def add(label, observed='2026-01-01T00:00:00Z', now='2026-01-01T00:00:05Z', age=10, changes=None, code=0, command=None, rule_changes=None, prepared=None):
     rule = dict(command=['true'],required_inputs=['req'],input_order=dict(rank=['strong','weak']),base_inputs=dict(base='.'),shard_inputs=dict(count='n',results='r'))
-    rule.update(rule_changes or {}); entry = dict(trust_levels=['agent'],kinds=dict(wrapper=rule))
+    rule.update(rule_changes or {}); entry = dict(trust_levels=['agent'],kinds={('observed' if prepared else 'wrapper'):rule})
     if age is not None: entry['max_age_s'] = age
     policy = json.dumps(dict(version=1,checks=dict(check=entry)))
     values = dict(inputs); values.update(changes or {})
@@ -26,13 +26,14 @@ def add(label, observed='2026-01-01T00:00:00Z', now='2026-01-01T00:00:05Z', age=
     if changes is None: del statement['predicate']['observed']['inputs']
     v.update(rules=v['policy_rules'](policy,'check','owner/repo'),now=v['parse_time'](now),run_inputs=dict(rank='weak',base='same'))
     if prepared:
-        v['rules']['kinds']['wrapper'].update(command=prepared['command'],runner_prefix=prepared['prefix'])
+        v['rules']['kinds']['observed'].update(command=prepared['command'],runner_prefix=prepared['prefix'])
         statement['predicate']['observed']['runner']=prepared['runner']
     try: expected = v['judge'](('record',statement,'agent/alice'))
     except v['Failure'] as failure: expected = dict(reason=failure.reason,attempts=failure.extra['attempts'])
     except OverflowError: expected = dict(reason='error',attempts=7)
+    if prepared: assert expected['reason']==prepared['reason'], (label,expected,prepared['reason'])
     delta = v['now'] - datetime(1970,1,1,tzinfo=timezone.utc)
-    cases.append(dict(label=ascii(label),policy=policy,raw=json.dumps(statement),expected=expected,exit_code=str(code),now=(delta.days*86400+delta.seconds)*1000000+delta.microseconds,prepared=None if prepared is None else dict(command=[list(map(ord,x)) for x in prepared['command']],prefix=list(map(ord,prepared['prefix'])))))
+    cases.append(dict(label=ascii(label),policy=policy,raw=json.dumps(statement),expected=expected,intended=None if prepared is None else prepared['reason'],exit_code=str(code),now=(delta.days*86400+delta.seconds)*1000000+delta.microseconds,prepared=None if prepared is None else dict(command=[list(map(ord,x)) for x in prepared['command']],prefix=list(map(ord,prepared['prefix'])))))
 for offset in ['00:02:00','00:02:00.0000009','00:02:00.000001','00:02:01']:
     add('future '+offset,observed='2026-01-01T'+offset+'Z',now='2026-01-01T00:00:00Z',age=86400000000000,changes={})
 for now in ['2026-01-01T00:00:10Z','2026-01-01T00:00:10.0000009Z','2026-01-01T00:00:10.000001Z','2025-12-31T23:59:59Z']:
@@ -75,8 +76,8 @@ for offset in ('00:02:00','00:02:00.000001','00:02:01'):
     loose('loose future precedence '+offset,expected=['wrong'],code=1,age=10**100,observed='2026-01-01T'+offset+'Z',now='2026-01-01T00:00:00Z')
 for now in ('9999-12-31T23:57:59.999999Z','9999-12-31T23:58:00Z','9999-12-31T23:59:59.999999Z'):
     loose('loose UTC overflow '+now,observed='9999-12-31T23:57:59Z',now=now)
-for command,runner in [(['\ud800'],'x\ud800'),(['\ufffd'],'x\ud800'),(['\ud800'],'x\ufffd'),(['🦀'],'x🦀')]:
-    add('prepared '+repr((command,runner)),command=command,changes={},prepared=dict(command=['🦀'] if command==['🦀'] else ['\ud800'],prefix='x🦀' if command==['🦀'] else 'x\ud800',runner=runner))
+for command,runner,reason in [(['\ud800'],'github:\ud800','satisfied'),(['\ufffd'],'github:\ud800','wrong_command'),(['\ud800'],'github:\ufffd','wrong_runner'),(['🦀'],'github:🦀','satisfied')]:
+    add('prepared '+repr((command,runner)),command=command,changes={},prepared=dict(command=['🦀'] if command==['🦀'] else ['\ud800'],prefix='github:🦀' if command==['🦀'] else 'github:\ud800',runner=runner,reason=reason))
 print(json.dumps(cases))
 "#;
     let output = std::process::Command::new("python3")
@@ -172,6 +173,12 @@ print(json.dumps(cases))
             .map(|()| json!({"reason":"satisfied"}))
             .unwrap_or_else(|failure| json!({"reason":failure.reason,"attempts":failure.attempts}));
         assert_eq!(actual, case["expected"], "{}", case["label"]);
+        if !case["intended"].is_null() {
+            assert_eq!(
+                actual["reason"], case["intended"],
+                "prepared guard was not reached"
+            );
+        }
     }
 }
 
