@@ -98,6 +98,10 @@ fn zoned_time(points: &[u32]) -> bool {
 /// Unlike parse_time itself, rejects naive dates/times; preserves surrogate separators.
 /// Years 1..9999 plus sub-day signed offsets fit comfortably in i64.
 pub(super) fn zoned_time_micros(points: &[u32]) -> Option<i64> {
+    zoned_time_components(points).map(|(utc, _)| utc)
+}
+/// UTC and naive-local epoch microseconds; the latter preserves datetime arithmetic bounds.
+pub(super) fn zoned_time_components(points: &[u32]) -> Option<(i64, i64)> {
     // Python replaces every Z before fromisoformat, including a separator Z.
     let expanded;
     let s = if points.contains(&90) {
@@ -165,14 +169,15 @@ pub(super) fn zoned_time_micros(points: &[u32]) -> Option<i64> {
         return None;
     }
     let midnight = date.and_hms_opt(0, 0, 0)?.and_utc().timestamp_micros();
-    Some(
+    Some((
         midnight + local
             - if tail.as_bytes()[zone] == b'-' {
                 -offset
             } else {
                 offset
             },
-    )
+        midnight + local,
+    ))
 }
 /// Rust-only cap: Python's reader is unbounded. Checked before any JSON allocation.
 pub const MAX_STATEMENT_BYTES: usize = 1024 * 1024;
