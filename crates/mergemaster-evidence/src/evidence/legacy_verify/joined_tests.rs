@@ -13,6 +13,23 @@ use std::{
     os::unix::ffi::{OsStrExt, OsStringExt},
     process::Command,
 };
+
+fn command(program: &str, home: &Path) -> Command {
+    let mut command = Command::new(program);
+    command
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap())
+        .env("HOME", home)
+        .env("GNUPGHOME", home)
+        .env("XDG_CONFIG_HOME", home)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
+        .env("GIT_NO_LAZY_FETCH", "1")
+        .env("LC_ALL", "C");
+    command
+}
+
 #[test]
 fn unconfigured_signed_git_selection_matches_the_whole_pinned_verifier() {
     let script = r#"
@@ -70,7 +87,7 @@ print(json.dumps(cases))
 "#;
     let oracle = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
     let root = tempfile::tempdir().unwrap();
-    let output = Command::new("python3")
+    let output = command("python3", root.path())
         .args(["-c", script, &oracle])
         .arg(root.path())
         .output()
@@ -84,6 +101,7 @@ print(json.dumps(cases))
     assert_eq!(cases.len(), 32);
     struct Git<'a> {
         repo: &'a Path,
+        home: &'a Path,
         tree: &'a str,
         calls: &'a std::cell::RefCell<Vec<String>>,
     }
@@ -97,7 +115,7 @@ print(json.dumps(cases))
                 .push(hex::encode(path.as_os_str().as_bytes()));
             let mut object = OsString::from(format!("{}:", self.tree));
             object.push(path);
-            let output = Command::new("git")
+            let output = command("git", self.home)
                 .arg("-C")
                 .arg(self.repo)
                 .args(["cat-file", "blob"])
@@ -172,6 +190,7 @@ print(json.dumps(cases))
             lane: lane.as_ref(),
             provider: LaneOnce::new(Git {
                 repo,
+                home: root.path(),
                 tree,
                 calls: &calls,
             }),
