@@ -5,18 +5,19 @@ use crate::evidence::{
 };
 use serde_json::{Value, json};
 #[test]
-fn candidate_walks_match_python() {
+fn candidate_walks_and_selection_match_python() {
     let policy = r#"{"version":1,"checks":{"unit":{"trust_levels":["agent","host"],"kinds":{"wrapper":{"command":["true"],"bind_inputs":{"bound":"path"}}}}}}"#;
     let rules = PolicyDocument::parse(policy, "unit")
         .unwrap()
         .into_rules("owner/repo")
         .unwrap();
-    struct HashSource(bool);
-    impl Provider for HashSource {
+    struct HashSource<'a>(bool, &'a std::cell::Cell<usize>);
+    impl Provider for HashSource<'_> {
         fn level_lane(&mut self) -> Result<Option<&LaneDefinition>, PolicyError> {
             panic!("supplied lane")
         }
         fn blob_sha256(&mut self, _: &str) -> Result<Option<String>, PolicyError> {
+            self.1.set(self.1.get() + 1);
             if self.0 {
                 Err(PolicyError {
                     reason: "record-budget-exceeded",
@@ -28,11 +29,14 @@ fn candidate_walks_match_python() {
         }
     }
     let script = r#"
-import ast,json,runpy,sys
+import ast,copy,json,runpy,sys
 root,policy=sys.argv[1],sys.argv[2]
 ns=runpy.run_path(root+'/scripts/evidence-verify')
 module=ast.parse(open(root+'/scripts/evidence-verify').read())
 fn=next(n for n in module.body if isinstance(n,ast.FunctionDef) and n.name=='verified')
+selection=copy.deepcopy(fn)
+selection.name='selection'
+selection.body=ast.parse('with_check = entries; input_key = None').body+[n for n in selection.body if n.lineno>=1012]
 fn.body=ast.parse('with_check = entries; input_key = None').body+[n for n in fn.body if 1012<=n.lineno<=1170]
 fn.body+=ast.parse('''
 try:
@@ -48,10 +52,11 @@ except Failure as e:
 except OverflowError:
     return ['error',None,None,skipped,attempts]
 ''').body
-exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),'<pinned-walk>','exec'),ns)
+exec(compile(ast.fix_missing_locations(ast.Module(body=[fn,selection],type_ignores=[])),'<pinned-walk>','exec'),ns)
 rules=ns['policy_rules'](policy,'unit','owner/repo')
 def blob(*args):
-    if ns['mode']=='provider':
+    ns['blob_reads']+=1
+    if ns['mode'].endswith('provider'):
         raise ns['Failure']('record-budget-exceeded','provider refused',attempts=len(ns['entries']))
     return 'hash'
 ns['blob_sha256']=blob
@@ -77,11 +82,49 @@ for date in ('2026-01-01T00:02:59.999999Z','2026-01-01T00:03:00Z',
     first=['first',date,-1,'fleet','base','wrapper']
     second=['second',date,-1,'host','base','wrapper']
     cases.append(['shadow',[passing,first,second]])
+# Full ordering matrix: preferences, stable ties, fallback and conservative failures.
+def entry(commit,seconds,exit=0,level='agent',definition='base',runner='wrapper'):
+    return [commit,f'2026-01-01T00:{seconds//60:02}:{seconds%60:02}Z',exit,level,definition,runner]
+for seconds in (179,180,181,300,301):
+    for exit in (0,1):
+        for level in ('agent','host','fleet'):
+            for prefer in ([],['host']):
+                cases.append(['select',[passing,entry('other',seconds,exit,level)],prefer])
+for field,value in ((4,'wrong'),(5,'unsupported'),(3,'fleet')):
+    newer=entry('newer',400)
+    newer[field]=value
+    cases.extend([['select',[newer,passing],[]],['select',[newer,newer,passing],['agent']],['select',[newer],[]]])
+for date in ('0001-01-01T00:01:59Z','0001-01-01T00:01:59-12:00',
+             '0001-01-01T12:01:59+12:00','0001-01-01T00:02:00Z'):
+    for exit in (0,1):
+        cases.append(['select',[['old',date,0,'host','base','wrapper'],entry('new',300,exit)],['host']])
+for entries in ([entry('a',300),entry('b',300)],[entry('b',300),entry('a',300)],
+                [entry('a',300,1),entry('b',300,1)],[entry('b',300,1),entry('a',300,1)],
+                [passing,entry('failure',300,1)],[entry('failure',300,1),passing]):
+    cases.append(['select',entries,[]])
+cases.extend([
+    ['select',[passing,entry('obsolete',0,0,'host','base','unsupported'),entry('failure',60,1)],['host']],
+    ['select',[entry('preferred',300,0,'host'),['old','0001-01-01T00:01:59Z',0,'host','base','wrapper'],entry('failure',60,1)],['host']],
+    ['select',[entry('foreign',400,0,'fleet'),passing],['fleet']],
+    ['select',[entry('foreign',300,0,'fleet'),entry('failure',180,1,'host')],[]],
+    ['select-provider',[passing,passing],[]]])
 actual=[]
-for mode,specs in cases:
+for case in cases:
+    mode,specs=case[:2]
     ns['mode']=mode
+    ns['blob_reads']=0
     ns['entries']=[(commit,dict(subject=[dict(digest=dict(gitTree='tree'))],predicate=dict(tier='full',observed_at=time,observed=dict(runner=runner,inputs=dict(lane_definition_sha256=definition,bound='hash'),checks=dict(unit=dict(exit_code=exit,command=['true']))))),level+'/key') for commit,time,exit,level,definition,runner in specs]
-    actual.append(ns['verified'](None,'tree','unit',None,['true'],rules=rules,now=ns['parse_time']('2026-01-01T00:05:00Z'),lane=dict(sha256='base',changed=[],tree_sha256='tree'),run_inputs={}))
+    try:
+        if mode.startswith('select'):
+            result=ns['selection'](None,'tree','unit',None,['true'],rules=rules,now=ns['parse_time']('2026-01-01T00:05:00Z'),lane=dict(sha256='base',changed=[],tree_sha256='tree'),run_inputs={},prefer_levels=case[2])
+            verdict=['ok',result['record'],result.get('decided_by'),result.get('skipped_newer',[]),result['attempts']]
+        else:
+            verdict=ns['verified'](None,'tree','unit',None,['true'],rules=rules,now=ns['parse_time']('2026-01-01T00:05:00Z'),lane=dict(sha256='base',changed=[],tree_sha256='tree'),run_inputs={})
+    except ns['Failure'] as e:
+        verdict=[e.reason,None,e.extra.get('decided_by'),e.extra.get('skipped_newer',[]),len(specs)]
+    except OverflowError:
+        verdict=['error',None,None,[],len(specs)]
+    actual.append(verdict+[ns['blob_reads']])
 print(json.dumps([cases,actual]))
 "#;
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
@@ -96,7 +139,7 @@ print(json.dumps([cases,actual]))
     );
     let (cases, expected): (Vec<Value>, Vec<Value>) =
         serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(cases.len(), 40);
+    assert_eq!(cases.len(), 128);
     let mut actual = Vec::new();
     for case in &cases {
         let entries = case[1].as_array().unwrap();
@@ -116,6 +159,7 @@ print(json.dumps([cases,actual]))
             .collect();
         let prepared = Prepared::new(&rules, candidates, "unit").unwrap();
         let mut walk = Walk::default();
+        let reads = std::cell::Cell::new(0);
         let result = if case[0] == "shadow" {
             latest_failure_after(&prepared, 0)
         } else {
@@ -124,25 +168,37 @@ print(json.dumps([cases,actual]))
                 changed: vec![],
                 tree_sha256: "tree".into(),
             };
-            CheckJudgment {
+            let mut judgment = CheckJudgment {
                 now_micros: 1_767_225_900_000_000,
                 run_inputs: &BTreeMap::new(),
                 lane: Some(&lane),
-                provider: LaneOnce::new(HashSource(case[0] == "provider")),
+                provider: LaneOnce::new(HashSource(
+                    case[0].as_str().unwrap().ends_with("provider"),
+                    &reads,
+                )),
+            };
+            if case[0].as_str().unwrap().starts_with("select") {
+                let prefer: Vec<String> = serde_json::from_value(case[2].clone()).unwrap();
+                let decision = judgment.select(&prepared, "unit", &prefer);
+                walk = decision.walk;
+                decision.result.map(|(i, _)| Some(i))
+            } else {
+                judgment
+                    .first_valid(
+                        &prepared,
+                        &(0..prepared.attempts()).collect::<Vec<_>>(),
+                        &mut walk,
+                    )
+                    .map(|found| found.map(|(i, _)| i))
             }
-            .first_valid(
-                &prepared,
-                &(0..prepared.attempts()).collect::<Vec<_>>(),
-                &mut walk,
-            )
-            .map(|found| found.map(|(i, _)| i))
         };
         actual.push(json!([
             result.as_ref().map_or_else(|e| e.reason, |_| "ok"),
             result.ok().flatten().map(|i| prepared.candidates[i].commit),
             walk.decided_by.map(|i| prepared.candidates[i].commit),
             walk.skipped_newer,
-            prepared.attempts()
+            prepared.attempts(),
+            reads.get()
         ]));
     }
     for (i, (actual, expected)) in actual.iter().zip(&expected).enumerate() {

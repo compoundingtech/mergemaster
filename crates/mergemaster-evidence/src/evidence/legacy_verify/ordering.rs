@@ -1,4 +1,4 @@
-//! Candidate walks only; sorting/preferences and final decisions are separate.
+//! Policy-mode candidate walks and conservative final selection.
 use super::{
     Failure,
     candidates::{LaneOnce, Prepared},
@@ -11,6 +11,10 @@ pub struct Walk {
     pub decided_by: Option<usize>,
     pub skipped_newer: Vec<String>,
 }
+pub struct Decision<'a> {
+    pub result: Result<(usize, Routing<'a>), Failure>,
+    pub walk: Walk,
+}
 pub struct CheckJudgment<'a, P> {
     pub now_micros: i64,
     pub run_inputs: &'a BTreeMap<String, String>,
@@ -18,6 +22,84 @@ pub struct CheckJudgment<'a, P> {
     pub provider: LaneOnce<P>,
 }
 impl<P: Provider> CheckJudgment<'_, P> {
+    /// Select within one prepared check, retaining lazy lane state across judgments.
+    /// Metadata indices refer to `prepared`; this is not CLI result serialization.
+    pub fn select<'r>(
+        &mut self,
+        prepared: &Prepared<'r>,
+        check: &str,
+        prefer: &[String],
+    ) -> Decision<'r> {
+        let candidates = &prepared.candidates;
+        let attempts = prepared.attempts();
+        let mut walk = Walk::default();
+        let result = (|| {
+            let mut order: Vec<_> = (0..attempts)
+                .filter(|i| !candidates[*i].facts.failed())
+                .collect();
+            order.sort_by_key(|i| Reverse(candidates[*i].facts.moment_micros));
+            // Build the whole preferred list before any judgment, as Python does.
+            let mut preferred = Vec::new();
+            for &i in &order {
+                if prefer
+                    .iter()
+                    .any(|level| level == candidates[i].facts.level())
+                    && latest_failure_after(prepared, i)?.is_none()
+                {
+                    preferred.push(i);
+                }
+            }
+            let found = match self.first_valid(prepared, &preferred, &mut walk)? {
+                Some(found) => Some(found),
+                None => self.first_valid(prepared, &order, &mut walk)?,
+            };
+            if let Some((i, routing)) = found {
+                if let Some(failed) = latest_failure_after(prepared, i)? {
+                    walk.decided_by = Some(failed);
+                    let failure = &candidates[failed];
+                    return Err(Failure {
+                        reason: "check_failed",
+                        detail: format!(
+                            "record {} ({}) for check {check} failed, dated after the pass that would decide ({})",
+                            failure.commit,
+                            failure.facts.level(),
+                            candidates[i].commit
+                        ),
+                        attempts,
+                    });
+                }
+                walk.decided_by = Some(i);
+                return Ok((i, routing));
+            }
+            let mut chosen = (0..attempts)
+                .min_by_key(|i| {
+                    Reverse((
+                        candidates[*i].facts.moment_micros,
+                        candidates[*i].facts.failed(),
+                    ))
+                })
+                .ok_or_else(|| Failure {
+                    reason: "error",
+                    detail: "empty candidate list".into(),
+                    attempts,
+                })?;
+            if !candidates[chosen].facts.failed() {
+                chosen = latest_failure_after(prepared, chosen)?.unwrap_or(chosen);
+            }
+            let routing = judge_document(
+                prepared.policy,
+                &candidates[chosen].facts,
+                self.now_micros,
+                self.run_inputs,
+                self.lane,
+                &mut self.provider,
+                attempts,
+            )
+            .inspect_err(|_| walk.decided_by = Some(chosen))?;
+            Ok((chosen, routing))
+        })();
+        Decision { result, walk }
+    }
     /// Judge in caller-supplied order; only foreign levels/definitions are skipped.
     /// # Panics
     /// Indices must belong to this already validated, trusted prepared candidate set.
