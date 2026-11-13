@@ -635,6 +635,10 @@ projection OID/status validation remain unchanged; timeout is reason `error`.
 neither a successful reply nor finish renews it. Expiration cancels the owned child.
 Note discovery likewise shares one budget across all requests, preserving order and
 duplicates or returning an error with no partial candidate list.
+Native batches share that lifetime rule; signing passes its Python-compatible
+300-second blob-content timeout, while native digest/validation batches use 60.
+Deadline failures propagate as errors, never partial contents/digests or validation
+success; framing, streamed hashing and direct-child cleanup remain unchanged.
 Timeout/error/drop kills and reaps only the direct child, as Python POSIX does.
 No process group or signal forwarding is added; terminal SIGINT stays inherited.
 A grandchild can outlive timeout and hold pipes, but cleanup does not wait for EOF.

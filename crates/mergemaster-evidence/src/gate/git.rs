@@ -111,17 +111,24 @@ pub fn validate_blobs(repo: &Path, ids: &BTreeSet<&str>) -> Result<()> {
 /// Stream committed blob bytes once per object, in request order, without one
 /// process per file. Fails closed on a truncated body, a missing terminator,
 /// or any absent/non-blob object.
-pub fn blob_contents(repo: &Path, ids: &[String]) -> Result<Vec<Vec<u8>>> {
-    let mut child = command(repo)
-        .args(["cat-file", "--batch"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .context("running trusted Git plumbing")?;
-    let result = (|| {
-        let mut input = child.stdin.take().context("Git batch stdin")?;
-        let mut output = BufReader::new(child.stdout.take().context("Git batch stdout")?);
+pub fn blob_contents(
+    repo: &Path,
+    ids: &[String],
+    timeout: std::time::Duration,
+) -> Result<Vec<Vec<u8>>> {
+    let child = deadline::GitChild::with_timeout(
+        command(repo)
+            .args(["cat-file", "--batch"])
+            .stdin(Stdio::piped()),
+        timeout,
+    )
+    .context("running trusted Git plumbing")?;
+    collect_blob_contents(child, ids)
+}
+fn collect_blob_contents(mut child: deadline::GitChild, ids: &[String]) -> Result<Vec<Vec<u8>>> {
+    let bodies = (|| {
+        let mut input = child.stdin()?;
+        let mut output = BufReader::new(child.stdout()?);
         let mut bodies = Vec::with_capacity(ids.len());
         for id in ids {
             ensure!(super::config::full_commit(id), "invalid blob ID");
@@ -136,17 +143,11 @@ pub fn blob_contents(repo: &Path, ids: &[String]) -> Result<Vec<Vec<u8>>> {
             ensure!(&newline == b"\n", "invalid Git blob terminator");
             bodies.push(body);
         }
-        Ok(bodies)
-    })();
-    if result.is_err() {
-        let _ = child.kill();
-    }
+        Ok::<_, anyhow::Error>(bodies)
+    })()?;
     let status = child.wait()?;
-    ensure!(
-        status.success() || result.is_err(),
-        "Git plumbing failed ({status})"
-    );
-    result
+    ensure!(status.success(), "Git plumbing failed ({status})");
+    Ok(bodies)
 }
 
 fn blob_size(output: &mut impl BufRead, id: &str) -> Result<u64> {
@@ -162,16 +163,23 @@ fn blob_size(output: &mut impl BufRead, id: &str) -> Result<u64> {
 }
 
 fn blobs(repo: &Path, ids: &BTreeSet<&str>, hash: bool) -> Result<BTreeMap<String, String>> {
-    let mut child = command(repo)
-        .args(["cat-file", if hash { "--batch" } else { "--batch-check" }])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .context("running trusted Git plumbing")?;
-    let result = (|| {
-        let mut input = child.stdin.take().context("Git batch stdin")?;
-        let mut output = BufReader::new(child.stdout.take().context("Git batch stdout")?);
+    let child = deadline::GitChild::with_timeout(
+        command(repo)
+            .args(["cat-file", if hash { "--batch" } else { "--batch-check" }])
+            .stdin(Stdio::piped()),
+        std::time::Duration::from_secs(60),
+    )
+    .context("running trusted Git plumbing")?;
+    collect_blobs(child, ids, hash)
+}
+fn collect_blobs(
+    mut child: deadline::GitChild,
+    ids: &BTreeSet<&str>,
+    hash: bool,
+) -> Result<BTreeMap<String, String>> {
+    let digests = (|| {
+        let mut input = child.stdin()?;
+        let mut output = BufReader::new(child.stdout()?);
         let mut digests = BTreeMap::new();
         for id in ids {
             ensure!(super::config::full_commit(id), "invalid blob ID");
@@ -198,17 +206,11 @@ fn blobs(repo: &Path, ids: &BTreeSet<&str>, hash: bool) -> Result<BTreeMap<Strin
             ensure!(&newline == b"\n", "invalid Git blob terminator");
             digests.insert((*id).to_owned(), hex::encode(digest.finalize()));
         }
-        Ok(digests)
-    })();
-    if result.is_err() {
-        let _ = child.kill();
-    }
+        Ok::<_, anyhow::Error>(digests)
+    })()?;
     let status = child.wait()?;
-    ensure!(
-        status.success() || result.is_err(),
-        "Git plumbing failed ({status})"
-    );
-    result
+    ensure!(status.success(), "Git plumbing failed ({status})");
+    Ok(digests)
 }
 
 #[cfg(test)]
@@ -256,5 +258,129 @@ mod tests {
             error.downcast_ref::<std::io::Error>().unwrap().kind(),
             ErrorKind::TimedOut
         );
+    }
+    #[test]
+    fn native_batch_deadlines_preserve_framing_status_and_timeout() {
+        use super::{collect_blob_contents, collect_blobs, deadline::GitChild};
+        use std::{
+            collections::BTreeSet,
+            process::{Command, Stdio},
+            time::Duration,
+        };
+        let ids = vec!["a".repeat(40), "b".repeat(40)];
+        let keys: BTreeSet<_> = ids.iter().map(String::as_str).collect();
+        for mode in ["contents", "hash", "check"] {
+            for (fault, success) in [
+                ("none", true),
+                ("status", false),
+                ("missing", false),
+                ("header", false),
+                ("truncated", false),
+                ("terminator", false),
+            ] {
+                if mode == "check" && matches!(fault, "truncated" | "terminator") {
+                    continue;
+                }
+                let mut command = Command::new("python3");
+                command
+                    .args([
+                        "-c",
+                        r"
+import sys
+for line in sys.stdin:
+ oid=line.strip()
+ if sys.argv[2]=='missing': print(oid+' missing',flush=True);continue
+ if sys.argv[2]=='header': print('broken',flush=True);continue
+ sys.stdout.write(oid+' blob 3\n');sys.stdout.flush()
+ if sys.argv[1]!='check':
+  sys.stdout.write('ab' if sys.argv[2]=='truncated' else
+                   'abc!' if sys.argv[2]=='terminator' else 'abc\n')
+  sys.stdout.flush()
+  if sys.argv[2]=='truncated': break
+sys.exit(7 if sys.argv[2]=='status' else 0)
+",
+                        mode,
+                        fault,
+                    ])
+                    .stdin(Stdio::piped());
+                let child = GitChild::spawn(&mut command).unwrap();
+                let result = if mode == "contents" {
+                    collect_blob_contents(child, &ids).map(|bodies| {
+                        assert_eq!(bodies, vec![b"abc".to_vec(); 2]);
+                    })
+                } else {
+                    collect_blobs(child, &keys, mode == "hash").map(|digests| {
+                        assert_eq!(digests.len(), if mode == "hash" { 2 } else { 0 });
+                    })
+                };
+                assert_eq!(result.is_ok(), success, "{mode}/{fault}: {result:?}");
+            }
+            for empty in [false, true] {
+                let no_keys = BTreeSet::new();
+                let mut command = Command::new("python3");
+                command
+                    .args(["-c", "import signal;signal.pause()"])
+                    .stdin(Stdio::piped());
+                let child = GitChild::with_timeout(&mut command, Duration::ZERO).unwrap();
+                let error = if mode == "contents" {
+                    collect_blob_contents(child, if empty { &[] } else { &ids }).unwrap_err()
+                } else {
+                    collect_blobs(child, if empty { &no_keys } else { &keys }, mode == "hash")
+                        .unwrap_err()
+                };
+                assert_eq!(
+                    error.downcast_ref::<std::io::Error>().unwrap().kind(),
+                    std::io::ErrorKind::TimedOut
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn native_batch_deadlines_read_actual_git_in_both_formats() {
+        for format in ["sha1", "sha256"] {
+            let repo = tempfile::tempdir().unwrap();
+            super::git(
+                repo.path(),
+                &["init", "-q", &format!("--object-format={format}")],
+            )
+            .unwrap();
+            std::fs::write(repo.path().join("blob"), b"abc").unwrap();
+            let id = super::text(repo.path(), &["hash-object", "-w", "blob"]).unwrap();
+            let ids = vec![id.clone(), id.clone()];
+            let keys = std::collections::BTreeSet::from([id.as_str()]);
+            if format == "sha256" {
+                // Native policy's 40-hex domain is intentionally unchanged here.
+                assert_eq!(
+                    super::blob_contents(repo.path(), &ids, std::time::Duration::from_secs(300))
+                        .unwrap_err()
+                        .to_string(),
+                    "invalid blob ID"
+                );
+                assert_eq!(
+                    super::validate_blobs(repo.path(), &keys)
+                        .unwrap_err()
+                        .to_string(),
+                    "invalid blob ID"
+                );
+                assert_eq!(
+                    super::blob_digests(repo.path(), &keys)
+                        .unwrap_err()
+                        .to_string(),
+                    "invalid blob ID"
+                );
+                continue;
+            }
+            assert_eq!(
+                super::blob_contents(repo.path(), &ids, std::time::Duration::from_secs(300))
+                    .unwrap(),
+                vec![b"abc".to_vec(); 2]
+            );
+            super::validate_blobs(repo.path(), &keys).unwrap();
+            assert_eq!(
+                super::blob_digests(repo.path(), &keys).unwrap()[&id],
+                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+            );
+        }
     }
 }

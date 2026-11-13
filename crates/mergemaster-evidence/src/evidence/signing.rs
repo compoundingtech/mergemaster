@@ -374,7 +374,8 @@ pub(super) fn tracked_clean(repo: &Path) -> Result<bool> {
         .iter()
         .map(|(_, object, _)| object.clone())
         .collect();
-    let committed = git::blob_contents(repo, &ids)?;
+    // evidence-sign's Git boundary allows 300 seconds, unlike verifier calls.
+    let committed = git::blob_contents(repo, &ids, std::time::Duration::from_secs(300))?;
     for ((mode, _, raw_path), body) in requests.into_iter().zip(committed) {
         let path = repo.join(std::str::from_utf8(&raw_path)?);
         let metadata = match std::fs::symlink_metadata(&path) {
