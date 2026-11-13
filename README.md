@@ -623,8 +623,10 @@ refusal/aggregate decisions belong to require-all orchestration, not this helper
 with byte-preserving paths and discarded stderr, without a blob-size allocation.
 Python maps Git OSError, nonzero status and its 60-second timeout to no blob.
 Rust maps process/read/status failures to no blob; its streaming Git helpers have
-no deadline yet. Shared `gate::git::git` has one 60-second child-lifetime deadline
-covering stdout and final wait, with discarded stderr and nonblocking pipe I/O.
+no deadline yet. Shared `gate::git::git`, `git_bounded` and projection exchanges have
+one 60-second child-lifetime deadline covering stdin writes, stdout and final wait,
+with discarded stderr and nonblocking pipe I/O. Existing output bounds and strict
+projection OID/status validation remain unchanged; timeout is reason `error`.
 Timeout/error/drop kills and reaps only the direct child, as Python POSIX does.
 No process group or signal forwarding is added; terminal SIGINT stays inherited.
 A grandchild can outlive timeout and hold pipes, but cleanup does not wait for EOF.

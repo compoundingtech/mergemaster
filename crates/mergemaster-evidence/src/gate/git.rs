@@ -74,37 +74,24 @@ pub fn git(repo: &Path, args: &[&str]) -> Result<Vec<u8>> {
 
 /// Refuse oversized output without exposing a truncated result or Git diagnostics.
 pub fn git_bounded(repo: &Path, args: &[&str], max_bytes: usize) -> Result<Vec<u8>> {
+    collect_bounded(
+        deadline::GitChild::spawn(command(repo).args(args))?,
+        max_bytes,
+    )
+}
+fn collect_bounded(mut child: deadline::GitChild, max_bytes: usize) -> Result<Vec<u8>> {
     let limit = u64::try_from(max_bytes)?
         .checked_add(1)
         .context("Git byte limit overflow")?;
-    let mut child = command(repo)
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()?;
-    let result: Result<Vec<u8>> = (|| {
-        let mut bytes = Vec::new();
-        child
-            .stdout
-            .take()
-            .context("Git stdout")?
-            .take(limit)
-            .read_to_end(&mut bytes)?;
-        ensure!(
-            bytes.len() <= max_bytes,
-            "Git output exceeds {max_bytes} bytes"
-        );
-        Ok(bytes)
-    })();
-    if result.is_err() {
-        let _ = child.kill();
-    }
-    let status = child.wait()?;
+    let mut bytes = Vec::new();
+    child.stdout()?.take(limit).read_to_end(&mut bytes)?;
     ensure!(
-        status.success() || result.is_err(),
-        "Git plumbing failed ({status})"
+        bytes.len() <= max_bytes,
+        "Git output exceeds {max_bytes} bytes"
     );
-    result
+    let status = child.wait()?;
+    ensure!(status.success(), "Git plumbing failed ({status})");
+    Ok(bytes)
 }
 
 pub fn text(repo: &Path, args: &[&str]) -> Result<String> {
@@ -242,5 +229,32 @@ mod tests {
             assert_eq!(error.to_string(), "expected committed regular file");
             assert!(blob_size(&mut b"".as_slice(), &id).is_err());
         }
+    }
+    #[test]
+    fn bounded_deadline_preserves_limits_status_and_timeout() {
+        use super::{collect_bounded, deadline::GitChild};
+        use std::{io::ErrorKind, process::Command, time::Duration};
+        for (size, status, expected) in [(128, 0, true), (129, 0, false), (0, 7, false)] {
+            let mut command = Command::new("python3");
+            command.args([
+                "-c",
+                "import os,sys;os.write(1,b'x'*int(sys.argv[1]));sys.exit(int(sys.argv[2]))",
+                &size.to_string(),
+                &status.to_string(),
+            ]);
+            let result = collect_bounded(GitChild::spawn(&mut command).unwrap(), 128);
+            assert_eq!(result.is_ok(), expected);
+            if let Ok(bytes) = result {
+                assert_eq!(bytes, vec![b'x'; size]);
+            }
+        }
+        let mut command = Command::new("python3");
+        command.args(["-c", "import signal;signal.pause()"]);
+        let child = GitChild::with_timeout(&mut command, Duration::ZERO).unwrap();
+        let error = collect_bounded(child, 128).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<std::io::Error>().unwrap().kind(),
+            ErrorKind::TimedOut
+        );
     }
 }

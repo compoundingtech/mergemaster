@@ -245,3 +245,36 @@ fn option_terminator_named_entries_do_not_contaminate_projections() {
         }
     }
 }
+
+#[test]
+fn projection_deadline_preserves_exchange_refusals() {
+    use std::{process::Command, time::Duration};
+    for (size, status, reason) in [
+        (65, 0, None),
+        (66, 0, Some("projection-output-too-large")),
+        (0, 7, Some("error")),
+    ] {
+        let mut command = Command::new("python3");
+        command.args([
+            "-c",
+            "import sys;sys.stdin.buffer.read();sys.stdout.buffer.write(b'x'*int(sys.argv[1]));sys.exit(int(sys.argv[2]))",
+            &size.to_string(),
+            &status.to_string(),
+        ]).stdin(Stdio::piped());
+        let result = exchange(GitChild::spawn(&mut command).unwrap(), b"input");
+        match reason {
+            Some(reason) => assert_eq!(result.unwrap_err().reason, reason),
+            None => assert_eq!(result.unwrap(), vec![b'x'; size]),
+        }
+    }
+    for bytes in [b"".as_slice(), b"input"] {
+        let mut command = Command::new("python3");
+        command
+            .args(["-c", "import signal;signal.pause()"])
+            .stdin(Stdio::piped());
+        let child = GitChild::with_timeout(&mut command, Duration::ZERO).unwrap();
+        let failure = exchange(child, bytes).unwrap_err();
+        assert_eq!(failure.reason, "error");
+        assert!(failure.detail.contains("Git subprocess deadline exceeded"));
+    }
+}

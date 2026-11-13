@@ -5,7 +5,7 @@ use super::{
 };
 use crate::{
     evidence::{legacy_policy::PolicyError, oid},
-    gate::git::{command, git, git_bounded},
+    gate::git::{command, deadline::GitChild, git, git_bounded},
 };
 use std::{
     collections::BTreeSet,
@@ -27,6 +27,30 @@ fn valid_output(output: &[u8], width: usize) -> bool {
         && output.last() == Some(&b'\n')
         && output[..width].iter().all(u8::is_ascii_hexdigit)
 }
+fn exchange(mut child: GitChild, bytes: &[u8]) -> Result<Vec<u8>, PolicyError> {
+    child
+        .stdin()
+        .map_err(error)?
+        .write_all(bytes)
+        .map_err(error)?;
+    let mut output = Vec::new();
+    child
+        .stdout()
+        .map_err(error)?
+        .take((MAX_PROJECTION_OUTPUT + 1) as u64)
+        .read_to_end(&mut output)
+        .map_err(error)?;
+    if output.len() > MAX_PROJECTION_OUTPUT {
+        return Err(PolicyError {
+            reason: "projection-output-too-large",
+            detail: "Git projection output exceeds 65 bytes".into(),
+        });
+    }
+    if !child.wait().map_err(error)?.success() {
+        return Err(error("Git projection plumbing failed"));
+    }
+    Ok(output)
+}
 // Bounded stdout and suppressed stderr avoid pipe deadlock; reap on stdin failure.
 fn input_git(
     repo: &Path,
@@ -35,45 +59,11 @@ fn input_git(
     index: Option<&Path>,
 ) -> Result<Vec<u8>, PolicyError> {
     let mut cmd = command(repo);
-    cmd.args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+    cmd.args(args).stdin(Stdio::piped());
     if let Some(index) = index {
         cmd.env("GIT_INDEX_FILE", index);
     }
-    let mut child = cmd.spawn().map_err(error)?;
-    let written = child.stdin.take().unwrap().write_all(bytes);
-    if let Err(e) = written {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(error(e));
-    }
-    let result = (|| {
-        let mut output = Vec::new();
-        child
-            .stdout
-            .take()
-            .unwrap()
-            .take((MAX_PROJECTION_OUTPUT + 1) as u64)
-            .read_to_end(&mut output)
-            .map_err(error)?;
-        if output.len() > MAX_PROJECTION_OUTPUT {
-            return Err(PolicyError {
-                reason: "projection-output-too-large",
-                detail: "Git projection output exceeds 65 bytes".into(),
-            });
-        }
-        Ok(output)
-    })();
-    if result.is_err() {
-        let _ = child.kill();
-    }
-    let status = child.wait().map_err(error)?;
-    if result.is_ok() && !status.success() {
-        return Err(error("Git projection plumbing failed"));
-    }
-    let output = result?;
+    let output = exchange(GitChild::spawn(&mut cmd).map_err(error)?, bytes)?;
     match args.first().copied() {
         Some("hash-object" | "write-tree") => {
             let format =
