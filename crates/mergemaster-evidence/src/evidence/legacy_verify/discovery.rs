@@ -4,7 +4,7 @@ use crate::{
         legacy_policy::{PolicyError, check_names::CheckName},
         oid,
     },
-    gate::git::{command, text},
+    gate::git::{command, deadline::GitChild, text},
 };
 use std::{
     collections::HashSet,
@@ -133,16 +133,22 @@ pub fn with_note_for<'a>(
     if commits.is_empty() {
         return Ok(Vec::new());
     }
-    let mut child = command(repo)
-        .args(["cat-file", "--batch-check"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(error)?;
-    let result = (|| {
-        let mut input = child.stdin.take().expect("piped Git stdin");
-        let mut output = BufReader::new(child.stdout.take().expect("piped Git stdout"));
+    let child = GitChild::spawn(
+        command(repo)
+            .args(["cat-file", "--batch-check"])
+            .stdin(Stdio::piped()),
+    )
+    .map_err(error)?;
+    note_presence(child, commits, tree)
+}
+fn note_presence<'a>(
+    mut child: GitChild,
+    commits: &'a [String],
+    tree: &str,
+) -> Result<Vec<&'a str>, PolicyError> {
+    let found = (|| {
+        let mut input = child.stdin().map_err(error)?;
+        let mut output = BufReader::new(child.stdout().map_err(error)?);
         let mut found = Vec::new();
         let mut answer = String::new();
         for commit in commits {
@@ -174,14 +180,68 @@ pub fn with_note_for<'a>(
             }
             found.push(commit.as_str());
         }
-        Ok(found)
-    })();
-    if result.is_err() {
-        let _ = child.kill();
-    }
-    let status = child.wait().map_err(error)?;
-    if !status.success() && result.is_ok() {
+        Ok::<_, PolicyError>(found)
+    })()?;
+    if !child.wait().map_err(error)?.success() {
         return Err(error("Git note discovery failed"));
     }
-    result
+    Ok(found)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{process::Command, time::Duration};
+
+    #[test]
+    fn note_discovery_deadline_preserves_order_and_refusals() {
+        let commits = vec!["a".repeat(40), "b".repeat(40), "a".repeat(40)];
+        for (kind, status, expected) in [
+            ("blob", 0, None),
+            ("missing", 0, None),
+            ("broken", 0, Some("malformed Git batch answer")),
+            ("blob", 7, Some("Git note discovery failed")),
+        ] {
+            let mut command = Command::new("python3");
+            command
+                .args([
+                    "-c",
+                    r"
+import sys
+for line in sys.stdin:
+ q=line.rstrip('\n')
+ answer=(q+' missing' if sys.argv[1]=='missing' else
+         'broken' if sys.argv[1]=='broken' else 'c'*40+' blob 0')
+ print(answer,flush=True)
+sys.exit(int(sys.argv[2]))
+",
+                    kind,
+                    &status.to_string(),
+                ])
+                .stdin(Stdio::piped());
+            let result = note_presence(GitChild::spawn(&mut command).unwrap(), &commits, "tree");
+            if let Some(detail) = expected {
+                let failure = result.unwrap_err();
+                assert_eq!(failure.reason, "error");
+                assert_eq!(failure.detail, detail);
+            } else {
+                let expected = if kind == "missing" {
+                    vec![]
+                } else {
+                    commits.iter().map(String::as_str).collect()
+                };
+                assert_eq!(result.unwrap(), expected);
+            }
+        }
+        for commits in [&commits[..], &[]] {
+            let mut command = Command::new("python3");
+            command
+                .args(["-c", "import signal;signal.pause()"])
+                .stdin(Stdio::piped());
+            let child = GitChild::with_timeout(&mut command, Duration::ZERO).unwrap();
+            let failure = note_presence(child, commits, "tree").unwrap_err();
+            assert_eq!(failure.reason, "error");
+            assert!(failure.detail.contains("Git subprocess deadline exceeded"));
+        }
+    }
 }
