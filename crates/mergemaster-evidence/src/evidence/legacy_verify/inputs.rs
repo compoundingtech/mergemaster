@@ -1,8 +1,10 @@
 //! Clock and value guards after policy routing and any required lane lookup.
 use super::{
     Failure,
+    facts::DocumentFacts,
     routing::{RecordFacts, Routing},
-    value_checks,
+    value_checks_source,
+    value_inputs::{InputSource, TextRef},
 };
 use crate::evidence::legacy_policy::PolicyRules;
 use chrono::{DateTime, FixedOffset, SubsecRound, Utc};
@@ -11,6 +13,58 @@ use std::collections::BTreeMap;
 pub struct Clock {
     pub observed_at: DateTime<FixedOffset>,
     pub now: DateTime<Utc>,
+}
+enum CheckSource<'a> {
+    Native(&'a crate::evidence::Check),
+    Document(&'a DocumentFacts<'a>),
+}
+impl CheckSource<'_> {
+    fn failed(&self) -> bool {
+        match self {
+            Self::Native(check) => check.exit_code != 0,
+            Self::Document(record) => record.failed(),
+        }
+    }
+    fn matches_command(&self, expected: &[String]) -> bool {
+        match self {
+            Self::Native(check) => check.command == expected,
+            Self::Document(record) => {
+                record.command().len() == expected.len()
+                    && record
+                        .command()
+                        .zip(expected)
+                        .all(|(actual, expected)| TextRef::Points(actual).equals(expected))
+            }
+        }
+    }
+}
+enum Moments {
+    Native(DateTime<FixedOffset>, DateTime<Utc>),
+    Micros(i64, i64),
+}
+impl Moments {
+    fn future(&self) -> Result<bool, ()> {
+        match self {
+            Self::Native(observed, now) => Ok(*observed > *now + chrono::Duration::seconds(120)),
+            Self::Micros(observed, now) => {
+                // Python's current is UTC: adding FUTURE_SKEW must fit years 1..9999.
+                if !(-62_135_596_800_000_000..=253_402_300_679_999_999).contains(now) {
+                    return Err(());
+                }
+                Ok(i128::from(*observed) > i128::from(*now) + 120_000_000)
+            }
+        }
+    }
+    fn older_than(&self, seconds: u64) -> bool {
+        match self {
+            Self::Native(observed, now) => (*now - observed.with_timezone(&Utc))
+                .to_std()
+                .is_ok_and(|age| age > std::time::Duration::from_secs(seconds)),
+            Self::Micros(observed, now) => {
+                i128::from(*now) - i128::from(*observed) > i128::from(seconds) * 1_000_000
+            }
+        }
+    }
 }
 /// Run after the routing/runner guards; lane and bound-file checks follow this.
 pub fn check_inputs(
@@ -21,16 +75,60 @@ pub fn check_inputs(
     run_inputs: &BTreeMap<String, String>,
     attempts: usize,
 ) -> Result<(), Failure> {
+    check_inputs_source(
+        policy,
+        routing,
+        CheckSource::Native(record.check),
+        InputSource::Native(record.inputs),
+        // Truncate each subsecond field, not the delta, including before the epoch.
+        Moments::Native(
+            clock.observed_at.trunc_subsecs(6),
+            clock.now.trunc_subsecs(6),
+        ),
+        run_inputs,
+        attempts,
+    )
+}
+/// After routing/runner guards. `now_micros` is UTC epoch microseconds, years 1..9999.
+/// Python datetime/timedelta overflow refuses with error, never an accepted record.
+pub fn check_document_inputs(
+    policy: &PolicyRules,
+    routing: &Routing<'_>,
+    record: &DocumentFacts<'_>,
+    now_micros: i64,
+    run_inputs: &BTreeMap<String, String>,
+    attempts: usize,
+) -> Result<(), Failure> {
+    check_inputs_source(
+        policy,
+        routing,
+        CheckSource::Document(record),
+        record.input_source(),
+        Moments::Micros(record.moment_micros, now_micros),
+        run_inputs,
+        attempts,
+    )
+}
+fn check_inputs_source(
+    policy: &PolicyRules,
+    routing: &Routing<'_>,
+    check: CheckSource<'_>,
+    inputs: InputSource<'_>,
+    clock: Moments,
+    run_inputs: &BTreeMap<String, String>,
+    attempts: usize,
+) -> Result<(), Failure> {
     let fail = |reason, detail: &str| Failure {
         reason,
         detail: detail.into(),
         attempts,
     };
-    // Python datetime discards fractional digits beyond microseconds, including
-    // before the epoch. Truncate each clock's subsecond field, not their delta.
-    let observed_at = clock.observed_at.trunc_subsecs(6);
-    let now = clock.now.trunc_subsecs(6);
-    if observed_at > now + chrono::Duration::seconds(120) {
+    if clock.future().map_err(|()| {
+        fail(
+            "error",
+            "current UTC clock exceeds the legacy datetime range",
+        )
+    })? {
         return Err(fail(
             "future_dated",
             "record claims to be observed in the future",
@@ -41,15 +139,12 @@ pub fn check_inputs(
         if seconds >= 86_400_000_000_000 {
             return Err(fail("error", "max_age_s exceeds the legacy duration range"));
         }
-        if (now - observed_at.with_timezone(&Utc))
-            .to_std()
-            .is_ok_and(|age| age > std::time::Duration::from_secs(seconds))
-        {
+        if clock.older_than(seconds) {
             return Err(fail("too_old", "record is older than max_age_s"));
         }
     }
     for key in &routing.command_inputs.required_inputs {
-        if record.inputs.get(key).is_none_or(String::is_empty) {
+        if inputs.get(key).is_none_or(|value| value.len() == 0) {
             return Err(Failure {
                 reason: "missing_input",
                 detail: format!("record lacks required input {key}"),
@@ -57,14 +152,18 @@ pub fn check_inputs(
             });
         }
     }
-    if record.check.exit_code != 0 {
+    if check.failed() {
         return Err(fail("check_failed", "latest record for the check failed"));
     }
-    if record.check.command != routing.command_inputs.command {
+    if !check.matches_command(&routing.command_inputs.command) {
         return Err(fail(
             "wrong_command",
             "latest record ran a different command",
         ));
     }
-    value_checks(routing.kind, record.inputs, run_inputs, attempts)
+    value_checks_source(routing.kind, inputs, run_inputs, attempts)
 }
+
+#[cfg(test)]
+#[path = "inputs_tests.rs"]
+mod tests;
