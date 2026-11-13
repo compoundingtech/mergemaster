@@ -3754,16 +3754,30 @@ fn legacy_clock_and_input_guards_match_signed_oracle_order() {
                 .unwrap(),
             now,
         };
-        let actual = check_inputs(
-            &rules,
-            &routing,
-            &record,
-            &clock,
-            &serde_json::from_value(run.clone()).unwrap(),
-            1,
+        let run_inputs = serde_json::from_value(run.clone()).unwrap();
+        let checked = check_inputs(&rules, &routing, &record, &clock, &run_inputs, 1);
+        let doc = mergemaster_evidence::evidence::legacy_verify::statement_document::Document::from_bytes(
+            &serde_json::to_vec(&typed).unwrap()).unwrap();
+        let points: Vec<u32> = CHECK.chars().map(u32::from).collect();
+        let facts = mergemaster_evidence::evidence::legacy_verify::facts::DocumentFacts::for_check(
+            &doc, &points, PRINCIPAL,
         )
-        .map(|()| json!({"reason":"satisfied"}))
-        .unwrap_or_else(|failure| json!({"reason":failure.reason,"attempts":failure.attempts}));
+        .unwrap();
+        assert_eq!(
+            checked,
+            mergemaster_evidence::evidence::legacy_verify::inputs::check_document_inputs(
+                &rules,
+                &routing,
+                &facts,
+                now.timestamp_micros(),
+                &run_inputs,
+                1
+            ),
+            "{case}"
+        );
+        let actual = checked
+            .map(|()| json!({"reason":"satisfied"}))
+            .unwrap_or_else(|failure| json!({"reason":failure.reason,"attempts":failure.attempts}));
         let keys = f.root.path().join("input-keys");
         fs::write(
             &keys,

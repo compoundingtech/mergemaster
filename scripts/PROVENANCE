@@ -184,6 +184,9 @@
 # Surrogate keys/values remain code points; no replacement, stripping or new
 # statement refusal. Surrogate counts fail Python's isdigit() guard before int();
 # both implementations return wrong_input for those counts.
+# Conservative divergence: UTC-clock-overflow. Document input guards return
+# reason=error when current UTC + FUTURE_SKEW exceeds Python datetime years 1..9999,
+# where Python raises OverflowError. Native Clock arithmetic is unchanged.
 # Conservative divergence: max-age-duration-overflow. At max_age_s >=
 # 86400000000000 Python raises OverflowError; Rust returns reason=error after
 # future_dated, before required inputs. Every record reaching it fails, so no
