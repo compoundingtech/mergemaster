@@ -6,7 +6,7 @@ use super::{
     value_checks_source,
     value_inputs::{InputSource, TextRef},
 };
-use crate::evidence::legacy_policy::PolicyRules;
+use crate::evidence::legacy_policy::{PolicyError, PolicyRules};
 use chrono::{DateTime, FixedOffset, SubsecRound, Utc};
 use std::collections::BTreeMap;
 
@@ -16,17 +16,38 @@ pub struct Clock {
 }
 /// Sample only when a document judgment reaches its time guards.
 pub trait CurrentTime {
-    fn epoch_micros(&mut self) -> i64;
+    fn epoch_micros(&mut self) -> Result<i64, PolicyError>;
 }
 impl CurrentTime for Clock {
-    fn epoch_micros(&mut self) -> i64 {
-        self.now.timestamp_micros()
+    fn epoch_micros(&mut self) -> Result<i64, PolicyError> {
+        Ok(self.now.timestamp_micros())
     }
 }
 impl CurrentTime for i64 {
-    fn epoch_micros(&mut self) -> i64 {
-        *self
+    fn epoch_micros(&mut self) -> Result<i64, PolicyError> {
+        Ok(*self)
     }
+}
+pub struct SystemClock;
+impl CurrentTime for SystemClock {
+    fn epoch_micros(&mut self) -> Result<i64, PolicyError> {
+        system_epoch_micros(std::time::SystemTime::now())
+    }
+}
+/// Convert without chrono's panicking SystemTime conversion; Python datetime years are 1..9999.
+pub(super) fn system_epoch_micros(now: std::time::SystemTime) -> Result<i64, PolicyError> {
+    let nanos = match now.duration_since(std::time::UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos() as i128,
+        Err(error) => -(error.duration().as_nanos() as i128),
+    };
+    let micros = nanos.div_euclid(1_000);
+    if !(-62_135_596_800_000_000..=253_402_300_799_999_999).contains(&micros) {
+        return Err(PolicyError {
+            reason: "error",
+            detail: "system clock outside Python datetime range".into(),
+        });
+    }
+    Ok(micros as i64)
 }
 /// Validated nonnegative seconds, or a positive integer too large for u64.
 /// Overflow remains explicit so future-dated refusal still precedes timedelta overflow.

@@ -23,13 +23,15 @@ next(n for n in nodes if n.name=='judge').body[-1]=ast.parse("return 'satisfied'
 v.update(command=None,kinds=(),bind=(),max_age=None,runner_prefix=None,trust_levels=None,lane=None,now=None,run_inputs=None,check='check',attempts=1,repo='repo',tree='tree')
 v['failed']=lambda entry: entry[1]['predicate']['observed']['checks']['check']['exit_code']!=0
 exec(compile(ast.fix_missing_locations(ast.Module(body=nodes,type_ignores=[])),str(path),'exec'),v); cases=[]
-for name in ['satisfied','tier','kind','level','lazy-error','no-lane','runner','command','blob','stepping']:
+for name in ['satisfied','tier','kind','level','lazy-error','no-lane','runner','command','blob','stepping','clock-error']:
  calls=[]; samples=[]; next_time=datetime(2026,1,1,0,0,1,tzinfo=timezone.utc)
  class Sample(datetime):
   @classmethod
   def now(cls,tz):
    global next_time
-   calls.append('clock'); delta=next_time-datetime(1970,1,1,tzinfo=timezone.utc)
+   calls.append('clock')
+   if name=='clock-error': raise OverflowError('wall clock outside datetime range')
+   delta=next_time-datetime(1970,1,1,tzinfo=timezone.utc)
    samples.append((delta.days*86400+delta.seconds)*1000000+delta.microseconds); value=next_time
    if name=='stepping': next_time+=timedelta(microseconds=1)
    return value
@@ -51,7 +53,8 @@ for name in ['satisfied','tier','kind','level','lazy-error','no-lane','runner','
  for _ in range(2 if name=='stepping' else 1):
   try: expected.append(v['judge'](('record',raw,principal)))
   except v['Failure'] as e: expected.append(e.reason)
- target={'tier':['untrusted_tier'],'kind':['unsupported_kind'],'level':['untrusted_level'],'lazy-error':['error'],'no-lane':['no_lane'],'runner':['wrong_runner'],'command':['wrong_command'],'blob':['wrong_input'],'stepping':['satisfied','too_old']}.get(name,['satisfied'])
+  except OverflowError: expected.append('error') # pinned CLI exception normalization
+ target={'tier':['untrusted_tier'],'kind':['unsupported_kind'],'level':['untrusted_level'],'lazy-error':['error'],'no-lane':['no_lane'],'runner':['wrong_runner'],'command':['wrong_command'],'blob':['wrong_input'],'stepping':['satisfied','too_old'],'clock-error':['error']}.get(name,['satisfied'])
  assert expected==target,(name,expected,calls)
  cases.append(dict(name=name,policy=policy,raw=json.dumps(raw),principal=principal,expected=expected,calls=calls,samples=samples))
 print(json.dumps(cases))
@@ -75,14 +78,20 @@ print(json.dumps(cases))
         samples: Vec<i64>,
         next: i64,
         step: bool,
+        fail: bool,
     }
     impl CurrentTime for Sampling {
-        fn epoch_micros(&mut self) -> i64 {
+        fn epoch_micros(&mut self) -> Result<i64, PolicyError> {
             self.calls.borrow_mut().push("clock");
+            if self.fail {
+                return super::super::inputs::system_epoch_micros(
+                    std::time::UNIX_EPOCH + std::time::Duration::from_secs(253_402_300_800),
+                );
+            }
             self.samples.push(self.next);
             let now = self.next;
             self.next += i64::from(self.step);
-            now
+            Ok(now)
         }
     }
     struct Source<'a> {
@@ -106,15 +115,15 @@ print(json.dumps(cases))
             Ok((self.name != "blob").then(|| "hash".into()))
         }
     }
-    assert_eq!(cases.len(), 10);
+    assert_eq!(cases.len(), 11);
     let now = chrono::Utc::now();
     let mut native = Clock {
         observed_at: (now - chrono::Duration::days(1)).fixed_offset(),
         now,
     };
-    assert_eq!(native.epoch_micros(), now.timestamp_micros());
+    assert_eq!(native.epoch_micros().unwrap(), now.timestamp_micros());
     let mut fixed = -62_135_596_800_000_000i64;
-    assert_eq!(fixed.epoch_micros(), fixed);
+    assert_eq!(fixed.epoch_micros().unwrap(), fixed);
     for case in cases {
         let name = case["name"].as_str().unwrap();
         let policy = PolicyDocument::parse(case["policy"].as_str().unwrap(), "check")
@@ -143,6 +152,7 @@ print(json.dumps(cases))
             samples: Vec::new(),
             next: 1_767_225_601_000_000,
             step: name == "stepping",
+            fail: name == "clock-error",
         };
         let mut judgment = CheckJudgment {
             clock: &mut clock,
@@ -170,5 +180,34 @@ print(json.dumps(cases))
         assert_eq!(json!(actual), case["expected"], "{name}");
         assert_eq!(json!(*calls.borrow()), case["calls"], "{name}");
         assert_eq!(json!(clock.samples), case["samples"], "{name}");
+    }
+}
+
+#[test]
+fn system_clock_conversion_is_checked() {
+    use super::super::inputs::system_epoch_micros;
+    use std::time::{Duration, UNIX_EPOCH};
+    for (instant, expected) in [
+        (UNIX_EPOCH, 0),
+        (UNIX_EPOCH - Duration::from_secs(1), -1_000_000),
+        (UNIX_EPOCH - Duration::from_nanos(1), -1),
+        (UNIX_EPOCH + Duration::from_nanos(1_999), 1),
+        (
+            UNIX_EPOCH - Duration::from_secs(62_135_596_800),
+            -62_135_596_800_000_000,
+        ),
+        (
+            UNIX_EPOCH + Duration::new(253_402_300_799, 999_999_999),
+            253_402_300_799_999_999,
+        ),
+    ] {
+        assert_eq!(system_epoch_micros(instant).unwrap(), expected);
+    }
+    for instant in [
+        UNIX_EPOCH - Duration::new(62_135_596_800, 1),
+        UNIX_EPOCH + Duration::from_secs(253_402_300_800),
+        UNIX_EPOCH + Duration::from_secs(10_000_000_000_000),
+    ] {
+        assert_eq!(system_epoch_micros(instant).unwrap_err().reason, "error");
     }
 }
