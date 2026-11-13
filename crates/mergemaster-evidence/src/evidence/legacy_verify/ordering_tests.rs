@@ -199,7 +199,7 @@ print(json.dumps([cases,actual]))
                 tree_sha256: "tree".into(),
             };
             let mut judgment = CheckJudgment {
-                now_micros: 1_767_225_900_000_000,
+                clock: &mut 1_767_225_900_000_000i64,
                 run_inputs: &BTreeMap::new(),
                 lane: Some(&lane),
                 provider: LaneOnce::new(HashSource(

@@ -2,6 +2,7 @@
 use super::{
     Failure,
     candidates::{LaneOnce, Levels, Prepared, Rules},
+    inputs::CurrentTime,
     judgment::{LaneDefinition, Provider, judge_document, judge_unconfigured},
     routing::Routing,
 };
@@ -18,7 +19,7 @@ pub struct Decision<'a> {
     pub walk: Walk,
 }
 pub struct CheckJudgment<'a, P> {
-    pub now_micros: i64,
+    pub clock: &'a mut dyn CurrentTime,
     pub run_inputs: &'a BTreeMap<String, String>,
     pub lane: Option<&'a LaneDefinition>,
     pub provider: LaneOnce<P>,
@@ -34,7 +35,7 @@ impl<P: Provider> CheckJudgment<'_, P> {
             Rules::Policy { policy, .. } => judge_document(
                 policy,
                 facts,
-                self.now_micros,
+                self.clock,
                 self.run_inputs,
                 self.lane,
                 &mut self.provider,
@@ -44,7 +45,7 @@ impl<P: Provider> CheckJudgment<'_, P> {
             Rules::Unconfigured(options) => judge_unconfigured(
                 options,
                 facts,
-                self.now_micros,
+                self.clock,
                 self.lane,
                 &mut self.provider,
                 prepared.attempts(),
