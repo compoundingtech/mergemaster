@@ -18,6 +18,7 @@ pub struct Request<'a> {
 }
 fn failure(reason: &'static str, detail: String, attempts: usize) -> Failure {
     Failure {
+        exception: false,
         reason,
         detail,
         attempts,

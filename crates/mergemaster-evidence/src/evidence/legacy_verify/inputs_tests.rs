@@ -169,6 +169,15 @@ print(json.dumps(cases))
             );
             points
         };
+        if let Err(error) = &checked {
+            // This fixture catches OverflowError separately; explicit refusals never use error.
+            assert_eq!(
+                error.exception,
+                case["expected"]["reason"] == "error",
+                "{}",
+                case["label"]
+            );
+        }
         let actual = checked
             .map(|()| json!({"reason":"satisfied"}))
             .unwrap_or_else(|failure| json!({"reason":failure.reason,"attempts":failure.attempts}));

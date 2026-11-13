@@ -15,6 +15,7 @@ pub struct Clock {
     pub now: DateTime<Utc>,
 }
 /// Sample only when a document judgment reaches its time guards.
+/// Sampling errors model non-Failure Python exceptions, not policy refusals.
 pub trait CurrentTime {
     fn epoch_micros(&mut self) -> Result<i64, PolicyError>;
 }
@@ -33,6 +34,11 @@ impl CurrentTime for SystemClock {
     fn epoch_micros(&mut self) -> Result<i64, PolicyError> {
         system_epoch_micros(std::time::SystemTime::now())
     }
+}
+pub(super) fn sample(clock: &mut dyn CurrentTime, attempts: usize) -> Result<i64, Failure> {
+    clock
+        .epoch_micros()
+        .map_err(|error| Failure::exception(error.detail, attempts))
 }
 /// Convert without chrono's panicking SystemTime conversion; Python datetime years are 1..9999.
 pub(super) fn system_epoch_micros(now: std::time::SystemTime) -> Result<i64, PolicyError> {
@@ -218,14 +224,15 @@ fn check_inputs_source(
     attempts: usize,
 ) -> Result<(), Failure> {
     let fail = |reason, detail: &str| Failure {
+        exception: false,
         reason,
         detail: detail.into(),
         attempts,
     };
     if clock.future().map_err(|()| {
-        fail(
-            "error",
+        Failure::exception(
             "current UTC clock exceeds the legacy datetime range",
+            attempts,
         )
     })? {
         return Err(fail(
@@ -235,11 +242,17 @@ fn check_inputs_source(
     }
     if let Some(age) = guards.age {
         let AgeLimit::Seconds(seconds) = age else {
-            return Err(fail("error", "max_age_s exceeds the legacy duration range"));
+            return Err(Failure::exception(
+                "max_age_s exceeds the legacy duration range",
+                attempts,
+            ));
         };
         // Python timedelta caps its day count; do not accept what its verifier aborts.
         if seconds >= 86_400_000_000_000 {
-            return Err(fail("error", "max_age_s exceeds the legacy duration range"));
+            return Err(Failure::exception(
+                "max_age_s exceeds the legacy duration range",
+                attempts,
+            ));
         }
         if clock.older_than(seconds) {
             return Err(fail("too_old", "record is older than max_age_s"));
@@ -248,6 +261,7 @@ fn check_inputs_source(
     for key in guards.required {
         if inputs.get(key).is_none_or(|value| value.len() == 0) {
             return Err(Failure {
+                exception: false,
                 reason: "missing_input",
                 detail: format!("record lacks required input {key}"),
                 attempts,
