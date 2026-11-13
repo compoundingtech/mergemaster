@@ -1,4 +1,5 @@
 //! Local JSON values retain number lexemes without enabling serde_json extension features.
+use super::{legacy_policy::check_names::CheckKey, legacy_verify::value_inputs::TextRef};
 use anyhow::{Context, Result, bail, ensure};
 use std::{
     collections::BTreeMap,
@@ -69,6 +70,33 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Value> {
     serde_json::from_slice::<serde::de::IgnoredAny>(bytes)?;
     Scanner { bytes, position: 0 }.value(0)
 }
+// serde's byte-string decoder preserves surrogates but permits raw controls.
+pub(super) fn strict_strings(text: &str) -> bool {
+    let (mut quoted, mut escaped) = (false, false);
+    for byte in text.bytes() {
+        if quoted && byte < 0x20 {
+            return false;
+        }
+        if escaped {
+            escaped = false;
+        } else if quoted && byte == b'\\' {
+            escaped = true;
+        } else if byte == b'"' {
+            quoted = !quoted;
+        }
+    }
+    true
+}
+/// Select only the two outer lane-name maps losslessly; values use the same scanner.
+pub(super) fn selected_lane(text: &str, lane: TextRef<'_>) -> Result<Option<Value>> {
+    ensure!(strict_strings(text), "unescaped JSON control");
+    serde_json::from_str::<serde::de::IgnoredAny>(text)?;
+    Scanner {
+        bytes: text.as_bytes(),
+        position: 0,
+    }
+    .lane_member(lane, true)
+}
 struct Scanner<'a> {
     bytes: &'a [u8],
     position: usize,
@@ -83,7 +111,7 @@ impl Scanner<'_> {
             self.position += 1;
         }
     }
-    fn string(&mut self) -> Result<String> {
+    fn string_bytes(&mut self) -> &[u8] {
         let start = self.position;
         self.position += 1;
         loop {
@@ -96,7 +124,48 @@ impl Scanner<'_> {
                 _ => self.position += 1,
             }
         }
-        serde_json::from_slice(&self.bytes[start..self.position]).context("JSON string")
+        &self.bytes[start..self.position]
+    }
+    fn string(&mut self) -> Result<String> {
+        serde_json::from_slice(self.string_bytes()).context("JSON string")
+    }
+    fn lane_member(&mut self, lane: TextRef<'_>, outer: bool) -> Result<Option<Value>> {
+        self.whitespace();
+        let depth = usize::from(!outer);
+        if self.bytes[self.position] != b'{' {
+            self.value(depth)?;
+            return Ok(None);
+        }
+        self.position += 1;
+        self.whitespace();
+        let mut selected = None;
+        while self.bytes[self.position] != b'}' {
+            let CheckKey(key) = serde_json::from_slice(self.string_bytes())?;
+            self.whitespace();
+            self.position += 1; // Colon, already validated by IgnoredAny.
+            let matches = if outer {
+                key.iter().copied().eq("lanes".chars().map(u32::from))
+            } else {
+                key.iter().copied().eq(lane.points())
+            };
+            if matches {
+                selected = if outer {
+                    self.lane_member(lane, false)?
+                } else {
+                    Some(self.value(depth + 1)?)
+                };
+            } else {
+                self.value(depth + 1)?;
+            }
+            self.whitespace();
+            if self.bytes[self.position] != b',' {
+                break;
+            }
+            self.position += 1;
+            self.whitespace();
+        }
+        self.position += 1;
+        Ok(selected)
     }
     fn value(&mut self, depth: usize) -> Result<Value> {
         ensure!(depth < 128, "JSON nesting limit");

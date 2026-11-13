@@ -1,7 +1,10 @@
 //! Guarded, lexeme-preserving lane entries; conservative failures are not missing lanes.
 pub use crate::evidence::legacy_json::Value;
 use crate::evidence::legacy_json::{encode_integer, extension_syntax, has_float, limits};
-use crate::evidence::{legacy_json, legacy_policy::PolicyError};
+use crate::evidence::{
+    legacy_json,
+    legacy_policy::{PolicyError, check_names::CheckName},
+};
 /// Maximum simultaneously open JSON containers, including the root.
 pub const MAX_CONTAINERS: usize = 127;
 fn refusal(reason: &'static str) -> PolicyError {
@@ -11,7 +14,11 @@ fn refusal(reason: &'static str) -> PolicyError {
     }
 }
 /// Select raw values before canonicalization and lane schema validation.
-pub fn selected(text: &str, lane: &str) -> Result<Option<Value>, PolicyError> {
+pub fn selected<'a>(
+    text: &str,
+    lane: impl Into<CheckName<'a>>,
+) -> Result<Option<Value>, PolicyError> {
+    let lane = lane.into();
     let (depth, long_integer) = limits(text);
     if long_integer {
         return Ok(None);
@@ -19,8 +26,8 @@ pub fn selected(text: &str, lane: &str) -> Result<Option<Value>, PolicyError> {
     if depth > MAX_CONTAINERS {
         return Err(refusal("lane-entry-nesting-depth"));
     }
-    let doc = match legacy_json::parse(text.as_bytes()) {
-        Ok(doc) => doc,
+    let entry = match legacy_json::selected_lane(text, lane.text()) {
+        Ok(entry) => entry,
         Err(_) => {
             // Probe grammar without accepting replacement values or altering strings.
             return if extension_syntax(text) {
@@ -30,13 +37,7 @@ pub fn selected(text: &str, lane: &str) -> Result<Option<Value>, PolicyError> {
             };
         }
     };
-    let Value::Object(mut doc) = doc else {
-        return Ok(None);
-    };
-    let Some(Value::Object(mut lanes)) = doc.remove("lanes") else {
-        return Ok(None);
-    };
-    let Some(entry) = lanes.remove(lane) else {
+    let Some(entry) = entry else {
         return Ok(None);
     };
     if has_float(&entry) {
@@ -45,7 +46,10 @@ pub fn selected(text: &str, lane: &str) -> Result<Option<Value>, PolicyError> {
     Ok(Some(entry))
 }
 /// Compare this serialized text before validating the lane schema.
-pub fn canonical(text: &str, lane: &str) -> Result<Option<String>, PolicyError> {
+pub fn canonical<'a>(
+    text: &str,
+    lane: impl Into<CheckName<'a>>,
+) -> Result<Option<String>, PolicyError> {
     selected(text, lane).map(|entry| {
         entry.map(|entry| {
             let mut text = String::new();
@@ -55,6 +59,9 @@ pub fn canonical(text: &str, lane: &str) -> Result<Option<String>, PolicyError> 
     })
 }
 
+#[cfg(test)]
+#[path = "lane_name_tests.rs"]
+mod name_tests;
 #[cfg(test)]
 #[path = "lane_entry_tests.rs"]
 mod tests;

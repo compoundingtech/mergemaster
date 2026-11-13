@@ -525,6 +525,10 @@ including surrogateescaped filenames; native lane hashing remains unchanged.
 Legacy lane-entry parsing preserves integer lexemes and reports unsupported JSON explicitly.
 Canonical lane-entry comparisons use Python-compatible sorted compact JSON text,
 not parsed-value equality; callers compare before validating the lane schema.
+The two outer lane-name maps accept borrowed Python code-point names, including
+lone surrogates; entry values still use the same lexeme-preserving scanner.
+Existing depth/integer/float/extension refusals and canonical comparison remain;
+this does not widen raw lane-entry string values or wire eager lane resolution.
 Legacy JSON helpers share integer-only encoding and ASCII string escaping;
 callers guard unsupported number lexemes before encoding.
 `legacy_verify::judgment::judge` routes before lazy lane lookup, then checks the

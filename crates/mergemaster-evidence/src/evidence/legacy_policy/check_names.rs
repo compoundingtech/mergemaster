@@ -52,7 +52,7 @@ pub(super) enum Selection<'a> {
     Points(&'a [u32]),
     Names,
 }
-pub(super) struct CheckKey(pub Vec<u32>);
+pub(crate) struct CheckKey(pub Vec<u32>);
 impl<'de> serde::Deserialize<'de> for CheckKey {
     fn deserialize<D: de::Deserializer<'de>>(decoder: D) -> Result<Self, D::Error> {
         decoder.deserialize_bytes(KeyVisitor)

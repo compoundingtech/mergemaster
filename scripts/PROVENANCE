@@ -206,7 +206,9 @@
 # Conservative divergence: lane-entry-float-text. Selected float lexemes
 # (1.0, -0.0, 1e400) compare in Python; Rust refuses with this reason.
 # Conservative divergence: lane-entry-json-extensions. NaN/Infinity/-Infinity
-# and lone surrogates, even unrelated, are accepted by Python; Rust refuses.
+# and lone surrogates in entry values, even unrelated entries, are accepted by
+# Python; Rust refuses. Outer lane-map names now preserve lone surrogates and
+# do not fall under this value restriction.
 # Conservative divergence: lane-entry-nesting-depth. Maximum open containers
 # including the root is 127; oracle accepts 126/127/128/200, Rust refuses >127.
 # Each reason classifies as rejected in pinned Fractal. Identical float entries
