@@ -21,6 +21,13 @@ impl<'a> CheckName<'a> {
     pub(crate) fn text(self) -> TextRef<'a> {
         self.0
     }
+    pub(crate) fn entry(self, text: &str, group: &str) -> Result<Option<Value>, PolicyError> {
+        let selection = match self.0 {
+            TextRef::Str(name) => Selection::Scalar(name),
+            TextRef::Points(name) => Selection::Points(name),
+        };
+        Ok(entries(text, selection, group)?.entry)
+    }
 }
 impl std::fmt::Display for CheckName<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -44,7 +51,7 @@ pub fn sorted(text: &str) -> Result<Vec<Vec<u32>>, PolicyError> {
 /// Select by borrowed code points without converting the name through Rust String.
 /// Selected values retain the existing serde-value validation domain.
 pub fn selected(text: &str, name: &[u32]) -> Result<Option<Value>, PolicyError> {
-    Ok(entries(text, Selection::Points(name), "checks")?.entry)
+    CheckName::from(name).entry(text, "checks")
 }
 #[derive(Clone, Copy)]
 pub(super) enum Selection<'a> {
