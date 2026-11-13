@@ -24,14 +24,19 @@ impl GitChild {
         Self::with_timeout(command, Duration::from_secs(60))
     }
     pub(crate) fn with_timeout(command: &mut Command, timeout: Duration) -> io::Result<Self> {
-        Self::start(command.stderr(Stdio::null()), timeout)
+        Self::with_stdio(command, timeout, Stdio::piped(), Stdio::null())
     }
-    fn start(command: &mut Command, timeout: Duration) -> io::Result<Self> {
+    pub(crate) fn with_stdio(
+        command: &mut Command,
+        timeout: Duration,
+        stdout: Stdio,
+        stderr: Stdio,
+    ) -> io::Result<Self> {
         let deadline = Instant::now()
             .checked_add(timeout)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Git deadline overflow"))?;
         Ok(Self {
-            child: command.stdout(Stdio::piped()).spawn()?,
+            child: command.stdout(stdout).stderr(stderr).spawn()?,
             deadline,
             reaped: false,
         })
@@ -42,7 +47,7 @@ impl GitChild {
         input: Option<&[u8]>,
         timeout: Duration,
     ) -> io::Result<std::process::Output> {
-        let mut child = Self::start(command.stderr(Stdio::piped()), timeout)?;
+        let mut child = Self::with_stdio(command, timeout, Stdio::piped(), Stdio::piped())?;
         let mut stdin = input.map(|_| child.stdin()).transpose()?;
         let stdout = child.stdout()?;
         let stderr = child

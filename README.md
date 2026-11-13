@@ -646,6 +646,9 @@ metadata/publication calls use 60. Timeout errors include stderr captured so far
 Generic wrapper output storage and origin publication use 600 seconds per Git
 spawn, matching evidence-wrap. Timeout propagates as an error without publication
 success or a stored-output identifier; lane execution itself is unchanged.
+Signer source-pack export and scratch import each get their own 300-second lifetime
+deadline; stderr stays inherited, export stdout is retained and import stdout is
+discarded. Expiry is an error, not a partial export or successful import.
 Timeout/error/drop kills and reaps only the direct child, as Python POSIX does.
 No process group or signal forwarding is added; terminal SIGINT stays inherited.
 A grandchild can outlive timeout and hold pipes, but cleanup does not wait for EOF.

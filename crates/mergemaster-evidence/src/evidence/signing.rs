@@ -678,28 +678,27 @@ pub fn run_worker(args: SignArgs) -> Result<()> {
     let output = STANDARD.decode(&request.output)?;
     let scratch = tempfile::tempdir()?;
     git::git(scratch.path(), &["init", "--bare", "."])?;
-    let mut pack = git::command(&request.repo)
-        .args(["pack-objects", "--stdout", "--revs"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()?;
-    pack.stdin
-        .take()
-        .context("pack stdin")?
-        .write_all(format!("{}\n{}\n", request.head, request.base).as_bytes())?;
-    let packed = pack.wait_with_output()?;
-    ensure!(packed.status.success(), "source object export failed");
-    let mut import = git::command(scratch.path())
-        .args(["index-pack", "--stdin"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .spawn()?;
-    import
-        .stdin
-        .take()
-        .context("import stdin")?
-        .write_all(&packed.stdout)?;
-    ensure!(import.wait()?.success(), "source object import failed");
+    let pack = git::deadline::GitChild::with_stdio(
+        git::command(&request.repo)
+            .args(["pack-objects", "--stdout", "--revs"])
+            .stdin(Stdio::piped()),
+        std::time::Duration::from_secs(300),
+        Stdio::piped(),
+        Stdio::inherit(),
+    )?;
+    let packed = source_export(
+        pack,
+        format!("{}\n{}\n", request.head, request.base).as_bytes(),
+    )?;
+    let import = git::deadline::GitChild::with_stdio(
+        git::command(scratch.path())
+            .args(["index-pack", "--stdin"])
+            .stdin(Stdio::piped()),
+        std::time::Duration::from_secs(300),
+        Stdio::null(),
+        Stdio::inherit(),
+    )?;
+    source_import(import, &packed)?;
     let tree = git::text(
         scratch.path(),
         &["rev-parse", &format!("{}^{{tree}}", request.head)],
@@ -758,9 +757,78 @@ pub fn run_worker(args: SignArgs) -> Result<()> {
     Ok(())
 }
 
+fn source_export(mut child: git::deadline::GitChild, input: &[u8]) -> Result<Vec<u8>> {
+    child.stdin()?.write_all(input)?;
+    let mut packed = Vec::new();
+    child.stdout()?.read_to_end(&mut packed)?;
+    ensure!(child.wait()?.success(), "source object export failed");
+    Ok(packed)
+}
+fn source_import(mut child: git::deadline::GitChild, input: &[u8]) -> Result<()> {
+    child.stdin()?.write_all(input)?;
+    ensure!(child.wait()?.success(), "source object import failed");
+    Ok(())
+}
+
 #[cfg(test)]
 mod hardening_tests {
     use super::*;
+
+    #[test]
+    fn signing_pack_deadlines_preserve_export_import_and_refusals() {
+        use std::time::Duration;
+        for exporting in [false, true] {
+            for (status, timeout) in [
+                (0, Duration::from_secs(300)),
+                (7, Duration::from_secs(300)),
+                (0, Duration::ZERO),
+            ] {
+                let mut command = Command::new("python3");
+                command.args(["-c",
+                    "import sys;sys.stdin.buffer.read();sys.stdout.buffer.write(b'x'*3145728);sys.exit(int(sys.argv[1]))",
+                    &status.to_string()]).stdin(Stdio::piped());
+                let child = git::deadline::GitChild::with_stdio(
+                    &mut command,
+                    timeout,
+                    if exporting {
+                        Stdio::piped()
+                    } else {
+                        Stdio::null()
+                    },
+                    Stdio::inherit(),
+                )
+                .unwrap();
+                let result = if exporting {
+                    source_export(child, b"revision\n").map(|bytes| {
+                        assert_eq!(bytes, vec![b'x'; 3 * 1024 * 1024]);
+                    })
+                } else {
+                    source_import(child, &vec![b'x'; 2 * 1024 * 1024])
+                };
+                if timeout.is_zero() {
+                    assert_eq!(
+                        result
+                            .unwrap_err()
+                            .downcast_ref::<std::io::Error>()
+                            .unwrap()
+                            .kind(),
+                        std::io::ErrorKind::TimedOut
+                    );
+                } else if status == 0 {
+                    result.unwrap();
+                } else {
+                    assert_eq!(
+                        result.unwrap_err().to_string(),
+                        if exporting {
+                            "source object export failed"
+                        } else {
+                            "source object import failed"
+                        }
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn signer_refuses_missing_or_tampered_script_and_absolute_executable_claims() {
