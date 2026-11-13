@@ -4070,7 +4070,7 @@ fn legacy_lazy_lane_and_blob_composition_matches_signed_oracle() {
         let result = mergemaster_evidence::evidence::legacy_verify::judgment::judge_document(
             &rules,
             &facts,
-            now.timestamp_micros(),
+            &mut now.timestamp_micros(),
             &BTreeMap::new(),
             given.as_ref(),
             &mut borrowed,
@@ -4253,7 +4253,7 @@ print(json.dumps(cases))
         let actual = mergemaster_evidence::evidence::legacy_verify::judgment::judge_document(
             &rules,
             &facts,
-            1_735_689_660_000_000,
+            &mut 1_735_689_660_000_000i64,
             &BTreeMap::new(),
             given.as_ref(),
             &mut provider,

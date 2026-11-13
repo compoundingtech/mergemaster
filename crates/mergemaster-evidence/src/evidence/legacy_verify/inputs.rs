@@ -14,6 +14,20 @@ pub struct Clock {
     pub observed_at: DateTime<FixedOffset>,
     pub now: DateTime<Utc>,
 }
+/// Sample only when a document judgment reaches its time guards.
+pub trait CurrentTime {
+    fn epoch_micros(&mut self) -> i64;
+}
+impl CurrentTime for Clock {
+    fn epoch_micros(&mut self) -> i64 {
+        self.now.timestamp_micros()
+    }
+}
+impl CurrentTime for i64 {
+    fn epoch_micros(&mut self) -> i64 {
+        *self
+    }
+}
 /// Validated nonnegative seconds, or a positive integer too large for u64.
 /// Overflow remains explicit so future-dated refusal still precedes timedelta overflow.
 #[derive(Clone, Copy)]

@@ -94,6 +94,7 @@ print(json.dumps(cases))
             .unwrap()
             .into_rules("fixture")
             .unwrap();
+        let mut clock = 1_767_225_900_000_000i64;
         let ignored_inputs = ["../not-the-policy-input".into()];
         let q = Request {
             repo: Path::new(case["repo"].as_str().unwrap()),
@@ -103,14 +104,14 @@ print(json.dumps(cases))
             inputs: Some(&ignored_inputs),
             crate_key: Some(("wrong-crate", "wrong-key")),
         };
-        let result = required(&q, &rules, None, 1_767_225_900_000_000, NoBindings);
+        let result = required(&q, &rules, None, &mut clock, NoBindings);
         if case["budget"] == true {
             assert!(matches!(result,Err(e) if e.reason=="record-budget-exceeded"));
             let later = Request {
                 tree: case["later"].as_str().unwrap(),
                 ..q
             };
-            assert!(required(&later, &rules, None, 1_767_225_900_000_000, NoBindings).is_ok());
+            assert!(required(&later, &rules, None, &mut clock, NoBindings).is_ok());
             continue;
         }
         let actual = match result {
@@ -132,7 +133,7 @@ print(json.dumps(cases))
                 )
                 .unwrap();
                 let decision = CheckJudgment {
-                    now_micros: 1_767_225_900_000_000,
+                    clock: &mut clock,
                     run_inputs: &BTreeMap::new(),
                     lane: None,
                     provider: LaneOnce::new(RequiredProvider(NoBindings)),

@@ -101,11 +101,12 @@ print(json.dumps(dict(cases=cases,blobs=blobs)))
         let lane_file = case["lane"]
             .as_str()
             .map(|text| (text, case["base"].as_str().unwrap()));
+        let mut clock = 1_767_225_900_000_000i64;
         let actual = match required_lane(q.repo, q.tree, lane_file, q.check, None) {
             Err(e) => json!({"kind":"global","reason":e.reason}),
             Ok(RequiredLane::Missing(e)) => json!({"kind":"missing","reason":e.reason}),
             Ok(RequiredLane::Ready(lane)) => {
-                match required_git(&q, &rules, lane.as_ref(), 1_767_225_900_000_000) {
+                match required_git(&q, &rules, lane.as_ref(), &mut clock) {
                     Err(e) => json!({"kind":"refusal","reason":e.reason,"attempts":e.attempts}),
                     Ok(record) => {
                         let facts = DocumentFacts::for_check(

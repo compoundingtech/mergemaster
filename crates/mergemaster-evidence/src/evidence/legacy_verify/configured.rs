@@ -4,6 +4,7 @@ use super::{
     candidates::{Candidate, LaneOnce, Levels, Prepared},
     collection::CandidateCollector,
     facts::DocumentFacts,
+    inputs::CurrentTime,
     judgment::{LaneDefinition, Provider},
     ordering::CheckJudgment,
     prefix::{Request, candidates},
@@ -34,7 +35,7 @@ pub fn required(
     q: &Request<'_>,
     rules: &PolicyRules,
     lane: Option<&LaneDefinition>,
-    now_micros: i64,
+    clock: &mut dyn CurrentTime,
     provider: impl Provider,
 ) -> Result<TrustedCandidate, Failure> {
     let mut records = candidates(
@@ -63,7 +64,7 @@ pub fn required(
         q.check,
     )?;
     let decision = CheckJudgment {
-        now_micros,
+        clock,
         run_inputs: &BTreeMap::new(),
         lane,
         provider: LaneOnce::new(RequiredProvider(provider)),
@@ -84,13 +85,13 @@ pub fn required_git(
     q: &Request<'_>,
     rules: &PolicyRules,
     lane: Option<&LaneDefinition>,
-    now_micros: i64,
+    clock: &mut dyn CurrentTime,
 ) -> Result<TrustedCandidate, Failure> {
     required(
         q,
         rules,
         lane,
-        now_micros,
+        clock,
         GitProvider {
             repo: q.repo,
             tree: q.tree,
