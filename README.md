@@ -626,11 +626,13 @@ refusal/aggregate decisions belong to require-all orchestration, not this helper
 `configured::required_git` uses sanitized Git to stream bound blobs into SHA-256
 with byte-preserving paths and discarded stderr, without a blob-size allocation.
 Python maps Git OSError, nonzero status and its 60-second timeout to no blob.
-Rust maps process/read/status failures to no blob; its streaming Git helpers have
-no deadline yet. Shared `gate::git::git`, `git_bounded` and projection exchanges have
+Rust maps process/read/status failures to no blob; bound-blob hashing and discovery
+still lack deadlines. Shared `gate::git::git`, `git_bounded` and projection exchanges have
 one 60-second child-lifetime deadline covering stdin writes, stdout and final wait,
 with discarded stderr and nonblocking pipe I/O. Existing output bounds and strict
 projection OID/status validation remain unchanged; timeout is reason `error`.
+`RawBatch` uses one deadline across every request and final EOF/status validation;
+neither a successful reply nor finish renews it. Expiration cancels the owned child.
 Timeout/error/drop kills and reaps only the direct child, as Python POSIX does.
 No process group or signal forwarding is added; terminal SIGINT stays inherited.
 A grandchild can outlive timeout and hold pipes, but cleanup does not wait for EOF.

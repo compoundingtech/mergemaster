@@ -2,12 +2,15 @@
 use super::statement::MAX_STATEMENT_BYTES;
 use crate::{
     evidence::{legacy_policy::PolicyError, oid},
-    gate::git::command,
+    gate::git::{
+        command,
+        deadline::{GitChild, Pipe},
+    },
 };
 use std::{
     io::{Read, Write},
     path::Path,
-    process::{Child, ChildStdin, ChildStdout, Stdio},
+    process::{ChildStdin, ChildStdout, Stdio},
 };
 // Largest normal header: 64hex + space + 6-byte type + space + 20-digit u64 + LF.
 // 128 also covers a missing <64hex>^{tree} request (80 bytes).
@@ -65,30 +68,29 @@ fn frame(output: &mut impl Read, request: &str) -> Result<Option<Vec<u8>>, Polic
     }
     Ok(Some(body))
 }
-/// Owns exactly one Git child. Finish validates EOF/status; early drop kills/reaps.
+/// Owns one Git child and one 60-second deadline across all requests and finish.
 pub struct RawBatch {
-    child: Option<Child>,
-    input: Option<ChildStdin>,
-    output: ChildStdout,
+    child: Option<GitChild>,
+    input: Option<Pipe<ChildStdin>>,
+    output: Pipe<ChildStdout>,
 }
 impl RawBatch {
     pub fn open(repo: &Path) -> Result<Self, PolicyError> {
-        let child = command(repo)
-            .arg("cat-file")
-            .arg("--batch")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(error)?;
-        Ok(Self::owned(child))
+        Self::owned(
+            GitChild::spawn(
+                command(repo)
+                    .args(["cat-file", "--batch"])
+                    .stdin(Stdio::piped()),
+            )
+            .map_err(error)?,
+        )
     }
-    fn owned(mut child: Child) -> Self {
-        Self {
-            input: child.stdin.take(),
-            output: child.stdout.take().expect("piped stdout"),
+    fn owned(mut child: GitChild) -> Result<Self, PolicyError> {
+        Ok(Self {
+            input: Some(child.stdin().map_err(error)?),
+            output: child.stdout().map_err(error)?,
             child: Some(child),
-        }
+        })
     }
     /// Full OID or full OID^{tree}; at most 72 input bytes before reading a reply.
     pub fn read(&mut self, request: &str) -> Result<Option<Vec<u8>>, PolicyError> {
@@ -108,15 +110,16 @@ impl RawBatch {
         result
     }
     pub fn finish(mut self) -> Result<(), PolicyError> {
-        if self.child.is_none() {
-            return Err(error("raw Git batch is closed"));
-        }
+        let child = self
+            .child
+            .as_mut()
+            .ok_or_else(|| error("raw Git batch is closed"))?;
         self.input.take();
         let mut byte = [0];
         if self.output.read(&mut byte).map_err(error)? != 0 {
             return Err(error("unexpected raw Git output"));
         }
-        let status = self.child.as_mut().unwrap().wait().map_err(error)?;
+        let status = child.wait().map_err(error)?;
         self.child.take();
         if !status.success() {
             return Err(error("raw Git batch failed"));
@@ -125,10 +128,7 @@ impl RawBatch {
     }
     fn cancel(&mut self) {
         self.input.take();
-        if let Some(mut child) = self.child.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
+        self.child.take();
     }
 }
 impl Drop for RawBatch {

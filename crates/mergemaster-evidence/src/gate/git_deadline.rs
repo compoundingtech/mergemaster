@@ -12,6 +12,10 @@ pub(crate) struct GitChild {
     reaped: bool,
 }
 impl GitChild {
+    #[cfg(all(test, target_os = "linux"))]
+    pub(crate) fn id(&self) -> u32 {
+        self.child.id()
+    }
     pub(crate) fn spawn(command: &mut Command) -> io::Result<Self> {
         Self::with_timeout(command, Duration::from_secs(60))
     }
