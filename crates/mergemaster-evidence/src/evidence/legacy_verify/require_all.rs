@@ -76,25 +76,30 @@ pub fn require_all<'a>(
             )
             .map(|selected| {
                 let doc = &selected.candidate.statement;
-                let predicate = statement::field(doc, doc.root(), "predicate").unwrap();
-                let tier = statement::string(statement::field(doc, predicate, "tier").unwrap())
-                    .unwrap()
-                    .to_vec();
-                Record {
+                let predicate = statement::field(doc, doc.root(), "predicate")?;
+                let tier = statement::string(statement::field(doc, predicate, "tier")?)?.to_vec();
+                Some(Record {
                     record: selected.candidate.commit,
                     signer: selected.principal,
                     tier,
-                }
+                })
             }),
         };
         let outcome = match outcome {
+            Ok(Some(record)) => Ok(record),
+            Ok(None) => {
+                return Err(PolicyError {
+                    reason: "error",
+                    detail: "internal invariant: validated statement lacks a string tier".into(),
+                });
+            }
             Err(error) if error.exception => {
                 return Err(PolicyError {
                     reason: error.reason,
                     detail: error.detail,
                 });
             }
-            other => other,
+            Err(error) => Err(error),
         };
         let mode = rules.header.require;
         let decision = if outcome.is_ok() {
