@@ -21,6 +21,12 @@ impl<'a> CheckName<'a> {
     pub(crate) fn text(self) -> TextRef<'a> {
         self.0
     }
+    pub(crate) fn codepoints(self) -> std::borrow::Cow<'a, [u32]> {
+        match self.0 {
+            TextRef::Str(text) => text.chars().map(u32::from).collect::<Vec<_>>().into(),
+            TextRef::Points(points) => points.into(),
+        }
+    }
     pub(crate) fn entry(self, text: &str, group: &str) -> Result<Option<Value>, PolicyError> {
         let selection = match self.0 {
             TextRef::Str(name) => Selection::Scalar(name),

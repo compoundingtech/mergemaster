@@ -137,7 +137,7 @@ print(json.dumps(cases))
             &Request {
                 repo,
                 tree,
-                check: "check",
+                check: "check".into(),
                 keys: case["keys"].as_str().unwrap(),
                 inputs: None,
                 crate_key: None,

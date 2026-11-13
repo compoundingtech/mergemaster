@@ -5,7 +5,7 @@ use super::{
     statement::{field, string},
     statement_document::Document,
 };
-use crate::evidence::legacy_policy::PolicyError;
+use crate::evidence::legacy_policy::{PolicyError, check_names::CheckName};
 use indexmap::{IndexMap, IndexSet};
 use std::{path::Path, sync::Arc};
 
@@ -41,11 +41,11 @@ impl CandidateCollector {
     }
     /// Return the entire ordered structural candidate set, or abort on any error.
     /// `inputs` is rules.inputs, not an authorization decision. Crate binding wins.
-    pub fn collect(
+    pub fn collect<'a>(
         &mut self,
         repo: &Path,
         tree: &str,
-        check: &str,
+        check: impl Into<CheckName<'a>>,
         inputs: Option<&[String]>,
         crate_key: Option<(&str, &str)>,
     ) -> Result<Collected, PolicyError> {

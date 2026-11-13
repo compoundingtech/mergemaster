@@ -1,6 +1,9 @@
 //! Legacy input-ref indexes discover candidates, never signature or statement trust.
 use crate::{
-    evidence::{legacy_policy::PolicyError, oid},
+    evidence::{
+        legacy_policy::{PolicyError, check_names::CheckName},
+        oid,
+    },
     gate::git::{command, text},
 };
 use std::{
@@ -90,12 +93,19 @@ pub fn tree_refs(repo: &Path, tree: &str) -> Result<Vec<String>, PolicyError> {
         ],
     )
 }
-pub fn input_refs(repo: &Path, check: &str, key: &str) -> Result<Vec<String>, PolicyError> {
-    if !(1..=100).contains(&check.len())
-        || !check.as_bytes()[0].is_ascii_alphanumeric()
-        || !check
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+pub fn input_refs<'a>(
+    repo: &Path,
+    check: impl Into<CheckName<'a>>,
+    key: &str,
+) -> Result<Vec<String>, PolicyError> {
+    let check = check.into();
+    let text = check.text();
+    let ascii_alnum = |p| matches!(p, 48..=57 | 65..=90 | 97..=122);
+    if !(1..=100).contains(&text.len())
+        || !text.points().next().is_some_and(ascii_alnum)
+        || !text
+            .points()
+            .all(|p| ascii_alnum(p) || matches!(p, 46 | 95 | 45))
         || oid(key).is_err()
     {
         return Ok(Vec::new());

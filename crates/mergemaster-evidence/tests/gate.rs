@@ -4771,7 +4771,7 @@ fn legacy_input_indexes_and_note_presence_match_real_oracle() {
     ];
     let refs: Vec<_> = queries
         .iter()
-        .map(|(check, key)| input_refs(&f.repo, check, key).unwrap())
+        .map(|(check, key)| input_refs(&f.repo, check.as_str(), key).unwrap())
         .collect();
     let candidates: Vec<_> = prefixes
         .iter()

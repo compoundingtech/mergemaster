@@ -546,6 +546,12 @@ Legacy `discovery::input_refs` and `with_note_for` find indexed candidates and
 batch note-entry presence only; neither establishes statement or signer trust.
 `discovery::tree_refs` and `legacy_refs` complete tree/first-layout candidate
 discovery (3f-1), including SHA-1/SHA-256 suffix identity and tag-first deduplication.
+Candidate collection, trusted-check filtering and raw stale membership accept borrowed
+lossless check names, including lone surrogates. Only input-ref lookup retains Python's
+ASCII CHECK_NAME restriction: unsupported names find no input index, without a Git call.
+This does not restrict tree-indexed records or the raw scanner's object/array/string
+membership. The joined prefix still uses Python's intentionally empty owned revocation
+file; it is not an external-revocation enforcement API or require-all orchestration.
 `statement::statement_of` decodes and validates byte statements (3f-2b-2c), retaining
 lossless Python strings, canonical integer zero and zoned ISO calendar/week clocks.
 The same statement-time parser also returns exact signed UTC epoch microseconds

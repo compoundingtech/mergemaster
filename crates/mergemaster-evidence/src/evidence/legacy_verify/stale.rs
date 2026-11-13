@@ -4,7 +4,10 @@ use super::{
     statement::field,
     statement_document::{Document, Error, Node},
 };
-use crate::evidence::{legacy_policy::PolicyError, oid};
+use crate::evidence::{
+    legacy_policy::{PolicyError, check_names::CheckName},
+    oid,
+};
 use std::path::Path;
 fn error(detail: &str) -> PolicyError {
     PolicyError {
@@ -52,12 +55,12 @@ fn has_check(doc: &Document, check: &[u32]) -> bool {
         _ => false,
     }
 }
-pub(super) fn bodies_have(
+pub(super) fn bodies_have<'a>(
     mut batch: RawBatch,
     blobs: &[String],
-    check: &str,
+    check: impl Into<CheckName<'a>>,
 ) -> Result<bool, PolicyError> {
-    let check: Vec<_> = check.chars().map(u32::from).collect();
+    let check = check.into().codepoints();
     for blob in blobs {
         let Some(body) = batch.read(blob)? else {
             continue;
@@ -79,11 +82,11 @@ pub(super) fn bodies_have(
 }
 /// Python's raw stale-tree diagnostic, not a trusted-record lookup.
 /// Aggregate object count/runtime remain unbounded; each body/depth is bounded.
-pub fn other_trees_have(
+pub fn other_trees_have<'a>(
     repo: &Path,
     commits: &[String],
     tree: &str,
-    check: &str,
+    check: impl Into<CheckName<'a>>,
 ) -> Result<bool, PolicyError> {
     if commits.is_empty() {
         return Ok(false);
