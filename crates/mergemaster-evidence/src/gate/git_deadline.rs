@@ -2,7 +2,7 @@
 use std::{
     io::{self, Read, Write},
     os::fd::AsRawFd,
-    process::{Child, ChildStdout, Command, ExitStatus, Stdio},
+    process::{Child, ChildStdin, ChildStdout, Command, ExitStatus, Stdio},
     time::{Duration, Instant},
 };
 
@@ -15,7 +15,7 @@ impl GitChild {
     pub(crate) fn spawn(command: &mut Command) -> io::Result<Self> {
         Self::with_timeout(command, Duration::from_secs(60))
     }
-    fn with_timeout(command: &mut Command, timeout: Duration) -> io::Result<Self> {
+    pub(crate) fn with_timeout(command: &mut Command, timeout: Duration) -> io::Result<Self> {
         let deadline = Instant::now()
             .checked_add(timeout)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Git deadline overflow"))?;
@@ -27,6 +27,14 @@ impl GitChild {
             deadline,
             reaped: false,
         })
+    }
+    pub(crate) fn stdin(&mut self) -> io::Result<Pipe<ChildStdin>> {
+        let stdin = self
+            .child
+            .stdin
+            .take()
+            .ok_or_else(|| io::Error::other("Git stdin already taken"))?;
+        self.pipe(stdin)
     }
     pub(crate) fn stdout(&mut self) -> io::Result<Pipe<ChildStdout>> {
         let stdout = self
