@@ -560,6 +560,9 @@ in Python's years 1..9999; datetime/timedelta overflow refuses with reason `erro
 `judgment::judge_document` shares selected-record lane and bound-file guards with
 native judgment, preserving lazy provider reads and errors. Its caller must supply
 independently verified principal/lane/hash context; it does not select candidates.
+`candidates::Prepared` removes passing shard parts while preserving candidate order,
+counts remaining attempts and unions policy kind levels. `LaneOnce` owns one lazy
+lane snapshot per check (including absence); neither API performs final selection.
 `statement_bytes::decode_json_bytes` ports Python's BOM/NUL-based UTF-8/16/32
 transport detection and surrogatepass decoding (3f-2b-1), retaining code points
 including lone surrogates rather than replacing them with invalid Rust strings.
