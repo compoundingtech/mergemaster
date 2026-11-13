@@ -81,11 +81,7 @@ pub fn judge_unconfigured(
     super::routing::route_unconfigured(options.routing, record, attempts)?;
     super::inputs::check_unconfigured_inputs(
         record,
-        clock.epoch_micros().map_err(|error| Failure {
-            reason: error.reason,
-            detail: error.detail,
-            attempts,
-        })?,
+        super::inputs::sample(clock, attempts)?,
         options.max_age,
         options.command,
         attempts,
@@ -110,11 +106,13 @@ fn judge_source<'a>(
     attempts: usize,
 ) -> Result<Routing<'a>, Failure> {
     let fail = |reason| Failure {
+        exception: false,
         reason,
         detail: format!("record fails legacy {reason} guard"),
         attempts,
     };
     let error = |e: PolicyError| Failure {
+        exception: false,
         reason: e.reason,
         detail: e.detail,
         attempts,
@@ -146,7 +144,7 @@ fn judge_source<'a>(
                 policy,
                 &routing,
                 record,
-                clock.epoch_micros().map_err(error)?,
+                super::inputs::sample(clock, attempts)?,
                 run_inputs,
                 attempts,
             )?;
@@ -178,6 +176,7 @@ fn check_lane(
     attempts: usize,
 ) -> Result<(), Failure> {
     let fail = |reason| Failure {
+        exception: false,
         reason,
         detail: format!("record fails legacy {reason} guard"),
         attempts,
@@ -207,6 +206,7 @@ fn check_bindings<'a>(
     attempts: usize,
 ) -> Result<(), Failure> {
     let error = |e: PolicyError| Failure {
+        exception: false,
         reason: e.reason,
         detail: e.detail,
         attempts,
@@ -219,6 +219,7 @@ fn check_bindings<'a>(
                 .is_none_or(|value| value.len() == 0 || !value.equals(actual))
         }) {
             return Err(Failure {
+                exception: false,
                 reason: "wrong_input",
                 detail: "record fails legacy wrong_input guard".into(),
                 attempts,
