@@ -5,6 +5,7 @@ pub mod configured;
 pub mod discovery;
 pub mod events;
 pub mod facts;
+pub mod failure_json;
 pub mod inputs;
 pub mod judgment;
 pub mod lane_entry;

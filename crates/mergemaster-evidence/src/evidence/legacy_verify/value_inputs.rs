@@ -1,8 +1,9 @@
 use super::statement_document::{Document, Node};
 use std::collections::BTreeMap;
 
+/// Lossless borrowed Python text; Display is diagnostic, not a wire encoder.
 #[derive(Clone, Copy)]
-pub(crate) enum TextRef<'a> {
+pub enum TextRef<'a> {
     Str(&'a str),
     Points(&'a [u32]),
 }
