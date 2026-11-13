@@ -77,6 +77,25 @@ pub(super) enum InputSource<'a> {
     Document(&'a Document, &'a indexmap::IndexMap<Vec<u32>, usize>),
 }
 impl<'a> InputSource<'a> {
+    pub(super) fn get_text(&self, key: TextRef<'_>) -> Option<TextRef<'a>> {
+        let key = match key {
+            TextRef::Str(key) => return self.get(key),
+            TextRef::Points(key) => key,
+        };
+        match self {
+            Self::Empty => None,
+            Self::Native(inputs) => inputs
+                .iter()
+                .find(|(name, _)| TextRef::Points(key).equals(name))
+                .map(|(_, value)| TextRef::Str(value)),
+            Self::Document(doc, inputs) => {
+                let Node::String(value) = doc.node(*inputs.get(key)?) else {
+                    unreachable!("validated input values are strings")
+                };
+                Some(TextRef::Points(value))
+            }
+        }
+    }
     pub(super) fn get(&self, key: &str) -> Option<TextRef<'a>> {
         match self {
             Self::Empty => None,

@@ -568,6 +568,10 @@ It does not perform routing, runner/lane/binding guards, selection or authorizat
 `judgment::judge_document` shares selected-record lane and bound-file guards with
 native judgment, preserving lazy provider reads and errors. Its caller must supply
 independently verified principal/lane/hash context; it does not select candidates.
+`judgment::judge_unconfigured` composes rules-absent routing/input guards with the
+same lane/binding tail, preserving codepoint binding keys and native path bytes.
+It enforces explicit lanes but requests no policy-level lazy lane; trust context
+must be supplied independently, and candidate selection is not performed.
 `Provider::blob_sha256` borrows a native `Path`, preserving Unix argv path bytes
 through `LaneOnce`; implementations must not convert paths through lossy text.
 Policy UTF-8 binding paths borrow this same interface without allocation.
