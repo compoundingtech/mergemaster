@@ -248,6 +248,9 @@ print(json.dumps([cases,actual]))
                     .map(|found| found.map(|(i, _)| i))
             }
         };
+        if let Err(error) = &result {
+            assert_eq!(error.exception, error.reason == "error", "{case}");
+        }
         actual.push(json!([
             result.as_ref().map_or_else(|e| e.reason, |_| "ok"),
             result.ok().flatten().map(|i| prepared.candidates[i].commit),
