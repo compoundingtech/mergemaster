@@ -14,6 +14,7 @@ pub mod prefix;
 pub mod projection;
 pub mod raw_batch;
 pub mod records;
+pub mod result;
 pub mod routing;
 pub mod selection;
 pub mod selection_json;

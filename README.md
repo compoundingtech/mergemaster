@@ -569,6 +569,9 @@ overflow refusal. `CheckJudgment::select` adds stable order/preference, conserva
 failure shadowing and indexed deciding/skip metadata, not final CLI serialization.
 Event narrowing shares one lazy borrowed intersection with the existing collecting
 API; borrowed result consumers need not allocate or copy an event list.
+`result::Satisfied::from_decision` borrows the complete policy-mode result dictionary,
+including lossless command/input/event iterators and deciding/skip metadata.
+JSON output and rules-absent mode remain separate; no CLI cutover is implied.
 `statement_bytes::decode_json_bytes` ports Python's BOM/NUL-based UTF-8/16/32
 transport detection and surrogatepass decoding (3f-2b-1), retaining code points
 including lone surrogates rather than replacing them with invalid Rust strings.
