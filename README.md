@@ -615,12 +615,13 @@ API; borrowed result consumers need not allocate or copy an event list.
 `result::Satisfied::from_decision` borrows the complete result dictionary in either mode,
 including lossless command/input/event iterators and deciding/skip metadata.
 Without rules it preserves caller max-age and uses policy=false, enforce=false,
-sample_one_in=1 and no events. JSON serialization/CLI cutover remain separate.
+sample_one_in=1 and no events. `Satisfied::write_json` emits the exact ordered successful
+dictionary, including lossless fields and optional deciding/skip metadata; no final LF.
 Successful views also borrow lossless check names; `CheckName::codepoints` exposes
 their exact identity without using diagnostic Display as serialization.
 `legacy_output` streams insertion-ordered, two-space Python JSON without an intermediate
 tree, preserving surrogate code points and ASCII escaping. It adds no final newline.
-Result adapters and CLI wiring remain separate; writer errors must discard partial output.
+Failure/require-all adapters and CLI wiring remain separate; discard partial output on error.
 `configured::required` joins trusted collection and existing configured selection
 for one required check, returning the selected owned trusted record. Each call owns
 a fresh collector budget; rules supply projection inputs, with no crate binding,

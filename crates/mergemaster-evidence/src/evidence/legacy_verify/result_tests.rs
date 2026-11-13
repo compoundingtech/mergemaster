@@ -49,6 +49,13 @@ for fixture in fixtures:
     rules=None if fixture['policy'] is None else ns['policy_rules'](fixture['policy'],'unit','owner/repo')
     try:
         result=ns['verified'](None,'a'*40,'unit',None,command if rules is not None else None,rules=rules,kinds=['wrapper'],max_age=fixture.get('age'),now=ns['parse_time']('2026-01-01T00:05:00Z'),run_inputs={})
+        fixture['wire']=[]
+        for name,mode in itertools.product(['unit','\ud800','face😀'],range(3)):
+            wire=dict(result,check=name)
+            if mode==0:
+                wire.pop('decided_by',None);wire.pop('skipped_newer',None)
+            elif mode==2: wire['skipped_newer']=['other host level_not_accepted']
+            fixture['wire'].append(json.dumps(wire,indent=2))
         for key in ('tier','observed_at','matched_tree'): result[key]=list(map(ord,result[key]))
         result['command']=[list(map(ord,arg)) for arg in result['command']]
         result['inputs']=[[list(map(ord,k)),list(map(ord,v))] for k,v in result['inputs'].items()]
@@ -77,6 +84,13 @@ print(json.dumps(fixtures))
             panic!("no bindings")
         }
     }
+    let wire_names = [
+        None,
+        Some(&[0xd800][..]),
+        Some(&[102, 97, 99, 101, 0x1f600][..]),
+    ];
+    let wire_skips = ["other host level_not_accepted".to_owned()];
+    let mut wire_cases = 0;
     for fixture in fixtures {
         let policy = fixture["policy"].as_str().map(|policy| {
             PolicyDocument::parse(policy, "unit")
@@ -138,7 +152,30 @@ print(json.dumps(fixtures))
                 assert!(std::ptr::eq(error, decision.result.as_ref().err().unwrap()));
                 json!({"reason":error.reason})
             }
-            Ok(result) => {
+            Ok(mut result) => {
+                let original = (result.decided_by, result.skipped_newer);
+                for (index, name) in wire_names.iter().enumerate() {
+                    for mode in 0..3 {
+                        result.check = name.map_or_else(|| "unit".into(), Into::into);
+                        result.decided_by = if mode == 0 { None } else { original.0 };
+                        result.skipped_newer = match mode {
+                            0 => None,
+                            1 => original.1,
+                            _ => Some(&wire_skips),
+                        };
+                        let mut bytes = String::new();
+                        crate::evidence::legacy_output::write(&mut bytes, |w| result.write_json(w))
+                            .unwrap();
+                        assert_eq!(
+                            bytes,
+                            fixture["wire"][index * 3 + mode].as_str().unwrap(),
+                            "{fixture}"
+                        );
+                        wire_cases += 1;
+                    }
+                }
+                result.check = "unit".into();
+                (result.decided_by, result.skipped_newer) = original;
                 assert!(std::ptr::eq(result.tier, prepared.candidates[0].facts.tier));
                 assert!(
                     result
@@ -160,4 +197,5 @@ print(json.dumps(fixtures))
         };
         assert_eq!(actual, fixture["expected"], "{fixture}");
     }
+    assert_eq!(wire_cases, 3888);
 }

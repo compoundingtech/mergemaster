@@ -1,4 +1,4 @@
-//! Lossless borrowed successful-result dictionary; no JSON/CLI serialization.
+//! Lossless borrowed successful-result dictionary; JSON output lives in result_json.
 use super::{
     Failure,
     candidates::{Prepared, Rules},
