@@ -20,16 +20,107 @@ impl GitChild {
         Self::with_timeout(command, Duration::from_secs(60))
     }
     pub(crate) fn with_timeout(command: &mut Command, timeout: Duration) -> io::Result<Self> {
+        Self::start(command.stderr(Stdio::null()), timeout)
+    }
+    fn start(command: &mut Command, timeout: Duration) -> io::Result<Self> {
         let deadline = Instant::now()
             .checked_add(timeout)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Git deadline overflow"))?;
         Ok(Self {
-            child: command
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .spawn()?,
+            child: command.stdout(Stdio::piped()).spawn()?,
             deadline,
             reaped: false,
+        })
+    }
+    /// Capture both streams while feeding stdin, under one owned-child deadline.
+    pub(crate) fn capture(
+        command: &mut Command,
+        input: Option<&[u8]>,
+        timeout: Duration,
+    ) -> io::Result<std::process::Output> {
+        let mut child = Self::start(command.stderr(Stdio::piped()), timeout)?;
+        let mut stdin = input.map(|_| child.stdin()).transpose()?;
+        let stdout = child.stdout()?;
+        let stderr = child
+            .child
+            .stderr
+            .take()
+            .ok_or_else(|| io::Error::other("Git stderr"))?;
+        let mut stdout = stdout.inner;
+        let mut stderr = child.pipe(stderr)?.inner;
+        let mut bytes = input.unwrap_or_default();
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let result = (|| {
+            let mut fds = [
+                libc::pollfd {
+                    fd: stdout.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
+                libc::pollfd {
+                    fd: stderr.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
+                libc::pollfd {
+                    fd: -1,
+                    events: libc::POLLOUT,
+                    revents: 0,
+                },
+            ];
+            while fds[0].fd >= 0 || fds[1].fd >= 0 || stdin.is_some() {
+                if bytes.is_empty() {
+                    stdin.take();
+                }
+                fds[2].fd = stdin.as_ref().map_or(-1, |pipe| pipe.inner.as_raw_fd());
+                if fds.iter().all(|fd| fd.fd < 0) {
+                    break;
+                }
+                let timeout = remaining(child.deadline)?
+                    .as_millis()
+                    .saturating_add(1)
+                    .min(i32::MAX as u128) as i32;
+                // SAFETY: fds is a live array of three pollfd entries.
+                if unsafe { libc::poll(fds.as_mut_ptr(), 3, timeout) } < 0 {
+                    let error = io::Error::last_os_error();
+                    if error.kind() == io::ErrorKind::Interrupted {
+                        continue;
+                    }
+                    return Err(error);
+                }
+                remaining(child.deadline)?;
+                if fds[0].revents != 0 && capture_read(&mut stdout, &mut out)? {
+                    fds[0].fd = -1;
+                }
+                if fds[1].revents != 0 && capture_read(&mut stderr, &mut err)? {
+                    fds[1].fd = -1;
+                }
+                if fds[2].revents != 0
+                    && let Some(pipe) = &mut stdin
+                {
+                    match pipe.inner.write(bytes) {
+                        Ok(0) => {
+                            return Err(io::Error::new(io::ErrorKind::WriteZero, "Git stdin"));
+                        }
+                        Ok(n) => bytes = &bytes[n..],
+                        Err(e) if retry_io(&e) => {}
+                        Err(e) => return Err(e),
+                    }
+                }
+            }
+            child.wait()
+        })();
+        let status = result.map_err(|e| {
+            io::Error::new(
+                e.kind(),
+                format!("{e}: {}", String::from_utf8_lossy(&err).trim()),
+            )
+        })?;
+        Ok(std::process::Output {
+            status,
+            stdout: out,
+            stderr: err,
         })
     }
     pub(crate) fn stdin(&mut self) -> io::Result<Pipe<ChildStdin>> {
@@ -90,6 +181,24 @@ impl GitChild {
 impl Drop for GitChild {
     fn drop(&mut self) {
         self.cancel();
+    }
+}
+fn retry_io(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+    )
+}
+fn capture_read(reader: &mut impl Read, output: &mut Vec<u8>) -> io::Result<bool> {
+    let mut buffer = [0; 64 * 1024];
+    match reader.read(&mut buffer) {
+        Ok(0) => Ok(true),
+        Ok(n) => {
+            output.extend_from_slice(&buffer[..n]);
+            Ok(false)
+        }
+        Err(error) if retry_io(&error) => Ok(false),
+        Err(error) => Err(error),
     }
 }
 fn remaining(deadline: Instant) -> io::Result<Duration> {

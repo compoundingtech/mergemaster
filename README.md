@@ -639,6 +639,10 @@ Native batches share that lifetime rule; signing passes its Python-compatible
 300-second blob-content timeout, while native digest/validation batches use 60.
 Deadline failures propagate as errors, never partial contents/digests or validation
 success; framing, streamed hashing and direct-child cleanup remain unchanged.
+The native evidence Git helper polls stdin/stdout/stderr together under one explicit
+deadline, preserving binary stdout and nonzero-status diagnostics without threads.
+Observation blob/tree/commit creation uses 300 seconds; verifier and native-only
+metadata/publication calls use 60. Timeout errors include stderr captured so far.
 Timeout/error/drop kills and reaps only the direct child, as Python POSIX does.
 No process group or signal forwarding is added; terminal SIGINT stays inherited.
 A grandchild can outlive timeout and hold pipes, but cleanup does not wait for EOF.
