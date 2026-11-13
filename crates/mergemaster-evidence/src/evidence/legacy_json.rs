@@ -339,22 +339,37 @@ pub(super) fn encode_integer(value: &Value, out: &mut String) {
     }
 }
 pub(super) fn string(value: &str, out: &mut impl Write) -> fmt::Result {
+    codepoints(value.chars().map(u32::from), out)
+}
+
+/// Python ensure_ascii escaping, including lone surrogates; no input decoding.
+/// Scalar string callers retain their existing encoding and sink-error behavior.
+pub(super) fn codepoints(
+    value: impl IntoIterator<Item = u32>,
+    out: &mut impl Write,
+) -> fmt::Result {
     out.write_char('"')?;
-    for ch in value.chars() {
-        match ch {
-            '"' => out.write_str("\\\"")?,
-            '\\' => out.write_str("\\\\")?,
-            '\x08' => out.write_str("\\b")?,
-            '\x0c' => out.write_str("\\f")?,
-            '\n' => out.write_str("\\n")?,
-            '\r' => out.write_str("\\r")?,
-            '\t' => out.write_str("\\t")?,
-            ' '..='~' => out.write_char(ch)?,
-            _ => {
-                for unit in ch.encode_utf16(&mut [0; 2]) {
-                    write!(out, "\\u{unit:04x}")?;
-                }
+    for point in value {
+        match point {
+            0x22 => out.write_str("\\\"")?,
+            0x5c => out.write_str("\\\\")?,
+            8 => out.write_str("\\b")?,
+            12 => out.write_str("\\f")?,
+            10 => out.write_str("\\n")?,
+            13 => out.write_str("\\r")?,
+            9 => out.write_str("\\t")?,
+            0x20..=0x7e => out.write_char(char::from_u32(point).ok_or(fmt::Error)?)?,
+            0..=0xffff => write!(out, "\\u{point:04x}")?,
+            0x10000..=0x10ffff => {
+                let offset = point - 0x10000;
+                write!(
+                    out,
+                    "\\u{:04x}\\u{:04x}",
+                    0xd800 + (offset >> 10),
+                    0xdc00 + (offset & 0x3ff)
+                )?;
             }
+            _ => return Err(fmt::Error),
         }
     }
     out.write_char('"')
@@ -363,6 +378,45 @@ pub(super) fn string(value: &str, out: &mut impl Write) -> fmt::Result {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn codepoint_encoder_matches_pinned_python_bytes() {
+        let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
+        let output = std::process::Command::new("python3")
+            .args([
+                "-c",
+                r"
+import runpy,sys
+json=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify')['json']
+print(json.dumps(''.join(map(chr,range(0x110000)))))
+print(json.dumps(''.join(chr(p) for p in range(0x110000) if not 0xd800<=p<=0xdfff)))
+",
+                &root,
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let mut actual = String::new();
+        codepoints(0..=0x10ffff, &mut actual).unwrap();
+        actual.push('\n');
+        let scalars: String = (0..=0x10ffff).filter_map(char::from_u32).collect();
+        string(&scalars, &mut actual).unwrap();
+        actual.push('\n');
+        assert_eq!(actual.as_bytes(), output.stdout);
+        assert!(codepoints([0x110000], &mut String::new()).is_err());
+        struct Refuse;
+        impl Write for Refuse {
+            fn write_str(&mut self, _: &str) -> fmt::Result {
+                Err(fmt::Error)
+            }
+        }
+        assert!(string("scalar", &mut Refuse).is_err());
+        assert!(codepoints([0xd800], &mut Refuse).is_err());
+    }
 
     #[test]
     fn ordinary_json_objects_remain_objects_in_both_parsers() {
