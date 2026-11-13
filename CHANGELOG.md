@@ -5,9 +5,12 @@
 ## [0.8.0] - 2026-11-13
 
 - Resolve `ci-signed-tree`'s verifier adjacent to the script, not from the consumer working directory; keep consumer policy, Git operations and verifier arguments unchanged. Record the intentional oracle divergence with exact source/destination blobs. (see #141)
-- Fetch the pinned Fractal fixture through shallow Git rather than GitHub's commit-tarball endpoint, preserving its source bytes and revision.
 - Make direct execution an explicit `direct_exec: true` lane opt-in (default false, omitted when false), eligible only for exactly `["bun", "<tracked-relative-script>"]` with a `.ts`, `.tsx`, `.js`, `.mjs`, or `.cjs` script, no leading flag, absolute script path, `..` segment, or extra arguments. Execute only the canonical declared Nix runtime's `bin/bun`, never a dependency executable; default bare/relative commands retain PATH/checkout-relative wrapping. Opt-in and absolute Nix executable lanes require signed `executed_executable` (canonical absolute path) and `executed_artifact` (containing Nix artifact identity, runtime for opt-in) inputs, independently checked by the signer and required by the gate. Closure remeasurement is unchanged. (#159)
 - Isolate the policy-path test fixture from host Git configuration and hooks.
+- Rust legacy verification joins candidate collection with ordered miss precedence. (#155)
+- Preserve exact zoned statement instants at microsecond precision for Rust legacy selection, including fractional offsets and negative epochs. (#157)
+- Add lossless document value guards and borrowed selected-record facts, and share legacy routing and pre-lane input guards without losing Python code points. (#158, #162, #163, #164)
+- Share selected-record lane and bound-file judgment with lossless document facts, preserving lazy provider reads and errors; callers still supply independently verified principal/lane/hash context. (#165)
 
 ## [0.7.0] - 2026-11-12
 
@@ -19,6 +22,7 @@
 ### Changed
 
 - Batch `tracked_clean` blob reads through one `git cat-file --batch` session, cutting `evidence wrap` overhead from ~9 s to a fraction of a second on factory-sized trees. (#147)
+- Fetch the pinned Fractal fixture through shallow Git rather than GitHub's commit-tarball endpoint, preserving its source bytes and revision.
 
 ## [0.6.1] - 2026-11-10
 
