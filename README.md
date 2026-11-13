@@ -635,17 +635,17 @@ the Rust table follows the pinned differential oracle to make output determinist
 Any ambient-version mismatch is confined to diagnostic repr escaping of code points
 classified non-printable by one version, not record acceptance. Guard wiring follows separately.
 `All::write_json` preserves require-all lane order and success/refusal field presence.
-`require_all::write_error` emits the global envelope with reason/detail verbatim,
-not exception classification or diagnostic normalization. `failure_json::WireError`
-borrows lossless Failure text/optional selection extras or explicit Exception class/detail;
-it never infers provenance from a message or converts normalized core diagnostics.
+`require_all::write_error` emits the global envelope through `failure_json::WireError`.
+Its `from_failure` and `from_policy` bridges borrow lossless core text and use only
+explicit `ErrorOrigin` provenance. Exceptions emit reason `error` and class-prefixed
+detail, omitting attempts/selection extras; ordinary failures preserve those extras.
 Core Failure and PolicyError details share owned `NormalizedText`: scalar strings
 retain their allocation, while code-point details round-trip through the lossless writer.
 Its Display is diagnostic-only; scalar-only serde refuses code-point storage.
 `ErrorOrigin` distinguishes Failure from Exception with a mandatory class in both
 core error carriers. `CurrentTime` returns typed `ClockException`, preserving class
 and lossless detail through judgment and global aggregate aborts, never inferring
-the class from a message. The source-to-wire bridge remains separate.
+the class from a message. The wire bridge preserves that class without text inference.
 Failure attempts distinguish `None` (absent) from `Some(0)` (explicit zero).
 Exceptions and prefix misses retain absence; degraded records retain their explicit
 count. Zero normalization is confined to existing oracle-test transports, not wire output.
