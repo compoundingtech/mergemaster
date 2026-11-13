@@ -17,14 +17,14 @@ for value in cases: print(json.dumps(value,indent=2))
     );
     let mut actual = String::new();
     let points: Vec<_> = (0..=0x10ffff).collect();
-    Writer::new(&mut actual).string(&points).unwrap();
+    write(&mut actual, |w| w.string(&points)).unwrap();
     actual.push('\n');
-    Writer::new(&mut actual).object(|_| Ok(())).unwrap();
+    write(&mut actual, |w| w.object(|_| Ok(()))).unwrap();
     actual.push('\n');
-    Writer::new(&mut actual).array(|_| Ok(())).unwrap();
+    write(&mut actual, |w| w.array(|_| Ok(()))).unwrap();
     actual.push('\n');
-    Writer::new(&mut actual)
-        .object(|o| {
+    write(&mut actual, |w| {
+        w.object(|o| {
             o.field_text("z", |w| w.array(|_| Ok(())))?;
             o.field(&[0xd800, 0x1f600], |w| {
                 w.array(|a| {
@@ -41,14 +41,16 @@ for value in cases: print(json.dumps(value,indent=2))
                 })
             })
         })
-        .unwrap();
+    })
+    .unwrap();
     actual.push('\n');
-    Writer::new(&mut actual)
-        .array(|a| {
+    write(&mut actual, |w| {
+        w.array(|a| {
             a.item(|w| w.array(|a| a.item(|w| w.array(|_| Ok(())))))?;
             a.item(|w| w.object(|_| Ok(())))
         })
-        .unwrap();
+    })
+    .unwrap();
     actual.push('\n');
     assert_eq!(actual.as_bytes(), output.stdout);
 }
@@ -61,11 +63,7 @@ fn legacy_output_propagates_sink_and_codepoint_errors() {
             Err(fmt::Error)
         }
     }
-    assert!(Writer::new(&mut Refuse).object(|_| Ok(())).is_err());
-    assert!(Writer::new(&mut String::new()).string(&[0x110000]).is_err());
-    assert!(
-        Writer::new(&mut String::new())
-            .array(|_| Err(fmt::Error))
-            .is_err()
-    );
+    assert!(write(&mut Refuse, |w| w.object(|_| Ok(()))).is_err());
+    assert!(write(&mut String::new(), |w| w.string(&[0x110000])).is_err());
+    assert!(write(&mut String::new(), |w| w.array(|_| Err(fmt::Error))).is_err());
 }
