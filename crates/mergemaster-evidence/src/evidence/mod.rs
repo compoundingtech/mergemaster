@@ -6,7 +6,6 @@ use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    io::Write,
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
@@ -168,7 +167,16 @@ pub struct Verified {
 
 /// All Git calls ignore replace objects and override signature executables/configuration.
 fn git(repo: &Path, args: &[&str], input: Option<&[u8]>) -> Result<Vec<u8>> {
-    let mut child = Command::new("git")
+    git_timeout(repo, args, input, std::time::Duration::from_secs(60))
+}
+fn git_timeout(
+    repo: &Path,
+    args: &[&str],
+    input: Option<&[u8]>,
+    timeout: std::time::Duration,
+) -> Result<Vec<u8>> {
+    let mut command = Command::new("git");
+    command
         .arg("-C")
         .arg(repo)
         .args([
@@ -186,15 +194,9 @@ fn git(repo: &Path, args: &[&str], input: Option<&[u8]>) -> Result<Vec<u8>> {
             Stdio::piped()
         } else {
             Stdio::null()
-        })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+        });
+    let output = crate::gate::git::deadline::GitChild::capture(&mut command, input, timeout)
         .context("run git")?;
-    if let Some(bytes) = input {
-        child.stdin.take().context("git stdin")?.write_all(bytes)?;
-    }
-    let output = child.wait_with_output()?;
     ensure!(
         output.status.success(),
         "git {}: {}",
@@ -536,6 +538,17 @@ fn write_observation(repo: &Path, statement: &Statement, ssh_key: Option<&Path>)
     statement.predicate.producer_sha256 = producer_digest()?.to_owned();
     let observed_tree = statement.validate(repo)?;
     let bytes = serde_json::to_vec(&statement)?;
+    // Creation mirrors evidence-sign's 300-second Git calls; verification uses 60.
+    let git_text = |repo: &Path, args: &[&str], input: Option<&[u8]>| -> Result<String> {
+        Ok(String::from_utf8(git_timeout(
+            repo,
+            args,
+            input,
+            std::time::Duration::from_secs(300),
+        )?)?
+        .trim()
+        .to_owned())
+    };
     let blob = git_text(repo, &["hash-object", "-w", "--stdin"], Some(&bytes))?;
     let notes_tree = git_text(
         repo,

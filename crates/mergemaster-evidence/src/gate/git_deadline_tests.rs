@@ -87,3 +87,59 @@ fn expired_read_does_not_wait_for_a_pipe_held_elsewhere() {
     drop(child);
     assert_reaped(pid);
 }
+
+#[test]
+fn capture_deadline_drains_both_streams_while_writing_input() {
+    for status in [0, 7] {
+        let mut command = Command::new("python3");
+        command
+            .args([
+                "-c",
+                r"
+import sys
+sys.stderr.buffer.write(b'e'*1048576);sys.stderr.buffer.flush()
+sys.stdout.buffer.write(b'o'*1048576);sys.stdout.buffer.flush()
+data=sys.stdin.buffer.read()
+sys.stdout.buffer.write(data);sys.exit(int(sys.argv[1]))
+",
+                &status.to_string(),
+            ])
+            .stdin(Stdio::piped());
+        let input = vec![b'i'; 1_048_576];
+        let output =
+            GitChild::capture(&mut command, Some(&input), Duration::from_secs(300)).unwrap();
+        assert_eq!(output.status.code(), Some(status));
+        assert_eq!(output.stderr, vec![b'e'; 1_048_576]);
+        assert_eq!(output.stdout, [vec![b'o'; 1_048_576], input].concat());
+    }
+}
+
+#[test]
+fn capture_deadline_handles_null_empty_and_expired_input() {
+    for input in [None, Some(b"".as_slice())] {
+        let mut command = Command::new("python3");
+        command.args(["-c", "import sys;sys.stdin.buffer.read();sys.stdout.buffer.write(b'\\xff');sys.stderr.write('detail')"])
+            .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() });
+        let output = GitChild::capture(&mut command, input, Duration::from_secs(60)).unwrap();
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"\xff");
+        assert_eq!(output.stderr, b"detail");
+    }
+    for input in [None, Some(b"input".as_slice())] {
+        let mut command = Command::new("python3");
+        command
+            .args(["-c", "import signal;signal.pause()"])
+            .stdin(if input.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            });
+        let error = GitChild::capture(&mut command, input, Duration::ZERO).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        assert!(
+            error
+                .to_string()
+                .contains("Git subprocess deadline exceeded")
+        );
+    }
+}
