@@ -66,6 +66,7 @@ impl<'a> Prepared<'a> {
         });
         if before != 0 && candidates.is_empty() {
             return Err(Failure {
+                exception: false,
                 reason: "no_record",
                 detail: format!(
                     "check {check} has only passing shard parts, no record for the whole run"

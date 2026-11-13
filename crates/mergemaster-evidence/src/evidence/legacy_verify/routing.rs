@@ -110,6 +110,7 @@ fn route_source<'a>(
     attempts: usize,
 ) -> Result<Option<Routing<'a>>, Failure> {
     let fail = |reason| Failure {
+        exception: false,
         reason,
         detail: format!("record from {} fails policy routing", record.runner),
         attempts,
@@ -212,6 +213,7 @@ fn check_runner(
     });
     if !matches {
         return Err(Failure {
+            exception: false,
             reason: "wrong_runner",
             detail: "record is for a different repository or producer".into(),
             attempts,

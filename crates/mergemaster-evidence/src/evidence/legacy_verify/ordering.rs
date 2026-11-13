@@ -87,6 +87,7 @@ impl<P: Provider> CheckJudgment<'_, P> {
                     walk.decided_by = Some(failed);
                     let failure = &candidates[failed];
                     return Err(Failure {
+                        exception: false,
                         reason: "check_failed",
                         detail: format!(
                             "record {} ({}) for check {check} failed, dated after the pass that would decide ({})",
@@ -108,6 +109,7 @@ impl<P: Provider> CheckJudgment<'_, P> {
                     ))
                 })
                 .ok_or_else(|| Failure {
+                    exception: false,
                     reason: "error",
                     detail: "empty candidate list".into(),
                     attempts,
@@ -170,11 +172,10 @@ pub fn latest_failure_after(
     }
     let facts = &candidates[index].facts;
     if facts.local_micros < -62_135_596_680_000_000 {
-        return Err(Failure {
-            reason: "error",
-            detail: "datetime subtraction overflow".into(),
-            attempts: prepared.attempts(),
-        });
+        return Err(Failure::exception(
+            "datetime subtraction overflow",
+            prepared.attempts(),
+        ));
     }
     Ok(failures
         .filter(|i| candidates[*i].facts.moment_micros >= facts.moment_micros - 120_000_000)
