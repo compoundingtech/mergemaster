@@ -18,10 +18,12 @@ impl LaneRules {
     pub fn parse<'a>(text: &str, lane: impl Into<CheckName<'a>>) -> Result<Self, PolicyError> {
         let lane = lane.into();
         let error = || PolicyError {
+            origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
             reason: "error",
             detail: format!("invalid lane {lane}").into(),
         };
         let entry = lane.entry(text, "lanes")?.ok_or_else(|| PolicyError {
+            origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
             reason: "no_lane",
             detail: format!("lane {lane} is absent").into(),
         })?;

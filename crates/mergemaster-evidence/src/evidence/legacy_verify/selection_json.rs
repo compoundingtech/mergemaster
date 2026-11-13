@@ -5,6 +5,7 @@ use crate::evidence::{
 };
 fn error(reason: &'static str, detail: impl Into<NormalizedText>) -> PolicyError {
     PolicyError {
+        origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason,
         detail: detail.into(),
     }

@@ -629,6 +629,10 @@ it never infers provenance from a message or converts normalized core diagnostic
 Core Failure and PolicyError details share owned `NormalizedText`: scalar strings
 retain their allocation, while code-point details round-trip through the lossless writer.
 Its Display is diagnostic-only; scalar-only serde refuses code-point storage.
+`ErrorOrigin` distinguishes Failure from Exception with a mandatory class in both
+core error carriers. `CurrentTime` returns typed `ClockException`, preserving class
+and lossless detail through judgment and global aggregate aborts, never inferring
+the class from a message. The source-to-wire bridge remains separate.
 Source-provenance threading/diagnostic parity must land before CLI wiring. Members/log
 extras remain with those ports; discard partial output on error.
 `configured::required` joins trusted collection and existing configured selection

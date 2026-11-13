@@ -42,6 +42,7 @@ pub fn signature(
     revocations: &str,
 ) -> Result<(String, String), PolicyError> {
     let error = |detail: String| PolicyError {
+        origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason: "error",
         detail: detail.into(),
     };

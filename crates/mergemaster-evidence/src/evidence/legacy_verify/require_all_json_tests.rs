@@ -77,7 +77,7 @@ print(json.dumps(dict(cases=cases,errors=errors)))
                                 serde_json::from_value(item["detail"].clone()).unwrap(),
                             ),
                             attempts: 0,
-                            exception: false,
+                            origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                         })
                     };
                     (
@@ -102,6 +102,7 @@ print(json.dumps(dict(cases=cases,errors=errors)))
     assert_eq!(fixtures["errors"].as_array().unwrap().len(), 3);
     for fixture in fixtures["errors"].as_array().unwrap() {
         let error = PolicyError {
+            origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
             reason: if fixture["value"]["reason"] == "no_policy" {
                 "no_policy"
             } else {

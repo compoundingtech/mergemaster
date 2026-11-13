@@ -11,10 +11,17 @@ use serde::{
 };
 use serde_json::{Map, Value};
 
+/// Python handler provenance; exception classification is never inferred from text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ErrorOrigin {
+    Failure,
+    Exception { class: &'static str },
+}
 #[derive(Debug, PartialEq, Eq)]
 pub struct PolicyError {
     pub reason: &'static str,
     pub detail: normalized_text::NormalizedText,
+    pub origin: ErrorOrigin,
 }
 impl std::fmt::Display for PolicyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -39,6 +46,7 @@ impl<'a> PolicyDocument<'a> {
     /// Unrelated entries are syntax-checked without bounded numeric conversion.
     pub fn into_header(self) -> Result<CheckHeader, PolicyError> {
         let entry = self.entry.ok_or_else(|| PolicyError {
+            origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
             reason: "no_policy",
             detail: format!("the skip policy has no entry for check {}", self.check).into(),
         })?;
@@ -271,6 +279,7 @@ impl CheckHeader {
 }
 fn invalid(detail: impl Into<normalized_text::NormalizedText>) -> PolicyError {
     PolicyError {
+        origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason: "error",
         detail: detail.into(),
     }
@@ -384,6 +393,7 @@ pub fn declared_paths(
     selectors: bool,
 ) -> Result<Vec<String>, PolicyError> {
     let error = |message: String| PolicyError {
+        origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason: "error",
         detail: format!("{where_}: {message}").into(),
     };

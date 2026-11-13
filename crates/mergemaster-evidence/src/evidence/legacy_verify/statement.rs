@@ -185,6 +185,7 @@ pub const MAX_STATEMENT_BYTES: usize = 1024 * 1024;
 pub fn statement_of(blob: &[u8], tree: &str) -> Result<Option<Document>, PolicyError> {
     if blob.len() > MAX_STATEMENT_BYTES {
         return Err(PolicyError {
+            origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
             reason: "statement-too-large",
             detail: format!("record statement exceeds {MAX_STATEMENT_BYTES} bytes").into(),
         });
@@ -193,6 +194,7 @@ pub fn statement_of(blob: &[u8], tree: &str) -> Result<Option<Document>, PolicyE
         Ok(doc) => doc,
         Err(Error::NestingLimit) => {
             return Err(PolicyError {
+                origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                 reason: "statement-too-deep",
                 detail: format!("record statement exceeds {MAX_CONTAINER_DEPTH} containers").into(),
             });

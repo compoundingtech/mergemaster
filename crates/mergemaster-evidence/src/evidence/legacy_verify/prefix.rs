@@ -20,14 +20,19 @@ pub struct Request<'a> {
 }
 fn failure(reason: &'static str, detail: impl Into<NormalizedText>, attempts: usize) -> Failure {
     Failure {
-        exception: false,
+        origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason,
         detail: detail.into(),
         attempts,
     }
 }
 fn phase_error(e: PolicyError) -> Failure {
-    failure(e.reason, e.detail, 0)
+    Failure {
+        reason: e.reason,
+        detail: e.detail,
+        origin: e.origin,
+        attempts: 0,
+    }
 }
 fn includes(doc: &Document, check: &[u32]) -> bool {
     matches!(field(doc,doc.root(),"predicate").and_then(|p| field(doc,p,"observed")).and_then(|o| field(doc,o,"checks")),Some(Node::Object(v)) if v.contains_key(check))

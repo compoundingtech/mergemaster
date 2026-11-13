@@ -7,7 +7,9 @@ use super::{
     prefix::Request,
     statement,
 };
-use crate::evidence::legacy_policy::{PolicyDocument, PolicyError, RequireMode, check_names};
+use crate::evidence::legacy_policy::{
+    ErrorOrigin, PolicyDocument, PolicyError, RequireMode, check_names,
+};
 use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
@@ -88,7 +90,7 @@ fn with_clock<'a>(
                 reason: error.reason,
                 detail: error.detail,
                 attempts: 0,
-                exception: false,
+                origin: error.origin,
             }),
             lane_git::RequiredLane::Ready(lane) => configured::required_git(
                 &Request {
@@ -118,12 +120,14 @@ fn with_clock<'a>(
             Ok(Some(record)) => Ok(record),
             Ok(None) => {
                 return Err(PolicyError {
+                    origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                     reason: "error",
                     detail: "internal invariant: validated statement lacks a string tier".into(),
                 });
             }
-            Err(error) if error.exception => {
+            Err(error) if matches!(error.origin, ErrorOrigin::Exception { .. }) => {
                 return Err(PolicyError {
+                    origin: error.origin,
                     reason: error.reason,
                     detail: error.detail,
                 });

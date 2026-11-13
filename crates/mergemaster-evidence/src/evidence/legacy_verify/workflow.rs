@@ -80,6 +80,7 @@ fn needs<'a>(lines: &[&'a str]) -> Vec<&'a str> {
 }
 pub fn workflow_job(text: &str, job: &str) -> Result<Option<Vec<u8>>, PolicyError> {
     let error = || PolicyError {
+        origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason: "error",
         detail: "workflow layout or dependency is not understood".into(),
     };

@@ -20,6 +20,7 @@ fn candidate_walks_and_selection_match_python() {
             self.1.set(self.1.get() + 1);
             if self.0 {
                 Err(PolicyError {
+                    origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                     reason: "record-budget-exceeded",
                     detail: "provider refused".into(),
                 })
@@ -249,7 +250,16 @@ print(json.dumps([cases,actual]))
             }
         };
         if let Err(error) = &result {
-            assert_eq!(error.exception, error.reason == "error", "{case}");
+            assert_eq!(
+                matches!(
+                    error.origin,
+                    crate::evidence::legacy_policy::ErrorOrigin::Exception {
+                        class: "OverflowError"
+                    }
+                ),
+                error.reason == "error",
+                "{case}"
+            );
         }
         actual.push(json!([
             result.as_ref().map_or_else(|e| e.reason, |_| "ok"),

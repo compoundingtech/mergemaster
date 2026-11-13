@@ -172,7 +172,12 @@ print(json.dumps(cases))
         if let Err(error) = &checked {
             // This fixture catches OverflowError separately; explicit refusals never use error.
             assert_eq!(
-                error.exception,
+                matches!(
+                    error.origin,
+                    crate::evidence::legacy_policy::ErrorOrigin::Exception {
+                        class: "OverflowError"
+                    }
+                ),
                 case["expected"]["reason"] == "error",
                 "{}",
                 case["label"]

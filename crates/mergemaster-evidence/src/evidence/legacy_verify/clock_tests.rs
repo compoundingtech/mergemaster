@@ -1,9 +1,9 @@
 use super::*;
 use crate::evidence::{
-    legacy_policy::PolicyDocument,
+    legacy_policy::{ErrorOrigin, PolicyDocument},
     legacy_verify::{
         candidates::{Candidate, LaneOnce, Levels, Prepared},
-        inputs::CurrentTime,
+        inputs::{ClockException, CurrentTime},
         ordering::CheckJudgment,
         statement_document::Document,
     },
@@ -81,7 +81,7 @@ print(json.dumps(cases))
         fail: bool,
     }
     impl CurrentTime for Sampling {
-        fn epoch_micros(&mut self) -> Result<i64, PolicyError> {
+        fn epoch_micros(&mut self) -> Result<i64, ClockException> {
             self.calls.borrow_mut().push("clock");
             if self.fail {
                 return super::super::inputs::system_epoch_micros(
@@ -104,6 +104,7 @@ print(json.dumps(cases))
             self.calls.borrow_mut().push("lane");
             if self.name == "lazy-error" {
                 return Err(PolicyError {
+                    origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                     reason: "error",
                     detail: "lane failed".into(),
                 });
@@ -174,13 +175,17 @@ print(json.dumps(cases))
                     .select(&prepared, "check", Levels::Utf8(&[]))
                     .result
                     .inspect_err(|error| {
-                        assert_eq!(error.exception, name == "clock-error", "{name}");
-                        assert!(
-                            serde_json::to_value(error)
-                                .unwrap()
-                                .get("exception")
-                                .is_none()
+                        assert_eq!(
+                            matches!(
+                                error.origin,
+                                ErrorOrigin::Exception {
+                                    class: "OverflowError"
+                                }
+                            ),
+                            name == "clock-error",
+                            "{name}"
                         );
+                        assert!(serde_json::to_value(error).unwrap().get("origin").is_none());
                     })
                     .map(|_| "satisfied")
                     .unwrap_or_else(|e| e.reason)
@@ -217,6 +222,9 @@ fn system_clock_conversion_is_checked() {
         UNIX_EPOCH + Duration::from_secs(253_402_300_800),
         UNIX_EPOCH + Duration::from_secs(10_000_000_000_000),
     ] {
-        assert_eq!(system_epoch_micros(instant).unwrap_err().reason, "error");
+        assert_eq!(
+            system_epoch_micros(instant).unwrap_err().class,
+            "OverflowError"
+        );
     }
 }

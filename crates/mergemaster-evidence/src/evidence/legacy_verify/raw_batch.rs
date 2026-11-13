@@ -17,6 +17,7 @@ use std::{
 const MAX_HEADER_BYTES: usize = 128;
 fn error(detail: impl ToString) -> PolicyError {
     PolicyError {
+        origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason: "error",
         detail: detail.to_string().into(),
     }
@@ -34,6 +35,7 @@ fn frame(output: &mut impl Read, request: &str) -> Result<Option<Vec<u8>>, Polic
     }
     if header.len() > MAX_HEADER_BYTES {
         return Err(PolicyError {
+            origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
             reason: "stale-scan-header-too-large",
             detail: "raw Git header exceeds 128 bytes".into(),
         });
@@ -55,6 +57,7 @@ fn frame(output: &mut impl Read, request: &str) -> Result<Option<Vec<u8>>, Polic
     let size: u64 = size.parse().map_err(error)?;
     if size > MAX_STATEMENT_BYTES as u64 {
         return Err(PolicyError {
+            origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
             reason: "stale-scan-too-large",
             detail: "raw Git body exceeds 1048576 bytes".into(),
         });

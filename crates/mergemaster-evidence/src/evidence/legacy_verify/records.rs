@@ -15,6 +15,7 @@ use std::{
 };
 fn error(detail: impl ToString) -> PolicyError {
     PolicyError {
+        origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason: "error",
         detail: detail.to_string().into(),
     }
@@ -61,6 +62,7 @@ pub fn read_statement(
         .map_err(error)?;
     if size > MAX_STATEMENT_BYTES as u64 {
         return Err(PolicyError {
+            origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
             reason: "statement-too-large",
             detail: format!("record statement exceeds {MAX_STATEMENT_BYTES} bytes").into(),
         });
@@ -172,6 +174,7 @@ impl RecordCache {
         {
             self.exhausted = true;
             return Err(PolicyError {
+                origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                 reason: "record-budget-exceeded",
                 detail: "check record ownership or cache entry limit exceeded".into(),
             });

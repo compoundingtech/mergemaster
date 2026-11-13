@@ -66,7 +66,7 @@ impl<'a> Prepared<'a> {
         });
         if before != 0 && candidates.is_empty() {
             return Err(Failure {
-                exception: false,
+                origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                 reason: "no_record",
                 detail: format!(
                     "check {check} has only passing shard parts, no record for the whole run"

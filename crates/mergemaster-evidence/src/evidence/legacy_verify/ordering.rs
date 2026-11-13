@@ -86,8 +86,7 @@ impl<P: Provider> CheckJudgment<'_, P> {
                 if let Some(failed) = latest_failure_after(prepared, i)? {
                     walk.decided_by = Some(failed);
                     let failure = &candidates[failed];
-                    return Err(Failure { exception: false,
-                    reason: "check_failed", detail: format!("record {} ({}) for check {check} failed, dated after the pass that would decide ({})",
+                    return Err(Failure { origin: crate::evidence::legacy_policy::ErrorOrigin::Failure, reason: "check_failed", detail: format!("record {} ({}) for check {check} failed, dated after the pass that would decide ({})",
                     failure.commit,
                     failure.facts.level(),
                     candidates[i].commit).into(), attempts, });
@@ -103,7 +102,7 @@ impl<P: Provider> CheckJudgment<'_, P> {
                     ))
                 })
                 .ok_or_else(|| Failure {
-                    exception: false,
+                    origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                     reason: "error",
                     detail: "empty candidate list".into(),
                     attempts,
@@ -167,6 +166,7 @@ pub fn latest_failure_after(
     let facts = &candidates[index].facts;
     if facts.local_micros < -62_135_596_680_000_000 {
         return Err(Failure::exception(
+            "OverflowError",
             "datetime subtraction overflow",
             prepared.attempts(),
         ));
