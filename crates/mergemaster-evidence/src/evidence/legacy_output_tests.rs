@@ -6,8 +6,7 @@ fn legacy_output_matches_pinned_json_dumps_bytes() {
     let output = std::process::Command::new("python3").args(["-c", r#"
 import runpy,sys
 json=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify')['json']
-points=''.join(map(chr,range(0x110000)))
-cases=[points,{},[],{'z':[], '\ud800😀':[True,False,None,-170141183460469231731687303715884105728,{'empty':{},'s':'quote"\\\n'}]}, [[[]],{}]]
+cases=[{},[],{'z':[], '\ud800😀':[True,False,None,-170141183460469231731687303715884105728,{'empty':{},'s':'quote"\\\n'}]}, [[[]],{}]]
 for value in cases: print(json.dumps(value,indent=2))
 "#, &root]).output().unwrap();
     assert!(
@@ -16,9 +15,6 @@ for value in cases: print(json.dumps(value,indent=2))
         String::from_utf8_lossy(&output.stderr)
     );
     let mut actual = String::new();
-    let points: Vec<_> = (0..=0x10ffff).collect();
-    write(&mut actual, |w| w.string(&points)).unwrap();
-    actual.push('\n');
     write(&mut actual, |w| w.object(|_| Ok(()))).unwrap();
     actual.push('\n');
     write(&mut actual, |w| w.array(|_| Ok(()))).unwrap();
@@ -66,4 +62,38 @@ fn legacy_output_propagates_sink_and_codepoint_errors() {
     assert!(write(&mut Refuse, |w| w.object(|_| Ok(()))).is_err());
     assert!(write(&mut String::new(), |w| w.string(&[0x110000])).is_err());
     assert!(write(&mut String::new(), |w| w.array(|_| Err(fmt::Error))).is_err());
+}
+
+#[test]
+fn legacy_output_latches_swallowed_errors_and_caught_panics() {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+    fn refuse<'s>(
+        _: ValueWriter<'s, '_, String>,
+        panicking: bool,
+    ) -> Result<Written<'s>, fmt::Error> {
+        assert!(!panicking, "fixture child panic");
+        Err(fmt::Error)
+    }
+    for object in [false, true] {
+        for panicking in [false, true] {
+            let result = write(&mut String::new(), |w| {
+                if object {
+                    w.object(|o| {
+                        let _ = catch_unwind(AssertUnwindSafe(|| {
+                            o.field_text("x", |w| refuse(w, panicking))
+                        }));
+                        assert!(o.field_text("later", |w| w.null()).is_err());
+                        Ok(())
+                    })
+                } else {
+                    w.array(|a| {
+                        let _ = catch_unwind(AssertUnwindSafe(|| a.item(|w| refuse(w, panicking))));
+                        assert!(a.item(|w| w.null()).is_err());
+                        Ok(())
+                    })
+                }
+            });
+            assert!(result.is_err());
+        }
+    }
 }

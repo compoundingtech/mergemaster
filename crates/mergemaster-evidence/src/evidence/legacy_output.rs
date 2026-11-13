@@ -72,6 +72,7 @@ impl<'s, W: Write> ValueWriter<'s, '_, W> {
             out: &mut *self.out,
             depth: self.depth,
             populated: false,
+            pending: false,
         });
         fields(&mut object)?;
         object.0.finish('}')?;
@@ -86,6 +87,7 @@ impl<'s, W: Write> ValueWriter<'s, '_, W> {
             out: &mut *self.out,
             depth: self.depth,
             populated: false,
+            pending: false,
         });
         items(&mut array)?;
         array.0.finish(']')?;
@@ -96,9 +98,13 @@ struct Sequence<'out, W: Write> {
     out: &'out mut W,
     depth: usize,
     populated: bool,
+    pending: bool,
 }
 impl<W: Write> Sequence<'_, W> {
     fn next(&mut self) -> fmt::Result {
+        if std::mem::replace(&mut self.pending, true) {
+            return Err(fmt::Error);
+        }
         if self.populated {
             self.out.write_char(',')?;
         }
@@ -114,10 +120,14 @@ impl<W: Write> Sequence<'_, W> {
             out: self.out,
             depth: self.depth + 1,
             scope: PhantomData,
-        })
-        .map(|_| ())
+        })?;
+        self.pending = false;
+        Ok(())
     }
     fn finish(&mut self, end: char) -> fmt::Result {
+        if self.pending {
+            return Err(fmt::Error);
+        }
         if self.populated {
             writeln!(self.out)?;
             write!(self.out, "{:width$}", "", width = self.depth * 2)?;
