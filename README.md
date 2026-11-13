@@ -579,6 +579,9 @@ Document judgment samples `CurrentTime` after routing/lazy-lane/runner guards,
 once per reached judgment, never once per check. Native `Clock` and i64 implement
 fixed sampling; `SystemClock` samples UTC on demand. Selection/configured joins
 borrow the sampler across repeated judgments; native `judge(&Clock)` is unchanged.
+System sampling converts signed epoch microseconds without panicking, including
+pre-1970 instants; wall clocks outside Python datetime years 1..9999 refuse with
+reason `error` at the reached time guard rather than authorizing or panicking.
 `inputs::check_unconfigured_inputs` reuses those guards when rules are absent:
 optional lossless command equality, future/age checks and exit status only.
 It does not perform routing, runner/lane/binding guards, selection or authorization.
