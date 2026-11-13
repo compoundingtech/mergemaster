@@ -21,7 +21,8 @@ impl<'a> CheckName<'a> {
     pub(crate) fn text(self) -> TextRef<'a> {
         self.0
     }
-    pub(crate) fn codepoints(self) -> std::borrow::Cow<'a, [u32]> {
+    /// Borrow code-point names; scalar text allocates the equivalent lookup sequence.
+    pub fn codepoints(self) -> std::borrow::Cow<'a, [u32]> {
         match self.0 {
             TextRef::Str(text) => text.chars().map(u32::from).collect::<Vec<_>>().into(),
             TextRef::Points(points) => points.into(),

@@ -221,7 +221,7 @@ print(json.dumps(cases))
                         json!({"reason":error.reason,"attempts":error.attempts,"decided_by":decision.walk.decided_by.map(|i| prepared.candidates[i].commit),"skipped_newer":decision.walk.skipped_newer})
                     }
                     Ok(result) => {
-                        json!({"satisfied":result.satisfied,"tree":result.tree,"check":result.check,"record":result.record,"kind":result.kind,"signer":result.signer,"trust_level":result.trust_level,"tier":result.tier,"observed_at":result.observed_at,"command":result.command().collect::<Vec<_>>(),"inputs":result.inputs().collect::<Vec<_>>(),"attempts":result.attempts,"policy":result.policy,"max_age_s":result.max_age_s,"enforce":result.enforce,"match":result.r#match,"matched_tree":result.matched_tree,"source_inputs":result.source_inputs,"sample_one_in":result.sample_one_in,"events":result.events().map(|e| e.collect::<Vec<_>>()),"decided_by":result.decided_by,"skipped_newer":result.skipped_newer})
+                        json!({"satisfied":result.satisfied,"tree":result.tree,"check":result.check.to_string(),"record":result.record,"kind":result.kind,"signer":result.signer,"trust_level":result.trust_level,"tier":result.tier,"observed_at":result.observed_at,"command":result.command().collect::<Vec<_>>(),"inputs":result.inputs().collect::<Vec<_>>(),"attempts":result.attempts,"policy":result.policy,"max_age_s":result.max_age_s,"enforce":result.enforce,"match":result.r#match,"matched_tree":result.matched_tree,"source_inputs":result.source_inputs,"sample_one_in":result.sample_one_in,"events":result.events().map(|e| e.collect::<Vec<_>>()),"decided_by":result.decided_by,"skipped_newer":result.skipped_newer})
                     }
                 }
             }
