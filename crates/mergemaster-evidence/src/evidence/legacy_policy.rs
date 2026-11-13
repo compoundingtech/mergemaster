@@ -60,6 +60,21 @@ pub fn selected_entry(text: &str, name: &str, group: &str) -> Result<Option<Valu
     Ok(entries(text, Selection::Scalar(name), group)?.entry)
 }
 fn entries(text: &str, selection: Selection<'_>, group: &str) -> Result<Entries, PolicyError> {
+    // serde's lossless byte-string decoder permits raw controls. Keep Python's
+    // strict string syntax; serde still owns all other JSON grammar/escape checks.
+    let (mut quoted, mut escaped) = (false, false);
+    for byte in text.bytes() {
+        if quoted && byte < 0x20 {
+            return Err(invalid("unescaped control character in JSON string"));
+        }
+        if escaped {
+            escaped = false;
+        } else if quoted && byte == b'\\' {
+            escaped = true;
+        } else if byte == b'"' {
+            quoted = !quoted;
+        }
+    }
     let mut decoder = serde_json::Deserializer::from_str(text);
     let entry = DocumentSeed(selection, group)
         .deserialize(&mut decoder)

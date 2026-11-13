@@ -596,7 +596,8 @@ signature partition and Git blob reads through selection/result conversion, incl
 Unix non-UTF-8 binding paths, lossless keys, skips/preferences and refusals.
 `legacy_policy::check_names` enumerates sorted lossless policy names and selects entries
 by borrowed code points, including lone surrogates. It shares the existing root/entry
-parser without adding statement byte/depth caps. This is not policy evaluation:
+parser without adding statement byte/depth caps; raw string controls are refused,
+while escaped controls remain valid. This is not policy evaluation:
 lossless rule-name interpolation and require-all orchestration remain separate slices.
 `statement_bytes::decode_json_bytes` ports Python's BOM/NUL-based UTF-8/16/32
 transport detection and surrogatepass decoding (3f-2b-1), retaining code points

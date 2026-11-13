@@ -70,7 +70,7 @@ mod tests {
     use serde_json::json;
     #[test]
     fn policy_names_match_python_codepoints_and_selection() {
-        let cases = [
+        let mut cases: Vec<String> = [
             r#"{"version":1,"checks":{}}"#,
             r#"{"version":true,"checks":{"\ud800":1,"\udfff":2,"\ud83d\ude00":3,"😀":4,"z":5}}"#,
             r#"{"version":1.0,"checks":{"\u0000x":1,"\ufeffx":2,"":3,"\u0000\u0000":4,"é":5}}"#,
@@ -82,7 +82,17 @@ mod tests {
             r#"{"version":1,"checks":[],"extra":0}"#,
             r#"{"version":1,"checks":{"x":1,}}"#,
             r#"{"version":1,"checks":{"\ud800":1}} trailing"#,
-        ];
+            r#"{"version":1,"checks":{"a\\":1,"a\"b":2}}"#,
+        ].into_iter().map(str::to_owned).collect();
+        for point in 0..0x20 {
+            cases.push(format!(
+                "{{\"version\":1,\"checks\":{{\"a{}\":1}}}}",
+                char::from_u32(point).unwrap()
+            ));
+            cases.push(format!(
+                r#"{{"version":1,"checks":{{"a\u{point:04x}":1}}}}"#
+            ));
+        }
         let script = r#"
 import json,runpy,sys
 v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify')
@@ -120,6 +130,11 @@ print(json.dumps(out))
             let actual = sorted(text);
             if expected.is_null() {
                 assert!(actual.is_err(), "{text}");
+                assert!(selected(text, &[97]).is_err(), "{text}");
+                assert!(
+                    super::super::selected_entry(text, "a", "checks").is_err(),
+                    "{text}"
+                );
                 continue;
             }
             let names = actual.unwrap();
@@ -137,11 +152,11 @@ print(json.dumps(out))
             assert_eq!(selected(text, &[0x10ffff]).unwrap(), None);
         }
         assert_eq!(
-            super::super::selected_entry(cases[5], "unit", "checks").unwrap(),
+            super::super::selected_entry(&cases[5], "unit", "checks").unwrap(),
             Some(json!(2))
         );
         assert_eq!(
-            super::super::selected_entry(cases[1], "😀", "checks").unwrap(),
+            super::super::selected_entry(&cases[1], "😀", "checks").unwrap(),
             Some(json!(4))
         );
     }
