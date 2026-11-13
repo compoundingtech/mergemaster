@@ -337,8 +337,25 @@ mod tests {
     use std::path::Path;
 
     fn script(path: &Path, marker: &str) {
-        std::fs::write(path, format!("#!/bin/sh\necho {marker} \"$0\"\n")).unwrap();
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // Only the child opens the executable inode for writing; parallel test
+        // forks in this parent can never inherit a writable shim descriptor.
+        let content = format!("#!/bin/sh\necho {marker} \"$0\"\n");
+        let status = std::process::Command::new("sh")
+            .args([
+                "-c",
+                "printf '%s' \"$1\" > \"$2\" && chmod 755 \"$2\"",
+                "shim-writer",
+            ])
+            .arg(&content)
+            .arg(path)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert_eq!(std::fs::read(path).unwrap(), content.as_bytes());
+        assert_eq!(
+            std::fs::metadata(path).unwrap().permissions().mode() & 0o7777,
+            0o755
+        );
     }
 
     #[test]
@@ -371,20 +388,11 @@ mod tests {
         let shim = tempfile::tempdir().unwrap();
         script(&shim.path().join("bun"), "policy-wrapper");
         let argv = vec!["bun".to_owned(), "install".to_owned()];
-        let mut command = direct(None, &argv);
-        command.args(&argv[1..]).env("PATH", shim.path());
-        // A concurrent fork can inherit the shim's write fd until its exec.
-        // Retry only ETXTBSY, at most 100 launches / 990 ms of backoff.
-        let mut attempts = 0;
-        let output = loop {
-            attempts += 1;
-            match command.output() {
-                Err(error) if error.raw_os_error() == Some(libc::ETXTBSY) && attempts < 100 => {
-                    std::thread::sleep(std::time::Duration::from_millis(10));
-                }
-                result => break result.unwrap(),
-            }
-        };
+        let output = direct(None, &argv)
+            .args(&argv[1..])
+            .env("PATH", shim.path())
+            .output()
+            .unwrap();
         assert!(output.status.success());
         assert!(
             String::from_utf8(output.stdout)
