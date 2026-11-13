@@ -1,4 +1,6 @@
 //! Read-only Git plumbing with ambient repository selectors and helpers disabled.
+#[path = "git_deadline.rs"]
+pub(crate) mod deadline;
 use anyhow::{Context, Result, ensure};
 use sha2::{Digest, Sha256};
 use std::{
@@ -60,17 +62,14 @@ pub fn command(repo: &Path) -> Command {
 }
 
 pub fn git(repo: &Path, args: &[&str]) -> Result<Vec<u8>> {
-    let output = command(repo)
-        .args(args)
-        .output()
+    let mut child = deadline::GitChild::spawn(command(repo).args(args))
         .context("running trusted Git plumbing")?;
+    let mut output = Vec::new();
+    child.stdout()?.read_to_end(&mut output)?;
+    let status = child.wait()?;
     // Git diagnostics can contain candidate-controlled paths; do not forward them.
-    ensure!(
-        output.status.success(),
-        "Git plumbing failed ({})",
-        output.status
-    );
-    Ok(output.stdout)
+    ensure!(status.success(), "Git plumbing failed ({status})");
+    Ok(output)
 }
 
 /// Refuse oversized output without exposing a truncated result or Git diagnostics.
