@@ -17,6 +17,7 @@ pub(crate) mod derivation;
 pub mod generic;
 pub mod keygen;
 mod legacy_json;
+pub mod legacy_output;
 pub mod legacy_policy;
 pub mod legacy_request;
 pub mod legacy_verify;
