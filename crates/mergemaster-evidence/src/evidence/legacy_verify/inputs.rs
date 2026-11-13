@@ -263,7 +263,7 @@ fn check_inputs_source(
             return Err(Failure {
                 exception: false,
                 reason: "missing_input",
-                detail: format!("record lacks required input {key}"),
+                detail: format!("record lacks required input {key}").into(),
                 attempts,
             });
         }

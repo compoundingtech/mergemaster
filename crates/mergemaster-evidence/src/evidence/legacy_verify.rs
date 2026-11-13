@@ -32,7 +32,7 @@ pub mod statement_tokens;
 pub mod trust;
 pub(crate) mod value_inputs;
 pub mod workflow;
-use super::legacy_policy::kind_rules::KindRule;
+use super::legacy_policy::{kind_rules::KindRule, normalized_text::NormalizedText};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use value_inputs::{InputSource, TextRef};
@@ -40,7 +40,7 @@ use value_inputs::{InputSource, TextRef};
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct Failure {
     pub reason: &'static str,
-    pub detail: String,
+    pub detail: NormalizedText,
     pub attempts: usize,
     /// Normalized non-Failure Python exception; aggregates must abort, not refuse a lane.
     #[serde(skip)]
@@ -53,7 +53,7 @@ impl std::fmt::Display for Failure {
 }
 impl std::error::Error for Failure {}
 impl Failure {
-    pub fn exception(detail: impl Into<String>, attempts: usize) -> Self {
+    pub fn exception(detail: impl Into<NormalizedText>, attempts: usize) -> Self {
         Self {
             reason: "error",
             detail: detail.into(),
@@ -98,7 +98,7 @@ fn value_checks_source(
     let fail = |reason, key: &str| Failure {
         exception: false,
         reason,
-        detail: format!("input {key} does not cover this run"),
+        detail: format!("input {key} does not cover this run").into(),
         attempts,
     };
     for (key, order) in &rule.values.input_order {
@@ -262,7 +262,7 @@ print(json.dumps(results))
             let actual = native
                 .map(|()| json!({"reason":"satisfied"}))
                 .unwrap_or_else(|failure| {
-                    assert!(!failure.detail.is_empty());
+                    assert!(!failure.detail.to_string().is_empty());
                     json!({"reason":failure.reason,"attempts":failure.attempts})
                 });
             let count = inputs.get("n").map(String::as_str).unwrap_or("");

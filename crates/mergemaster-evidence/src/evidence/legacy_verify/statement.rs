@@ -186,7 +186,7 @@ pub fn statement_of(blob: &[u8], tree: &str) -> Result<Option<Document>, PolicyE
     if blob.len() > MAX_STATEMENT_BYTES {
         return Err(PolicyError {
             reason: "statement-too-large",
-            detail: format!("record statement exceeds {MAX_STATEMENT_BYTES} bytes"),
+            detail: format!("record statement exceeds {MAX_STATEMENT_BYTES} bytes").into(),
         });
     }
     let doc = match Document::from_bytes(blob) {
@@ -194,7 +194,7 @@ pub fn statement_of(blob: &[u8], tree: &str) -> Result<Option<Document>, PolicyE
         Err(Error::NestingLimit) => {
             return Err(PolicyError {
                 reason: "statement-too-deep",
-                detail: format!("record statement exceeds {MAX_CONTAINER_DEPTH} containers"),
+                detail: format!("record statement exceeds {MAX_CONTAINER_DEPTH} containers").into(),
             });
         }
         Err(_) => return Ok(None),

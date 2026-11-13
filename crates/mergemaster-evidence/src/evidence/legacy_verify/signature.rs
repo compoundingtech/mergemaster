@@ -43,7 +43,7 @@ pub fn signature(
 ) -> Result<(String, String), PolicyError> {
     let error = |detail: String| PolicyError {
         reason: "error",
-        detail,
+        detail: detail.into(),
     };
     let path = revocation_path(repo, Path::new(revocations))
         .map_err(|e| error(format!("revocation path resolution failed: {e}")))?;

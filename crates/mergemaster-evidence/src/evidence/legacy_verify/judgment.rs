@@ -108,7 +108,7 @@ fn judge_source<'a>(
     let fail = |reason| Failure {
         exception: false,
         reason,
-        detail: format!("record fails legacy {reason} guard"),
+        detail: format!("record fails legacy {reason} guard").into(),
         attempts,
     };
     let error = |e: PolicyError| Failure {
@@ -178,7 +178,7 @@ fn check_lane(
     let fail = |reason| Failure {
         exception: false,
         reason,
-        detail: format!("record fails legacy {reason} guard"),
+        detail: format!("record fails legacy {reason} guard").into(),
         attempts,
     };
     if let Some(lane) = lane {

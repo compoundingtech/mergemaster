@@ -86,17 +86,11 @@ impl<P: Provider> CheckJudgment<'_, P> {
                 if let Some(failed) = latest_failure_after(prepared, i)? {
                     walk.decided_by = Some(failed);
                     let failure = &candidates[failed];
-                    return Err(Failure {
-                        exception: false,
-                        reason: "check_failed",
-                        detail: format!(
-                            "record {} ({}) for check {check} failed, dated after the pass that would decide ({})",
-                            failure.commit,
-                            failure.facts.level(),
-                            candidates[i].commit
-                        ),
-                        attempts,
-                    });
+                    return Err(Failure { exception: false,
+                    reason: "check_failed", detail: format!("record {} ({}) for check {check} failed, dated after the pass that would decide ({})",
+                    failure.commit,
+                    failure.facts.level(),
+                    candidates[i].commit).into(), attempts, });
                 }
                 walk.decided_by = Some(i);
                 return Ok((i, routing));

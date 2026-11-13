@@ -177,7 +177,12 @@ print(json.dumps(results))
             let actual = checked_value_rules(&mut fields, "fixture")
                 .map(|rules| serde_json::to_value(rules).unwrap())
                 .unwrap_or_else(|error| {
-                    assert!(error.detail.starts_with("skip policy for fixture: "));
+                    assert!(
+                        error
+                            .detail
+                            .to_string()
+                            .starts_with("skip policy for fixture: ")
+                    );
                     json!({"reason":error.reason})
                 });
             assert_eq!(actual, expected, "{rule}");

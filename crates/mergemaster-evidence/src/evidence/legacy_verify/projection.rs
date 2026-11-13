@@ -19,7 +19,7 @@ const MAX_PROJECTION_OUTPUT: usize = 65;
 fn error(detail: impl ToString) -> PolicyError {
     PolicyError {
         reason: "error",
-        detail: detail.to_string(),
+        detail: detail.to_string().into(),
     }
 }
 fn valid_output(output: &[u8], width: usize) -> bool {

@@ -16,7 +16,7 @@ use std::{
 fn error(detail: impl ToString) -> PolicyError {
     PolicyError {
         reason: "error",
-        detail: detail.to_string(),
+        detail: detail.to_string().into(),
     }
 }
 /// Read one immutable record. Malformed records refuse; Git failures remain errors.
@@ -62,7 +62,7 @@ pub fn read_statement(
     if size > MAX_STATEMENT_BYTES as u64 {
         return Err(PolicyError {
             reason: "statement-too-large",
-            detail: format!("record statement exceeds {MAX_STATEMENT_BYTES} bytes"),
+            detail: format!("record statement exceeds {MAX_STATEMENT_BYTES} bytes").into(),
         });
     }
     // Check object size first for a distinct diagnostic; bound capture independently.

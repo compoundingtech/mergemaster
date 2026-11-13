@@ -70,7 +70,8 @@ impl<'a> Prepared<'a> {
                 reason: "no_record",
                 detail: format!(
                     "check {check} has only passing shard parts, no record for the whole run"
-                ),
+                )
+                .into(),
                 attempts: before,
             });
         }

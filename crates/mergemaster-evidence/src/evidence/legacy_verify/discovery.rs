@@ -15,7 +15,7 @@ use std::{
 fn error(detail: impl ToString) -> PolicyError {
     PolicyError {
         reason: "error",
-        detail: detail.to_string(),
+        detail: detail.to_string().into(),
     }
 }
 /// Prefix order is significant; duplicate IDs are returned once at first occurrence.
@@ -241,7 +241,12 @@ sys.exit(int(sys.argv[2]))
             let child = GitChild::with_timeout(&mut command, Duration::ZERO).unwrap();
             let failure = note_presence(child, commits, "tree").unwrap_err();
             assert_eq!(failure.reason, "error");
-            assert!(failure.detail.contains("Git subprocess deadline exceeded"));
+            assert!(
+                failure
+                    .detail
+                    .to_string()
+                    .contains("Git subprocess deadline exceeded")
+            );
         }
     }
 }

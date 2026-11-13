@@ -1,6 +1,7 @@
 use super::*;
 use crate::evidence::{
     legacy_output,
+    legacy_policy::normalized_text::NormalizedText,
     legacy_verify::{
         Failure,
         require_all::{Lane, Record},
@@ -21,14 +22,14 @@ for modes in itertools.product(['off','shadow','reject'],repeat=4):
   checks=dict(zip(names,modes))
   ns['policy_rules']=lambda text,check,repo:dict(require=checks[check])
   def lane(repo,tree,lane_file,check,lane_base):
-   if pattern=='no-lane' and check=='\ud800': raise v['Failure']('no_lane','fixture lane missing')
+   if pattern=='no-lane' and check=='\ud800': raise v['Failure']('no_lane','fixture lane missing\ud800')
   def verify(repo,tree,check,*args,**kwargs):
-   if pattern=='failure' or pattern=='mixed' and check!='a': raise v['Failure']('wrong_check','fixture refusal\nquote" λ😀')
+   if pattern=='failure' or pattern=='mixed' and check!='a': raise v['Failure']('wrong_check','fixture refusal\nquote" λ😀\udfff')
    return dict(record='record',signer='agent/fixture',tier='full')
   ns['lane_for']=lane;ns['verify']=verify
   result=v['require_all'](None,'a'*40,None,json.dumps(dict(version=1,checks=checks)),'fixture')
   wire=json.dumps(result,indent=2)
-  result['lanes']=[[list(map(ord,k)),dict(item,tier=list(map(ord,item['tier']))) if item['satisfied'] else item] for k,item in result['lanes'].items()]
+  result['lanes']=[[list(map(ord,k)),dict(item,tier=list(map(ord,item['tier']))) if item['satisfied'] else dict(item,detail=list(map(ord,item['detail'])))] for k,item in result['lanes'].items()]
   cases.append(dict(value=result,wire=wire))
 main=next(n for n in ast.parse(open(path).read()).body if isinstance(n,ast.FunctionDef) and n.name=='main')
 errors=[]
@@ -36,8 +37,8 @@ for kind in ['Failure','Exception']:
  handler=next(n for n in ast.walk(main) if isinstance(n,ast.ExceptHandler) and isinstance(n.type,ast.Name) and n.type.id==kind)
  dump=compile(ast.Expression(handler.body[0].body[0].value.args[0]),'<pinned-global-envelope>','eval')
  for reason in ['error','no_policy'] if kind=='Failure' else ['error']:
-  env=dict(v,failure=v['Failure'](reason,'fixture detail\nλ😀'),error=OverflowError('fixture overflow'))
-  wire=eval(dump,env);errors.append(dict(value=json.loads(wire),wire=wire))
+  env=dict(v,failure=v['Failure'](reason,'fixture detail\nλ😀\ud800'),error=OverflowError('fixture overflow\udfff'))
+  wire=eval(dump,env);value=json.loads(wire);value['detail']=list(map(ord,value['detail']));errors.append(dict(value=value,wire=wire))
 print(json.dumps(dict(cases=cases,errors=errors)))
 "#, &oracle]).output().unwrap();
     assert!(
@@ -72,7 +73,9 @@ print(json.dumps(dict(cases=cases,errors=errors)))
                                 "wrong_check" => "wrong_check",
                                 _ => panic!("fixture reason"),
                             },
-                            detail: item["detail"].as_str().unwrap().into(),
+                            detail: NormalizedText::Codepoints(
+                                serde_json::from_value(item["detail"].clone()).unwrap(),
+                            ),
                             attempts: 0,
                             exception: false,
                         })
@@ -104,7 +107,9 @@ print(json.dumps(dict(cases=cases,errors=errors)))
             } else {
                 "error"
             },
-            detail: fixture["value"]["detail"].as_str().unwrap().into(),
+            detail: NormalizedText::Codepoints(
+                serde_json::from_value(fixture["value"]["detail"].clone()).unwrap(),
+            ),
         };
         let mut actual = String::new();
         legacy_output::write(&mut actual, |w| write_error(&error, w)).unwrap();

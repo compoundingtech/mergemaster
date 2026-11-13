@@ -10,7 +10,7 @@ pub const MAX_CONTAINERS: usize = 127;
 fn refusal(reason: &'static str) -> PolicyError {
     PolicyError {
         reason,
-        detail: format!("legacy lane canonicalization refused: {reason}"),
+        detail: format!("legacy lane canonicalization refused: {reason}").into(),
     }
 }
 /// Select raw values before canonicalization and lane schema validation.

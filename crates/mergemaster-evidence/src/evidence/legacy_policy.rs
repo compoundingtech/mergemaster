@@ -14,7 +14,7 @@ use serde_json::{Map, Value};
 #[derive(Debug, PartialEq, Eq)]
 pub struct PolicyError {
     pub reason: &'static str,
-    pub detail: String,
+    pub detail: normalized_text::NormalizedText,
 }
 impl std::fmt::Display for PolicyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -40,7 +40,7 @@ impl<'a> PolicyDocument<'a> {
     pub fn into_header(self) -> Result<CheckHeader, PolicyError> {
         let entry = self.entry.ok_or_else(|| PolicyError {
             reason: "no_policy",
-            detail: format!("the skip policy has no entry for check {}", self.check),
+            detail: format!("the skip policy has no entry for check {}", self.check).into(),
         })?;
         CheckHeader::parse(entry, self.check)
     }
@@ -269,7 +269,7 @@ impl CheckHeader {
         })
     }
 }
-fn invalid(detail: impl Into<String>) -> PolicyError {
+fn invalid(detail: impl Into<normalized_text::NormalizedText>) -> PolicyError {
     PolicyError {
         reason: "error",
         detail: detail.into(),
@@ -385,7 +385,7 @@ pub fn declared_paths(
 ) -> Result<Vec<String>, PolicyError> {
     let error = |message: String| PolicyError {
         reason: "error",
-        detail: format!("{where_}: {message}"),
+        detail: format!("{where_}: {message}").into(),
     };
     let values = value
         .as_array()
@@ -522,7 +522,12 @@ print(json.dumps(results))
                     Ok(value)
                 })
                 .unwrap_or_else(|error| {
-                    assert!(error.detail.starts_with("skip policy for fixture: "));
+                    assert!(
+                        error
+                            .detail
+                            .to_string()
+                            .starts_with("skip policy for fixture: ")
+                    );
                     json!({"reason":error.reason})
                 });
             assert_eq!(actual, expected, "{rule}");
@@ -687,7 +692,7 @@ print(json.dumps(results))
             let actual = parse(text)
                 .map(|header| serde_json::to_value(header).unwrap())
                 .unwrap_or_else(|error| {
-                    assert!(!error.detail.is_empty());
+                    assert!(!error.detail.to_string().is_empty());
                     json!({"reason":error.reason})
                 });
             if shadowed.contains(&index) {
@@ -779,7 +784,7 @@ print(json.dumps(results))
             ) {
                 Ok(paths) => json!({"paths":paths}),
                 Err(error) => {
-                    assert!(error.detail.starts_with("fixture: "));
+                    assert!(error.detail.to_string().starts_with("fixture: "));
                     json!({"reason":error.reason})
                 }
             };

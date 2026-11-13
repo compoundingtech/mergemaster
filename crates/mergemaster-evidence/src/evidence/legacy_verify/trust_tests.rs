@@ -86,7 +86,7 @@ print(json.dumps(fixtures))
         input[1].statement = Arc::clone(&input[0].statement);
         assert!(matches!(partition(repo,input,keys,revocations),Err(e) if e.reason=="error"));
         assert!(
-            matches!(partition(repo,candidates(),keys,"missing-policy"),Err(e) if e.reason=="error" && e.detail.contains("revocation"))
+            matches!(partition(repo,candidates(),keys,"missing-policy"),Err(e) if e.reason=="error" && e.detail.to_string().contains("revocation"))
         );
         assert_eq!(
             partition(repo, Vec::new(), keys, "missing-policy")
