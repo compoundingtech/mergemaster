@@ -1,5 +1,5 @@
 use super::*;
-use std::io::Cursor;
+use std::{io::Cursor, time::Duration};
 #[test]
 fn declared_limits_precede_body_reads_and_framing_is_exact() {
     let id = "a".repeat(64);
@@ -48,10 +48,14 @@ fn declared_limits_precede_body_reads_and_framing_is_exact() {
     }
 }
 fn fixture(bytes: &[u8], status: u8) -> RawBatch {
-    let child = std::process::Command::new("python3").args(["-c",
+    fixture_timed(bytes, status, Duration::from_secs(60))
+}
+fn fixture_timed(bytes: &[u8], status: u8, timeout: Duration) -> RawBatch {
+    let mut command = std::process::Command::new("python3");
+    command.args(["-c",
         "import sys;sys.stdin.readline();sys.stdout.buffer.write(bytes.fromhex(sys.argv[1]));sys.stdout.flush();sys.stdin.read();sys.exit(int(sys.argv[2]))",
-        &hex::encode(bytes),&status.to_string()]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
-    RawBatch::owned(child)
+        &hex::encode(bytes),&status.to_string()]).stdin(Stdio::piped());
+    RawBatch::owned(GitChild::with_timeout(&mut command, timeout).unwrap()).unwrap()
 }
 #[test]
 fn owned_children_finish_fail_and_cancel_without_leaks() {
@@ -84,6 +88,30 @@ fn owned_children_finish_fail_and_cancel_without_leaks() {
             assert_eq!(batch.read(&id).unwrap_err().reason, "error");
         }
         drop(batch);
+        #[cfg(target_os = "linux")]
+        assert!(!Path::new(&format!("/proc/{pid}")).exists());
+    }
+}
+#[test]
+fn raw_batch_deadline_refuses_requests_and_finish_without_renewal() {
+    let id = "a".repeat(40);
+    for finish in [false, true] {
+        let mut batch = fixture_timed(format!("{id} blob 0\n\n").as_bytes(), 0, Duration::ZERO);
+        #[cfg(target_os = "linux")]
+        let pid = batch.child.as_ref().unwrap().id();
+        let failure = if finish {
+            batch.finish().unwrap_err()
+        } else {
+            let failure = batch.read(&id).unwrap_err();
+            assert!(batch.child.is_none());
+            assert_eq!(
+                batch.read(&id).unwrap_err().detail,
+                "raw Git batch is closed"
+            );
+            failure
+        };
+        assert_eq!(failure.reason, "error");
+        assert!(failure.detail.contains("Git subprocess deadline exceeded"));
         #[cfg(target_os = "linux")]
         assert!(!Path::new(&format!("/proc/{pid}")).exists());
     }
