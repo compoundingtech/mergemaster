@@ -1,7 +1,7 @@
 //! Policy-mode candidate walks and conservative final selection.
 use super::{
     Failure,
-    candidates::{LaneOnce, Prepared},
+    candidates::{LaneOnce, Levels, Prepared},
     judgment::{LaneDefinition, Provider, judge_document},
     routing::Routing,
 };
@@ -28,7 +28,7 @@ impl<P: Provider> CheckJudgment<'_, P> {
         &mut self,
         prepared: &Prepared<'r>,
         check: &str,
-        prefer: &[String],
+        prefer: Levels<'_>,
     ) -> Decision<'r> {
         let candidates = &prepared.candidates;
         let attempts = prepared.attempts();
@@ -41,9 +41,7 @@ impl<P: Provider> CheckJudgment<'_, P> {
             // Build the whole preferred list before any judgment, as Python does.
             let mut preferred = Vec::new();
             for &i in &order {
-                if prefer
-                    .iter()
-                    .any(|level| level == candidates[i].facts.level())
+                if prefer.contains(candidates[i].facts.level())
                     && latest_failure_after(prepared, i)?.is_none()
                 {
                     preferred.push(i);
@@ -111,7 +109,7 @@ impl<P: Provider> CheckJudgment<'_, P> {
     ) -> Result<Option<(usize, Routing<'r>)>, Failure> {
         for &i in indices {
             let candidate = &prepared.candidates[i];
-            let reason = if !prepared.accepted.contains(candidate.facts.level()) {
+            let reason = if !Levels::Policy(&prepared.accepted).contains(candidate.facts.level()) {
                 "level_not_accepted"
             } else {
                 match judge_document(

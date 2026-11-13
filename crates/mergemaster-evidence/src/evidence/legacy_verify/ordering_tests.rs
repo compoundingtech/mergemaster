@@ -88,7 +88,7 @@ def entry(commit,seconds,exit=0,level='agent',definition='base',runner='wrapper'
 for seconds in (179,180,181,300,301):
     for exit in (0,1):
         for level in ('agent','host','fleet'):
-            for prefer in ([],['host']):
+            for prefer in ([],['host'],['host','\ud800'],['\ud800'],['\ufffd'],['🦀'],['']):
                 cases.append(['select',[passing,entry('other',seconds,exit,level)],prefer])
 for field,value in ((4,'wrong'),(5,'unsupported'),(3,'fleet')):
     newer=entry('newer',400)
@@ -125,6 +125,7 @@ for case in cases:
     except OverflowError:
         verdict=['error',None,None,[],len(specs)]
     actual.append(verdict+[ns['blob_reads']])
+    if mode.startswith('select'): case[2] = [list(map(ord,level)) for level in case[2]]
 print(json.dumps([cases,actual]))
 "#;
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
@@ -139,7 +140,7 @@ print(json.dumps([cases,actual]))
     );
     let (cases, expected): (Vec<Value>, Vec<Value>) =
         serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(cases.len(), 128);
+    assert_eq!(cases.len(), 278);
     let mut actual = Vec::new();
     for case in &cases {
         let entries = case[1].as_array().unwrap();
@@ -178,8 +179,34 @@ print(json.dumps([cases,actual]))
                 )),
             };
             if case[0].as_str().unwrap().starts_with("select") {
-                let prefer: Vec<String> = serde_json::from_value(case[2].clone()).unwrap();
-                let decision = judgment.select(&prepared, "unit", &prefer);
+                let prefer: Vec<Vec<u32>> = serde_json::from_value(case[2].clone()).unwrap();
+                let decision = judgment.select(&prepared, "unit", Levels::Codepoints(&prefer));
+                let native: Option<Vec<String>> = prefer
+                    .iter()
+                    .map(|points| points.iter().map(|&point| char::from_u32(point)).collect())
+                    .collect();
+                if let Some(native) = native {
+                    let native_reads = std::cell::Cell::new(0);
+                    let mut native_judgment = CheckJudgment {
+                        provider: LaneOnce::new(HashSource(
+                            case[0].as_str().unwrap().ends_with("provider"),
+                            &native_reads,
+                        )),
+                        ..judgment
+                    };
+                    let native = native_judgment.select(&prepared, "unit", Levels::Utf8(&native));
+                    assert_eq!(
+                        native.result.as_ref().map(|(i, _)| i).map_err(|e| e.reason),
+                        decision
+                            .result
+                            .as_ref()
+                            .map(|(i, _)| i)
+                            .map_err(|e| e.reason)
+                    );
+                    assert_eq!(native.walk.decided_by, decision.walk.decided_by);
+                    assert_eq!(native.walk.skipped_newer, decision.walk.skipped_newer);
+                    assert_eq!(native_reads.get(), reads.get());
+                }
                 walk = decision.walk;
                 decision.result.map(|(i, _)| Some(i))
             } else {

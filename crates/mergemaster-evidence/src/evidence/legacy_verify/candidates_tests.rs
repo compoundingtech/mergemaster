@@ -153,3 +153,64 @@ fn lane_once_caches_success_and_absence_but_not_errors() {
         assert_eq!(calls.get(), if mode == 1 { 5 } else { 3 });
     }
 }
+
+#[test]
+fn borrowed_level_views_match_pinned_membership() {
+    let oracle = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
+    let script = r#"
+import ast, json, pathlib, sys
+source=ast.parse((pathlib.Path(sys.argv[1])/'scripts/evidence-verify').read_text())
+owner=next(n for n in source.body if isinstance(n,ast.FunctionDef) and n.name=='verified')
+accepted=next(n for n in owner.body if isinstance(n,ast.If) and n.lineno==1034)
+preference=next(n for n in ast.walk(owner) if isinstance(n,ast.Compare) and n.lineno==1175 and isinstance(n.comparators[0],ast.Name) and n.comparators[0].id=='prefer_levels')
+accept=compile(ast.Module(body=[accepted],type_ignores=[]),'pinned-accepted','exec')
+prefer=compile(ast.Expression(body=preference),'pinned-preference','eval')
+cases=[]
+for levels in [None,[],['agent'],['agent','agent','host'],['\ud800'],['\ud800','\ufffd','🦀'],['','bad','host']]:
+    ns=dict(rules=None,trust_levels=levels,prefer_levels=levels or [],level_of=lambda c:c)
+    exec(accept,ns)
+    for query in ['agent','host','fleet','','bad','\ufffd','🦀']:
+        ns['c']=query
+        cases.append(dict(levels=None if levels is None else [list(map(ord,s)) for s in levels],query=query,
+                          accepted=ns['accepted'] is None or query in ns['accepted'],preferred=eval(prefer,ns)))
+print(json.dumps(cases))
+"#;
+    let output = std::process::Command::new("python3")
+        .args(["-c", script, &oracle])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(cases.len(), 49);
+    for case in cases {
+        let levels: Option<Vec<Vec<u32>>> = serde_json::from_value(case["levels"].clone()).unwrap();
+        let query = case["query"].as_str().unwrap();
+        let accepted = levels
+            .as_deref()
+            .map_or(Levels::Unrestricted, Levels::Codepoints);
+        assert_eq!(json!(accepted.contains(query)), case["accepted"]);
+        let preferred = Levels::Codepoints(levels.as_deref().unwrap_or(&[]));
+        assert_eq!(json!(preferred.contains(query)), case["preferred"]);
+        if let Some(points) = &levels {
+            let native: Option<Vec<String>> = points
+                .iter()
+                .map(|points| points.iter().map(|&p| char::from_u32(p)).collect())
+                .collect();
+            if let Some(native) = native {
+                let set = native.iter().map(String::as_str).collect();
+                assert_eq!(
+                    Levels::Utf8(&native).contains(query),
+                    preferred.contains(query)
+                );
+                assert_eq!(
+                    Levels::Policy(&set).contains(query),
+                    preferred.contains(query)
+                );
+            }
+        }
+    }
+}

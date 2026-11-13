@@ -9,6 +9,28 @@ use super::{
 use crate::evidence::legacy_policy::{PolicyError, PolicyRules};
 use std::collections::BTreeSet;
 
+/// Borrowed selection-level membership, not signer verification.
+/// Unrestricted represents accepted=None; absent preferences use an empty view instead.
+#[derive(Clone, Copy)]
+pub enum Levels<'a> {
+    Unrestricted,
+    Policy(&'a BTreeSet<&'a str>),
+    Utf8(&'a [String]),
+    Codepoints(&'a [Vec<u32>]),
+}
+impl Levels<'_> {
+    pub fn contains(self, level: &str) -> bool {
+        match self {
+            Self::Unrestricted => true,
+            Self::Policy(levels) => levels.contains(level),
+            Self::Utf8(levels) => levels.iter().any(|entry| entry == level),
+            Self::Codepoints(levels) => levels
+                .iter()
+                .any(|entry| TextRef::Points(entry).equals(level)),
+        }
+    }
+}
+
 pub struct Candidate<'a> {
     pub commit: &'a str,
     pub facts: DocumentFacts<'a>,

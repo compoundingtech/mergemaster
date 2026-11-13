@@ -2,7 +2,7 @@ use super::*;
 use crate::evidence::{
     legacy_policy::{PolicyDocument, PolicyError},
     legacy_verify::{
-        candidates::{Candidate, LaneOnce},
+        candidates::{Candidate, LaneOnce, Levels},
         facts::DocumentFacts,
         judgment::{LaneDefinition, Provider},
         ordering::CheckJudgment,
@@ -108,7 +108,7 @@ print(json.dumps(fixtures))
             lane: None,
             provider: LaneOnce::new(NoGit),
         }
-        .select(&prepared, "unit", &[]);
+        .select(&prepared, "unit", Levels::Utf8(&[]));
         let actual = match Satisfied::from_decision(
             &prepared,
             &decision,
