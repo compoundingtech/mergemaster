@@ -89,7 +89,7 @@ fn with_clock<'a>(
             lane_git::RequiredLane::Missing(error) => Err(Failure {
                 reason: error.reason,
                 detail: error.detail,
-                attempts: 0,
+                attempts: None,
                 origin: error.origin,
             }),
             lane_git::RequiredLane::Ready(lane) => configured::required_git(

@@ -3777,7 +3777,10 @@ fn legacy_clock_and_input_guards_match_signed_oracle_order() {
         );
         let actual = checked
             .map(|()| json!({"reason":"satisfied"}))
-            .unwrap_or_else(|failure| json!({"reason":failure.reason,"attempts":failure.attempts}));
+            // Existing normalized oracle transport only; exceptions have no attempts metadata.
+            .unwrap_or_else(
+                |failure| json!({"reason":failure.reason,"attempts":failure.attempts.unwrap_or(0)}),
+            );
         let keys = f.root.path().join("input-keys");
         fs::write(
             &keys,
@@ -3800,7 +3803,7 @@ try:
 except oracle['Failure'] as failure:
     print(json.dumps(dict(reason=failure.reason, attempts=failure.extra['attempts'])))
 except OverflowError:
-    print(json.dumps(dict(reason='error', attempts=1, exception='OverflowError')))
+    print(json.dumps(dict(reason='error', attempts=0, exception='OverflowError'))) # absent metadata, normalized transport only
 "#;
         let output = f
             .command("python3")

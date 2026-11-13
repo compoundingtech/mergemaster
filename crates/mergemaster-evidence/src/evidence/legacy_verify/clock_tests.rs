@@ -185,6 +185,9 @@ print(json.dumps(cases))
                             name == "clock-error",
                             "{name}"
                         );
+                        if name == "clock-error" {
+                            assert_eq!(error.attempts, None);
+                        }
                         assert!(serde_json::to_value(error).unwrap().get("origin").is_none());
                     })
                     .map(|_| "satisfied")

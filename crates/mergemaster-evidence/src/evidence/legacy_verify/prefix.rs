@@ -18,7 +18,11 @@ pub struct Request<'a> {
     pub inputs: Option<&'a [String]>,
     pub crate_key: Option<(&'a str, &'a str)>,
 }
-fn failure(reason: &'static str, detail: impl Into<NormalizedText>, attempts: usize) -> Failure {
+fn failure(
+    reason: &'static str,
+    detail: impl Into<NormalizedText>,
+    attempts: Option<usize>,
+) -> Failure {
     Failure {
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason,
@@ -31,7 +35,7 @@ fn phase_error(e: PolicyError) -> Failure {
         reason: e.reason,
         detail: e.detail,
         origin: e.origin,
-        attempts: 0,
+        attempts: None,
     }
 }
 fn includes(doc: &Document, check: &[u32]) -> bool {
@@ -39,21 +43,21 @@ fn includes(doc: &Document, check: &[u32]) -> bool {
 }
 /// Reproduce Python's EMPTY owned revocation file, not external revocation policy.
 /// Do not reuse for an API promising caller-supplied revocation enforcement.
-/// attempts=0 normalizes absent Python metadata; it is not CLI wire parity.
+/// Omitted Python attempts metadata stays absent; only degraded includes its count.
 pub fn candidates(
     collector: &mut CandidateCollector,
     q: &Request<'_>,
 ) -> Result<Vec<TrustedCandidate>, Failure> {
     let (groups, legacy) = {
         let file =
-            tempfile::NamedTempFile::new().map_err(|e| failure("error", e.to_string(), 0))?;
+            tempfile::NamedTempFile::new().map_err(|e| failure("error", e.to_string(), None))?;
         let path = file
             .path()
             .canonicalize()
-            .map_err(|e| failure("error", e.to_string(), 0))?;
+            .map_err(|e| failure("error", e.to_string(), None))?;
         let revocations = path
             .to_str()
-            .ok_or_else(|| failure("error", "temporary revocation path is not UTF-8", 0))?;
+            .ok_or_else(|| failure("error", "temporary revocation path is not UTF-8", None))?;
         let collected = collector
             .collect(q.repo, q.tree, q.check, q.inputs, q.crate_key)
             .map_err(phase_error)?;
@@ -80,14 +84,14 @@ pub fn candidates(
         return Err(failure(
             "degraded",
             format!("only unsigned degraded records exist for check {}", q.check),
-            degraded,
+            Some(degraded),
         ));
     }
     if !groups.untrusted.is_empty() && !had_trusted {
         return Err(failure(
             groups.untrusted[0].reason,
             format!("no record for check {} is signed by a trusted key", q.check),
-            0,
+            None,
         ));
     }
     if had_trusted {
@@ -97,7 +101,7 @@ pub fn candidates(
                 "trusted records for this tree do not include check {}",
                 q.check
             ),
-            0,
+            None,
         ));
     }
     let stale = other_trees_have(q.repo, &legacy, q.tree, q.check).map_err(phase_error)?;
@@ -105,10 +109,14 @@ pub fn candidates(
         failure(
             "stale_tree",
             format!("check {} has records only for other trees", q.check),
-            0,
+            None,
         )
     } else {
-        failure("no_record", format!("no record for check {}", q.check), 0)
+        failure(
+            "no_record",
+            format!("no record for check {}", q.check),
+            None,
+        )
     })
 }
 #[cfg(all(test, unix))]

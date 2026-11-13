@@ -81,7 +81,7 @@ pub fn judge_unconfigured(
     super::routing::route_unconfigured(options.routing, record, attempts)?;
     super::inputs::check_unconfigured_inputs(
         record,
-        super::inputs::sample(clock, attempts)?,
+        super::inputs::sample(clock)?,
         options.max_age,
         options.command,
         attempts,
@@ -109,13 +109,17 @@ fn judge_source<'a>(
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason,
         detail: format!("record fails legacy {reason} guard").into(),
-        attempts,
+        attempts: Some(attempts),
     };
     let error = |e: PolicyError| Failure {
         origin: e.origin,
         reason: e.reason,
         detail: e.detail,
-        attempts,
+        attempts: matches!(
+            e.origin,
+            crate::evidence::legacy_policy::ErrorOrigin::Failure
+        )
+        .then_some(attempts),
     };
     let routing = match &record {
         RecordView::Native(record, _) => route(policy, record, attempts),
@@ -144,7 +148,7 @@ fn judge_source<'a>(
                 policy,
                 &routing,
                 record,
-                super::inputs::sample(clock, attempts)?,
+                super::inputs::sample(clock)?,
                 run_inputs,
                 attempts,
             )?;
@@ -179,7 +183,7 @@ fn check_lane(
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason,
         detail: format!("record fails legacy {reason} guard").into(),
-        attempts,
+        attempts: Some(attempts),
     };
     if let Some(lane) = lane {
         let expected = if !lane.changed.is_empty() && matches!(mode, Some(LaneBinding::Tree)) {
@@ -209,7 +213,11 @@ fn check_bindings<'a>(
         origin: e.origin,
         reason: e.reason,
         detail: e.detail,
-        attempts,
+        attempts: matches!(
+            e.origin,
+            crate::evidence::legacy_policy::ErrorOrigin::Failure
+        )
+        .then_some(attempts),
     };
     for (key, path) in bindings {
         let actual = provider.blob_sha256(path).map_err(error)?;
@@ -222,7 +230,7 @@ fn check_bindings<'a>(
                 origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                 reason: "wrong_input",
                 detail: "record fails legacy wrong_input guard".into(),
-                attempts,
+                attempts: Some(attempts),
             });
         }
     }

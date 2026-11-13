@@ -115,7 +115,8 @@ print(json.dumps(cases))
             continue;
         }
         let actual = match result {
-            Err(e) => json!({"reason":e.reason,"attempts":e.attempts}),
+            // Existing normalized oracle transport only, not CLI field presence.
+            Err(e) => json!({"reason":e.reason,"attempts":e.attempts.unwrap_or(0)}),
             Ok(record) => {
                 let facts = DocumentFacts::for_check(
                     &record.candidate.statement,

@@ -43,7 +43,7 @@ for label,changes in variants:
     v.update(blob_sha256=blob,now=datetime(2026,1,1,0,0,5,tzinfo=timezone.utc))
     try: expected=v['judge'](('record',statement,'agent/alice'),command=c['command'],kinds=c['kinds'],bind=c['bindings'],max_age=c['age'],runner_prefix=c['prefix'],trust_levels=c['levels'],lane=lane)
     except v['Failure'] as e: expected=dict(reason=e.reason,attempts=e.extra['attempts'])
-    except OverflowError: expected=dict(reason='error',attempts=7)
+    except OverflowError: expected=dict(reason='error',attempts=0) # absent metadata, normalized transport only
     points=lambda text: None if text is None else list(map(ord,text))
     cases.append(dict(label=label,raw=json.dumps(statement),expected=expected,calls=calls,lane=lane,error=c['error'],command=None if c['command'] is None else [points(s) for s in c['command']],age=c['age'],kinds=[points(s) for s in c['kinds']],levels=None if c['levels'] is None else [points(s) for s in c['levels']],prefix=points(c['prefix']),bindings=[(points(k),os.fsencode(p).hex()) for k,p in c['bindings']],blobs={os.fsencode(k).hex():v for k,v in c['blobs'].items()}))
 print(json.dumps(cases))
@@ -150,7 +150,8 @@ print(json.dumps(cases))
         }
         let actual = checked
             .map(|()| json!({"reason":"satisfied"}))
-            .unwrap_or_else(|e| json!({"reason":e.reason,"attempts":e.attempts}));
+            // Existing normalized oracle transport only, not CLI field presence.
+            .unwrap_or_else(|e| json!({"reason":e.reason,"attempts":e.attempts.unwrap_or(0)}));
         assert_eq!(actual, case["expected"], "{}", case["label"]);
         assert_eq!(json!(provider.calls), case["calls"], "{}", case["label"]);
     }
