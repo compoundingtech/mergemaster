@@ -655,8 +655,13 @@ not an unrelated-history or foreign-merge verdict.
 Timeout/error/drop kills and reaps only the direct child, as Python POSIX does.
 No process group or signal forwarding is added; terminal SIGINT stays inherited.
 A grandchild can outlive timeout and hold pipes, but cleanup does not wait for EOF.
-Other Git helpers still need cross-cutting deadline parity before CLI cutover;
-the protected CI transport's stricter 30-second deadline remains unchanged.
+Intentional no-deadline exceptions preserve Python parity: parity-drift's reporter
+Git calls (pinned scripts/parity-drift:33-37), its native default-root lookup for
+tool consistency, and keygen's scratch Git init (scripts/evidence-keygen:55-56,135).
+A deadline for those paths would need a separately approved divergence.
+The protected CI fetch instead retains its existing external `timeout` wrapper:
+30 seconds with a 2-second kill-after, not a GitChild deadline. Direct Git fixture
+setup under tests is outside this production deadline inventory.
 `require_all::require_all` validates sorted lossless names before off-skip, resolves
 eager lanes before verification, and returns a complete typed summary or a global
 error, never partial results. Only eager `no_lane` is per-lane; explicit verification

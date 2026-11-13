@@ -89,6 +89,7 @@ pub fn run(args: ParityDriftArgs) -> Result<u8> {
     let provenance = match args.provenance {
         Some(path) => path,
         None => {
+            // Intentional no deadline, consistent with this tool's oracle Git calls.
             let output = Command::new("git")
                 .args(["rev-parse", "--show-toplevel"])
                 .output()
@@ -130,6 +131,8 @@ pub fn run(args: ParityDriftArgs) -> Result<u8> {
         .unwrap_or(Path::new(""));
     fixture_paths(&root.join("tests/fixtures/fractal"), &mut paths)?;
     let git = |argv: &[&str]| -> Result<String> {
+        // Pinned scripts/parity-drift:33-37 has no timeout (intentional None).
+        // Adding one would be a separately decided fail-closed divergence.
         let output = Command::new("git")
             .arg("-C")
             .arg(&args.fractal_repo)
