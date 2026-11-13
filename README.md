@@ -567,6 +567,8 @@ lane snapshot per check (including absence); neither API performs final selectio
 `latest_failure_after` preserves inclusive skew, first ties and lazy local-calendar
 overflow refusal. `CheckJudgment::select` adds stable order/preference, conservative
 failure shadowing and indexed deciding/skip metadata, not final CLI serialization.
+Event narrowing shares one lazy borrowed intersection with the existing collecting
+API; borrowed result consumers need not allocate or copy an event list.
 `statement_bytes::decode_json_bytes` ports Python's BOM/NUL-based UTF-8/16/32
 transport detection and surrogatepass decoding (3f-2b-1), retaining code points
 including lone surrogates rather than replacing them with invalid Rust strings.

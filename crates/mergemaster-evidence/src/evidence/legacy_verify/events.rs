@@ -6,19 +6,20 @@ pub fn narrowed_events<'a>(
     check: Option<&'a [String]>,
     level: Option<&'a [String]>,
 ) -> Option<Vec<&'a str>> {
-    match (check, level) {
-        (None, None) => None,
-        (Some(events), None) | (None, Some(events)) => {
-            Some(events.iter().map(String::as_str).collect())
-        }
-        (Some(check), Some(level)) => Some(
-            level
-                .iter()
-                .filter(|event| check.contains(event))
-                .map(String::as_str)
-                .collect(),
-        ),
-    }
+    narrowed_event_iter(check, level).map(Iterator::collect)
+}
+/// Preserve None versus an empty intersection and borrow the level's ordered entries.
+pub(super) fn narrowed_event_iter<'a>(
+    check: Option<&'a [String]>,
+    level: Option<&'a [String]>,
+) -> Option<impl Iterator<Item = &'a str>> {
+    Some(
+        level
+            .or(check)?
+            .iter()
+            .filter(move |event| level.is_none() || check.is_none_or(|check| check.contains(event)))
+            .map(String::as_str),
+    )
 }
 pub fn kind_of(runner: &str) -> Option<&'static str> {
     kind_of_text(TextRef::Str(runner))
@@ -57,6 +58,16 @@ mod tests {
     use super::*;
     use crate::evidence::legacy_policy::PolicyDocument;
     use serde_json::{Value, json};
+    #[test]
+    fn lazy_intersection_borrows_the_ordered_source() {
+        let check = ["pull_request".to_owned(), "merge_group".to_owned()];
+        let level = ["merge_group".to_owned(), "pull_request".to_owned()];
+        let mut narrowed = narrowed_event_iter(Some(&check), Some(&level)).unwrap();
+        assert!(std::ptr::eq(narrowed.next().unwrap(), level[0].as_str()));
+        assert!(std::ptr::eq(narrowed.next().unwrap(), level[1].as_str()));
+        assert!(narrowed.next().is_none());
+        assert!(narrowed_event_iter(None, None).is_none());
+    }
     #[test]
     fn event_intersection_and_shard_parts_match_the_oracle() {
         let policy = r#"{"version":1,"checks":{"check":{"trust_levels":["agent"],"kinds":{
