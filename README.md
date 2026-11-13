@@ -612,6 +612,12 @@ for one required check, returning the selected owned trusted record. Each call o
 a fresh collector budget; rules supply projection inputs, with no crate binding,
 run inputs, preferences or level-lane callback. Eager lane resolution and per-lane
 refusal/aggregate decisions belong to require-all orchestration, not this helper.
+`configured::required_git` uses sanitized Git to stream bound blobs into SHA-256
+with byte-preserving paths and discarded stderr, without a blob-size allocation.
+Python maps Git OSError, nonzero status and its 60-second timeout to no blob.
+Rust maps process/read/status failures to no blob but has no subprocess deadline
+yet, like the other Rust Git helpers. Cross-cutting Git subprocess deadline parity
+is required before CLI cutover; this helper does not add a blob-only deadline.
 Joined rules-absent parity tests use actual SHA-1/SHA-256 trees, SSH-signed notes,
 signature partition and Git blob reads through selection/result conversion, including
 Unix non-UTF-8 binding paths, lossless keys, skips/preferences and refusals.
