@@ -565,7 +565,8 @@ counts remaining attempts and unions policy kind levels. `LaneOnce` owns one laz
 lane snapshot per check (including absence); neither API performs final selection.
 `ordering::CheckJudgment::first_valid` walks a supplied order using shared guards;
 `latest_failure_after` preserves inclusive skew, first ties and lazy local-calendar
-overflow refusal. These primitives do not yet sort, prefer or decide a check.
+overflow refusal. `CheckJudgment::select` adds stable order/preference, conservative
+failure shadowing and indexed deciding/skip metadata, not final CLI serialization.
 `statement_bytes::decode_json_bytes` ports Python's BOM/NUL-based UTF-8/16/32
 transport detection and surrogatepass decoding (3f-2b-1), retaining code points
 including lone surrogates rather than replacing them with invalid Rust strings.
