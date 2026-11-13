@@ -643,6 +643,9 @@ The native evidence Git helper polls stdin/stdout/stderr together under one expl
 deadline, preserving binary stdout and nonzero-status diagnostics without threads.
 Observation blob/tree/commit creation uses 300 seconds; verifier and native-only
 metadata/publication calls use 60. Timeout errors include stderr captured so far.
+Generic wrapper output storage and origin publication use 600 seconds per Git
+spawn, matching evidence-wrap. Timeout propagates as an error without publication
+success or a stored-output identifier; lane execution itself is unchanged.
 Timeout/error/drop kills and reaps only the direct child, as Python POSIX does.
 No process group or signal forwarding is added; terminal SIGINT stays inherited.
 A grandchild can outlive timeout and hold pipes, but cleanup does not wait for EOF.

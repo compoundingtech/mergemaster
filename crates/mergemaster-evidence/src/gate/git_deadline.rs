@@ -16,6 +16,10 @@ impl GitChild {
     pub(crate) fn id(&self) -> u32 {
         self.child.id()
     }
+    #[cfg(test)]
+    pub(crate) fn expire_for_test(&mut self) {
+        self.deadline = Instant::now();
+    }
     pub(crate) fn spawn(command: &mut Command) -> io::Result<Self> {
         Self::with_timeout(command, Duration::from_secs(60))
     }
