@@ -4,7 +4,8 @@ pub mod kind_rules;
 pub mod level_rules;
 pub mod normalized_text;
 pub mod value_rules;
-use check_names::{CheckKey, Selection};
+use super::legacy_verify::value_inputs::TextRef;
+use check_names::{CheckKey, CheckName, Selection};
 use serde::{
     Serialize,
     de::{self, DeserializeSeed, IgnoredAny, MapAccess, Visitor},
@@ -25,14 +26,18 @@ impl std::error::Error for PolicyError {}
 
 #[derive(Debug)]
 pub struct PolicyDocument<'a> {
-    check: &'a str,
+    check: CheckName<'a>,
     entry: Option<Value>,
 }
 impl<'a> PolicyDocument<'a> {
-    pub fn parse(text: &str, check: &'a str) -> Result<Self, PolicyError> {
+    pub fn parse(text: &str, check: impl Into<CheckName<'a>>) -> Result<Self, PolicyError> {
+        let check = check.into();
         Ok(Self {
             check,
-            entry: selected_entry(text, check, "checks")?,
+            entry: match check.text() {
+                TextRef::Str(name) => selected_entry(text, name, "checks")?,
+                TextRef::Points(name) => check_names::selected(text, name)?,
+            },
         })
     }
     /// Unrelated entries are syntax-checked without bounded numeric conversion.
@@ -191,7 +196,8 @@ pub struct PolicyRules {
     pub kinds: Vec<(String, kind_rules::KindRule)>,
 }
 impl CheckHeader {
-    pub fn parse(entry: Value, check: &str) -> Result<Self, PolicyError> {
+    pub fn parse<'a>(entry: Value, check: impl Into<CheckName<'a>>) -> Result<Self, PolicyError> {
+        let check = check.into();
         let error = |message: &str| invalid(format!("skip policy for {check}: {message}"));
         let shape = || error("needs kinds and trust_levels, and nothing unknown");
         let Value::Object(mut entry) = entry else {

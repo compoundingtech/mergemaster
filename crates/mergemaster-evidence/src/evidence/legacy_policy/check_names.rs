@@ -1,7 +1,37 @@
 //! Policy-name enumeration/selection only; rule normalization remains a separate boundary.
 use super::{PolicyError, entries};
+use crate::evidence::legacy_verify::value_inputs::TextRef;
 use serde::de::{self, Visitor};
 use serde_json::Value;
+
+/// Borrowed policy identity; never convert a Python name through lossy UTF-8.
+#[derive(Clone, Copy)]
+pub struct CheckName<'a>(TextRef<'a>);
+impl<'a> From<&'a str> for CheckName<'a> {
+    fn from(name: &'a str) -> Self {
+        Self(TextRef::Str(name))
+    }
+}
+impl<'a> From<&'a [u32]> for CheckName<'a> {
+    fn from(name: &'a [u32]) -> Self {
+        Self(TextRef::Points(name))
+    }
+}
+impl<'a> CheckName<'a> {
+    pub(crate) fn text(self) -> TextRef<'a> {
+        self.0
+    }
+}
+impl std::fmt::Display for CheckName<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, f)
+    }
+}
+impl std::fmt::Debug for CheckName<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self, f)
+    }
+}
 
 /// Sorted Python code-point names, including lone surrogates; duplicate keys collapse.
 /// Entries are syntax-checked, not policy-validated or filtered by `require`.
@@ -161,3 +191,7 @@ print(json.dumps(out))
         );
     }
 }
+
+#[cfg(test)]
+#[path = "name_rules_tests.rs"]
+mod normalization_tests;

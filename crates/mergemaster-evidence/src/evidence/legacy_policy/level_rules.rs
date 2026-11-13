@@ -1,4 +1,5 @@
 //! Legacy signer-level override declarations; no evidence evaluation.
+use super::check_names::CheckName;
 use super::normalized_text::NormalizedText;
 use super::{CommandInputs, PolicyError, checked_command_inputs, invalid, names};
 use crate::evidence::legacy_verify::value_inputs::TextRef;
@@ -27,13 +28,14 @@ impl Serialize for LaneBinding {
         }
     }
 }
-pub fn checked_levels(
+pub fn checked_levels<'a>(
     overrides: Map<String, Value>,
     accepted_levels: &[String],
     repository: &str,
-    check: &str,
+    check: impl Into<CheckName<'a>>,
     kind: &str,
 ) -> Result<Vec<(String, LevelRule)>, PolicyError> {
+    let check = check.into();
     let error = || {
         invalid(format!(
             "skip policy for {check}/{kind}: invalid level override"
@@ -87,15 +89,19 @@ pub fn checked_levels(
     }
     Ok(by_level)
 }
-pub(super) fn fill(value: NormalizedText, repository: &str, check: &str) -> NormalizedText {
+pub(super) fn fill(
+    value: NormalizedText,
+    repository: &str,
+    check: CheckName<'_>,
+) -> NormalizedText {
     value
         .replace("{repository}", TextRef::Str(repository))
-        .replace("{check}", TextRef::Str(check))
+        .replace("{check}", check.text())
 }
 pub(super) fn normalized(
     mut inputs: CommandInputs,
     repository: &str,
-    check: &str,
+    check: CheckName<'_>,
 ) -> CommandInputs {
     inputs.command = inputs
         .command
