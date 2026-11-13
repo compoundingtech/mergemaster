@@ -600,9 +600,7 @@ fn compute(
             return Ok(decision);
         }
     }
-    let relation = git::command(repo)
-        .args(["merge-base", "--is-ancestor", base, head])
-        .output()?;
+    let relation = ancestry_status(repo, base, head, std::time::Duration::from_secs(120))?;
     match relation.status.code() {
         Some(0) => {}
         Some(1) => return Ok(decision),
@@ -653,9 +651,8 @@ fn compute(
                 if parent == base {
                     continue;
                 }
-                let relation = git::command(repo)
-                    .args(["merge-base", "--is-ancestor", parent, base])
-                    .output()?;
+                let relation =
+                    ancestry_status(repo, parent, base, std::time::Duration::from_secs(120))?;
                 match relation.status.code() {
                     Some(0) => {}
                     Some(1) => {
@@ -1293,5 +1290,71 @@ mod age_tests {
         assert!(!age_exceeds_limit(limit - Duration::microseconds(1), 60));
         assert!(!age_exceeds_limit(Duration::seconds(-1), 60));
         assert!(!age_exceeds_limit(limit, u64::MAX));
+    }
+}
+
+fn ancestry_status(
+    repo: &Path,
+    base: &str,
+    head: &str,
+    timeout: std::time::Duration,
+) -> Result<std::process::Output> {
+    Ok(git::deadline::GitChild::capture(
+        git::command(repo).args(["merge-base", "--is-ancestor", base, head]),
+        None,
+        timeout,
+    )?)
+}
+
+#[cfg(test)]
+mod ancestry_tests {
+    use super::*;
+
+    #[test]
+    fn ancestry_deadline_preserves_status_stderr_and_expiry() {
+        let repo = tempfile::tempdir().unwrap();
+        git::git(repo.path(), &["init", "-q"]).unwrap();
+        let mut commits = Vec::new();
+        for message in ["first", "second"] {
+            git::git(
+                repo.path(),
+                &[
+                    "-c",
+                    "user.name=Fixture",
+                    "-c",
+                    "user.email=fixture@example.invalid",
+                    "commit",
+                    "--allow-empty",
+                    "-qm",
+                    message,
+                ],
+            )
+            .unwrap();
+            commits.push(git::text(repo.path(), &["rev-parse", "HEAD"]).unwrap());
+        }
+        for (base, head, code) in [
+            (commits[0].as_str(), commits[1].as_str(), 0),
+            (commits[1].as_str(), commits[0].as_str(), 1),
+            ("invalid", commits[0].as_str(), 128),
+        ] {
+            let output =
+                ancestry_status(repo.path(), base, head, std::time::Duration::from_secs(120))
+                    .unwrap();
+            assert_eq!(output.status.code(), Some(code));
+            if code == 128 {
+                assert!(!output.stderr.is_empty());
+            }
+        }
+        let error = ancestry_status(
+            repo.path(),
+            &commits[0],
+            &commits[1],
+            std::time::Duration::ZERO,
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<std::io::Error>().unwrap().kind(),
+            std::io::ErrorKind::TimedOut
+        );
     }
 }

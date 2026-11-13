@@ -32,21 +32,30 @@ pub struct WrapArgs {
 }
 
 fn input_git(repo: &Path, args: &[&str], input: &[u8]) -> Result<String> {
-    let mut child = git::command(repo)
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+    store_output(
+        git::command(repo).args(args).stdin(Stdio::piped()),
+        input,
+        std::time::Duration::from_secs(600),
+    )
+}
+fn store_output(
+    command: &mut Command,
+    input: &[u8],
+    timeout: std::time::Duration,
+) -> Result<String> {
+    let output = git::deadline::GitChild::capture(command, Some(input), timeout)
         .context("starting Git output storage")?;
-    child
-        .stdin
-        .take()
-        .context("missing Git input")?
-        .write_all(input)?;
-    let output = child.wait_with_output()?;
     ensure!(output.status.success(), "Git output storage failed");
     Ok(String::from_utf8(output.stdout)?.trim().to_owned())
+}
+fn publish_output(command: &mut Command, timeout: std::time::Duration) -> Result<()> {
+    let output = git::deadline::GitChild::capture(command, None, timeout)
+        .context("publishing evidence to origin")?;
+    ensure!(
+        output.status.success(),
+        "evidence publication to origin failed"
+    );
+    Ok(())
 }
 
 /// Non-derivation launch. Only opted-in scripts and absolute Nix executables
@@ -304,28 +313,25 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     git::git(&repo, &["update-ref", &response.note_ref, &response.record])?;
     // Publication deliberately targets origin, never an argv/HEAD-provided remote.
     // Local file transport supports bare integration fixtures; SSH remains normal account auth.
-    let pushed = git::command(&repo)
-        .env("GIT_ALLOW_PROTOCOL", "file:ssh:https")
-        .args([
-            "-c",
-            "protocol.file.allow=always",
-            "-c",
-            "protocol.ssh.allow=always",
-            "-c",
-            "protocol.https.allow=always",
-            "-c",
-            "core.sshCommand=ssh",
-            "push",
-            "--",
-            "origin",
-            &format!("{}:{}", response.note_ref, response.note_ref),
-        ])
-        .output()
-        .context("publishing evidence to origin")?;
-    ensure!(
-        pushed.status.success(),
-        "evidence publication to origin failed"
-    );
+    publish_output(
+        git::command(&repo)
+            .env("GIT_ALLOW_PROTOCOL", "file:ssh:https")
+            .args([
+                "-c",
+                "protocol.file.allow=always",
+                "-c",
+                "protocol.ssh.allow=always",
+                "-c",
+                "protocol.https.allow=always",
+                "-c",
+                "core.sshCommand=ssh",
+                "push",
+                "--",
+                "origin",
+                &format!("{}:{}", response.note_ref, response.note_ref),
+            ]),
+        std::time::Duration::from_secs(600),
+    )?;
     eprintln!("evidence record {}", response.record);
     Ok(exit_code)
 }
@@ -399,5 +405,50 @@ mod tests {
                 .unwrap()
                 .starts_with("policy-wrapper ")
         );
+    }
+    #[test]
+    fn generic_git_deadlines_preserve_storage_and_publication_outcomes() {
+        use std::{
+            process::{Command, Stdio},
+            time::Duration,
+        };
+        for status in [0, 7] {
+            let mut command = Command::new("python3");
+            command.args(["-c",
+                "import sys;data=sys.stdin.buffer.read();sys.stdout.buffer.write(b' '+data+b'\\n');sys.exit(int(sys.argv[1]))",
+                &status.to_string()]).stdin(Stdio::piped());
+            let result = super::store_output(&mut command, b"stored", Duration::from_secs(600));
+            if status == 0 {
+                assert_eq!(result.unwrap(), "stored");
+            } else {
+                assert_eq!(result.unwrap_err().to_string(), "Git output storage failed");
+            }
+            let mut command = Command::new("python3");
+            command.args([
+                "-c",
+                "import sys;sys.exit(int(sys.argv[1]))",
+                &status.to_string(),
+            ]);
+            let result = super::publish_output(&mut command, Duration::from_secs(600));
+            assert_eq!(result.is_ok(), status == 0);
+            if let Err(error) = result {
+                assert_eq!(error.to_string(), "evidence publication to origin failed");
+            }
+        }
+        for storing in [false, true] {
+            let mut command = Command::new("python3");
+            command
+                .args(["-c", "import signal;signal.pause()"])
+                .stdin(Stdio::piped());
+            let error = if storing {
+                super::store_output(&mut command, b"input", Duration::ZERO).unwrap_err()
+            } else {
+                super::publish_output(&mut command, Duration::ZERO).unwrap_err()
+            };
+            assert_eq!(
+                error.downcast_ref::<std::io::Error>().unwrap().kind(),
+                std::io::ErrorKind::TimedOut
+            );
+        }
     }
 }

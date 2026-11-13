@@ -135,3 +135,24 @@ print(json.dumps(dict(cases=cases,blobs=blobs)))
         );
     }
 }
+
+#[test]
+fn streamed_blob_deadline_preserves_hash_and_absence_mapping() {
+    use std::{process::Command, time::Duration};
+    for (size, status) in [(0, 0), (1_048_577, 0), (17, 7)] {
+        let mut command = Command::new("python3");
+        command.args([
+            "-c",
+            "import sys;sys.stdout.buffer.write(b'x'*int(sys.argv[1]));sys.exit(int(sys.argv[2]))",
+            &size.to_string(),
+            &status.to_string(),
+        ]);
+        let actual = blob_hash(GitChild::spawn(&mut command).unwrap());
+        let expected = (status == 0).then(|| hex::encode(Sha256::digest(vec![b'x'; size])));
+        assert_eq!(actual, expected);
+    }
+    let mut command = Command::new("python3");
+    command.args(["-c", "import signal;signal.pause()"]);
+    let child = GitChild::with_timeout(&mut command, Duration::ZERO).unwrap();
+    assert_eq!(blob_hash(child), None);
+}

@@ -342,6 +342,8 @@ pub(super) fn string(value: &str, out: &mut impl Write) -> fmt::Result {
     codepoints(value.chars().map(u32::from), out)
 }
 
+/// Python ensure_ascii escaping, including lone surrogates; no input decoding.
+/// Scalar string callers retain their existing encoding and sink-error behavior.
 pub(super) fn codepoints(
     value: impl IntoIterator<Item = u32>,
     out: &mut impl Write,
@@ -376,6 +378,45 @@ pub(super) fn codepoints(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn codepoint_encoder_matches_pinned_python_bytes() {
+        let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
+        let output = std::process::Command::new("python3")
+            .args([
+                "-c",
+                r"
+import runpy,sys
+json=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify')['json']
+print(json.dumps(''.join(map(chr,range(0x110000)))))
+print(json.dumps(''.join(chr(p) for p in range(0x110000) if not 0xd800<=p<=0xdfff)))
+",
+                &root,
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let mut actual = String::new();
+        codepoints(0..=0x10ffff, &mut actual).unwrap();
+        actual.push('\n');
+        let scalars: String = (0..=0x10ffff).filter_map(char::from_u32).collect();
+        string(&scalars, &mut actual).unwrap();
+        actual.push('\n');
+        assert_eq!(actual.as_bytes(), output.stdout);
+        assert!(codepoints([0x110000], &mut String::new()).is_err());
+        struct Refuse;
+        impl Write for Refuse {
+            fn write_str(&mut self, _: &str) -> fmt::Result {
+                Err(fmt::Error)
+            }
+        }
+        assert!(string("scalar", &mut Refuse).is_err());
+        assert!(codepoints([0xd800], &mut Refuse).is_err());
+    }
 
     #[test]
     fn ordinary_json_objects_remain_objects_in_both_parsers() {

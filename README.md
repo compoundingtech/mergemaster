@@ -629,16 +629,42 @@ refusal/aggregate decisions belong to require-all orchestration, not this helper
 `configured::required_git` uses sanitized Git to stream bound blobs into SHA-256
 with byte-preserving paths and discarded stderr, without a blob-size allocation.
 Python maps Git OSError, nonzero status and its 60-second timeout to no blob.
-Rust maps process/read/status failures to no blob; its streaming Git helpers have
-no deadline yet. Shared `gate::git::git`, `git_bounded` and projection exchanges have
-one 60-second child-lifetime deadline covering stdin writes, stdout and final wait,
+Rust maps process/read/status/timeout failures to no blob; hashing stays streamed.
+Shared `gate::git::git`, `git_bounded`, projection exchanges, bound-blob hashing
+and note discovery each use one 60-second child-lifetime deadline through final wait,
 with discarded stderr and nonblocking pipe I/O. Existing output bounds and strict
 projection OID/status validation remain unchanged; timeout is reason `error`.
+`RawBatch` uses one deadline across every request and final EOF/status validation;
+neither a successful reply nor finish renews it. Expiration cancels the owned child.
+Note discovery likewise shares one budget across all requests, preserving order and
+duplicates or returning an error with no partial candidate list.
+Native batches share that lifetime rule; signing passes its Python-compatible
+300-second blob-content timeout, while native digest/validation batches use 60.
+Deadline failures propagate as errors, never partial contents/digests or validation
+success; framing, streamed hashing and direct-child cleanup remain unchanged.
+The native evidence Git helper polls stdin/stdout/stderr together under one explicit
+deadline, preserving binary stdout and nonzero-status diagnostics without threads.
+Observation blob/tree/commit creation uses 300 seconds; verifier and native-only
+metadata/publication calls use 60. Timeout errors include stderr captured so far.
+Generic wrapper output storage and origin publication use 600 seconds per Git
+spawn, matching evidence-wrap. Timeout propagates as an error without publication
+success or a stored-output identifier; lane execution itself is unchanged.
+Signer source-pack export and scratch import each get their own 300-second lifetime
+deadline; stderr stays inherited, export stdout is retained and import stdout is
+discarded. Expiry is an error, not a partial export or successful import.
+Gate ancestry probes use 120 seconds per spawn, matching ci-evidence-gate's Git
+runner. Exit 0/1 keep their distinct ancestry decisions; expiry is an error,
+not an unrelated-history or foreign-merge verdict.
 Timeout/error/drop kills and reaps only the direct child, as Python POSIX does.
 No process group or signal forwarding is added; terminal SIGINT stays inherited.
 A grandchild can outlive timeout and hold pipes, but cleanup does not wait for EOF.
-Other Git helpers still need cross-cutting deadline parity before CLI cutover;
-the protected CI transport's stricter 30-second deadline remains unchanged.
+Intentional no-deadline exceptions preserve Python parity: parity-drift's reporter
+Git calls (pinned scripts/parity-drift:33-37), its native default-root lookup for
+tool consistency, and keygen's scratch Git init (scripts/evidence-keygen:55-56,135).
+A deadline for those paths would need a separately approved divergence.
+The protected CI fetch instead retains its existing external `timeout` wrapper:
+30 seconds with a 2-second kill-after, not a GitChild deadline. Direct Git fixture
+setup under tests is outside this production deadline inventory.
 `require_all::require_all` validates sorted lossless names before off-skip, resolves
 eager lanes before verification, and returns a complete typed summary or a global
 error, never partial results. Only eager `no_lane` is per-lane; explicit verification
