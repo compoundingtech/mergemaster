@@ -14,6 +14,33 @@ pub struct Clock {
     pub observed_at: DateTime<FixedOffset>,
     pub now: DateTime<Utc>,
 }
+/// Validated nonnegative seconds, or a positive integer too large for u64.
+/// Overflow remains explicit so future-dated refusal still precedes timedelta overflow.
+#[derive(Clone, Copy)]
+pub enum AgeLimit {
+    Seconds(u64),
+    Overflow,
+}
+enum ExpectedCommand<'a> {
+    Text(&'a [String]),
+    Points(&'a [Vec<u32>]),
+}
+struct Guards<'a> {
+    age: Option<AgeLimit>,
+    required: &'a [String],
+    command: Option<ExpectedCommand<'a>>,
+    values: Option<&'a crate::evidence::legacy_policy::kind_rules::KindRule>,
+}
+impl<'a> Guards<'a> {
+    fn policy(policy: &PolicyRules, routing: &Routing<'a>) -> Self {
+        Self {
+            age: policy.header.max_age_s.map(AgeLimit::Seconds),
+            required: &routing.command_inputs.required_inputs,
+            command: Some(ExpectedCommand::Text(&routing.command_inputs.command)),
+            values: Some(routing.kind),
+        }
+    }
+}
 enum CheckSource<'a> {
     Native(&'a crate::evidence::Check),
     Document(&'a DocumentFacts<'a>),
@@ -25,15 +52,26 @@ impl CheckSource<'_> {
             Self::Document(record) => record.failed(),
         }
     }
-    fn matches_command(&self, expected: &[String]) -> bool {
-        match self {
-            Self::Native(check) => check.command == expected,
-            Self::Document(record) => {
+    fn matches_command(&self, expected: ExpectedCommand<'_>) -> bool {
+        match (self, expected) {
+            (Self::Native(check), ExpectedCommand::Text(expected)) => check.command == expected,
+            (Self::Native(check), ExpectedCommand::Points(expected)) => {
+                check.command.len() == expected.len()
+                    && check
+                        .command
+                        .iter()
+                        .zip(expected)
+                        .all(|(actual, expected)| TextRef::Points(expected).equals(actual))
+            }
+            (Self::Document(record), ExpectedCommand::Text(expected)) => {
                 record.command().len() == expected.len()
                     && record
                         .command()
                         .zip(expected)
                         .all(|(actual, expected)| TextRef::Points(actual).equals(expected))
+            }
+            (Self::Document(record), ExpectedCommand::Points(expected)) => {
+                record.command().eq(expected.iter().map(Vec::as_slice))
             }
         }
     }
@@ -76,8 +114,7 @@ pub fn check_inputs(
     attempts: usize,
 ) -> Result<(), Failure> {
     check_inputs_source(
-        policy,
-        routing,
+        Guards::policy(policy, routing),
         CheckSource::Native(record.check),
         InputSource::Native(record.inputs),
         // Truncate each subsecond field, not the delta, including before the epoch.
@@ -100,8 +137,7 @@ pub fn check_document_inputs(
     attempts: usize,
 ) -> Result<(), Failure> {
     check_inputs_source(
-        policy,
-        routing,
+        Guards::policy(policy, routing),
         CheckSource::Document(record),
         record.input_source(),
         Moments::Micros(record.moment_micros, now_micros),
@@ -109,9 +145,31 @@ pub fn check_document_inputs(
         attempts,
     )
 }
+/// Rules-absent post-routing guards over validated facts; None disables command equality.
+/// Required/value inputs, runner, lane and binding guards are not part of this helper.
+pub fn check_unconfigured_inputs(
+    record: &DocumentFacts<'_>,
+    now_micros: i64,
+    age: Option<AgeLimit>,
+    command: Option<&[Vec<u32>]>,
+    attempts: usize,
+) -> Result<(), Failure> {
+    check_inputs_source(
+        Guards {
+            age,
+            required: &[],
+            command: command.map(ExpectedCommand::Points),
+            values: None,
+        },
+        CheckSource::Document(record),
+        record.input_source(),
+        Moments::Micros(record.moment_micros, now_micros),
+        &BTreeMap::new(),
+        attempts,
+    )
+}
 fn check_inputs_source(
-    policy: &PolicyRules,
-    routing: &Routing<'_>,
+    guards: Guards<'_>,
     check: CheckSource<'_>,
     inputs: InputSource<'_>,
     clock: Moments,
@@ -134,7 +192,10 @@ fn check_inputs_source(
             "record claims to be observed in the future",
         ));
     }
-    if let Some(seconds) = policy.header.max_age_s {
+    if let Some(age) = guards.age {
+        let AgeLimit::Seconds(seconds) = age else {
+            return Err(fail("error", "max_age_s exceeds the legacy duration range"));
+        };
         // Python timedelta caps its day count; do not accept what its verifier aborts.
         if seconds >= 86_400_000_000_000 {
             return Err(fail("error", "max_age_s exceeds the legacy duration range"));
@@ -143,7 +204,7 @@ fn check_inputs_source(
             return Err(fail("too_old", "record is older than max_age_s"));
         }
     }
-    for key in &routing.command_inputs.required_inputs {
+    for key in guards.required {
         if inputs.get(key).is_none_or(|value| value.len() == 0) {
             return Err(Failure {
                 reason: "missing_input",
@@ -155,13 +216,19 @@ fn check_inputs_source(
     if check.failed() {
         return Err(fail("check_failed", "latest record for the check failed"));
     }
-    if !check.matches_command(&routing.command_inputs.command) {
+    if guards
+        .command
+        .is_some_and(|command| !check.matches_command(command))
+    {
         return Err(fail(
             "wrong_command",
             "latest record ran a different command",
         ));
     }
-    value_checks_source(routing.kind, inputs, run_inputs, attempts)
+    match guards.values {
+        Some(kind) => value_checks_source(kind, inputs, run_inputs, attempts),
+        None => Ok(()),
+    }
 }
 
 #[cfg(test)]
