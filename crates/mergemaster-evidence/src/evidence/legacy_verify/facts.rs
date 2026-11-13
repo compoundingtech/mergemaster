@@ -21,6 +21,15 @@ pub struct DocumentFacts<'a> {
     command: &'a [usize],
 }
 impl<'a> DocumentFacts<'a> {
+    pub(super) fn input_source(&self) -> super::value_inputs::InputSource<'a> {
+        match self.inputs {
+            None => super::value_inputs::InputSource::Empty,
+            Some(Node::Object(inputs)) => {
+                super::value_inputs::InputSource::Document(self.document, inputs)
+            }
+            _ => unreachable!("validated fact inputs"),
+        }
+    }
     /// Check names are Python code points, including lone surrogates; no key allocation.
     pub fn for_check(document: &'a Document, check: &[u32], principal: &'a str) -> Option<Self> {
         let predicate = field(document, document.root(), "predicate")?;

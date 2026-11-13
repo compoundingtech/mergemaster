@@ -7,6 +7,15 @@ pub(super) enum TextRef<'a> {
     Points(&'a [u32]),
 }
 impl TextRef<'_> {
+    pub(super) fn starts_with(self, prefix: &str) -> bool {
+        match self {
+            Self::Str(text) => text.starts_with(prefix),
+            Self::Points(_) => {
+                let mut points = self.points();
+                prefix.chars().all(|c| points.next() == Some(u32::from(c)))
+            }
+        }
+    }
     pub(super) fn points(self) -> impl Iterator<Item = u32> {
         let (text, points) = match self {
             Self::Str(text) => (text, &[][..]),
@@ -47,13 +56,30 @@ impl TextRef<'_> {
         points.next().is_none()
     }
 }
+impl std::fmt::Display for TextRef<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Self::Str(text) = self {
+            return f.write_str(text);
+        }
+        for point in self.points() {
+            if let Some(c) = char::from_u32(point) {
+                write!(f, "{c}")?;
+            } else {
+                write!(f, "\\u{point:04x}")?;
+            }
+        }
+        Ok(())
+    }
+}
 pub(super) enum InputSource<'a> {
+    Empty,
     Native(&'a BTreeMap<String, String>),
     Document(&'a Document, &'a indexmap::IndexMap<Vec<u32>, usize>),
 }
 impl<'a> InputSource<'a> {
     pub(super) fn get(&self, key: &str) -> Option<TextRef<'a>> {
         match self {
+            Self::Empty => None,
             Self::Native(inputs) => inputs.get(key).map(|value| TextRef::Str(value)),
             Self::Document(doc, inputs) => {
                 let mut small = [0; 32];

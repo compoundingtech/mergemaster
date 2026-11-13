@@ -1,7 +1,9 @@
 //! Policy routing for a signature-verified generic observation with the requested check.
 use super::{
     Failure,
-    events::{kind_of, shard_part},
+    events::{kind_of_text, shard_part_source},
+    facts::DocumentFacts,
+    value_inputs::{InputSource, TextRef},
 };
 use crate::evidence::{
     Check, TrustTier,
@@ -22,9 +24,51 @@ pub struct Routing<'a> {
     pub command_inputs: &'a CommandInputs,
     pub level: Option<&'a LevelRule>,
 }
+struct RoutingFacts<'a> {
+    full: bool,
+    failed: bool,
+    runner: TextRef<'a>,
+    principal: &'a str,
+    inputs: InputSource<'a>,
+}
 pub fn route<'a>(
     policy: &'a PolicyRules,
     record: &RecordFacts<'_>,
+    attempts: usize,
+) -> Result<Routing<'a>, Failure> {
+    route_source(
+        policy,
+        RoutingFacts {
+            full: record.tier == TrustTier::Full,
+            failed: record.check.exit_code != 0,
+            runner: TextRef::Str(record.runner),
+            principal: record.principal,
+            inputs: InputSource::Native(record.inputs),
+        },
+        attempts,
+    )
+}
+/// Route lossless validated facts; callers still independently verify signatures.
+pub fn route_document<'a>(
+    policy: &'a PolicyRules,
+    record: &DocumentFacts<'_>,
+    attempts: usize,
+) -> Result<Routing<'a>, Failure> {
+    route_source(
+        policy,
+        RoutingFacts {
+            full: TextRef::Points(record.tier).equals("full"),
+            failed: record.failed(),
+            runner: TextRef::Points(record.runner),
+            principal: record.principal,
+            inputs: record.input_source(),
+        },
+        attempts,
+    )
+}
+fn route_source<'a>(
+    policy: &'a PolicyRules,
+    record: RoutingFacts<'_>,
     attempts: usize,
 ) -> Result<Routing<'a>, Failure> {
     let fail = |reason| Failure {
@@ -32,13 +76,13 @@ pub fn route<'a>(
         detail: format!("record from {} fails policy routing", record.runner),
         attempts,
     };
-    if record.check.exit_code != 0 && shard_part(Some(policy), record.runner, record.inputs) {
+    if record.failed && shard_part_source(Some(policy), record.runner, &record.inputs) {
         return Err(fail("check_failed"));
     }
-    if record.tier != TrustTier::Full {
+    if !record.full {
         return Err(fail("untrusted_tier"));
     }
-    let kind = kind_of(record.runner)
+    let kind = kind_of_text(record.runner)
         .and_then(|kind| {
             policy
                 .kinds
@@ -72,6 +116,13 @@ pub fn route<'a>(
 impl Routing<'_> {
     /// Call after any required lazy lane lookup, matching the oracle's reason order.
     pub fn check_runner(&self, runner: &str, attempts: usize) -> Result<(), Failure> {
+        self.check_runner_text(TextRef::Str(runner), attempts)
+    }
+    /// Like check_runner, call only after any required lazy lane lookup.
+    pub fn check_document_runner(&self, runner: &[u32], attempts: usize) -> Result<(), Failure> {
+        self.check_runner_text(TextRef::Points(runner), attempts)
+    }
+    fn check_runner_text(&self, runner: TextRef<'_>, attempts: usize) -> Result<(), Failure> {
         if self
             .kind
             .runner_prefix
@@ -87,3 +138,7 @@ impl Routing<'_> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "routing_tests.rs"]
+mod tests;
