@@ -205,6 +205,8 @@ fn provision(args: KeygenArgs) -> Result<()> {
         key.display()
     );
     if require(&scratch, true, None, uid)?.is_none() {
+        // Intentional no deadline: evidence-keygen:55-56,135 runs Git without one.
+        // Preserve that Python contract; changing it needs a separate decision.
         run(
             "git",
             &[
