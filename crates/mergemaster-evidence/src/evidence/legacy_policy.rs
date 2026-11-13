@@ -1,7 +1,9 @@
 //! Legacy skip-policy schemas; unrelated to native gate authorization.
+pub mod check_names;
 pub mod kind_rules;
 pub mod level_rules;
 pub mod value_rules;
+use check_names::{CheckKey, Selection};
 use serde::{
     Serialize,
     de::{self, DeserializeSeed, IgnoredAny, MapAccess, Visitor},
@@ -55,27 +57,51 @@ impl<'a> PolicyDocument<'a> {
 }
 /// Syntax-check unrelated entries without converting their numeric values.
 pub fn selected_entry(text: &str, name: &str, group: &str) -> Result<Option<Value>, PolicyError> {
+    Ok(entries(text, Selection::Scalar(name), group)?.entry)
+}
+fn entries(text: &str, selection: Selection<'_>, group: &str) -> Result<Entries, PolicyError> {
+    // serde's lossless byte-string decoder permits raw controls. Keep Python's
+    // strict string syntax; serde still owns all other JSON grammar/escape checks.
+    let (mut quoted, mut escaped) = (false, false);
+    for byte in text.bytes() {
+        if quoted && byte < 0x20 {
+            return Err(invalid("unescaped control character in JSON string"));
+        }
+        if escaped {
+            escaped = false;
+        } else if quoted && byte == b'\\' {
+            escaped = true;
+        } else if byte == b'"' {
+            quoted = !quoted;
+        }
+    }
     let mut decoder = serde_json::Deserializer::from_str(text);
-    let entry = DocumentSeed(name, group)
+    let entry = DocumentSeed(selection, group)
         .deserialize(&mut decoder)
         .map_err(|e| invalid(e.to_string()))?;
     decoder.end().map_err(|e| invalid(e.to_string()))?;
     Ok(entry)
 }
-struct DocumentSeed<'a>(&'a str, &'a str);
+#[derive(Default)]
+struct Entries {
+    entry: Option<Value>,
+    names: std::collections::BTreeSet<Vec<u32>>,
+}
+struct DocumentSeed<'a>(Selection<'a>, &'a str);
 impl<'de> DeserializeSeed<'de> for DocumentSeed<'_> {
-    type Value = Option<Value>;
+    type Value = Entries;
     fn deserialize<D: de::Deserializer<'de>>(self, decoder: D) -> Result<Self::Value, D::Error> {
         decoder.deserialize_map(self)
     }
 }
 impl<'de> Visitor<'de> for DocumentSeed<'_> {
-    type Value = Option<Value>;
+    type Value = Entries;
     fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("a legacy skip policy object")
     }
     fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
-        let (mut version, mut entry, mut checks, mut unknown) = (None, None, false, false);
+        let (mut version, mut entry, mut checks, mut unknown) =
+            (None, Entries::default(), false, false);
         while let Some(key) = map.next_key::<String>()? {
             match key.as_str() {
                 "version" => version = Some(map.next_value::<Value>()?),
@@ -103,23 +129,31 @@ impl<'de> Visitor<'de> for DocumentSeed<'_> {
         Ok(entry)
     }
 }
-struct ChecksSeed<'a>(&'a str);
+struct ChecksSeed<'a>(Selection<'a>);
 impl<'de> DeserializeSeed<'de> for ChecksSeed<'_> {
-    type Value = Option<Value>;
+    type Value = Entries;
     fn deserialize<D: de::Deserializer<'de>>(self, decoder: D) -> Result<Self::Value, D::Error> {
         decoder.deserialize_map(self)
     }
 }
 impl<'de> Visitor<'de> for ChecksSeed<'_> {
-    type Value = Option<Value>;
+    type Value = Entries;
     fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("a map of legacy check entries")
     }
     fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
-        let mut entry = None;
-        while let Some(key) = map.next_key::<String>()? {
-            if key == self.0 {
-                entry = Some(map.next_value::<Value>()?);
+        let mut entry = Entries::default();
+        while let Some(CheckKey(key)) = map.next_key::<CheckKey>()? {
+            let selected = match self.0 {
+                Selection::Scalar(name) => name.chars().map(u32::from).eq(key.iter().copied()),
+                Selection::Points(name) => name == key,
+                Selection::Names => {
+                    entry.names.insert(key);
+                    false
+                }
+            };
+            if selected {
+                entry.entry = Some(map.next_value::<Value>()?);
             } else {
                 map.next_value::<IgnoredAny>()?;
             }
