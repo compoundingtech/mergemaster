@@ -642,6 +642,8 @@ marked non-Failure clock/datetime exceptions abort globally. Each check owns a f
 collector, so a budget refusal cannot poison later checks. Decisions aggregate
 reject before would-reject before ok; empty checks are satisfied.
 A missing validated tier is a global internal-invariant PolicyError, never a panic.
+Its private clock seam tests that a later sampling exception or timedelta overflow
+discards earlier successes; production uses the same reached-judgment SystemClock path.
 Joined rules-absent parity tests use actual SHA-1/SHA-256 trees, SSH-signed notes,
 signature partition and Git blob reads through selection/result conversion, including
 Unix non-UTF-8 binding paths, lossless keys, skips/preferences and refusals.
