@@ -9,6 +9,7 @@ pub mod judgment;
 pub mod lane_entry;
 pub mod lane_git;
 pub mod lanes;
+pub mod ordering;
 pub mod prefix;
 pub mod projection;
 pub mod raw_batch;

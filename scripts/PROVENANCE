@@ -187,6 +187,9 @@
 # Conservative divergence: UTC-clock-overflow. Document input guards return
 # reason=error when current UTC + FUTURE_SKEW exceeds Python datetime years 1..9999,
 # where Python raises OverflowError. Native Clock arithmetic is unchanged.
+# Conservative divergence: shadow-clock-overflow. Reached local datetime minus
+# FUTURE_SKEW underflow returns reason=error where Python raises OverflowError.
+# With no failed candidate, both bypass subtraction; UTC sorting is unchanged.
 # Conservative divergence: max-age-duration-overflow. At max_age_s >=
 # 86400000000000 Python raises OverflowError; Rust returns reason=error after
 # future_dated, before required inputs. Every record reaching it fails, so no

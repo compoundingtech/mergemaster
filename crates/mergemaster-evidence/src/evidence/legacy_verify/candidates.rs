@@ -16,6 +16,7 @@ pub struct Candidate<'a> {
 pub struct Prepared<'a> {
     pub candidates: Vec<Candidate<'a>>,
     pub accepted: BTreeSet<&'a str>,
+    pub(super) policy: &'a PolicyRules,
 }
 impl<'a> Prepared<'a> {
     /// Policy-mode prelude only: no sorting, judgment, or trust verification.
@@ -58,6 +59,7 @@ impl<'a> Prepared<'a> {
         Ok(Self {
             candidates,
             accepted,
+            policy,
         })
     }
     pub fn attempts(&self) -> usize {

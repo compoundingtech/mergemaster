@@ -563,6 +563,9 @@ independently verified principal/lane/hash context; it does not select candidate
 `candidates::Prepared` removes passing shard parts while preserving candidate order,
 counts remaining attempts and unions policy kind levels. `LaneOnce` owns one lazy
 lane snapshot per check (including absence); neither API performs final selection.
+`ordering::CheckJudgment::first_valid` walks a supplied order using shared guards;
+`latest_failure_after` preserves inclusive skew, first ties and lazy local-calendar
+overflow refusal. These primitives do not yet sort, prefer or decide a check.
 `statement_bytes::decode_json_bytes` ports Python's BOM/NUL-based UTF-8/16/32
 transport detection and surrogatepass decoding (3f-2b-1), retaining code points
 including lone surrogates rather than replacing them with invalid Rust strings.

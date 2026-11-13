@@ -1,6 +1,6 @@
 //! Borrowed selected-check facts; neither extraction nor a principal grants trust.
 use super::{
-    statement::{array, field, string, zoned_time_micros},
+    statement::{array, field, string, zoned_time_components},
     statement_document::{Document, Node},
 };
 
@@ -15,6 +15,7 @@ pub struct DocumentFacts<'a> {
     pub exit_code: &'a str,
     pub observed_at: &'a [u32],
     pub moment_micros: i64,
+    pub(super) local_micros: i64,
     /// None represents Python's omitted inputs, equivalent to an empty object.
     pub inputs: Option<&'a Node>,
     document: &'a Document,
@@ -61,13 +62,15 @@ impl<'a> DocumentFacts<'a> {
             }
         }
         let observed_at = string(field(document, predicate, "observed_at")?)?;
+        let (moment_micros, local_micros) = zoned_time_components(observed_at)?;
         Some(Self {
             tier: string(field(document, predicate, "tier")?)?,
             runner: string(field(document, observed, "runner")?)?,
             principal,
             exit_code,
             observed_at,
-            moment_micros: zoned_time_micros(observed_at)?,
+            moment_micros,
+            local_micros,
             inputs,
             document,
             command,
