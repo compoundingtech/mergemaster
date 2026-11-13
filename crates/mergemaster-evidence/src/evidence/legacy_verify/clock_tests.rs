@@ -173,6 +173,15 @@ print(json.dumps(cases))
                 judgment
                     .select(&prepared, "check", Levels::Utf8(&[]))
                     .result
+                    .inspect_err(|error| {
+                        assert_eq!(error.exception, name == "clock-error", "{name}");
+                        assert!(
+                            serde_json::to_value(error)
+                                .unwrap()
+                                .get("exception")
+                                .is_none()
+                        );
+                    })
                     .map(|_| "satisfied")
                     .unwrap_or_else(|e| e.reason)
             })

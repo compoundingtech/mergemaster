@@ -38,6 +38,9 @@ pub struct Failure {
     pub reason: &'static str,
     pub detail: String,
     pub attempts: usize,
+    /// Normalized non-Failure Python exception; aggregates must abort, not refuse a lane.
+    #[serde(skip)]
+    pub exception: bool,
 }
 impl std::fmt::Display for Failure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -45,6 +48,16 @@ impl std::fmt::Display for Failure {
     }
 }
 impl std::error::Error for Failure {}
+impl Failure {
+    pub fn exception(detail: impl Into<String>, attempts: usize) -> Self {
+        Self {
+            reason: "error",
+            detail: detail.into(),
+            attempts,
+            exception: true,
+        }
+    }
+}
 
 pub fn value_checks(
     rule: &KindRule,
@@ -79,6 +92,7 @@ fn value_checks_source(
     attempts: usize,
 ) -> Result<(), Failure> {
     let fail = |reason, key: &str| Failure {
+        exception: false,
         reason,
         detail: format!("input {key} does not cover this run"),
         attempts,

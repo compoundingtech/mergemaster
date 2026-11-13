@@ -582,6 +582,10 @@ borrow the sampler across repeated judgments; native `judge(&Clock)` is unchange
 System sampling converts signed epoch microseconds without panicking, including
 pre-1970 instants; wall clocks outside Python datetime years 1..9999 refuse with
 reason `error` at the reached time guard rather than authorizing or panicking.
+`Failure::exception` retains non-Failure Python clock/datetime exception provenance
+without adding a JSON field. Single-check output stays reason `error`; aggregate
+callers must abort on this marker rather than treating it as a per-check refusal.
+Ordinary policy/Git `Failure(error)` remains distinguishable from an exception.
 `inputs::check_unconfigured_inputs` reuses those guards when rules are absent:
 optional lossless command equality, future/age checks and exit status only.
 It does not perform routing, runner/lane/binding guards, selection or authorization.
