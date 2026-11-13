@@ -2,7 +2,7 @@
 use super::{
     Failure,
     facts::DocumentFacts,
-    inputs::{Clock, check_document_inputs, check_inputs},
+    inputs::{Clock, CurrentTime, check_document_inputs, check_inputs},
     routing::{RecordFacts, Routing, route, route_document},
     value_inputs::InputSource,
 };
@@ -21,7 +21,7 @@ pub trait Provider {
 }
 enum RecordView<'a> {
     Native(&'a RecordFacts<'a>, &'a Clock),
-    Document(&'a DocumentFacts<'a>, i64),
+    Document(&'a DocumentFacts<'a>, &'a mut dyn CurrentTime),
 }
 pub fn judge<'a>(
     policy: &'a PolicyRules,
@@ -42,11 +42,11 @@ pub fn judge<'a>(
     )
 }
 /// Judge validated document facts using independently verified principal/lane/hash context.
-/// Current UTC epoch microseconds have check_document_inputs' datetime contract.
+/// Sample the current UTC clock after routing/lazy-lane/runner guards, per judgment.
 pub fn judge_document<'a>(
     policy: &'a PolicyRules,
     record: &DocumentFacts<'_>,
-    now_micros: i64,
+    clock: &mut dyn CurrentTime,
     run_inputs: &BTreeMap<String, String>,
     lane: Option<&LaneDefinition>,
     provider: &mut impl Provider,
@@ -54,7 +54,7 @@ pub fn judge_document<'a>(
 ) -> Result<Routing<'a>, Failure> {
     judge_source(
         policy,
-        RecordView::Document(record, now_micros),
+        RecordView::Document(record, clock),
         run_inputs,
         lane,
         provider,
@@ -73,7 +73,7 @@ pub struct Unconfigured<'a> {
 pub fn judge_unconfigured(
     options: &Unconfigured<'_>,
     record: &DocumentFacts<'_>,
-    now_micros: i64,
+    clock: &mut dyn CurrentTime,
     lane: Option<&LaneDefinition>,
     provider: &mut impl Provider,
     attempts: usize,
@@ -81,7 +81,7 @@ pub fn judge_unconfigured(
     super::routing::route_unconfigured(options.routing, record, attempts)?;
     super::inputs::check_unconfigured_inputs(
         record,
-        now_micros,
+        clock.epoch_micros(),
         options.max_age,
         options.command,
         attempts,
@@ -136,9 +136,16 @@ fn judge_source<'a>(
             check_inputs(policy, &routing, record, clock, run_inputs, attempts)?;
             InputSource::Native(record.inputs)
         }
-        RecordView::Document(record, now) => {
+        RecordView::Document(record, clock) => {
             routing.check_document_runner(record.runner, attempts)?;
-            check_document_inputs(policy, &routing, record, now, run_inputs, attempts)?;
+            check_document_inputs(
+                policy,
+                &routing,
+                record,
+                clock.epoch_micros(),
+                run_inputs,
+                attempts,
+            )?;
             record.input_source()
         }
     };
@@ -220,3 +227,7 @@ fn check_bindings<'a>(
 #[cfg(all(test, unix))]
 #[path = "judgment_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "clock_tests.rs"]
+mod clock_tests;

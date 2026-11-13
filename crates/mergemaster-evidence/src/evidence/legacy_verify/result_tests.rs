@@ -118,7 +118,7 @@ print(json.dumps(fixtures))
             None => Prepared::unconfigured(&options, candidates),
         };
         let decision = CheckJudgment {
-            now_micros: 1_767_225_900_000_000,
+            clock: &mut 1_767_225_900_000_000i64,
             run_inputs: &std::collections::BTreeMap::new(),
             lane: None,
             provider: LaneOnce::new(NoGit),

@@ -185,7 +185,7 @@ print(json.dumps(cases))
         });
         let calls = std::cell::RefCell::new(Vec::new());
         let mut judgment = CheckJudgment {
-            now_micros: 1_767_225_900_000_000,
+            clock: &mut 1_767_225_900_000_000i64,
             run_inputs: &std::collections::BTreeMap::new(),
             lane: lane.as_ref(),
             provider: LaneOnce::new(Git {
