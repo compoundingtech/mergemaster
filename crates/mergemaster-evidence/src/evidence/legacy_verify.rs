@@ -25,7 +25,7 @@ pub mod statement_bytes;
 pub mod statement_document;
 pub mod statement_tokens;
 pub mod trust;
-mod value_inputs;
+pub(crate) mod value_inputs;
 pub mod workflow;
 use super::legacy_policy::kind_rules::KindRule;
 use serde::Serialize;

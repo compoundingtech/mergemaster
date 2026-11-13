@@ -190,7 +190,10 @@ impl Routing<'_> {
     fn check_runner_text(&self, runner: TextRef<'_>, attempts: usize) -> Result<(), Failure> {
         check_runner(
             runner,
-            self.kind.runner_prefix.as_deref().map(TextRef::Str),
+            self.kind
+                .runner_prefix
+                .as_ref()
+                .map(|prefix| prefix.borrowed()),
             attempts,
         )
     }

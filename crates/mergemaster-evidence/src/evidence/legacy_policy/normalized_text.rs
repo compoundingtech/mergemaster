@@ -1,0 +1,111 @@
+//! Owned normalized policy text; scalar callers keep their existing String storage.
+use crate::evidence::legacy_verify::value_inputs::TextRef;
+
+#[derive(Debug)]
+pub enum NormalizedText {
+    Scalar(String),
+    Codepoints(Vec<u32>),
+}
+impl NormalizedText {
+    pub(crate) fn borrowed(&self) -> TextRef<'_> {
+        match self {
+            Self::Scalar(text) => TextRef::Str(text),
+            Self::Codepoints(points) => TextRef::Points(points),
+        }
+    }
+    /// Replace an internal, nonempty ASCII placeholder, preserving Python code points.
+    pub(crate) fn replace(self, needle: &str, replacement: TextRef<'_>) -> Self {
+        assert!(!needle.is_empty() && needle.is_ascii());
+        let matches = |window: &[u32]| window.iter().copied().eq(needle.bytes().map(u32::from));
+        let contains = match &self {
+            Self::Scalar(text) => text.contains(needle),
+            Self::Codepoints(points) => points.windows(needle.len()).any(matches),
+        };
+        if !contains {
+            return self;
+        }
+        if let (Self::Scalar(text), TextRef::Str(replacement)) = (&self, replacement) {
+            return Self::Scalar(text.replace(needle, replacement));
+        }
+        let points = match self {
+            Self::Scalar(text) => text.chars().map(u32::from).collect(),
+            Self::Codepoints(points) => points,
+        };
+        let mut result = Vec::new();
+        let mut at = 0;
+        while at < points.len() {
+            if points.get(at..at + needle.len()).is_some_and(matches) {
+                result.extend(replacement.points());
+                at += needle.len();
+            } else {
+                result.push(points[at]);
+                at += 1;
+            }
+        }
+        Self::Codepoints(result)
+    }
+}
+impl serde::Serialize for NormalizedText {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Scalar(text) => serializer.serialize_str(text),
+            Self::Codepoints(_) => Err(serde::ser::Error::custom(
+                "code-point policy text requires the deferred lossless JSON writer",
+            )),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn normalized_policy_text_replacement_matches_python() {
+        let script = r#"
+import json,runpy,sys
+v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify'); cases=[]
+for check in ['check','\ud800','🦀']:
+ for repo in ['org/repo','org/{check}']:
+  for value in ['{repository}:{check}:{check}','literal','{check}{check}']:
+   text=json.dumps(dict(version=1,checks={check:dict(trust_levels=['agent'],kinds=dict(wrapper=dict(command=[value],runner_prefix=value)))}))
+   kind=v['policy_rules'](text,check,repo)['kinds']['wrapper']
+   cases.append(dict(value=value,repo=repo,check=list(map(ord,check)),expected=list(map(ord,kind['command'][0])),prefix=list(map(ord,kind['runner_prefix']))))
+print(json.dumps(cases))
+"#;
+        let output = std::process::Command::new("python3")
+            .args([
+                "-c",
+                script,
+                &std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle"),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let cases: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(cases.len(), 18);
+        for case in cases {
+            let check: Vec<u32> = serde_json::from_value(case["check"].clone()).unwrap();
+            let value = case["value"].as_str().unwrap();
+            for text in [
+                NormalizedText::Scalar(value.into()),
+                NormalizedText::Codepoints(value.chars().map(u32::from).collect()),
+            ] {
+                let result = text
+                    .replace("{repository}", TextRef::Str(case["repo"].as_str().unwrap()))
+                    .replace("{check}", TextRef::Points(&check));
+                let actual: Vec<u32> = result.borrowed().points().collect();
+                assert_eq!(serde_json::json!(actual), case["expected"]);
+                assert_eq!(case["expected"], case["prefix"]);
+            }
+        }
+        assert_eq!(
+            serde_json::to_value(NormalizedText::Scalar("plain".into())).unwrap(),
+            "plain"
+        );
+        assert!(serde_json::to_value(NormalizedText::Codepoints(vec![0xd800])).is_err());
+    }
+}

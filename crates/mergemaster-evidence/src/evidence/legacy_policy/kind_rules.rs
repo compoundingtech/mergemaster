@@ -1,5 +1,6 @@
 //! Complete legacy kind/level declarations; no record evaluation.
 use super::level_rules::{LevelRule, checked_levels, fill, normalized};
+use super::normalized_text::NormalizedText;
 use super::value_rules::{ValueRules, checked_value_rules};
 use super::{
     CommandInputs, PolicyError, checked_base_inputs, checked_command_inputs, invalid, names,
@@ -11,7 +12,7 @@ use serde_json::{Map, Value};
 pub struct KindRule {
     #[serde(flatten)]
     pub inputs: CommandInputs,
-    pub runner_prefix: Option<String>,
+    pub runner_prefix: Option<NormalizedText>,
     pub trust_levels: Option<Vec<String>>,
     #[serde(serialize_with = "super::serialize_pairs")]
     pub by_level: Vec<(String, LevelRule)>,
@@ -67,7 +68,7 @@ pub fn checked_kinds(
             let runner_prefix = match rule.remove("runner_prefix") {
                 None | Some(Value::Null) => None,
                 Some(Value::String(value)) if !value.is_empty() => {
-                    Some(fill(value, repository, check))
+                    Some(fill(NormalizedText::Scalar(value), repository, check))
                 }
                 _ => return Err(error()),
             };

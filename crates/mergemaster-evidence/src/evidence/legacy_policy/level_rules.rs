@@ -1,5 +1,7 @@
 //! Legacy signer-level override declarations; no evidence evaluation.
+use super::normalized_text::NormalizedText;
 use super::{CommandInputs, PolicyError, checked_command_inputs, invalid, names};
+use crate::evidence::legacy_verify::value_inputs::TextRef;
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -85,13 +87,10 @@ pub fn checked_levels(
     }
     Ok(by_level)
 }
-pub(super) fn fill(mut value: String, repository: &str, check: &str) -> String {
-    for (placeholder, replacement) in [("{repository}", repository), ("{check}", check)] {
-        if value.contains(placeholder) {
-            value = value.replace(placeholder, replacement);
-        }
-    }
+pub(super) fn fill(value: NormalizedText, repository: &str, check: &str) -> NormalizedText {
     value
+        .replace("{repository}", TextRef::Str(repository))
+        .replace("{check}", TextRef::Str(check))
 }
 pub(super) fn normalized(
     mut inputs: CommandInputs,
