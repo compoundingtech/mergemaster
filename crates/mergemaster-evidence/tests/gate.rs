@@ -3868,18 +3868,21 @@ fn legacy_lazy_lane_and_blob_composition_matches_signed_oracle() {
             }
             Ok(self.lane.as_ref())
         }
-        fn blob_sha256(&mut self, path: &str) -> Result<Option<String>, PolicyError> {
-            self.blobs.push(path.into());
+        fn blob_sha256(&mut self, path: &Path) -> Result<Option<String>, PolicyError> {
+            self.blobs.push(path.to_str().unwrap().into());
             if self.failure == Some("blob") {
                 return Err(PolicyError {
                     reason: "record-budget-exceeded",
                     detail: "provider refused".into(),
                 });
             }
+            let mut object = std::ffi::OsString::from(format!("{}:", self.fixture.tree));
+            object.push(path);
             let output = self
                 .fixture
                 .command("git")
-                .args(["show", &format!("{}:{path}", self.fixture.tree)])
+                .arg("show")
+                .arg(object)
                 .output()
                 .unwrap();
             Ok(output
@@ -4932,5 +4935,115 @@ print(json.dumps(dict(
         }
         compare();
         assert_eq!(legacy_refs(&repo, tree.len()).unwrap().len(), 0);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn legacy_provider_preserves_unix_binding_path_bytes() {
+    use mergemaster_evidence::evidence::{
+        legacy_policy::PolicyError,
+        legacy_verify::{
+            candidates::LaneOnce,
+            judgment::{LaneDefinition, Provider},
+        },
+    };
+    use std::{cell::RefCell, ffi::OsString, os::unix::ffi::OsStrExt};
+    struct Source<'a> {
+        repo: &'a Path,
+        tree: &'a str,
+        seen: &'a RefCell<Vec<Vec<u8>>>,
+    }
+    impl Provider for Source<'_> {
+        fn level_lane(&mut self) -> Result<Option<&LaneDefinition>, PolicyError> {
+            panic!("no lane lookup for a blob")
+        }
+        fn blob_sha256(&mut self, path: &Path) -> Result<Option<String>, PolicyError> {
+            self.seen
+                .borrow_mut()
+                .push(path.as_os_str().as_bytes().to_vec());
+            let mut object = OsString::from(format!("{}:", self.tree));
+            object.push(path);
+            let output = Command::new("git")
+                .arg("-C")
+                .arg(self.repo)
+                .args(["cat-file", "blob"])
+                .arg(object)
+                .output()
+                .unwrap();
+            Ok(output
+                .status
+                .success()
+                .then(|| hex::encode(sha2::Sha256::digest(output.stdout))))
+        }
+    }
+    let oracle = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned Python oracle");
+    let script = r#"
+import json, os, pathlib, runpy, sys
+v = runpy.run_path(str(pathlib.Path(sys.argv[1])/'scripts/evidence-verify'))
+print(json.dumps(dict(path=os.fsencode(sys.argv[4]).hex(),
+                     sha256=v['blob_sha256'](sys.argv[2],sys.argv[3],sys.argv[4]))))
+"#;
+    for format in ["sha1", "sha256"] {
+        let root = tempfile::tempdir().unwrap();
+        let git = |args: &[&str]| {
+            let output = Command::new("git")
+                .arg("-C")
+                .arg(root.path())
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{:?}", output.stderr);
+            output.stdout
+        };
+        git(&["init", "-q", &format!("--object-format={format}")]);
+        let paths: [&[u8]; 7] = [
+            b"ascii",
+            b"path-\xff",
+            b"path-\xfe",
+            "path-\u{fffd}".as_bytes(),
+            "path-🦀".as_bytes(),
+            b"nested-\x80/file-\xff",
+            b"missing-\xff",
+        ];
+        for (index, bytes) in paths[..6].iter().enumerate() {
+            let path = root.path().join(std::ffi::OsStr::from_bytes(bytes));
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, index.to_string()).unwrap();
+        }
+        git(&["add", "--all"]);
+        let tree = String::from_utf8(git(&["write-tree"])).unwrap();
+        let tree = tree.trim();
+        let seen = RefCell::new(Vec::new());
+        for (index, bytes) in paths.iter().enumerate() {
+            let path = Path::new(std::ffi::OsStr::from_bytes(bytes));
+            let output = Command::new(python_executable())
+                .args(["-c", script, &oracle])
+                .arg(root.path())
+                .arg(tree)
+                .arg(path)
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{:?}", output.stderr);
+            let expected: Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(expected["path"], hex::encode(bytes));
+            let mut source = Source {
+                repo: root.path(),
+                tree,
+                seen: &seen,
+            };
+            let actual = source.blob_sha256(path).unwrap();
+            assert_eq!(json!(actual), expected["sha256"]);
+            assert_eq!(
+                actual,
+                (index < 6).then(|| hex::encode(sha2::Sha256::digest(index.to_string())))
+            );
+            let mut cached = LaneOnce::new(source);
+            assert_eq!(cached.blob_sha256(path).unwrap(), actual);
+            assert_eq!(
+                &seen.borrow()[index * 2..],
+                &[bytes.to_vec(), bytes.to_vec()]
+            );
+        }
     }
 }

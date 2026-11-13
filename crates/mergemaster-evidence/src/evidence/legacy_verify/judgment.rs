@@ -16,7 +16,8 @@ pub struct LaneDefinition {
 /// Supply trusted lane context and hashes from the verified tree; never unverified claims.
 pub trait Provider {
     fn level_lane(&mut self) -> Result<Option<&LaneDefinition>, PolicyError>;
-    fn blob_sha256(&mut self, path: &str) -> Result<Option<String>, PolicyError>;
+    /// Preserve native path bytes, including Unix surrogateescaped argv bytes; never use lossy text.
+    fn blob_sha256(&mut self, path: &std::path::Path) -> Result<Option<String>, PolicyError>;
 }
 enum RecordView<'a> {
     Native(&'a RecordFacts<'a>, &'a Clock),
@@ -122,7 +123,9 @@ fn judge_source<'a>(
         }
     }
     for (key, path) in &routing.command_inputs.bind_inputs {
-        let actual = provider.blob_sha256(path).map_err(error)?;
+        let actual = provider
+            .blob_sha256(std::path::Path::new(path))
+            .map_err(error)?;
         if actual.as_ref().is_none_or(|actual| {
             inputs
                 .get(key)

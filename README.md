@@ -564,6 +564,9 @@ It does not perform routing, runner/lane/binding guards, selection or authorizat
 `judgment::judge_document` shares selected-record lane and bound-file guards with
 native judgment, preserving lazy provider reads and errors. Its caller must supply
 independently verified principal/lane/hash context; it does not select candidates.
+`Provider::blob_sha256` borrows a native `Path`, preserving Unix argv path bytes
+through `LaneOnce`; implementations must not convert paths through lossy text.
+Policy UTF-8 binding paths borrow this same interface without allocation.
 `candidates::Prepared` removes passing shard parts while preserving candidate order,
 counts remaining attempts and unions policy kind levels. `LaneOnce` owns one lazy
 lane snapshot per check (including absence); neither API performs final selection.
