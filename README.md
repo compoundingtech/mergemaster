@@ -659,6 +659,10 @@ Nested kind/level and other judgment construction follow in separate module slic
 Command/base/value helper contexts are borrowed lossless fragments. Direct missing
 command and unhashable input-order members preserve KeyError/TypeError provenance;
 outer kind/level missing-command guards remain ordinary policy failures.
+Outer kind guards use pinned Python repr and exact trust-level/runner-prefix details;
+truthy non-map by_level values retain explicit AttributeError rather than Failure.
+Nested surrogate payload keys/values still require lossless source decoding before
+full CLI parity; scalar payload fixtures do not claim that separate domain is ported.
 Failure attempts distinguish `None` (absent) from `Some(0)` (explicit zero).
 Exceptions and prefix misses retain absence; degraded records retain their explicit
 count. Zero normalization is confined to existing oracle-test transports, not wire output.
