@@ -31,19 +31,22 @@ variants=[('satisfied',{}),('no lane',dict(lane=None)),('optional command',dict(
  ('runner before age',dict(prefix='other',age=1)),('tier before runner',dict(tier='test',prefix='other')),
  ('kind before level',dict(kinds=[],levels=[])),('level before runner',dict(levels=[],prefix='other')),
  ('no bindings',dict(bindings=[])),('provider failure',dict(error=True))]
+variants += [('provider exception',dict(exception=True))]
 variants += [('changed paths',dict(changed=['a','b','c','d','e','f'])),
  ('changed native bytes',dict(changed=['path-\udcff'])),
  ('missing surrogate key',dict(bindings=[('\ud800','path')])),
  ('missing native path',dict(bindings=[('bound','path-\udcff')]))]
 for label,changes in variants:
-    c=dict(command=['true'],actual=['true'],age=None,observed='2026-01-01T00:00:00Z',code=0,tier='full',kinds=['wrapper'],levels=None,prefix=None,bindings=[('bound','path')],inputs={'lane_definition_sha256':'lane','bound':'hash'},changed=[],blobs={'path':'hash'},error=False,lane=True)
+    c=dict(command=['true'],actual=['true'],age=None,observed='2026-01-01T00:00:00Z',code=0,tier='full',kinds=['wrapper'],levels=None,prefix=None,bindings=[('bound','path')],inputs={'lane_definition_sha256':'lane','bound':'hash'},changed=[],blobs={'path':'hash'},error=False,exception=False,lane=True)
     c.update(changes); lane=None if c['lane'] is None else dict(sha256='lane',changed=c['changed'],tree_sha256='tree')
     detail=None
     statement=dict(predicate=dict(tier=c['tier'],observed_at=c['observed'],observed=dict(runner='wrapper',inputs=c['inputs'],checks=dict(check=dict(exit_code=c['code'],command=c['actual'])))))
     calls=[]
     def blob(repo,tree,path):
         calls.append(os.fsencode(path).hex())
-        if c['error']: raise v['Failure']('record-budget-exceeded','fixture transport refused',attempts=7)
+        if c['error']:
+            raise v['Failure']('record-budget-exceeded','fixture transport refused',attempts=7)
+        if c['exception']: raise OverflowError('provider transport refused')
         return c['blobs'].get(path)
     v.update(blob_sha256=blob,now=datetime(2026,1,1,0,0,5,tzinfo=timezone.utc))
     try: expected=v['judge'](('record',statement,'agent/alice'),command=c['command'],kinds=c['kinds'],bind=c['bindings'],max_age=c['age'],runner_prefix=c['prefix'],trust_levels=c['levels'],lane=lane)
@@ -53,7 +56,7 @@ for label,changes in variants:
     except OverflowError: expected=dict(reason='error',attempts=0) # absent metadata, normalized transport only
     points=lambda text: None if text is None else list(map(ord,text))
     if lane: lane['changed']=[os.fsencode(p).hex() for p in lane['changed']]
-    cases.append(dict(label=label,raw=json.dumps(statement),expected=expected,calls=calls,lane=lane,error=c['error'],command=None if c['command'] is None else [points(s) for s in c['command']],age=c['age'],kinds=[points(s) for s in c['kinds']],levels=None if c['levels'] is None else [points(s) for s in c['levels']],prefix=points(c['prefix']),bindings=[(points(k),os.fsencode(p).hex()) for k,p in c['bindings']],blobs={os.fsencode(k).hex():v for k,v in c['blobs'].items()}))
+    cases.append(dict(label=label,raw=json.dumps(statement),expected=expected,calls=calls,lane=lane,error=c['error'],exception=c['exception'],command=None if c['command'] is None else [points(s) for s in c['command']],age=c['age'],kinds=[points(s) for s in c['kinds']],levels=None if c['levels'] is None else [points(s) for s in c['levels']],prefix=points(c['prefix']),bindings=[(points(k),os.fsencode(p).hex()) for k,p in c['bindings']],blobs={os.fsencode(k).hex():v for k,v in c['blobs'].items()}))
     cases[-1]['detail']=detail
 print(json.dumps(cases))
 "#;
@@ -67,7 +70,7 @@ print(json.dumps(cases))
         String::from_utf8_lossy(&output.stderr)
     );
     let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(cases.len(), 26);
+    assert_eq!(cases.len(), 27);
     struct Source<'a> {
         case: &'a Value,
         calls: Vec<String>,
@@ -84,6 +87,15 @@ print(json.dumps(cases))
                     origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                     reason: "record-budget-exceeded",
                     detail: "fixture transport refused".into(),
+                });
+            }
+            if self.case["exception"] == true {
+                return Err(PolicyError {
+                    origin: crate::evidence::legacy_policy::ErrorOrigin::Exception {
+                        class: "OverflowError",
+                    },
+                    reason: "error",
+                    detail: "provider transport refused".into(),
                 });
             }
             Ok(self.case["blobs"][key].as_str().map(str::to_owned))
@@ -162,12 +174,6 @@ print(json.dumps(cases))
                 crate::evidence::legacy_policy::ErrorOrigin::Failure
             );
         }
-        if case["error"] == true {
-            assert_eq!(
-                checked.as_ref().unwrap_err().detail,
-                "fixture transport refused"
-            );
-        }
         let actual = checked
             .map(|()| json!({"reason":"satisfied"}))
             // Existing normalized oracle transport only, not CLI field presence.
@@ -191,10 +197,12 @@ fn lazy_lane_absence_keeps_the_selected_name() {
     }
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
     let output = std::process::Command::new("python3").args(["-c", r#"
-import ast,json,pathlib,sys
+import ast,json,pathlib,runpy,sys
 module=ast.parse((pathlib.Path(sys.argv[1])/'scripts/evidence-verify').read_text())
 raise_=next(n for n in ast.walk(module) if isinstance(n,ast.Raise) and isinstance(n.exc,ast.Call) and len(n.exc.args)>1 and ast.unparse(n.exc.args[1]).startswith("f'no lane definition for check"))
 expr=compile(ast.Expression(raise_.exc.args[1]),'<pinned-no-lane>','eval')
+failure=runpy.run_path(str(pathlib.Path(sys.argv[1])/'scripts/evidence-verify'))['Failure']('error','x')
+assert failure.extra.get('attempts') is None  # pinned: raised lanes carry no attempts
 cases=[]
 for check in ['unit','\ud800','🦀','']:
  policy=dict(version=1,checks={check:dict(trust_levels=['agent'],kinds=dict(wrapper=dict(command=['true'],by_level=dict(agent=dict(command=['true'],events=['pull_request'],lane=True)))))})
@@ -208,6 +216,42 @@ print(json.dumps(cases))
         String::from_utf8_lossy(&output.stderr)
     );
     let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    // A lane-provider Failure surfaces with the ambient attempts count.
+    struct FailingLane;
+    impl Provider for FailingLane {
+        fn level_lane(&mut self) -> Result<Option<&LaneDefinition>, PolicyError> {
+            Err(PolicyError {
+                origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
+                reason: "error",
+                detail: "lane provider refused".into(),
+            })
+        }
+        fn blob_sha256(&mut self, _: &std::path::Path) -> Result<Option<String>, PolicyError> {
+            panic!("lane failure precedes bindings")
+        }
+    }
+    let first = &cases[0];
+    let name: Vec<u32> = serde_json::from_value(first["name"].clone()).unwrap();
+    let rules = PolicyDocument::parse(first["policy"].as_str().unwrap(), name.as_slice())
+        .unwrap()
+        .into_rules("org/repo")
+        .unwrap();
+    let doc = Document::from_bytes(first["statement"].as_str().unwrap().as_bytes()).unwrap();
+    let facts = DocumentFacts::for_check(&doc, &name, "agent/key").unwrap();
+    let error = judge_document(
+        &rules,
+        &facts,
+        &mut 0_i64,
+        &BTreeMap::new(),
+        None,
+        &mut FailingLane,
+        3,
+    )
+    .err()
+    .unwrap();
+    assert_eq!(error.reason, "error");
+    assert_eq!(error.attempts, Some(3));
+    assert_eq!(error.detail, "lane provider refused");
     for case in cases {
         let name: Vec<u32> = serde_json::from_value(case["name"].clone()).unwrap();
         let rules = PolicyDocument::parse(case["policy"].as_str().unwrap(), name.as_slice())
