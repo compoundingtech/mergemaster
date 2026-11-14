@@ -4,6 +4,7 @@ pub mod candidates;
 pub mod collection;
 pub mod configured;
 pub mod crate_closure;
+pub mod crate_input_document;
 pub mod crate_inputs;
 pub mod crate_inputs_text;
 pub mod crate_layout;
