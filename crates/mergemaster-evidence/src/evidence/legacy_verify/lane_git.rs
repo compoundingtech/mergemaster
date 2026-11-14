@@ -15,7 +15,7 @@ use std::{collections::BTreeSet, path::Path};
 fn error(detail: impl ToString) -> PolicyError {
     PolicyError {
         reason: "error",
-        detail: detail.to_string(),
+        detail: detail.to_string().into(),
     }
 }
 /// Preserve raw names: Git paths are not necessarily UTF-8.
@@ -216,7 +216,7 @@ pub fn lane_for<'a>(
         if here.is_none() || here != super::lane_entry::canonical(text, check)? {
             return Err(PolicyError {
                 reason: "definition_changed",
-                detail: format!("lane {check} differs from the branch point"),
+                detail: format!("lane {check} differs from the branch point").into(),
             });
         }
         definition_base = base;

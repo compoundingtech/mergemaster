@@ -112,7 +112,7 @@ fn route_source<'a>(
     let fail = |reason| Failure {
         exception: false,
         reason,
-        detail: format!("record from {} fails policy routing", record.runner),
+        detail: format!("record from {} fails policy routing", record.runner).into(),
         attempts,
     };
     let policy = match rules {

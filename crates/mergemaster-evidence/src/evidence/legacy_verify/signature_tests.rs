@@ -138,7 +138,11 @@ print(json.dumps(cases))
         if case["revocation_refusal"] == true {
             let error = actual.unwrap_err();
             assert_eq!(error.reason, "error", "{}", case["name"]);
-            assert!(error.detail.contains("revocation"), "{}", case["name"]);
+            assert!(
+                error.detail.to_string().contains("revocation"),
+                "{}",
+                case["name"]
+            );
         } else if let Some(marker) = case["marker"].as_str() {
             let (status, _) = actual.unwrap();
             assert_ne!(status, "G", "{}", case["name"]);
@@ -169,5 +173,10 @@ fn missing_revocations_refuse_before_git_or_revision_validation() {
     )
     .unwrap_err();
     assert_eq!(error.reason, "error");
-    assert!(error.detail.contains("revocation file is unavailable"));
+    assert!(
+        error
+            .detail
+            .to_string()
+            .contains("revocation file is unavailable")
+    );
 }

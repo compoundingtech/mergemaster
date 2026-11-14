@@ -1,9 +1,9 @@
 //! Exact supported JSON selections; approved refusals never become missing entries.
 use crate::evidence::{
     legacy_json::{self, Value, encode_integer, extension_syntax, has_float, limits},
-    legacy_policy::PolicyError,
+    legacy_policy::{PolicyError, normalized_text::NormalizedText},
 };
-fn error(reason: &'static str, detail: impl Into<String>) -> PolicyError {
+fn error(reason: &'static str, detail: impl Into<NormalizedText>) -> PolicyError {
     PolicyError {
         reason,
         detail: detail.into(),

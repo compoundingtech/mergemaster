@@ -156,7 +156,7 @@ print(json.dumps(results))
         }
         if let Some((token, at)) = token {
             assert_eq!(
-                results[i].as_ref().unwrap_err().detail,
+                results[i].as_ref().unwrap_err().detail.to_string(),
                 format!("unsupported JSON token {token} at byte offset {at}")
             );
         }

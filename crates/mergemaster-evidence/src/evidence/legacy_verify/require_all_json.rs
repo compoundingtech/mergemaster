@@ -49,7 +49,9 @@ impl All<'_> {
                                     }
                                     Err(error) => {
                                         o.field_text("reason", |w| w.text(error.reason))?;
-                                        o.field_text("detail", |w| w.text(&error.detail))?;
+                                        o.field_text("detail", |w| {
+                                            w.codepoints(error.detail.borrowed().points())
+                                        })?;
                                         o.field_text("decision", |w| {
                                             w.text(decision(lane.decision))
                                         })?;
@@ -77,7 +79,7 @@ pub fn write_error<'s>(
         o.field_text("decision", |w| w.text("error"))?;
         o.field_text("satisfied", |w| w.boolean(false))?;
         o.field_text("reason", |w| w.text(error.reason))?;
-        o.field_text("detail", |w| w.text(&error.detail))
+        o.field_text("detail", |w| w.codepoints(error.detail.borrowed().points()))
     })
 }
 #[cfg(test)]

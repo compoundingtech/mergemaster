@@ -19,11 +19,11 @@ impl LaneRules {
         let lane = lane.into();
         let error = || PolicyError {
             reason: "error",
-            detail: format!("invalid lane {lane}"),
+            detail: format!("invalid lane {lane}").into(),
         };
         let entry = lane.entry(text, "lanes")?.ok_or_else(|| PolicyError {
             reason: "no_lane",
-            detail: format!("lane {lane} is absent"),
+            detail: format!("lane {lane} is absent").into(),
         })?;
         let Value::Object(mut entry) = entry else {
             return Err(error());

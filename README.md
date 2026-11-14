@@ -626,6 +626,9 @@ tree, preserving surrogate code points and ASCII escaping. It adds no final newl
 not exception classification or diagnostic normalization. `failure_json::WireError`
 borrows lossless Failure text/optional selection extras or explicit Exception class/detail;
 it never infers provenance from a message or converts normalized core diagnostics.
+Core Failure and PolicyError details share owned `NormalizedText`: scalar strings
+retain their allocation, while code-point details round-trip through the lossless writer.
+Its Display is diagnostic-only; scalar-only serde refuses code-point storage.
 Source-provenance threading/diagnostic parity must land before CLI wiring. Members/log
 extras remain with those ports; discard partial output on error.
 `configured::required` joins trusted collection and existing configured selection

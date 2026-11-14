@@ -6,7 +6,9 @@ use super::{
     statement_document::{Document, Node},
     trust::{TrustedCandidate, partition},
 };
-use crate::evidence::legacy_policy::{PolicyError, check_names::CheckName};
+use crate::evidence::legacy_policy::{
+    PolicyError, check_names::CheckName, normalized_text::NormalizedText,
+};
 use std::path::Path;
 pub struct Request<'a> {
     pub repo: &'a Path,
@@ -16,11 +18,11 @@ pub struct Request<'a> {
     pub inputs: Option<&'a [String]>,
     pub crate_key: Option<(&'a str, &'a str)>,
 }
-fn failure(reason: &'static str, detail: String, attempts: usize) -> Failure {
+fn failure(reason: &'static str, detail: impl Into<NormalizedText>, attempts: usize) -> Failure {
     Failure {
         exception: false,
         reason,
-        detail,
+        detail: detail.into(),
         attempts,
     }
 }
@@ -46,7 +48,7 @@ pub fn candidates(
             .map_err(|e| failure("error", e.to_string(), 0))?;
         let revocations = path
             .to_str()
-            .ok_or_else(|| failure("error", "temporary revocation path is not UTF-8".into(), 0))?;
+            .ok_or_else(|| failure("error", "temporary revocation path is not UTF-8", 0))?;
         let collected = collector
             .collect(q.repo, q.tree, q.check, q.inputs, q.crate_key)
             .map_err(phase_error)?;

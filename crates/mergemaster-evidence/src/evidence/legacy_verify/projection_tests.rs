@@ -275,6 +275,11 @@ fn projection_deadline_preserves_exchange_refusals() {
         let child = GitChild::with_timeout(&mut command, Duration::ZERO).unwrap();
         let failure = exchange(child, bytes).unwrap_err();
         assert_eq!(failure.reason, "error");
-        assert!(failure.detail.contains("Git subprocess deadline exceeded"));
+        assert!(
+            failure
+                .detail
+                .to_string()
+                .contains("Git subprocess deadline exceeded")
+        );
     }
 }

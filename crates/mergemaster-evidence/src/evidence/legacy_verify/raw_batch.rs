@@ -18,7 +18,7 @@ const MAX_HEADER_BYTES: usize = 128;
 fn error(detail: impl ToString) -> PolicyError {
     PolicyError {
         reason: "error",
-        detail: detail.to_string(),
+        detail: detail.to_string().into(),
     }
 }
 fn frame(output: &mut impl Read, request: &str) -> Result<Option<Vec<u8>>, PolicyError> {

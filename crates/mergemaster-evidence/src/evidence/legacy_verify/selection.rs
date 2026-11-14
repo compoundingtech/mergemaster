@@ -8,7 +8,7 @@ use std::path::Path;
 fn error(detail: impl ToString) -> PolicyError {
     PolicyError {
         reason: "error",
-        detail: detail.to_string(),
+        detail: detail.to_string().into(),
     }
 }
 pub fn selector_item(repo: &Path, tree: &str, item: &str) -> Result<Option<String>, PolicyError> {

@@ -1,5 +1,8 @@
 use super::*;
-use crate::evidence::legacy_output;
+use crate::evidence::{
+    legacy_output,
+    legacy_policy::{PolicyError, normalized_text::NormalizedText},
+};
 
 #[derive(serde::Deserialize)]
 struct Fixture {
@@ -45,6 +48,16 @@ print(json.dumps(cases))
     let cases: Vec<Fixture> = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(cases.len(), 690);
     for case in cases {
+        let failure = super::super::Failure {
+            reason: "fixture",
+            detail: NormalizedText::Codepoints(case.detail),
+            attempts: 0,
+            exception: false,
+        };
+        let policy = PolicyError {
+            reason: failure.reason,
+            detail: failure.detail,
+        };
         let skipped = case
             .skipped
             .as_ref()
@@ -52,7 +65,7 @@ print(json.dumps(cases))
         let error = match (&case.reason, &case.class) {
             (Some(reason), None) => WireError::Failure {
                 reason: TextRef::Points(reason),
-                detail: TextRef::Points(&case.detail),
+                detail: policy.detail.borrowed(),
                 extras: Extras {
                     attempts: case.attempts,
                     decided_by: case.decided.as_deref().map(TextRef::Points),
@@ -61,7 +74,7 @@ print(json.dumps(cases))
             },
             (None, Some(class)) => WireError::Exception {
                 class: TextRef::Str(class),
-                detail: TextRef::Points(&case.detail),
+                detail: policy.detail.borrowed(),
             },
             _ => panic!("fixture provenance"),
         };
@@ -74,4 +87,16 @@ print(json.dumps(cases))
         legacy_output::write(&mut actual, |w| error.write_json(check, w)).unwrap();
         assert_eq!(actual, case.wire);
     }
+    let text = String::from("scalar 😀");
+    let pointer = text.as_ptr();
+    let scalar = NormalizedText::from(text);
+    assert!(matches!(&scalar, NormalizedText::Scalar(value) if value.as_ptr() == pointer));
+    assert_eq!(
+        scalar,
+        NormalizedText::Codepoints("scalar 😀".chars().map(u32::from).collect())
+    );
+    assert_ne!(
+        NormalizedText::Codepoints(vec![0xd800]),
+        NormalizedText::from("\\ud800")
+    );
 }

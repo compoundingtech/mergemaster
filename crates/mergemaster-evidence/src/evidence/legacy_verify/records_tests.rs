@@ -99,7 +99,12 @@ print(json.dumps(dict(records=cases,cache=cached)))
             assert!(!case["expected"].as_bool().unwrap());
             let error = actual.unwrap_err();
             assert_eq!(error.reason, "error");
-            assert!(error.detail.contains("Git output exceeds 1048576 bytes"));
+            assert!(
+                error
+                    .detail
+                    .to_string()
+                    .contains("Git output exceeds 1048576 bytes")
+            );
         } else if case["depth"].as_u64().unwrap() > 256 {
             assert!(case["expected"].as_bool().unwrap()); // Python read, not load.
             assert_eq!(actual.unwrap_err().reason, "statement-too-deep");

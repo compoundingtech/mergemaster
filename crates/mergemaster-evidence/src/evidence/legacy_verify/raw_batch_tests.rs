@@ -111,7 +111,12 @@ fn raw_batch_deadline_refuses_requests_and_finish_without_renewal() {
             failure
         };
         assert_eq!(failure.reason, "error");
-        assert!(failure.detail.contains("Git subprocess deadline exceeded"));
+        assert!(
+            failure
+                .detail
+                .to_string()
+                .contains("Git subprocess deadline exceeded")
+        );
         #[cfg(target_os = "linux")]
         assert!(!Path::new(&format!("/proc/{pid}")).exists());
     }
@@ -126,7 +131,12 @@ fn raw_batch_deadline_can_expire_after_a_successful_reply() {
     batch.child.as_mut().unwrap().expire_for_test();
     let failure = batch.finish().unwrap_err();
     assert_eq!(failure.reason, "error");
-    assert!(failure.detail.contains("Git subprocess deadline exceeded"));
+    assert!(
+        failure
+            .detail
+            .to_string()
+            .contains("Git subprocess deadline exceeded")
+    );
     #[cfg(target_os = "linux")]
     assert!(!Path::new(&format!("/proc/{pid}")).exists());
 }

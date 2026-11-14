@@ -1,4 +1,4 @@
-//! Owned normalized policy text; scalar callers keep their existing String storage.
+//! Owned Python policy/diagnostic text; scalar callers retain their String storage.
 use crate::evidence::legacy_verify::value_inputs::TextRef;
 
 #[derive(Debug)]
@@ -7,7 +7,7 @@ pub enum NormalizedText {
     Codepoints(Vec<u32>),
 }
 impl NormalizedText {
-    pub(crate) fn borrowed(&self) -> TextRef<'_> {
+    pub fn borrowed(&self) -> TextRef<'_> {
         match self {
             Self::Scalar(text) => TextRef::Str(text),
             Self::Codepoints(points) => TextRef::Points(points),
@@ -45,12 +45,39 @@ impl NormalizedText {
         Self::Codepoints(result)
     }
 }
+impl From<String> for NormalizedText {
+    fn from(text: String) -> Self {
+        Self::Scalar(text)
+    }
+}
+impl From<&str> for NormalizedText {
+    fn from(text: &str) -> Self {
+        Self::Scalar(text.into())
+    }
+}
+impl PartialEq for NormalizedText {
+    fn eq(&self, other: &Self) -> bool {
+        self.borrowed().points().eq(other.borrowed().points())
+    }
+}
+impl Eq for NormalizedText {}
+impl PartialEq<&str> for NormalizedText {
+    fn eq(&self, other: &&str) -> bool {
+        self.borrowed().points().eq(other.chars().map(u32::from))
+    }
+}
+/// Display is diagnostic-only; wire output must use the lossless borrowed view.
+impl std::fmt::Display for NormalizedText {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.borrowed(), f)
+    }
+}
 impl serde::Serialize for NormalizedText {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
             Self::Scalar(text) => serializer.serialize_str(text),
             Self::Codepoints(_) => Err(serde::ser::Error::custom(
-                "code-point policy text requires the deferred lossless JSON writer",
+                "code-point text requires the lossless JSON writer",
             )),
         }
     }
