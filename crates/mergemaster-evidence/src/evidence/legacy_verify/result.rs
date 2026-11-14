@@ -11,6 +11,12 @@ use super::{
 use crate::evidence::legacy_policy::check_names::CheckName;
 use crate::evidence::legacy_policy::seconds::Seconds;
 use std::borrow::Cow;
+
+#[derive(Debug)]
+pub enum ViewError<'a> {
+    Judgment(&'a Failure),
+    InvalidDecision,
+}
 pub struct Satisfied<'a> {
     pub satisfied: bool,
     pub tree: &'a str,
@@ -38,25 +44,29 @@ pub struct Satisfied<'a> {
 impl<'a> Satisfied<'a> {
     /// View of a successful selection in either mode; failures are returned unchanged.
     /// `source_inputs` is the exact prefix input key, not recomputed from a record.
-    /// # Panics
-    /// Requires the same prepared set as the decision, with fully validated statements.
-    /// Invalid indices/shapes are caller errors; this is not an untrusted-input entrypoint.
+    /// Malformed manually constructed selections return InvalidDecision, without text.
     pub fn from_decision(
         prepared: &'a Prepared<'a>,
         decision: &'a Decision<'a>,
         tree: &'a str,
         check: impl Into<CheckName<'a>>,
         source_inputs: Option<&'a str>,
-    ) -> Result<Self, &'a Failure> {
-        let (index, routing) = decision.result.as_ref()?;
-        let candidate = &prepared.candidates[*index];
+    ) -> Result<Self, ViewError<'a>> {
+        let invalid = || ViewError::InvalidDecision;
+        let (index, routing) = decision.result.as_ref().map_err(ViewError::Judgment)?;
+        let candidate = prepared.candidates.get(*index).ok_or_else(invalid)?;
         let facts = &candidate.facts;
         let doc = facts.document;
-        let subject = array(field(doc, doc.root(), "subject").expect("validated subject"))
-            .expect("subject array");
-        let digest = field(doc, doc.node(subject[0]), "digest").expect("validated digest");
-        let matched_tree =
-            string(field(doc, digest, "gitTree").expect("validated tree")).expect("tree string");
+        let matched_tree = (|| {
+            let subject = array(field(doc, doc.root(), "subject")?)?;
+            let digest = field(doc, doc.try_node(*subject.first()?)?, "digest")?;
+            string(field(doc, digest, "gitTree")?)
+        })()
+        .ok_or_else(invalid)?;
+        let decided_by = match decision.walk.decided_by {
+            Some(index) => Some(prepared.candidates.get(index).ok_or_else(invalid)?.commit),
+            None => None,
+        };
         let (policy, max_age_s, enforce, sample_one_in, check_events) = match &prepared.rules {
             Rules::Policy { policy, .. } => {
                 let header = &policy.header;
@@ -70,12 +80,13 @@ impl<'a> Satisfied<'a> {
             }
             Rules::Unconfigured(options) => (
                 false,
-                options.max_age.map(|age| match age {
-                    super::inputs::AgeLimit::Seconds(seconds) => Cow::Owned(Seconds::from(seconds)),
-                    super::inputs::AgeLimit::Overflow => {
-                        unreachable!("successful judgment cannot overflow")
+                match options.max_age {
+                    Some(super::inputs::AgeLimit::Seconds(seconds)) => {
+                        Some(Cow::Owned(Seconds::from(seconds)))
                     }
-                }),
+                    Some(super::inputs::AgeLimit::Overflow) => return Err(invalid()),
+                    None => None,
+                },
                 false,
                 1,
                 None,
@@ -86,7 +97,7 @@ impl<'a> Satisfied<'a> {
             tree,
             check: check.into(),
             record: candidate.commit,
-            kind: kind_of_text(TextRef::Points(facts.runner)).expect("successful kind"),
+            kind: kind_of_text(TextRef::Points(facts.runner)).ok_or_else(invalid)?,
             signer: facts.principal,
             trust_level: facts.level(),
             tier: facts.tier,
@@ -103,10 +114,7 @@ impl<'a> Satisfied<'a> {
             matched_tree,
             source_inputs,
             sample_one_in,
-            decided_by: decision
-                .walk
-                .decided_by
-                .map(|i| prepared.candidates[i].commit),
+            decided_by,
             skipped_newer: decision
                 .walk
                 .decided_by

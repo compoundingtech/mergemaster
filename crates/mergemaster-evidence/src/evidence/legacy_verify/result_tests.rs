@@ -151,10 +151,11 @@ print(json.dumps(fixtures))
             "unit",
             fixture["source"].as_str(),
         ) {
-            Err(error) => {
+            Err(ViewError::Judgment(error)) => {
                 assert!(std::ptr::eq(error, decision.result.as_ref().err().unwrap()));
                 json!({"reason":error.reason})
             }
+            Err(ViewError::InvalidDecision) => panic!("invalid fixture decision"),
             Ok(mut result) => {
                 let original = (result.decided_by, result.skipped_newer);
                 for (index, name) in wire_names.iter().enumerate() {
@@ -201,4 +202,67 @@ print(json.dumps(fixtures))
         assert_eq!(actual, fixture["expected"], "{fixture}");
     }
     assert_eq!(wire_cases, 3888);
+}
+
+#[test]
+fn malformed_manual_success_decisions_return_a_textless_typed_error() {
+    use super::super::{
+        inputs::AgeLimit,
+        ordering::{Decision, Walk},
+    };
+    for mode in [
+        "subject", "empty", "digest", "tree", "index", "walk", "age", "kind",
+    ] {
+        let mut raw = json!({
+            "subject":[{"digest":{"gitTree":"tree"}}],
+            "predicate":{"tier":"full","observed_at":"2026-01-01T00:00:00Z",
+                "observed":{"runner":"wrapper","checks":{"unit":{"exit_code":0,"command":["true"]}}}}
+        });
+        match mode {
+            "subject" => raw["subject"] = Value::Null,
+            "empty" => raw["subject"] = json!([]),
+            "digest" => raw["subject"][0]["digest"] = Value::Null,
+            "tree" => raw["subject"][0]["digest"]["gitTree"] = Value::Bool(false),
+            "kind" => raw["predicate"]["observed"]["runner"] = json!("other"),
+            _ => {}
+        }
+        let doc =
+            super::super::statement_document::Document::from_bytes(raw.to_string().as_bytes())
+                .unwrap();
+        let name: Vec<_> = "unit".chars().map(u32::from).collect();
+        let facts =
+            super::super::facts::DocumentFacts::for_check(&doc, &name, "agent/fixture").unwrap();
+        let kinds = vec!["wrapper".chars().map(u32::from).collect()];
+        let options = super::super::judgment::Unconfigured {
+            routing: super::super::routing::Unconfigured {
+                kinds: &kinds,
+                trust_levels: None,
+                runner_prefix: None,
+            },
+            command: None,
+            max_age: (mode == "age").then_some(AgeLimit::Overflow),
+            bindings: &[],
+        };
+        let prepared = Prepared::unconfigured(
+            &options,
+            vec![super::super::candidates::Candidate {
+                commit: "record",
+                facts,
+            }],
+        );
+        let decision = Decision {
+            result: Ok((if mode == "index" { usize::MAX } else { 0 }, None)),
+            walk: Walk {
+                decided_by: (mode == "walk").then_some(usize::MAX),
+                skipped_newer: vec![],
+            },
+        };
+        assert!(
+            matches!(
+                Satisfied::from_decision(&prepared, &decision, "tree", "unit", None),
+                Err(ViewError::InvalidDecision)
+            ),
+            "{mode}"
+        );
+    }
 }
