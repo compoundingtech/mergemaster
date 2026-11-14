@@ -8,6 +8,7 @@ use super::{
 /// Construct from a validated statement and an independently verified principal.
 /// Missing or ill-shaped viewed fields return None; unrelated fields are not validated.
 pub struct DocumentFacts<'a> {
+    pub check_name: &'a [u32],
     pub tier: &'a [u32],
     pub runner: &'a [u32],
     pub principal: &'a str,
@@ -38,7 +39,8 @@ impl<'a> DocumentFacts<'a> {
         let Node::Object(checks) = field(document, observed, "checks")? else {
             return None;
         };
-        let result = document.node(*checks.get(check)?);
+        let (check_name, result) = checks.get_key_value(check)?;
+        let result = document.node(*result);
         let Node::Integer(exit_code) = field(document, result, "exit_code")? else {
             return None;
         };
@@ -64,6 +66,7 @@ impl<'a> DocumentFacts<'a> {
         let observed_at = string(field(document, predicate, "observed_at")?)?;
         let (moment_micros, local_micros) = zoned_time_components(observed_at)?;
         Some(Self {
+            check_name,
             tier: string(field(document, predicate, "tier")?)?,
             runner: string(field(document, observed, "runner")?)?,
             principal,

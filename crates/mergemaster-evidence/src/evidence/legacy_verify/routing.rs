@@ -12,6 +12,7 @@ use crate::evidence::{
 use std::collections::BTreeMap;
 
 pub struct RecordFacts<'a> {
+    pub check_name: crate::evidence::legacy_policy::check_names::CheckName<'a>,
     pub tier: TrustTier,
     pub runner: &'a str,
     /// Principal obtained from signature verification, not an unverified claim.

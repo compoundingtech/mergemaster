@@ -6,8 +6,10 @@ use super::{
     routing::{RecordFacts, Routing, route, route_document},
     value_inputs::InputSource,
 };
+use crate::evidence::legacy_policy::normalized_text::NormalizedText;
 use crate::evidence::legacy_policy::{PolicyError, PolicyRules, level_rules::LaneBinding};
 use std::collections::BTreeMap;
+use std::os::unix::ffi::OsStrExt;
 pub struct LaneDefinition {
     pub sha256: String,
     pub changed: Vec<Vec<u8>>,
@@ -105,11 +107,9 @@ fn judge_source<'a>(
     provider: &mut impl Provider,
     attempts: usize,
 ) -> Result<Routing<'a>, Failure> {
-    let fail = |reason| Failure {
-        origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
-        reason,
-        detail: format!("record fails legacy {reason} guard").into(),
-        attempts: Some(attempts),
+    let check = match &record {
+        RecordView::Native(record, _) => record.check_name,
+        RecordView::Document(record, _) => record.check_name.into(),
     };
     let error = |e: PolicyError| Failure {
         origin: e.origin,
@@ -131,7 +131,16 @@ fn judge_source<'a>(
             provider
                 .level_lane()
                 .map_err(error)?
-                .ok_or_else(|| fail("no_lane"))?,
+                .ok_or_else(|| Failure {
+                    origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
+                    reason: "no_lane",
+                    detail: NormalizedText::around(
+                        "no lane definition for check ",
+                        check.text(),
+                        " at the accepted base",
+                    ),
+                    attempts: Some(attempts),
+                })?,
         )
     } else {
         lane
@@ -179,10 +188,10 @@ fn check_lane(
     mode: Option<&LaneBinding>,
     attempts: usize,
 ) -> Result<(), Failure> {
-    let fail = |reason| Failure {
+    let fail = |reason, detail| Failure {
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason,
-        detail: format!("record fails legacy {reason} guard").into(),
+        detail,
         attempts: Some(attempts),
     };
     if let Some(lane) = lane {
@@ -190,7 +199,33 @@ fn check_lane(
             &lane.tree_sha256
         } else {
             if !lane.changed.is_empty() {
-                return Err(fail("definition_changed"));
+                let prefix =
+                    "the lane definition differs between the signed tree and the accepted base: ";
+                let paths = lane
+                    .changed
+                    .iter()
+                    .take(5)
+                    .enumerate()
+                    .flat_map(|(i, path)| {
+                        (i > 0)
+                            .then_some(',')
+                            .into_iter()
+                            .chain((i > 0).then_some(' '))
+                            .map(u32::from)
+                            .chain(super::lanes::codepoints(path))
+                    });
+                let suffix = if lane.changed.len() > 5 { " ..." } else { "" };
+                return Err(fail(
+                    "definition_changed",
+                    NormalizedText::Codepoints(
+                        prefix
+                            .chars()
+                            .map(u32::from)
+                            .chain(paths)
+                            .chain(suffix.chars().map(u32::from))
+                            .collect(),
+                    ),
+                ));
             }
             &lane.sha256
         };
@@ -198,7 +233,11 @@ fn check_lane(
             .get("lane_definition_sha256")
             .is_none_or(|value| !value.equals(expected))
         {
-            return Err(fail("wrong_definition"));
+            return Err(fail("wrong_definition", if expected == &lane.sha256 {
+                "the record does not carry the digest of the lane definition at the accepted base"
+            } else {
+                "the record does not carry the digest of the lane definition this tree defines"
+            }.into()));
         }
     }
     Ok(())
@@ -229,7 +268,16 @@ fn check_bindings<'a>(
             return Err(Failure {
                 origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                 reason: "wrong_input",
-                detail: "record fails legacy wrong_input guard".into(),
+                detail: NormalizedText::Codepoints(
+                    "record input "
+                        .chars()
+                        .map(u32::from)
+                        .chain(key.points())
+                        .chain(" does not match ".chars().map(u32::from))
+                        .chain(super::lanes::codepoints(path.as_os_str().as_bytes()))
+                        .chain(" in this tree".chars().map(u32::from))
+                        .collect(),
+                ),
                 attempts: Some(attempts),
             });
         }
