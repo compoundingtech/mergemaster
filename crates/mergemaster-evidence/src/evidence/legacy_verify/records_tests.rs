@@ -284,3 +284,25 @@ fn negative_entries_also_reach_the_entry_limit() {
         "record-budget-exceeded"
     );
 }
+
+#[test]
+fn malformed_manual_subject_views_return_the_library_invariant_refusal() {
+    for text in [
+        "null",
+        "{}",
+        r#"{"subject":false}"#,
+        r#"{"subject":[]}"#,
+        r#"{"subject":[{}]}"#,
+        r#"{"subject":[{"name":false}]}"#,
+        r#"{"subject":[{"name":"\ud800"}]}"#,
+    ] {
+        let doc = Document::from_bytes(text.as_bytes()).unwrap();
+        let error = validated_subject(&doc).unwrap_err();
+        assert_eq!(error.reason, "error");
+        assert!(matches!(
+            error.origin,
+            crate::evidence::legacy_policy::ErrorOrigin::Failure
+        ));
+        assert_eq!(error.detail, "invalid validated statement");
+    }
+}

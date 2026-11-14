@@ -97,3 +97,31 @@ print(json.dumps(fixtures))
         );
     }
 }
+
+#[test]
+fn malformed_manual_candidates_refuse_before_signature_lookup() {
+    use crate::evidence::{
+        legacy_policy::ErrorOrigin, legacy_verify::statement_document::Document,
+    };
+    for raw in [
+        r#"{}"#,
+        r#"{"predicate":{}}"#,
+        r#"{"predicate":{"tier":"full"}}"#,
+    ] {
+        let candidate = Candidate {
+            commit: "not-a-commit".into(),
+            statement: Arc::new(Document::from_bytes(raw.as_bytes()).unwrap()),
+        };
+        let error = partition(
+            Path::new("missing-repository"),
+            vec![candidate],
+            "missing-keys",
+            "missing-revocations",
+        )
+        .err()
+        .unwrap();
+        assert_eq!(error.origin, ErrorOrigin::Failure);
+        assert_eq!(error.reason, "error");
+        assert_eq!(error.detail.to_string(), "invalid validated statement");
+    }
+}

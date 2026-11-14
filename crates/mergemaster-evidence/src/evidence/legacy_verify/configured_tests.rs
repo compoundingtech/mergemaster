@@ -154,3 +154,50 @@ print(json.dumps(cases))
         assert_eq!(actual, case["expected"], "{}", case["name"]);
     }
 }
+
+#[test]
+fn malformed_manual_records_refuse_selected_check_preparation() {
+    use crate::evidence::{
+        legacy_policy::ErrorOrigin, legacy_verify::statement_document::Document,
+    };
+    let rules = PolicyDocument::parse(
+        r#"{"version":1,"checks":{"check":{"trust_levels":["agent"],"require":"reject","kinds":{"wrapper":{"command":["true"]}}}}}"#,
+        "check",
+    )
+    .unwrap()
+    .into_rules("fixture")
+    .unwrap();
+    let check: Vec<u32> = "check".chars().map(u32::from).collect();
+    let records = vec![TrustedCandidate {
+        candidate: super::super::collection::Candidate {
+            commit: "record".into(),
+            statement: std::sync::Arc::new(Document::from_bytes(b"{}").unwrap()),
+        },
+        principal: "agent/fixture".into(),
+    }];
+    let error = prepare_records(&records, &rules, &check).err().unwrap();
+    assert_eq!(error.origin, ErrorOrigin::Failure);
+    assert_eq!(error.reason, "error");
+    assert_eq!(error.detail.to_string(), "invalid validated statement");
+    assert_eq!(error.attempts, None);
+}
+
+#[test]
+fn selected_commit_absent_from_manual_records_refuses() {
+    use crate::evidence::{
+        legacy_policy::ErrorOrigin, legacy_verify::statement_document::Document,
+    };
+    let records = vec![TrustedCandidate {
+        candidate: super::super::collection::Candidate {
+            commit: "record".into(),
+            statement: std::sync::Arc::new(Document::from_bytes(b"{}").unwrap()),
+        },
+        principal: "agent/fixture".into(),
+    }];
+    assert_eq!(record_position(&records, "record").unwrap(), 0);
+    let error = record_position(&records, "absent").unwrap_err();
+    assert_eq!(error.origin, ErrorOrigin::Failure);
+    assert_eq!(error.reason, "error");
+    assert_eq!(error.detail.to_string(), "invalid validated statement");
+    assert_eq!(error.attempts, None);
+}
