@@ -76,9 +76,68 @@ fn token_boundaries_and_failure_are_explicit() {
     assert_eq!(t.len(), 6);
     assert!(matches!(t[0], Token::Punctuation(b'[')));
     let mut bad = Tokens::from_bytes(b"?").unwrap();
-    assert!(matches!(bad.next(), Some(Err(Error::Invalid))));
+    assert!(matches!(
+        bad.next(),
+        Some(Err(Error::Syntax(SyntaxError {
+            kind: SyntaxKind::ExpectingValue,
+            pos: 0,
+            lineno: 1,
+            colno: 1,
+        })))
+    ));
     assert!(bad.next().is_none());
     assert!(
         matches!(Tokens::from_bytes(b"-0").unwrap().next(),Some(Ok(Token::Integer(n))) if n=="-0")
     );
+}
+
+#[test]
+fn scanner_syntax_and_number_boundaries_match_pinned_python() {
+    let script = r#"
+import json,re,sys
+assert sys.version_info[:3] == (3,14,7), sys.version
+texts=['?', '-', '-NaN', '+1', 'nul', '"', '"abc', '"abc\\',
+ '"\\q"', '"\\u"', '"\\u12"', '"\\u12g4"', '"\\u１２３４"',
+ '"\\ud800\\u12g4"', '"\\ud800\\u"', '"\\ud800\\udc00',
+ ' \n"🌍\\q"', ' \r\n"🌍\\u12g4"', '"\ud800\\q"',
+ '0.', '1e', '1e+', '1e-', '-1.e2', '01', '-01', '1.2e+',
+ '1.2', '1E+2', '-0', 'Infinityx', '-Infinityx', 'nulltrue']
+texts.extend('"🌍'+chr(control)+'"' for control in range(32))
+results=[]
+for text in texts:
+ try:
+  _,end=json.JSONDecoder().raw_decode(text,re.match(r'[ \t\r\n]*',text).end())
+  result=['ok',end]
+ except json.JSONDecodeError as e:
+  result=['syntax',e.msg,e.pos,e.lineno,e.colno,str(e)]
+ results.append(dict(bytes=list(text.encode('utf-8','surrogatepass')),result=result))
+print(json.dumps(results))
+"#;
+    let output = std::process::Command::new("python3")
+        .args(["-c", script])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let cases: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    for case in cases.as_array().unwrap() {
+        let bytes: Vec<u8> = serde_json::from_value(case["bytes"].clone()).unwrap();
+        let mut tokens = Tokens::from_bytes(&bytes).unwrap();
+        let actual = match tokens.next().unwrap() {
+            Ok(_) => json!(["ok", tokens.position()]),
+            Err(Error::Syntax(e)) => json!([
+                "syntax",
+                e.kind.message(),
+                e.pos,
+                e.lineno,
+                e.colno,
+                e.to_string()
+            ]),
+            Err(error) => panic!("unexpected non-syntax error: {error:?}"),
+        };
+        assert_eq!(actual, case["result"], "bytes: {bytes:?}");
+    }
 }

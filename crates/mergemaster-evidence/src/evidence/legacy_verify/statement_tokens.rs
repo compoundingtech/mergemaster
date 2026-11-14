@@ -1,4 +1,6 @@
 //! Lossless Python JSON primitive tokens; container grammar belongs to the loader.
+//! Syntax diagnostics follow CPython 3.14.7's accelerated `_json` scanner.
+//! Numbers consume the longest valid prefix; document grammar rejects leftover text.
 use super::statement_bytes::decode_json_bytes;
 #[derive(Debug)]
 pub enum Token {
@@ -13,8 +15,61 @@ pub enum Token {
 }
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
-    Invalid,
+    Syntax(SyntaxError),
     IntegerLimit,
+}
+
+/// CPython 3.14.7 `Modules/_json.c` and `Lib/json/decoder.py` diagnostics.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SyntaxKind {
+    ExpectingValue,
+    PropertyName,
+    ColonDelimiter,
+    CommaDelimiter,
+    TrailingArrayComma,
+    TrailingObjectComma,
+    UnterminatedString,
+    InvalidControlCharacter,
+    InvalidEscape,
+    InvalidUnicodeEscape,
+    ExtraData,
+}
+impl SyntaxKind {
+    pub const fn message(self) -> &'static str {
+        match self {
+            Self::ExpectingValue => "Expecting value",
+            Self::PropertyName => "Expecting property name enclosed in double quotes",
+            Self::ColonDelimiter => "Expecting ':' delimiter",
+            Self::CommaDelimiter => "Expecting ',' delimiter",
+            Self::TrailingArrayComma => "Illegal trailing comma before end of array",
+            Self::TrailingObjectComma => "Illegal trailing comma before end of object",
+            Self::UnterminatedString => "Unterminated string starting at",
+            Self::InvalidControlCharacter => "Invalid control character at",
+            Self::InvalidEscape => "Invalid \\escape",
+            Self::InvalidUnicodeEscape => "Invalid \\uXXXX escape",
+            Self::ExtraData => "Extra data",
+        }
+    }
+}
+/// Zero-based character position and one-based line/column, all in codepoints.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SyntaxError {
+    pub kind: SyntaxKind,
+    pub pos: usize,
+    pub lineno: usize,
+    pub colno: usize,
+}
+impl std::fmt::Display for SyntaxError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}: line {} column {} (char {})",
+            self.kind.message(),
+            self.lineno,
+            self.colno,
+            self.pos
+        )
+    }
 }
 pub struct Tokens {
     text: Vec<u32>,
@@ -33,6 +88,30 @@ impl Tokens {
             text: text.chars().map(u32::from).collect(),
             at: 0,
         }
+    }
+    pub fn syntax_error(&self, kind: SyntaxKind, pos: usize) -> SyntaxError {
+        let prefix = &self.text[..pos];
+        SyntaxError {
+            kind,
+            pos,
+            lineno: prefix.iter().filter(|p| **p == 10).count() + 1,
+            colno: prefix
+                .iter()
+                .rposition(|p| *p == 10)
+                .map_or(pos + 1, |n| pos - n),
+        }
+    }
+    pub fn position(&self) -> usize {
+        self.at
+    }
+    pub fn peek(&mut self) -> Option<u32> {
+        while matches!(self.text.get(self.at), Some(9 | 10 | 13 | 32)) {
+            self.at += 1;
+        }
+        self.text.get(self.at).copied()
+    }
+    fn invalid(&self, kind: SyntaxKind, pos: usize) -> Error {
+        Error::Syntax(self.syntax_error(kind, pos))
     }
     fn eat(&mut self, point: u32) -> bool {
         if self.text.get(self.at) == Some(&point) {
@@ -61,16 +140,24 @@ impl Tokens {
             Some((n << 4) | digit)
         })
     }
-    fn string(&mut self) -> Option<Vec<u32>> {
+    fn string(&mut self) -> Result<Vec<u32>, Error> {
+        let begin = self.at - 1;
         let mut result = Vec::new();
         loop {
-            let mut point = *self.text.get(self.at)?;
+            let Some(mut point) = self.text.get(self.at).copied() else {
+                return Err(self.invalid(SyntaxKind::UnterminatedString, begin));
+            };
             self.at += 1;
             match point {
-                34 => return Some(result),
-                0..=31 => return None,
+                34 => return Ok(result),
+                0..=31 => {
+                    return Err(self.invalid(SyntaxKind::InvalidControlCharacter, self.at - 1));
+                }
                 92 => {
-                    point = *self.text.get(self.at)?;
+                    let Some(escaped) = self.text.get(self.at).copied() else {
+                        return Err(self.invalid(SyntaxKind::UnterminatedString, begin));
+                    };
+                    point = escaped;
                     self.at += 1;
                     point = match point {
                         34 | 47 | 92 => point,
@@ -80,7 +167,9 @@ impl Tokens {
                         114 => 13,
                         116 => 9,
                         117 => {
-                            let mut high = self.hex(self.at)?;
+                            let mut high = self.hex(self.at).ok_or_else(|| {
+                                self.invalid(SyntaxKind::InvalidUnicodeEscape, self.at - 1)
+                            })?;
                             self.at += 4;
                             if (0xd800..=0xdbff).contains(&high)
                                 && self.text.get(self.at..self.at + 2) == Some(&[92, 117])
@@ -91,7 +180,7 @@ impl Tokens {
                             }
                             high
                         }
-                        _ => return None,
+                        _ => return Err(self.invalid(SyntaxKind::InvalidEscape, self.at - 2)),
                     };
                 }
                 _ => {}
@@ -111,22 +200,26 @@ impl Tokens {
         self.eat(45);
         let digits = self.at;
         if !self.eat(48) && !self.digits() {
-            return Err(Error::Invalid);
+            return Err(self.invalid(SyntaxKind::ExpectingValue, start));
         }
         let mut float = false;
+        let fraction = self.at;
         if self.eat(46) {
-            float = true;
-            if !self.digits() {
-                return Err(Error::Invalid);
+            if self.digits() {
+                float = true;
+            } else {
+                self.at = fraction;
             }
         }
+        let exponent = self.at;
         if self.eat(101) || self.eat(69) {
-            float = true;
             if !self.eat(43) {
                 self.eat(45);
             }
-            if !self.digits() {
-                return Err(Error::Invalid);
+            if self.digits() {
+                float = true;
+            } else {
+                self.at = exponent;
             }
         }
         if !float && self.at - digits > 4300 {
@@ -134,10 +227,12 @@ impl Tokens {
         }
         let text: String = self.text[start..self.at]
             .iter()
-            .map(|p| char::from_u32(*p).unwrap())
+            .map(|p| char::from(p.to_le_bytes()[0]))
             .collect();
         if float {
-            Ok(Token::Float(text.parse().map_err(|_| Error::Invalid)?))
+            Ok(Token::Float(text.parse().map_err(|_| {
+                self.invalid(SyntaxKind::ExpectingValue, start)
+            })?))
         } else {
             Ok(Token::Integer(text))
         }
@@ -159,26 +254,21 @@ impl Tokens {
         match point {
             34 => {
                 self.at += 1;
-                self.string().map(Token::String).ok_or(Error::Invalid)
+                self.string().map(Token::String)
             }
             45 | 48..=57 => self.number(),
             44 | 58 | 91 | 93 | 123 | 125 => {
                 self.at += 1;
-                Ok(Token::Punctuation(u8::try_from(point).unwrap()))
+                Ok(Token::Punctuation(point.to_le_bytes()[0]))
             }
-            _ => Err(Error::Invalid),
+            _ => Err(self.invalid(SyntaxKind::ExpectingValue, self.at)),
         }
     }
 }
 impl Iterator for Tokens {
     type Item = Result<Token, Error>;
     fn next(&mut self) -> Option<Self::Item> {
-        while matches!(self.text.get(self.at), Some(9 | 10 | 13 | 32)) {
-            self.at += 1;
-        }
-        if self.at == self.text.len() {
-            return None;
-        }
+        self.peek()?;
         let token = self.token();
         if token.is_err() {
             self.at = self.text.len();

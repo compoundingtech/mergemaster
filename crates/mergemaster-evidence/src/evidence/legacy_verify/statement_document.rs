@@ -1,4 +1,5 @@
 //! Python JSON containers in a flat arena: parsing, traversal and drop never recurse.
+pub use super::statement_tokens::SyntaxError;
 use super::statement_tokens::{self, Token, Tokens};
 use indexmap::IndexMap;
 /// Inclusive container depth, counting arrays, objects and an empty root container.
@@ -28,6 +29,7 @@ const _: () = {
 pub enum Error {
     Encoding,
     Invalid,
+    Syntax(SyntaxError),
     IntegerLimit,
     ExtraData,
     NestingLimit,
@@ -96,7 +98,7 @@ impl Document {
                 return Err(Error::ExtraData);
             }
             let token = token.map_err(|error| match error {
-                statement_tokens::Error::Invalid => Error::Invalid,
+                statement_tokens::Error::Syntax(error) => Error::Syntax(error),
                 statement_tokens::Error::IntegerLimit => Error::IntegerLimit,
             })?;
             if let Some(frame) = stack.last_mut() {

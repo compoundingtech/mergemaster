@@ -76,7 +76,13 @@ pub(super) fn bodies_have<'a>(
                 });
             }
             Ok(_)
-            | Err(Error::Encoding | Error::Invalid | Error::IntegerLimit | Error::ExtraData) => {}
+            | Err(
+                Error::Encoding
+                | Error::Invalid
+                | Error::Syntax(_)
+                | Error::IntegerLimit
+                | Error::ExtraData,
+            ) => {}
         }
     }
     batch.finish()?;
