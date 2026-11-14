@@ -6,7 +6,9 @@ use super::{
     judgment::{LaneDefinition, Provider},
     value_inputs::TextRef,
 };
-use crate::evidence::legacy_policy::{PolicyError, PolicyRules};
+use crate::evidence::legacy_policy::{
+    PolicyError, PolicyRules, check_names::CheckName, normalized_text::NormalizedText,
+};
 use std::collections::BTreeSet;
 
 /// Borrowed selection-level membership, not signer verification.
@@ -52,8 +54,9 @@ impl<'a> Prepared<'a> {
     pub fn new(
         policy: &'a PolicyRules,
         mut candidates: Vec<Candidate<'a>>,
-        check: impl std::fmt::Display,
+        check: impl Into<CheckName<'a>>,
     ) -> Result<Self, Failure> {
+        let check = check.into();
         let before = candidates.len();
         candidates.retain(|candidate| {
             let facts = &candidate.facts;
@@ -68,10 +71,11 @@ impl<'a> Prepared<'a> {
             return Err(Failure {
                 origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                 reason: "no_record",
-                detail: format!(
-                    "check {check} has only passing shard parts, no record for the whole run"
-                )
-                .into(),
+                detail: NormalizedText::around(
+                    "check ",
+                    check.text(),
+                    " has only passing shard parts, no record for the whole run",
+                ),
                 attempts: Some(before),
             });
         }

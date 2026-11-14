@@ -103,6 +103,70 @@ print(json.dumps(actual))
 }
 
 #[test]
+fn shard_part_no_record_detail_matches_pinned_handlers_losslessly() {
+    use crate::evidence::{
+        legacy_output, legacy_policy::ErrorOrigin, legacy_verify::failure_json::WireError,
+    };
+    let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
+    let output = std::process::Command::new("python3").args(["-c", r#"
+import ast,json,runpy,sys,types
+path=sys.argv[1]+'/scripts/evidence-verify';v=runpy.run_path(path)
+module=ast.parse(open(path).read())
+raise_node=next(n for n in module.body if isinstance(n,ast.FunctionDef) and n.name=='verified')
+detail=compile(ast.Expression(next(n for n in ast.walk(raise_node) if isinstance(n,ast.Raise) and isinstance(n.exc,ast.Call) and getattr(n.exc.func,'id',None)=='Failure' and isinstance(n.exc.args[0],ast.Constant) and n.exc.args[0].value=='no_record').exc.args[1]),'<detail>','eval')
+main=next(n for n in module.body if isinstance(n,ast.FunctionDef) and n.name=='main')
+def dump(kind,global_):
+ h=next(n for n in ast.walk(main) if isinstance(n,ast.ExceptHandler) and isinstance(n.type,ast.Name) and n.type.id==kind)
+ return compile(ast.Expression(h.body[0].body[0].value.args[0] if global_ else h.body[1].value.args[0]),'<handler>','eval')
+cases=[]
+for check in ['check','\ud800','\udfff','😀','quote\'"\n','\u0378']:
+ policy=json.dumps(dict(version=1,checks={check:dict(trust_levels=['agent'],kinds=dict(wrapper=dict(command=['true'],shard_inputs=dict(count='n',results='r',index='i'))))}))
+ statement=json.dumps(dict(predicate=dict(tier='full',observed_at='2026-01-01T00:00:00Z',observed=dict(runner='wrapper',inputs=dict(i='0'),checks={check:dict(exit_code=0,command=['true'])}))))
+ failure=v['Failure']('no_record',eval(detail,dict(v,check=check)),attempts=1)
+ env=dict(v,failure=failure,args=types.SimpleNamespace(check=check))
+ cases.append(dict(name=list(map(ord,check)),policy=policy,statement=statement,detail=list(map(ord,failure.detail)),single=eval(dump('Failure',False),env),global_=eval(dump('Failure',True),env)))
+print(json.dumps(cases))
+"#, &root]).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(cases.len(), 6);
+    for case in cases {
+        let name: Vec<u32> = serde_json::from_value(case["name"].clone()).unwrap();
+        let rules = PolicyDocument::parse(case["policy"].as_str().unwrap(), name.as_slice())
+            .unwrap()
+            .into_rules("owner/repo")
+            .unwrap();
+        let document =
+            Document::from_bytes(case["statement"].as_str().unwrap().as_bytes()).unwrap();
+        let candidates = vec![Candidate {
+            commit: "a",
+            facts: DocumentFacts::for_check(&document, &name, "agent/key").unwrap(),
+        }];
+        let error = match Prepared::new(&rules, candidates, name.as_slice()) {
+            Ok(_) => panic!("expected shard-part no-record refusal"),
+            Err(error) => error,
+        };
+        assert_eq!(error.reason, "no_record");
+        assert_eq!(error.origin, ErrorOrigin::Failure);
+        assert_eq!(error.attempts, Some(1));
+        assert_eq!(
+            serde_json::json!(error.detail.borrowed().points().collect::<Vec<_>>()),
+            case["detail"]
+        );
+        let view = WireError::from_failure(&error, None, None);
+        let mut single = String::new();
+        legacy_output::write(&mut single, |w| view.write_json(name.as_slice().into(), w)).unwrap();
+        assert_eq!(single, case["single"]);
+        let mut global = String::new();
+        legacy_output::write(&mut global, |w| view.write_global(w)).unwrap();
+    }
+}
+
+#[test]
 fn lane_once_caches_success_and_absence_but_not_errors() {
     use std::{cell::Cell, rc::Rc};
     struct Source {
