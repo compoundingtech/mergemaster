@@ -28,6 +28,12 @@ impl<'a> CheckName<'a> {
             TextRef::Points(points) => points.into(),
         }
     }
+    pub(super) fn matches(self, points: &[u32]) -> bool {
+        match self.0 {
+            TextRef::Str(name) => name.chars().map(u32::from).eq(points.iter().copied()),
+            TextRef::Points(name) => name == points,
+        }
+    }
     pub(crate) fn entry(self, text: &str, group: &str) -> Result<Option<Value>, PolicyError> {
         let selection = match self.0 {
             TextRef::Str(name) => Selection::Scalar(name),

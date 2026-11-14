@@ -1,8 +1,5 @@
-//! Borrowed policy value facade over a parsed statement Document; the
-//! temporary bridge below is removed by the step-5 PolicyDocument ingress
-//! cutover slice, which feeds the Document from the original policy text.
+//! Borrowed views of the sole, lossless policy Document.
 use super::normalized_text::NormalizedText;
-use super::{PolicyError, invalid};
 use crate::evidence::legacy_verify::statement_document::{Document, Node};
 use indexmap::IndexMap;
 
@@ -18,7 +15,7 @@ impl<'a> Source<'a> {
             node: document.root(),
         }
     }
-    fn at(self, id: usize) -> Self {
+    pub(super) fn at(self, id: usize) -> Self {
         Self {
             document: self.document,
             node: self.document.node(id),
@@ -62,7 +59,7 @@ impl<'a> Source<'a> {
             _ => None,
         }
     }
-    /// Integer-only u64 view, matching the retained serde numeric bound.
+    /// Integer-only u64 view for bounded policy fields.
     pub(super) fn as_u64(self) -> Option<u64> {
         match self.node {
             Node::Integer(text) => text.parse().ok(),
@@ -86,7 +83,7 @@ impl<'a> Source<'a> {
         self.string_points()
             .is_some_and(|points| key_is(points, text))
     }
-    /// Scalar storage for bridge-sourced names; lone surrogates stay code points.
+    /// Lone surrogates remain code points, never replacement characters.
     pub(super) fn normalized(self) -> Option<NormalizedText> {
         self.string_points().map(NormalizedText::from_points)
     }
@@ -104,51 +101,4 @@ pub(super) fn names(source: Source) -> Option<Vec<NormalizedText>> {
         })
         .collect();
     names.filter(|names| !names.is_empty())
-}
-/// Re-encode the retained serde entry into a lossless Document (the bridge).
-pub(super) fn bridge(entry: &(impl serde::Serialize + ?Sized)) -> Result<Document, PolicyError> {
-    let text = serde_json::to_string(entry).map_err(|e| invalid(e.to_string()))?;
-    Document::from_bytes(text.as_bytes()).map_err(|error| invalid(format!("{error:?}")))
-}
-/// Transcode a bridged subtree back to serde values for modules that still
-/// consume them; removed with the bridge in the step-5 cutover slice.
-pub(super) fn to_value(source: Source) -> serde_json::Value {
-    fn text(points: &[u32]) -> String {
-        String::from_iter(
-            points
-                .iter()
-                .map(|&p| char::from_u32(p).unwrap_or(char::REPLACEMENT_CHARACTER)),
-        )
-    }
-    match source.node {
-        Node::Null => serde_json::Value::Null,
-        Node::Bool(value) => serde_json::Value::Bool(*value),
-        Node::Integer(text) => match text.parse::<i64>() {
-            Ok(value) => serde_json::Value::Number(value.into()),
-            Err(_) => match text.parse::<u64>() {
-                Ok(value) => serde_json::Value::Number(value.into()),
-                Err(_) => parse_float(text),
-            },
-        },
-        Node::Float(value) => serde_json::Number::from_f64(*value)
-            .map(serde_json::Value::Number)
-            .unwrap_or(serde_json::Value::Null),
-        Node::String(points) => serde_json::Value::String(text(points)),
-        Node::Array(items) => {
-            serde_json::Value::Array(items.iter().map(|id| to_value(source.at(*id))).collect())
-        }
-        Node::Object(entries) => serde_json::Value::Object(
-            entries
-                .iter()
-                .map(|(key, id)| (text(key), to_value(source.at(*id))))
-                .collect(),
-        ),
-    }
-}
-fn parse_float(text: &str) -> serde_json::Value {
-    text.parse::<f64>()
-        .ok()
-        .and_then(serde_json::Number::from_f64)
-        .map(serde_json::Value::Number)
-        .unwrap_or(serde_json::Value::Null)
 }

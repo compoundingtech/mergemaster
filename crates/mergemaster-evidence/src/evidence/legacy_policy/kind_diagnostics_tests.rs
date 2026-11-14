@@ -1,9 +1,9 @@
-use super::*;
 use crate::evidence::{
     legacy_output,
     legacy_policy::{ErrorOrigin, PolicyDocument},
     legacy_verify::failure_json::WireError,
 };
+use serde_json::Value;
 #[test]
 fn outer_kind_diagnostics_match_pinned_handlers_losslessly() {
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
