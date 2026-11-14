@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Reuse borrowed check codepoints across member aggregation and stream uncovered summaries without temporary per-member formatted strings or joined buffers.
 - Aggregate legacy member successes from original records: oldest metadata, weakest trust, maximum attempts, any input match, narrowed events and combined sampling key, with escaped sorted crate output.
 - Verify legacy members in sorted crate order with shared lazy-lane state, retaining original records and complete uncovered metadata while propagating uncaught exceptions globally.
 - Hide retained legacy record and selection fields from callers; expose immutable original-record access and complete borrowed views instead of mutable trust metadata.

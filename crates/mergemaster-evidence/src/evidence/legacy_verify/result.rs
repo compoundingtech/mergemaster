@@ -202,9 +202,12 @@ impl Retained {
         )
     }
     pub fn facts(&self, check: CheckName<'_>) -> Result<DocumentFacts<'_>, Failure> {
+        self.facts_points(&check.codepoints())
+    }
+    pub(super) fn facts_points(&self, check: &[u32]) -> Result<DocumentFacts<'_>, Failure> {
         DocumentFacts::for_check(
             &self.record.candidate.statement,
-            &check.codepoints(),
+            check,
             &self.record.principal,
         )
         .ok_or_else(super::invalid_statement_failure)
