@@ -139,3 +139,60 @@ print(json.dumps(results))
         );
     }
 }
+
+#[test]
+fn lane_and_declared_path_diagnostics_match_pinned_handlers_losslessly() {
+    use super::super::failure_json::{TextRef, WireError};
+    use crate::evidence::{legacy_output, legacy_policy::ErrorOrigin};
+    let cases = oracle(
+        r#"
+import ast,json,runpy,sys,types
+v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify')
+main=next(n for n in ast.parse(open(sys.argv[1]+'/scripts/evidence-verify').read()).body if isinstance(n,ast.FunctionDef) and n.name=='main')
+handler=next(n for n in ast.walk(main) if isinstance(n,ast.ExceptHandler) and isinstance(n.type,ast.Name) and n.type.id=='Failure')
+single=compile(ast.Expression(handler.body[1].value.args[0]),'<single>','eval')
+global_=compile(ast.Expression(handler.body[0].body[0].value.args[0]),'<global>','eval')
+cases=[]
+for name in ['check','\ud800','\udfff','😀','quote\'"\n','\u0378']:
+ def add(kind,value):
+  try:
+   if kind=='path': v['declared_paths'](value,name,selectors=True)
+   else: v['lane_rules'](value,name)
+  except v['Failure'] as failure:
+   env=dict(v,failure=failure,args=types.SimpleNamespace(check=name))
+   cases.append(dict(kind=kind,value=value,name=list(map(ord,name)),reason=failure.reason,detail=list(map(ord,failure.detail)),single=eval(single,env),global_=eval(global_,env)))
+  else: raise AssertionError('fixture must refuse')
+ for paths in [[],{},[None],['../bad'],['!../bad'],['x.yml::'],['x.yml::key'],['x.json::jobs.key'],['file::key'],['./bad'],['x\t'],['x"\''],['\u0378'],['x\\y'],['!other']]:
+  add('path',paths)
+ base=dict(argv=['run'],definition_paths=['src'])
+ for entry in [None,{},dict(argv=['run']),dict(base,extra=True),dict(base,argv=[]),dict(base,argv=[None]),dict(base,definition_paths=[]),dict(base,definition_paths=['.']),dict(base,definition_paths=['../bad']),dict(base,tree_inputs=['../bad']),dict(base,absent_paths=['.']),dict(base,ci_inputs=['!other']),dict(base,ci_inputs=['x.yaml::key'])]:
+  add('lane',json.dumps(dict(version=1,lanes={name:entry})))
+ add('lane',json.dumps(dict(version=1,lanes={})))
+print(json.dumps(cases))
+"#,
+        "[]",
+    );
+    let cases = cases.as_array().unwrap();
+    assert_eq!(cases.len(), 174);
+    for case in cases {
+        let name: Vec<u32> = serde_json::from_value(case["name"].clone()).unwrap();
+        let error = if case["kind"] == "path" {
+            declared_paths(&case["value"], &[TextRef::Points(&name)], true).unwrap_err()
+        } else {
+            LaneRules::parse(case["value"].as_str().unwrap(), name.as_slice()).unwrap_err()
+        };
+        assert_eq!(error.origin, ErrorOrigin::Failure);
+        assert_eq!(error.reason, case["reason"]);
+        assert_eq!(
+            json!(error.detail.borrowed().points().collect::<Vec<_>>()),
+            case["detail"]
+        );
+        let view = WireError::from_policy(&error);
+        let mut single = String::new();
+        legacy_output::write(&mut single, |w| view.write_json(name.as_slice().into(), w)).unwrap();
+        assert_eq!(single, case["single"]);
+        let mut global = String::new();
+        legacy_output::write(&mut global, |w| view.write_global(w)).unwrap();
+        assert_eq!(global, case["global_"]);
+    }
+}

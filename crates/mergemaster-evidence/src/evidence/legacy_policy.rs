@@ -4,7 +4,9 @@ pub mod kind_rules;
 pub mod level_rules;
 pub mod normalized_text;
 pub mod value_rules;
+use super::legacy_verify::{failure_json::TextRef, python_repr::Repr};
 use check_names::{CheckKey, CheckName, Selection};
+use normalized_text::NormalizedText;
 use serde::{
     Serialize,
     de::{self, DeserializeSeed, IgnoredAny, MapAccess, Visitor},
@@ -236,7 +238,7 @@ impl CheckHeader {
             None | Some(Value::Null) => None,
             Some(value) => Some(declared_paths(
                 &value,
-                format!("skip policy for {check}"),
+                &[TextRef::Str("skip policy for "), check.text()],
                 true,
             )?),
         };
@@ -389,13 +391,18 @@ fn short_path(path: &str) -> bool {
 /// Results are deduplicated and sorted; `where_` supplies diagnostic context.
 pub fn declared_paths(
     value: &Value,
-    where_: impl std::fmt::Display,
+    where_: &[TextRef<'_>],
     selectors: bool,
 ) -> Result<Vec<String>, PolicyError> {
     let error = |message: String| PolicyError {
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason: "error",
-        detail: format!("{where_}: {message}").into(),
+        detail: NormalizedText::concat(
+            where_
+                .iter()
+                .copied()
+                .chain([TextRef::Str(": "), TextRef::Str(&message)]),
+        ),
     };
     let values = value
         .as_array()
@@ -407,8 +414,13 @@ pub fn declared_paths(
             .as_str()
             .filter(|s| short_path(s))
             .ok_or_else(|| error("an input path is not a short string".into()))?;
-        let valid = if selectors && item.starts_with('!') {
-            literal_path(&item[1..])
+        if selectors && item.starts_with('!') {
+            if !literal_path(&item[1..]) {
+                return Err(error(format!(
+                    "excluded path {} must be relative, literal and without . or .. parts",
+                    Repr(TextRef::Str(item))
+                )));
+            }
         } else if selectors && let Some((path, selector)) = item.split_once("::") {
             let selector_valid = selector.split('.').all(|p| {
                 !p.is_empty()
@@ -416,15 +428,23 @@ pub fn declared_paths(
                         .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
             });
             let workflow = path.ends_with(".yml") || path.ends_with(".yaml");
-            literal_path(path)
-                && selector_valid
-                && workflow == selector.starts_with("jobs.")
-                && (workflow || path.ends_with(".json"))
-        } else {
-            item == "." || literal_path(item)
-        };
-        if !valid {
-            return Err(error(format!("invalid declared input {item:?}")));
+            if !literal_path(path) || !selector_valid {
+                return Err(error(format!(
+                    "input {} must be PATH::jobs.ID (a workflow) or PATH::KEY.KEY (a JSON file)",
+                    Repr(TextRef::Str(item))
+                )));
+            }
+            if workflow != selector.starts_with("jobs.") || !(workflow || path.ends_with(".json")) {
+                return Err(error(format!(
+                    "input {}: a .yml selects jobs.ID, a .json selects KEY.KEY",
+                    Repr(TextRef::Str(item))
+                )));
+            }
+        } else if item != "." && !literal_path(item) {
+            return Err(error(format!(
+                "input path {} must be relative, literal and without . or .. parts",
+                Repr(TextRef::Str(item))
+            )));
         }
         paths.push(item);
     }
@@ -442,7 +462,8 @@ pub fn declared_paths(
             })
         {
             return Err(error(format!(
-                "excluded path {item:?} is not under a declared path, so it leaves nothing out"
+                "excluded path {} is not under a declared path, so it leaves nothing out",
+                Repr(TextRef::Str(item))
             )));
         }
     }
@@ -789,7 +810,7 @@ print(json.dumps(results))
         for (case, expected) in cases.iter().zip(expected) {
             let actual = match declared_paths(
                 &case["value"],
-                "fixture",
+                &[TextRef::Str("fixture")],
                 case["selectors"].as_bool().unwrap(),
             ) {
                 Ok(paths) => json!({"paths":paths}),
