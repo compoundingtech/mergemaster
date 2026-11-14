@@ -889,6 +889,9 @@ Overflow refuses with `projection-output-too-large`; malformed output refuses wi
 The stdout/OID guard is an approved fail-closed resource divergence: pinned
 `scripts/evidence-verify:75` captures stdout without a byte cap. Git is a trusted
 environment binary; compliant write plumbing emits one OID, not arbitrary keys.
+`projection_process_error` supplies Python subprocess exception formatting for
+the replacement transport: errno/filename text and full lossless argv repr for
+timeouts. Its fixtures exercise missing executables and expired deadlines.
 
 ### Main-push tree-equality evidence
 
