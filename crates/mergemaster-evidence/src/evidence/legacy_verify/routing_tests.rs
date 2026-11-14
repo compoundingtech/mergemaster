@@ -91,3 +91,52 @@ print(json.dumps(cases))
         assert_eq!(actual, case["expected"], "{case}");
     }
 }
+
+#[test]
+fn policy_routes_always_supply_the_resolved_kind_and_level_inputs() {
+    let policy = PolicyDocument::parse(
+        r#"{"version":1,"checks":{"check":{"trust_levels":["agent","host"],
+        "kinds":{"wrapper":{"command":["true"],
+        "by_level":{"agent":{"command":["override"],"events":["pull_request"]}}}}}}}"#,
+        "check",
+    )
+    .unwrap()
+    .into_rules("owner/repo")
+    .unwrap();
+    let check = Check {
+        command: vec!["true".into()],
+        exit_code: 0,
+        output_sha256: String::new(),
+    };
+    let inputs = BTreeMap::new();
+    let doc = super::super::statement_document::Document::from_bytes(
+        br#"{"predicate":{"tier":"full","observed_at":"2026-01-01T00:00:00Z",
+        "observed":{"runner":"wrapper","checks":{"check":{"exit_code":0,"command":["true"]}}}}}"#,
+    )
+    .unwrap();
+    for (principal, expected, overridden) in [
+        ("agent/alice", "override", true),
+        ("host/alice", "true", false),
+    ] {
+        let native = route(
+            &policy,
+            &RecordFacts {
+                check_name: "check".into(),
+                tier: TrustTier::Full,
+                runner: "wrapper",
+                principal,
+                check: &check,
+                inputs: &inputs,
+            },
+            7,
+        )
+        .unwrap();
+        let facts = DocumentFacts::for_check(&doc, &[99, 104, 101, 99, 107], principal).unwrap();
+        let document = route_document(&policy, &facts, 7).unwrap();
+        for routing in [native, document] {
+            assert!(std::ptr::eq(routing.kind, &policy.kinds[0].1));
+            assert_eq!(routing.level.is_some(), overridden);
+            assert_eq!(routing.command_inputs.command, [expected]);
+        }
+    }
+}
