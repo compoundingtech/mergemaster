@@ -821,6 +821,13 @@ Approved resource-dependent divergence: CPython `json.loads` can raise
 `RecursionError` on nested `rust-test-inputs.json`, depending on stack/caller depth;
 Rust uses no fixed bound or emulation. A 100,000-depth ignored-metadata fixture
 accepts in Rust and pins Python's `RecursionError`.
+`crate_paths` assembles globals, all member manifests, patches, dependency closures
+and per-crate extras without encoding lossless paths. Unreviewed crates declare `.`.
+Approved diagnostic divergence: mixed non-string path elements that Python refuses
+with hash-seed-dependent sorting text refuse as `error` / Failure with
+`.st/rust-test-inputs.json: declared path is not a string`; acceptance is unchanged.
+Deterministic iteration/unhashable-element exceptions keep Python's class and text.
+Evidence: `tmp/crate-path-shapes/seed-results.json`.
 `records::read_statement` adds bounded Git capture and record layout/parent/subject
 checks (3f-3a), with `statement-too-large` distinct from malformed-record refusal.
 Missing subjects are allowed without lazy fetch. `records::RecordCache`
