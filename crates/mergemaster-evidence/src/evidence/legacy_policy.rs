@@ -50,7 +50,11 @@ impl<'a> PolicyDocument<'a> {
         let entry = self.entry.ok_or_else(|| PolicyError {
             origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
             reason: "no_policy",
-            detail: format!("the skip policy has no entry for check {}", self.check).into(),
+            detail: NormalizedText::around(
+                "the skip policy has no entry for check ",
+                self.check.text(),
+                "",
+            ),
         })?;
         CheckHeader::parse(entry, self.check)
     }
@@ -192,8 +196,24 @@ pub struct PolicyRules {
 impl CheckHeader {
     pub fn parse<'a>(entry: Value, check: impl Into<CheckName<'a>>) -> Result<Self, PolicyError> {
         let check = check.into();
-        let error = |message: &str| invalid(format!("skip policy for {check}: {message}"));
-        let shape = || error("needs kinds and trust_levels, and nothing unknown");
+        let error = |message: &str| {
+            invalid(NormalizedText::concat(
+                [
+                    TextRef::Str("skip policy for "),
+                    check.text(),
+                    TextRef::Str(": "),
+                    TextRef::Str(message),
+                ]
+                .into_iter(),
+            ))
+        };
+        let shape = || {
+            invalid(NormalizedText::around(
+                "skip policy for ",
+                check.text(),
+                " needs kinds and trust_levels, and nothing unknown",
+            ))
+        };
         let Value::Object(mut entry) = entry else {
             return Err(shape());
         };
@@ -215,13 +235,18 @@ impl CheckHeader {
         }
         let trust_levels = names(entry.remove("trust_levels").unwrap())
             .ok_or_else(|| error("trust_levels must be a nonempty list of names"))?;
-        let max_age_s =
-            match entry.remove("max_age_s") {
-                None | Some(Value::Null) => None,
-                Some(value) => Some(value.as_u64().filter(|v| *v > 0).ok_or_else(|| {
-                    error("max_age_s must be null or a positive integer within u64")
-                })?),
-            };
+        let max_age_s = match entry.remove("max_age_s") {
+            None | Some(Value::Null) => None,
+            Some(value) => Some(value.as_u64().filter(|v| *v > 0).ok_or_else(|| {
+                // Value has lost wide integer/float provenance; retain the existing bound.
+                let exceeds_u64 = value.as_f64().is_some_and(|v| v >= u64::MAX as f64);
+                error(if exceeds_u64 {
+                    "max_age_s must be null or a positive integer within u64"
+                } else {
+                    "max_age_s must be null or a positive integer"
+                })
+            })?),
+        };
         let enforce = entry
             .remove("enforce")
             .unwrap_or(Value::Bool(false))
@@ -484,6 +509,75 @@ fn literal_path(path: &str) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn policy_header_diagnostics_match_pinned_handlers_losslessly() {
+        use crate::evidence::{legacy_output, legacy_verify::failure_json::WireError};
+        let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
+        let output = std::process::Command::new("python3").args(["-c", r#"
+import ast,json,runpy,sys,types
+path=sys.argv[1]+'/scripts/evidence-verify';v=runpy.run_path(path)
+main=next(n for n in ast.parse(open(path).read()).body if isinstance(n,ast.FunctionDef) and n.name=='main')
+handler=next(n for n in ast.walk(main) if isinstance(n,ast.ExceptHandler) and isinstance(n.type,ast.Name) and n.type.id=='Failure')
+single=compile(ast.Expression(handler.body[1].value.args[0]),'<single>','eval')
+global_=compile(ast.Expression(handler.body[0].body[0].value.args[0]),'<global>','eval')
+cases=[]
+for name in ['check','\ud800','\udfff','😀','quote\'"\n','\u0378']:
+ base=dict(trust_levels=['agent'],kinds=dict(wrapper=dict(command=['run'])))
+ entries=[None,{},dict(kinds=base['kinds']),dict(trust_levels=['agent']),dict(base,unknown=True)]
+ for field,values in [('trust_levels',[[],['']]),('max_age_s',[0,-1,True,0.5,'x']),('enforce',[1]),('require',['bad']),('inputs',[[]]),('sample_one_in',[0,True]),('kinds',[{}]),('events',[[],['bad']])]:
+  entries.extend(dict(base,**{field:value}) for value in values)
+ for present,entry in [(False,None)]+[(True,entry) for entry in entries]+[(True,dict(base,max_age_s=2**64))]:
+  text=json.dumps(dict(version=1,checks={name:entry} if present else {}))
+  try: v['policy_rules'](text,name,'org/repo')
+  except v['Failure'] as failure:
+   env=dict(v,failure=failure,args=types.SimpleNamespace(check=name))
+   cases.append(dict(text=text,name=list(map(ord,name)),reason=failure.reason,detail=list(map(ord,failure.detail)),single=eval(single,env),global_=eval(global_,env)))
+  else:
+   assert entry['max_age_s']==2**64
+   cases.append(dict(text=text,name=list(map(ord,name)),u64_divergence=True))
+print(json.dumps(cases))
+"#, &root]).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(cases.len(), 132);
+        let mut divergences = 0;
+        for case in cases {
+            let name: Vec<u32> = serde_json::from_value(case["name"].clone()).unwrap();
+            let error = PolicyDocument::parse(case["text"].as_str().unwrap(), name.as_slice())
+                .unwrap()
+                .into_header()
+                .unwrap_err();
+            assert_eq!(error.origin, ErrorOrigin::Failure);
+            let detail: Vec<u32> = error.detail.borrowed().points().collect();
+            if case["u64_divergence"] == true {
+                assert_eq!(error.reason, "error");
+                let expected = NormalizedText::around(
+                    "skip policy for ",
+                    TextRef::Points(&name),
+                    ": max_age_s must be null or a positive integer within u64",
+                );
+                assert_eq!(error.detail, expected);
+                divergences += 1;
+                continue;
+            }
+            assert_eq!(error.reason, case["reason"]);
+            assert_eq!(json!(detail), case["detail"]);
+            let view = WireError::from_policy(&error);
+            let mut single = String::new();
+            legacy_output::write(&mut single, |w| view.write_json(name.as_slice().into(), w))
+                .unwrap();
+            assert_eq!(single, case["single"]);
+            let mut global = String::new();
+            legacy_output::write(&mut global, |w| view.write_global(w)).unwrap();
+            assert_eq!(global, case["global_"]);
+        }
+        assert_eq!(divergences, 6);
+    }
 
     #[test]
     fn command_and_base_inputs_match_the_oracle() {

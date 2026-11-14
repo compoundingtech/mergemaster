@@ -5,7 +5,7 @@ use super::{
 };
 use crate::{
     evidence::{
-        legacy_policy::{PolicyError, check_names::CheckName},
+        legacy_policy::{PolicyError, check_names::CheckName, normalized_text::NormalizedText},
         oid,
     },
     gate::git::git,
@@ -218,7 +218,11 @@ pub fn lane_for<'a>(
             return Err(PolicyError {
                 origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                 reason: "definition_changed",
-                detail: format!("lane {check} differs from the branch point").into(),
+                detail: NormalizedText::around(
+                    "lane ",
+                    check.text(),
+                    " in .st/required-lanes.json differs between the branch point and the accepted base",
+                ),
             });
         }
         definition_base = base;
