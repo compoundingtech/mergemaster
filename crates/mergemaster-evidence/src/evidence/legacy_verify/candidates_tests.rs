@@ -54,9 +54,13 @@ fn candidate_prelude_matches_python() {
                 let Levels::Policy(accepted) = prepared.accepted_levels() else {
                     unreachable!()
                 };
+                let mut accepted: Vec<String> = accepted.iter().map(|a| a.to_string()).collect();
+                // The oracle reports sorted(set(...)); model set semantics here.
+                accepted.sort();
+                accepted.dedup();
                 json!({"commits":prepared.candidates.iter().map(|c| c.commit).collect::<Vec<_>>(),
                 "attempts":prepared.attempts(),
-                "accepted":accepted.iter().map(|a| a.to_string()).collect::<Vec<_>>()})
+                "accepted":accepted})
             }
             Err(failure) => {
                 json!({"reason":failure.reason,"detail":failure.detail,"attempts":failure.attempts})

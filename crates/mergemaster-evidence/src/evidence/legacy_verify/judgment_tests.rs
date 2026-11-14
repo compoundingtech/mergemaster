@@ -216,7 +216,7 @@ print(json.dumps(cases))
         String::from_utf8_lossy(&output.stderr)
     );
     let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
-    // A lane-provider Failure surfaces with the ambient attempts count.
+    // A lane-provider Failure surfaces without attempts metadata.
     struct FailingLane;
     impl Provider for FailingLane {
         fn level_lane(&mut self) -> Result<Option<&LaneDefinition>, PolicyError> {
@@ -250,7 +250,7 @@ print(json.dumps(cases))
     .err()
     .unwrap();
     assert_eq!(error.reason, "error");
-    assert_eq!(error.attempts, Some(3));
+    assert_eq!(error.attempts, None);
     assert_eq!(error.detail, "lane provider refused");
     for case in cases {
         let name: Vec<u32> = serde_json::from_value(case["name"].clone()).unwrap();
