@@ -133,3 +133,15 @@ fn sharing_retains_nested_values_and_surrogate_keys() {
     };
     assert_eq!(a.as_ptr(), b.as_ptr());
 }
+
+#[test]
+fn policy_depth_parameter_preserves_the_statement_default() {
+    for depth in [128, 129, 256, 257] {
+        let text = format!("{}0{}", "[".repeat(depth), "]".repeat(depth));
+        assert_eq!(
+            Document::from_bytes(text.as_bytes()).is_ok(),
+            depth <= MAX_CONTAINER_DEPTH
+        );
+        assert!(Document::from_bytes_with_depth_limit(text.as_bytes(), None).is_ok());
+    }
+}

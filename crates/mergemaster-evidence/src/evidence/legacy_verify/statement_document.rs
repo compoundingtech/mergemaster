@@ -71,6 +71,14 @@ impl Document {
         &self.nodes[id]
     }
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        Self::from_bytes_with_depth_limit(bytes, Some(MAX_CONTAINER_DEPTH))
+    }
+    /// Policy ingress has no fixed depth cap; statement callers retain 256.
+    /// Parsing and drop use flat node IDs, never recursive containers.
+    pub fn from_bytes_with_depth_limit(
+        bytes: &[u8],
+        max_depth: Option<usize>,
+    ) -> Result<Self, Error> {
         let tokens = Tokens::from_bytes(bytes).ok_or(Error::Encoding)?;
         let mut nodes = Vec::new();
         let mut stack: Vec<Frame> = Vec::new();
@@ -135,7 +143,7 @@ impl Document {
                 _ => return Err(Error::Invalid),
             };
             let container = matches!(node, Node::Array(_) | Node::Object(_));
-            if container && stack.len() >= MAX_CONTAINER_DEPTH {
+            if container && max_depth.is_some_and(|limit| stack.len() >= limit) {
                 return Err(Error::NestingLimit);
             }
             let id = nodes.len();

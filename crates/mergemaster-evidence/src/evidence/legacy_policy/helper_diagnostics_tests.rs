@@ -119,3 +119,35 @@ print(json.dumps(cases))
         );
     }
 }
+
+#[test]
+fn full_policy_consumers_are_stack_safe_at_five_million_depth() {
+    // Explicit divergence: Python's resource-dependent RecursionError around
+    // depth 51.9k is not reproduced. Policy ingress keeps Rust's prior acceptance.
+    for depth in [128, 129, 256, 257, 5_000_000] {
+        let ignored = format!("{}0{}", "[".repeat(depth - 2), "]".repeat(depth - 2));
+        let text = serde_json::json!({"version":1,"checks":{"ignored":"DEPTH",
+        "check":{"trust_levels":["agent"],"inputs":["."],"kinds":{"wrapper":{
+            "command":["run"],"required_inputs":["x"],"bind_inputs":{"x":"path"},
+            "base_inputs":{"base":"path"},"input_order":{"rank":["a","b"]}
+        }}}}})
+        .to_string()
+        .replacen("\"DEPTH\"", &ignored, 1);
+        let names = check_names::sorted(&text).unwrap();
+        assert_eq!(
+            names,
+            ["check", "ignored"].map(|s| s.chars().map(u32::from).collect::<Vec<_>>())
+        );
+        let header = PolicyDocument::parse(&text, "check")
+            .unwrap()
+            .into_header()
+            .unwrap();
+        assert_eq!(header.trust_levels, ["agent"]);
+        let rules = PolicyDocument::parse(&text, "check")
+            .unwrap()
+            .into_rules("org/repo")
+            .unwrap();
+        assert_eq!(rules.kinds.len(), 1);
+        assert_eq!(rules.kinds[0].1.inputs.command, ["run"]);
+    }
+}
