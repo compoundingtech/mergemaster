@@ -383,34 +383,31 @@ pub fn checked_command_inputs(
     rule: &mut Map<String, Value>,
     where_: &[TextRef<'_>],
 ) -> Result<CommandInputs, PolicyError> {
+    // Temporary bridge; removed by the step-5 PolicyDocument ingress cutover.
+    let document = value_source::bridge(rule)?;
+    command_source(value_source::Source::root(&document), where_)
+}
+fn command_source(
+    rule: value_source::Source<'_>,
+    where_: &[TextRef<'_>],
+) -> Result<CommandInputs, PolicyError> {
     let error = |message: &str| rule_error(where_, message);
-    let command = names(
-        rule.remove("command")
+    let command = value_source::names(
+        rule.get("command")
             .ok_or_else(|| exception("KeyError", "'command'"))?,
     )
     .ok_or_else(|| error("command must be a nonempty list of strings"))?;
     let malformed = || error("malformed required_inputs or bind_inputs");
-    let required_inputs = string_list(
-        rule.remove("required_inputs")
-            .unwrap_or(Value::Array(Vec::new())),
-    )
-    .ok_or_else(malformed)?
-    .into_iter()
-    .map(normalized_text::NormalizedText::Scalar)
-    .collect();
-    let bind_inputs = string_map(
-        rule.remove("bind_inputs")
-            .unwrap_or(Value::Object(Map::new())),
-    )
-    .ok_or_else(malformed)?
-    .into_iter()
-    .map(|(key, path)| (key.into(), path.into()))
-    .collect();
+    let required_inputs = rule
+        .get("required_inputs")
+        .map_or_else(|| Some(Vec::new()), source_strings)
+        .ok_or_else(malformed)?;
+    let bind_inputs = rule
+        .get("bind_inputs")
+        .map_or_else(|| Some(Vec::new()), source_pairs)
+        .ok_or_else(malformed)?;
     Ok(CommandInputs {
-        command: command
-            .into_iter()
-            .map(normalized_text::NormalizedText::Scalar)
-            .collect(),
+        command,
         required_inputs,
         bind_inputs,
     })
@@ -421,18 +418,29 @@ pub fn checked_base_inputs(
     rule: &mut Map<String, Value>,
     where_: &[TextRef<'_>],
 ) -> Result<Vec<(normalized_text::NormalizedText, String)>, PolicyError> {
-    let base = string_map(
-        rule.remove("base_inputs")
-            .unwrap_or(Value::Object(Map::new())),
-    )
-    .ok_or_else(|| rule_error(where_, "base_inputs maps an input name to a path"))?;
+    // Temporary bridge; removed by the step-5 PolicyDocument ingress cutover.
+    let document = value_source::bridge(rule)?;
+    base_source(value_source::Source::root(&document), where_)
+}
+fn base_source(
+    rule: value_source::Source<'_>,
+    where_: &[TextRef<'_>],
+) -> Result<Vec<(NormalizedText, String)>, PolicyError> {
+    let base = rule
+        .get("base_inputs")
+        .map_or_else(|| Some(Vec::new()), source_pairs)
+        .ok_or_else(|| rule_error(where_, "base_inputs maps an input name to a path"))?;
     for (_, path) in &base {
-        let detail = if !short_path(path) {
+        let scalar: Option<String> = path.borrowed().points().map(char::from_u32).collect();
+        let detail = if path.borrowed().points().nth(300).is_some() {
             Some("base_inputs: an input path is not a short string".into())
-        } else if path != "." && !literal_path(path) {
+        } else if scalar
+            .as_deref()
+            .is_none_or(|path| path != "." && !literal_path(path))
+        {
             Some(format!(
                 "base_inputs: input path {} must be relative, literal and without . or .. parts",
-                Repr(TextRef::Str(path))
+                Repr(path.borrowed())
             ))
         } else {
             None
@@ -443,19 +451,30 @@ pub fn checked_base_inputs(
     }
     Ok(base
         .into_iter()
-        .map(|(key, path)| (normalized_text::NormalizedText::Scalar(key), path))
+        .map(|(key, path)| (key, path.to_string()))
         .collect())
 }
 
-fn string_map(value: Value) -> Option<Vec<(String, String)>> {
-    let Value::Object(values) = value else {
-        return None;
-    };
-    values
-        .into_iter()
-        .map(|(key, value)| match value {
-            Value::String(value) if !key.is_empty() && !value.is_empty() => Some((key, value)),
-            _ => None,
+fn source_strings(value: value_source::Source<'_>) -> Option<Vec<NormalizedText>> {
+    value
+        .array()?
+        .map(|item| {
+            item.normalized()
+                .filter(|text| text.borrowed().points().next().is_some())
+        })
+        .collect()
+}
+fn source_pairs(value: value_source::Source<'_>) -> Option<Vec<(NormalizedText, NormalizedText)>> {
+    value
+        .entries()?
+        .map(|(key, value)| {
+            if key.is_empty() {
+                return None;
+            }
+            let text = value
+                .normalized()
+                .filter(|text| text.borrowed().points().next().is_some())?;
+            Some((NormalizedText::from_points(key), text))
         })
         .collect()
 }
