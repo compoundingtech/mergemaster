@@ -804,6 +804,12 @@ typed TOML values; non-table dependency specs remain ignored as in the oracle.
 Approved diagnostic divergence: uncaught manifest-operation exceptions retain the
 final `Class: message` and exit status, but Rust does not reproduce Python traceback
 frames. Their structured library origin remains Exception, not Failure.
+`crate_layout` discovers literal and terminal-`/*` workspace members and patch paths.
+Approved acceptance narrowing: a present non-string `package.name` refuses with
+`error` / Failure and `<manifest path>: package.name is not a string`.
+Cargo rejects such manifests; Python's mixed-key collisions, NaN identity and
+sorting behaviour are deliberately not reproduced. This text has no Python-parity
+claim. Oracle evidence: `tmp/crate-shape-oracle/key-identity.json`.
 `records::read_statement` adds bounded Git capture and record layout/parent/subject
 checks (3f-3a), with `statement-too-large` distinct from malformed-record refusal.
 Missing subjects are allowed without lazy fetch. `records::RecordCache`

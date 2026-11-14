@@ -1,0 +1,67 @@
+use super::*;
+use serde_json::{Value as Json, json};
+#[test]
+fn layout_and_type_confusion_match_oracle_except_approved_names() {
+    let script = r#"
+import importlib.machinery,importlib.util,json,pathlib,subprocess,sys,tomllib
+assert sys.version_info[:3]==(3,14,7)
+l=importlib.machinery.SourceFileLoader('keys',sys.argv[1]); spec=importlib.util.spec_from_loader('keys',l); m=importlib.util.module_from_spec(spec); l.exec_module(m)
+repo=pathlib.Path(sys.argv[2])
+def git(*args): return subprocess.check_output(['git','-C',str(repo),*args],stderr=subprocess.PIPE).decode().strip()
+git('init')
+values=['123','0','true','false','1.5','nan','1979-05-27','[]','[1]','["*"]','{}','{x=1}',"''","'x'"]
+samples=[]
+for field in ['name','package','workspace','members','patchpath','exclude']:
+ for token in values:
+  raw={'name':'[package]\nname='+token,'package':'package='+token,'workspace':'workspace='+token,'members':'[workspace]\nmembers='+token,'patchpath':'[patch.crates-io.lib]\npath='+token,'exclude':'[workspace]\nexclude='+token}[field]
+  samples.append((field,raw))
+samples += [('normal',s) for s in ['[workspace]\nmembers=["x"]','[workspace]\nmembers=["a/*"]','[workspace]\nmembers=["a/**"]','[workspace]\nmembers=["missing"]','[workspace]\nmembers=["x","x"]','[package]\nname="root"\n[workspace]\nmembers=["x"]','[workspace]\nmembers=["a/*"]\n[patch.crates-io]\nlib={path="a/../patch"}']]
+for i,(field,raw) in enumerate(samples):
+ d=repo/str(i); d.mkdir(); (d/'Cargo.toml').write_text(raw)
+ for path,name in [('x','x'),('a/x','x'),('a/y','y')]:
+  p=d/path; p.mkdir(parents=True); (p/'Cargo.toml').write_text('[package]\nname='+json.dumps(name))
+git('add','.'); tree=git('write-tree'); cases=[]
+for i,(field,raw) in enumerate(samples):
+ subtree=git('rev-parse',f'{tree}:{i}')
+ try:
+  members,patched,_=m.layout(repo,subtree); expected=dict(members=members,patched=patched)
+ except Exception as e: expected=dict(error=str(e),kind='Failure' if isinstance(e,m.Failure) else type(e).__name__)
+ approved=field=='name' and not isinstance(tomllib.loads(raw)['package']['name'],str)
+ if approved: expected=dict(error='Cargo.toml: package.name is not a string',kind='Failure')
+ cases.append(dict(tree=subtree,raw=raw,expected=expected,approved=approved))
+print(json.dumps(cases))
+"#;
+    let repo = tempfile::tempdir().unwrap();
+    let oracle = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/fractal/scripts/rust-test-keys");
+    let out = std::process::Command::new("python3")
+        .args(["-c", script])
+        .arg(oracle)
+        .arg(repo.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let cases: Vec<Json> = serde_json::from_slice(&out.stdout).unwrap();
+    for case in &cases {
+        let source = TreeSource {
+            repo: repo.path(),
+            tree: case["tree"].as_str().unwrap(),
+            no_lazy_fetch: true,
+        };
+        let actual = match source.layout() {
+            Ok(l) => {
+                json!({"members":l.members.into_iter().collect::<std::collections::BTreeMap<_,_>>(),"patched":l.patched})
+            }
+            Err(e) => {
+                json!({"error":e.detail.to_string(),"kind":match e.origin {crate::evidence::legacy_policy::ErrorOrigin::Failure=>"Failure",crate::evidence::legacy_policy::ErrorOrigin::Exception{class}=>class}})
+            }
+        };
+        assert_eq!(actual, case["expected"], "{case}");
+    }
+    assert_eq!(cases.len(), 91);
+    assert_eq!(cases.iter().filter(|c| c["approved"] == true).count(), 12);
+}
