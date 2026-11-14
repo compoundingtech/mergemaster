@@ -190,6 +190,29 @@ impl<'de> Visitor<'de> for KeyVisitor {
 mod tests {
     use super::*;
     use serde_json::json;
+    // Tagged values preserve every JSON type and lone-surrogate key/string point.
+    fn lossless(source: super::super::value_source::Source<'_>) -> Value {
+        use crate::evidence::legacy_verify::statement_document::Node;
+        match source.node() {
+            Node::Null => json!(["null"]),
+            Node::Bool(value) => json!(["bool", value]),
+            Node::Integer(decimal) => json!(["int", decimal]),
+            Node::Float(value) => json!(["float", value.to_bits()]),
+            Node::String(points) => json!(["str", points]),
+            Node::Array(_) => json!([
+                "list",
+                source.array().unwrap().map(lossless).collect::<Vec<_>>()
+            ]),
+            Node::Object(_) => json!([
+                "dict",
+                source
+                    .entries()
+                    .unwrap()
+                    .map(|(key, value)| json!([key, lossless(value)]))
+                    .collect::<Vec<_>>()
+            ]),
+        }
+    }
     #[test]
     fn policy_names_match_python_codepoints_and_selection() {
         let mut cases: Vec<String> = [
@@ -205,6 +228,7 @@ mod tests {
             r#"{"version":1,"checks":{"x":1,}}"#,
             r#"{"version":1,"checks":{"\ud800":1}} trailing"#,
             r#"{"version":1,"checks":{"a\\":1,"a\"b":2}}"#,
+            r#"{"version":1,"checks":{"selected":{"\ud800":["\udfff","\ud83d\ude00",null,true,false,123456789012345678901234567890,-0.0,1.5],"\u0000":{"duplicate":1,"duplicate":2},"empty":{}}}}"#,
         ].into_iter().map(str::to_owned).collect();
         for point in 0..0x20 {
             cases.push(format!(
@@ -216,8 +240,16 @@ mod tests {
             ));
         }
         let script = r#"
-import json,runpy,sys
+import json,runpy,struct,sys
 v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify')
+def lossless(value):
+ if value is None: return ['null']
+ if isinstance(value,bool): return ['bool',value]
+ if isinstance(value,int): return ['int',str(value)]
+ if isinstance(value,float): return ['float',struct.unpack('>Q',struct.pack('>d',value))[0]]
+ if isinstance(value,str): return ['str',[ord(c) for c in value]]
+ if isinstance(value,list): return ['list',[lossless(v) for v in value]]
+ return ['dict',[[[ord(c) for c in k],lossless(v)] for k,v in value.items()]]
 out=[]
 for text in json.load(sys.stdin):
  try:
@@ -229,7 +261,7 @@ for text in json.load(sys.stdin):
   for k in names:
    value=d['checks'][k]
    # Unselected huge floats are syntax-checked only by the Rust parser.
-   values.append(None if isinstance(value,float) else value)
+   values.append(None if isinstance(value,float) else lossless(value))
   out.append({'names':[[ord(c) for c in k] for k in names],'values':values})
  except ValueError: out.append(None)
 print(json.dumps(out))
@@ -268,17 +300,11 @@ print(json.dumps(out))
                     continue;
                 }
                 let policy = selected(text, name).unwrap().unwrap();
-                if expected["values"][index].is_object() {
-                    let actual = policy.into_rules("org/repo").unwrap();
-                    assert_eq!(serde_json::to_value(actual).unwrap()["require"], "off");
-                } else {
-                    assert!(
-                        matches!(policy.source().unwrap().node(),
-                        crate::evidence::legacy_verify::statement_document::Node::Integer(decimal)
-                        if expected["values"][index].as_i64().is_some_and(|n| decimal.parse::<i64>() == Ok(n))),
-                        "{text}"
-                    );
-                }
+                assert_eq!(
+                    lossless(policy.source().unwrap()),
+                    expected["values"][index],
+                    "{text}"
+                );
             }
             assert!(selected(text, &[0x10ffff]).unwrap().is_none());
         }
