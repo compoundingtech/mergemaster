@@ -193,7 +193,10 @@ fn lane_once_caches_success_and_absence_but_not_errors() {
                 Ok(self.lane.as_ref())
             }
         }
-        fn blob_sha256(&mut self, _: &std::path::Path) -> Result<Option<String>, PolicyError> {
+        fn blob_sha256(
+            &mut self,
+            _: crate::evidence::legacy_verify::judgment::BindingPath<'_>,
+        ) -> Result<Option<String>, PolicyError> {
             self.calls.set(self.calls.get() + 1);
             Ok(None)
         }
@@ -222,8 +225,16 @@ fn lane_once_caches_success_and_absence_but_not_errors() {
             }
         }
         assert_eq!(calls.get(), if mode == 1 { 3 } else { 1 });
-        provider.blob_sha256(std::path::Path::new("a")).unwrap();
-        provider.blob_sha256(std::path::Path::new("a")).unwrap();
+        provider
+            .blob_sha256(super::super::judgment::BindingPath::Native(
+                std::path::Path::new("a"),
+            ))
+            .unwrap();
+        provider
+            .blob_sha256(super::super::judgment::BindingPath::Native(
+                std::path::Path::new("a"),
+            ))
+            .unwrap();
         assert_eq!(calls.get(), if mode == 1 { 5 } else { 3 });
     }
 }

@@ -80,7 +80,10 @@ print(json.dumps(fixtures))
         fn level_lane(&mut self) -> Result<Option<&LaneDefinition>, PolicyError> {
             panic!("no lane required")
         }
-        fn blob_sha256(&mut self, _: &std::path::Path) -> Result<Option<String>, PolicyError> {
+        fn blob_sha256(
+            &mut self,
+            _: crate::evidence::legacy_verify::judgment::BindingPath<'_>,
+        ) -> Result<Option<String>, PolicyError> {
             panic!("no bindings")
         }
     }

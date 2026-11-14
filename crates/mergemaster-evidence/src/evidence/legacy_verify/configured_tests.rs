@@ -84,7 +84,10 @@ print(json.dumps(cases))
         fn level_lane(&mut self) -> Result<Option<&LaneDefinition>, PolicyError> {
             panic!("require_all has no level_lane callback")
         }
-        fn blob_sha256(&mut self, _: &Path) -> Result<Option<String>, PolicyError> {
+        fn blob_sha256(
+            &mut self,
+            _: crate::evidence::legacy_verify::judgment::BindingPath<'_>,
+        ) -> Result<Option<String>, PolicyError> {
             panic!("fixture has no bound files")
         }
     }

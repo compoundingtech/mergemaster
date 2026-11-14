@@ -109,12 +109,16 @@ print(json.dumps(cases))
         fn level_lane(&mut self) -> Result<Option<&LaneDefinition>, PolicyError> {
             panic!("no policy-level lane")
         }
-        fn blob_sha256(&mut self, path: &Path) -> Result<Option<String>, PolicyError> {
+        fn blob_sha256(
+            &mut self,
+            path: crate::evidence::legacy_verify::judgment::BindingPath<'_>,
+        ) -> Result<Option<String>, PolicyError> {
+            let path = path.native(None)?;
             self.calls
                 .borrow_mut()
                 .push(hex::encode(path.as_os_str().as_bytes()));
             let mut object = OsString::from(format!("{}:", self.tree));
-            object.push(path);
+            object.push(path.as_os_str());
             let output = command("git", self.home)
                 .arg("-C")
                 .arg(self.repo)
