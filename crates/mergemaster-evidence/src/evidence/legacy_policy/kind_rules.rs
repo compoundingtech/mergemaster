@@ -4,9 +4,10 @@ use super::level_rules::{LevelRule, checked_levels, fill, normalized};
 use super::normalized_text::NormalizedText;
 use super::value_rules::{ValueRules, checked_value_rules};
 use super::{
-    CommandInputs, PolicyError, checked_base_inputs, checked_command_inputs, invalid, names,
+    CommandInputs, PolicyError, checked_base_inputs, checked_command_inputs, exception, invalid,
+    names, rule_error,
 };
-use crate::evidence::legacy_verify::failure_json::TextRef;
+use crate::evidence::legacy_verify::{failure_json::TextRef, python_repr::Repr};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -34,8 +35,10 @@ pub fn checked_kinds<'a>(
         .into_iter()
         .map(|(kind, raw)| {
             let error = || {
-                invalid(format!(
-                    "skip policy for {check}/{kind}: invalid kind or level rule"
+                invalid(NormalizedText::around(
+                    "skip policy for ",
+                    check.text(),
+                    &format!(": kind {} is not valid", Repr(TextRef::Str(&kind))),
                 ))
             };
             if !matches!(kind.as_str(), "nix" | "wrapper" | "sekrets" | "observed") {
@@ -67,14 +70,22 @@ pub fn checked_kinds<'a>(
             let base_inputs = checked_base_inputs(&mut rule, &where_)?;
             let trust_levels = match rule.remove("trust_levels") {
                 None | Some(Value::Null) => None,
-                Some(value) => Some(names(value).ok_or_else(error)?),
+                Some(value) => Some(names(value).ok_or_else(|| {
+                    rule_error(&where_, "trust_levels must be a nonempty list of names")
+                })?),
             };
             let runner_prefix = match rule.remove("runner_prefix") {
                 None | Some(Value::Null) => None,
                 Some(Value::String(value)) if !value.is_empty() => {
                     Some(fill(NormalizedText::Scalar(value), repository, check))
                 }
-                _ => return Err(error()),
+                _ => return Err(rule_error(&where_, "malformed runner_prefix")),
+            };
+            let attribute = |kind| {
+                exception(
+                    "AttributeError",
+                    format!("'{kind}' object has no attribute 'items'"),
+                )
             };
             let overrides = match rule.remove("by_level").unwrap_or(Value::Null) {
                 Value::Object(map) => map,
@@ -82,7 +93,12 @@ pub fn checked_kinds<'a>(
                 Value::String(s) if s.is_empty() => Map::new(),
                 Value::Array(a) if a.is_empty() => Map::new(),
                 Value::Number(n) if n.as_f64() == Some(0.0) => Map::new(),
-                _ => return Err(error()),
+                Value::Bool(true) => return Err(attribute("bool")),
+                Value::Number(n) => {
+                    return Err(attribute(if n.is_f64() { "float" } else { "int" }));
+                }
+                Value::String(_) => return Err(attribute("str")),
+                Value::Array(_) => return Err(attribute("list")),
             };
             let by_level = checked_levels(
                 overrides,
@@ -105,6 +121,10 @@ pub fn checked_kinds<'a>(
         })
         .collect()
 }
+
+#[cfg(test)]
+#[path = "kind_diagnostics_tests.rs"]
+mod diagnostics_tests;
 
 #[cfg(test)]
 mod tests {
