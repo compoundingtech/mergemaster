@@ -683,8 +683,9 @@ exceptions still propagate while missing files read as absent.
 Value-rule, shard and base-input payload names ride the widened normalized text
 storage, so surrogate-escaped policy keys stay lossless end to end; their scalar
 source conversion still comes from the retained serde path for now.
-Trust-level names in headers, kinds and by_level keys, plus selection accepted-level
-views, ride the same normalized text storage; their scalar source conversion still
+Header validation runs through a borrowed value facade over a lossless
+statement document; the retained serde entry is re-encoded into it as a
+temporary bridge, removed by the step-5 PolicyDocument ingress cutover.
 comes from the retained serde path for now.
 Nested surrogate payload keys/values still require lossless source decoding before
 full CLI parity; scalar payload fixtures do not claim that separate domain is ported.
