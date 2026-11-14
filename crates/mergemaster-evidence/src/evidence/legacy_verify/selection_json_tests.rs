@@ -1,6 +1,38 @@
 use super::select_json;
 use serde_json::{Value, json};
 #[test]
+fn lossless_selector_preserves_parse_before_lookup() {
+    use crate::evidence::legacy_verify::{value_inputs::TextRef, workflow::workflow_job};
+    let text = r#"{"é":{"😀":1},"":{"":2}}"#;
+    for selector in ["é.😀", ".", "missing", "é.missing"] {
+        let points: Vec<_> = selector.chars().map(u32::from).collect();
+        assert_eq!(
+            select_json(text, TextRef::Points(&points)).unwrap(),
+            select_json(text, selector).unwrap()
+        );
+    }
+    let surrogate = TextRef::Points(&[0xd800]);
+    assert_eq!(select_json(text, surrogate).unwrap(), None);
+    for invalid in ["not JSON", r#"{"other":"\ud800"}"#, r#"{"other":NaN}"#] {
+        let expected = select_json(invalid, "missing").unwrap_err();
+        let actual = select_json(invalid, surrogate).unwrap_err();
+        assert_eq!(actual.origin, expected.origin);
+        assert_eq!(actual.reason, expected.reason);
+        assert_eq!(actual.detail, expected.detail);
+    }
+    let workflow = "name: ci\njobs:\n  test:\n    runs-on: ubuntu-latest\n";
+    assert_eq!(
+        workflow_job(workflow, TextRef::Points(&[116, 101, 115, 116])).unwrap(),
+        workflow_job(workflow, "test").unwrap()
+    );
+    assert_eq!(workflow_job(workflow, surrogate).unwrap(), None);
+    let invalid = "jobs:\n    malformed\n";
+    let expected = workflow_job(invalid, "missing").unwrap_err();
+    let actual = workflow_job(invalid, surrogate).unwrap_err();
+    assert_eq!(actual.origin, expected.origin);
+    assert_eq!(actual.detail, expected.detail);
+}
+#[test]
 fn selected_json_matches_oracle_or_explicit_rejected_reason() {
     type Case = (
         String,
@@ -99,7 +131,7 @@ fn selected_json_matches_oracle_or_explicit_rejected_reason() {
     }
     let results: Vec<_> = cases
         .iter()
-        .map(|(text, key, _, _)| select_json(text, key))
+        .map(|(text, key, _, _)| select_json(text, *key))
         .collect();
     let actual: Vec<_> = results
         .iter()

@@ -1,4 +1,5 @@
 //! Generated-workflow text selection, not a general YAML parser.
+use super::value_inputs::TextRef;
 use crate::evidence::legacy_policy::PolicyError;
 use std::collections::{BTreeMap, BTreeSet};
 fn space(c: char) -> bool {
@@ -78,7 +79,11 @@ fn needs<'a>(lines: &[&'a str]) -> Vec<&'a str> {
     }
     Vec::new()
 }
-pub fn workflow_job(text: &str, job: &str) -> Result<Option<Vec<u8>>, PolicyError> {
+pub fn workflow_job<'a>(
+    text: &str,
+    job: impl Into<TextRef<'a>>,
+) -> Result<Option<Vec<u8>>, PolicyError> {
+    let job = job.into();
     let error = || PolicyError {
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason: "error",
@@ -118,9 +123,9 @@ pub fn workflow_job(text: &str, job: &str) -> Result<Option<Vec<u8>>, PolicyErro
             top.push(line);
         }
     }
-    if !jobs.contains_key(job) {
+    let Some(job) = jobs.keys().copied().find(|name| job.equals(name)) else {
         return Ok(None);
-    }
+    };
     let (mut wanted, mut queue) = (BTreeSet::new(), vec![job]);
     while let Some(name) = queue.pop() {
         if !wanted.insert(name) {
