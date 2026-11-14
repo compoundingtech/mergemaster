@@ -22,6 +22,7 @@ pub mod lanes;
 pub mod ordering;
 pub mod prefix;
 pub mod projection;
+pub mod projection_oid;
 pub mod projection_process_error;
 pub mod python_repr;
 pub mod raw_batch;
