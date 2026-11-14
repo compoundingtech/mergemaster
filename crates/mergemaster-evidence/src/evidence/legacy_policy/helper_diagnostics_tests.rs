@@ -152,3 +152,33 @@ fn full_policy_consumers_are_stack_safe_at_five_million_depth() {
         assert_eq!(rules.kinds[0].1.inputs.command, ["run"]);
     }
 }
+
+#[test]
+fn selected_payload_at_five_million_depth_is_stack_safe() {
+    let template = serde_json::json!({"version":1,"checks":{"check":{
+        "trust_levels":["agent"],"kinds":{"wrapper":{"command":"DEPTH"}}
+    }}})
+    .to_string();
+    let shallow = template.replace("\"DEPTH\"", "[[0]]");
+    let expected = PolicyDocument::parse(&shallow, "check")
+        .unwrap()
+        .into_rules("org/repo")
+        .unwrap_err();
+    let payload = format!("{}0{}", "[".repeat(5_000_000), "]".repeat(5_000_000));
+    let text = template.replace("\"DEPTH\"", &payload);
+    let document = Document::from_bytes_with_depth_limit(text.as_bytes(), None).unwrap();
+    let selected = Source::root(&document)
+        .get("checks")
+        .unwrap()
+        .get("check")
+        .unwrap();
+    let error = kind_rules::from_source(
+        selected.get("kinds").unwrap(),
+        &["agent".into()],
+        "org/repo",
+        "check".into(),
+    )
+    .unwrap_err();
+    assert_eq!(error, expected);
+    // The coupled ingress slice adds the real PolicyDocument consumer here.
+}
