@@ -18,6 +18,7 @@ use std::{
 const MAX_PROJECTION_OUTPUT: usize = 65;
 fn error(detail: impl ToString) -> PolicyError {
     PolicyError {
+        origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason: "error",
         detail: detail.to_string().into(),
     }
@@ -42,6 +43,7 @@ fn exchange(mut child: GitChild, bytes: &[u8]) -> Result<Vec<u8>, PolicyError> {
         .map_err(error)?;
     if output.len() > MAX_PROJECTION_OUTPUT {
         return Err(PolicyError {
+            origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
             reason: "projection-output-too-large",
             detail: "Git projection output exceeds 65 bytes".into(),
         });

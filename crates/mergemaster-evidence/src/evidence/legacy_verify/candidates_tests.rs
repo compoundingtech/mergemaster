@@ -115,6 +115,7 @@ fn lane_once_caches_success_and_absence_but_not_errors() {
             self.calls.set(self.calls.get() + 1);
             if self.mode == 1 {
                 Err(PolicyError {
+                    origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                     reason: "error",
                     detail: "lane refused".into(),
                 })

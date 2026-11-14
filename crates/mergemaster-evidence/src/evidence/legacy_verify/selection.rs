@@ -7,6 +7,7 @@ use crate::{
 use std::path::Path;
 fn error(detail: impl ToString) -> PolicyError {
     PolicyError {
+        origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason: "error",
         detail: detail.to_string().into(),
     }

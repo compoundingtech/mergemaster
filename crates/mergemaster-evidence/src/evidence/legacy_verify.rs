@@ -32,7 +32,7 @@ pub mod statement_tokens;
 pub mod trust;
 pub(crate) mod value_inputs;
 pub mod workflow;
-use super::legacy_policy::{kind_rules::KindRule, normalized_text::NormalizedText};
+use super::legacy_policy::{ErrorOrigin, kind_rules::KindRule, normalized_text::NormalizedText};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use value_inputs::{InputSource, TextRef};
@@ -42,9 +42,9 @@ pub struct Failure {
     pub reason: &'static str,
     pub detail: NormalizedText,
     pub attempts: usize,
-    /// Normalized non-Failure Python exception; aggregates must abort, not refuse a lane.
+    /// Explicit Python handler provenance; exceptions abort aggregates globally.
     #[serde(skip)]
-    pub exception: bool,
+    pub origin: ErrorOrigin,
 }
 impl std::fmt::Display for Failure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -53,12 +53,16 @@ impl std::fmt::Display for Failure {
 }
 impl std::error::Error for Failure {}
 impl Failure {
-    pub fn exception(detail: impl Into<NormalizedText>, attempts: usize) -> Self {
+    pub fn exception(
+        class: &'static str,
+        detail: impl Into<NormalizedText>,
+        attempts: usize,
+    ) -> Self {
         Self {
             reason: "error",
             detail: detail.into(),
             attempts,
-            exception: true,
+            origin: ErrorOrigin::Exception { class },
         }
     }
 }
@@ -96,7 +100,7 @@ fn value_checks_source(
     attempts: usize,
 ) -> Result<(), Failure> {
     let fail = |reason, key: &str| Failure {
-        exception: false,
+        origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason,
         detail: format!("input {key} does not cover this run").into(),
         attempts,

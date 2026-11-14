@@ -72,6 +72,7 @@ print(json.dumps(cases))
             self.calls.push(key.clone());
             if self.case["error"] == true {
                 return Err(PolicyError {
+                    origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                     reason: "record-budget-exceeded",
                     detail: "fixture transport refused".into(),
                 });

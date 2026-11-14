@@ -110,7 +110,7 @@ fn route_source<'a>(
     attempts: usize,
 ) -> Result<Option<Routing<'a>>, Failure> {
     let fail = |reason| Failure {
-        exception: false,
+        origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason,
         detail: format!("record from {} fails policy routing", record.runner).into(),
         attempts,
@@ -213,7 +213,7 @@ fn check_runner(
     });
     if !matches {
         return Err(Failure {
-            exception: false,
+            origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
             reason: "wrong_runner",
             detail: "record is for a different repository or producer".into(),
             attempts,

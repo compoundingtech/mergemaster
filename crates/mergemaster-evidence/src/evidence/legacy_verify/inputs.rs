@@ -6,7 +6,7 @@ use super::{
     value_checks_source,
     value_inputs::{InputSource, TextRef},
 };
-use crate::evidence::legacy_policy::{PolicyError, PolicyRules};
+use crate::evidence::legacy_policy::{PolicyRules, normalized_text::NormalizedText};
 use chrono::{DateTime, FixedOffset, SubsecRound, Utc};
 use std::collections::BTreeMap;
 
@@ -14,42 +14,48 @@ pub struct Clock {
     pub observed_at: DateTime<FixedOffset>,
     pub now: DateTime<Utc>,
 }
+/// A clock failure is always a non-Failure exception with an explicit class.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ClockException {
+    pub class: &'static str,
+    pub detail: NormalizedText,
+}
 /// Sample only when a document judgment reaches its time guards.
 /// Sampling errors model non-Failure Python exceptions, not policy refusals.
 pub trait CurrentTime {
-    fn epoch_micros(&mut self) -> Result<i64, PolicyError>;
+    fn epoch_micros(&mut self) -> Result<i64, ClockException>;
 }
 impl CurrentTime for Clock {
-    fn epoch_micros(&mut self) -> Result<i64, PolicyError> {
+    fn epoch_micros(&mut self) -> Result<i64, ClockException> {
         Ok(self.now.timestamp_micros())
     }
 }
 impl CurrentTime for i64 {
-    fn epoch_micros(&mut self) -> Result<i64, PolicyError> {
+    fn epoch_micros(&mut self) -> Result<i64, ClockException> {
         Ok(*self)
     }
 }
 pub struct SystemClock;
 impl CurrentTime for SystemClock {
-    fn epoch_micros(&mut self) -> Result<i64, PolicyError> {
+    fn epoch_micros(&mut self) -> Result<i64, ClockException> {
         system_epoch_micros(std::time::SystemTime::now())
     }
 }
 pub(super) fn sample(clock: &mut dyn CurrentTime, attempts: usize) -> Result<i64, Failure> {
     clock
         .epoch_micros()
-        .map_err(|error| Failure::exception(error.detail, attempts))
+        .map_err(|error| Failure::exception(error.class, error.detail, attempts))
 }
 /// Convert without chrono's panicking SystemTime conversion; Python datetime years are 1..9999.
-pub(super) fn system_epoch_micros(now: std::time::SystemTime) -> Result<i64, PolicyError> {
+pub(super) fn system_epoch_micros(now: std::time::SystemTime) -> Result<i64, ClockException> {
     let nanos = match now.duration_since(std::time::UNIX_EPOCH) {
         Ok(duration) => duration.as_nanos() as i128,
         Err(error) => -(error.duration().as_nanos() as i128),
     };
     let micros = nanos.div_euclid(1_000);
     if !(-62_135_596_800_000_000..=253_402_300_799_999_999).contains(&micros) {
-        return Err(PolicyError {
-            reason: "error",
+        return Err(ClockException {
+            class: "OverflowError",
             detail: "system clock outside Python datetime range".into(),
         });
     }
@@ -224,13 +230,14 @@ fn check_inputs_source(
     attempts: usize,
 ) -> Result<(), Failure> {
     let fail = |reason, detail: &str| Failure {
-        exception: false,
+        origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason,
         detail: detail.into(),
         attempts,
     };
     if clock.future().map_err(|()| {
         Failure::exception(
+            "OverflowError",
             "current UTC clock exceeds the legacy datetime range",
             attempts,
         )
@@ -243,6 +250,7 @@ fn check_inputs_source(
     if let Some(age) = guards.age {
         let AgeLimit::Seconds(seconds) = age else {
             return Err(Failure::exception(
+                "OverflowError",
                 "max_age_s exceeds the legacy duration range",
                 attempts,
             ));
@@ -250,6 +258,7 @@ fn check_inputs_source(
         // Python timedelta caps its day count; do not accept what its verifier aborts.
         if seconds >= 86_400_000_000_000 {
             return Err(Failure::exception(
+                "OverflowError",
                 "max_age_s exceeds the legacy duration range",
                 attempts,
             ));
@@ -261,7 +270,7 @@ fn check_inputs_source(
     for key in guards.required {
         if inputs.get(key).is_none_or(|value| value.len() == 0) {
             return Err(Failure {
-                exception: false,
+                origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                 reason: "missing_input",
                 detail: format!("record lacks required input {key}").into(),
                 attempts,

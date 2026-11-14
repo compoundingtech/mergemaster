@@ -52,9 +52,10 @@ print(json.dumps(cases))
             reason: "fixture",
             detail: NormalizedText::Codepoints(case.detail),
             attempts: 0,
-            exception: false,
+            origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         };
         let policy = PolicyError {
+            origin: failure.origin,
             reason: failure.reason,
             detail: failure.detail,
         };

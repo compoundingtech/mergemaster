@@ -1,4 +1,8 @@
 use super::*;
+use crate::evidence::{
+    legacy_policy::{ErrorOrigin, normalized_text::NormalizedText},
+    legacy_verify::inputs::ClockException,
+};
 use serde_json::{Value, json};
 
 #[test]
@@ -58,7 +62,7 @@ for fmt in ['sha1','sha256']:
    @classmethod
    def now(cls,tz):
     cls.calls+=1
-    if cls.calls==2: raise OverflowError('clock refused')
+    if cls.calls==2: raise ValueError('\ud800OverflowError: not its class')
     return original(2026,1,1,0,1,tzinfo=tz)
   if name=='clock-exception': namespace['datetime']=Sample
   def verify(text):
@@ -67,7 +71,8 @@ for fmt in ['sha1','sha256']:
     result['lanes']=[[list(map(ord,point)),dict(item,tier=list(map(ord,item['tier']))) if item['satisfied'] else {k:item[k] for k in ['require','satisfied','reason','decision']}] for point,item in result['lanes'].items()]
     return result
    except v['Failure'] as e: return dict(global_reason=e.reason)
-   except OverflowError: return dict(global_reason='error')
+   except OverflowError: return dict(global_reason='error',global_class='OverflowError')
+   except ValueError as error: return dict(global_reason='error',global_class='ValueError',global_detail=list(map(ord,str(error))))
   control=json.dumps(dict(version=1,checks={'a':entry()})) if name in ['eager-after','policy-after','budget','clock-exception','age-overflow'] else None
   if control: assert verify(control)['satisfied'],name
   Sample.calls=0
@@ -109,12 +114,16 @@ print(json.dumps(cases))
     assert_eq!(cases.len(), 32);
     struct Sampling(usize);
     impl CurrentTime for Sampling {
-        fn epoch_micros(&mut self) -> Result<i64, PolicyError> {
+        fn epoch_micros(&mut self) -> Result<i64, ClockException> {
             self.0 += 1;
             if self.0 == 2 {
-                return Err(PolicyError {
-                    reason: "error",
-                    detail: "clock refused".into(),
+                return Err(ClockException {
+                    class: "ValueError",
+                    detail: NormalizedText::Codepoints(
+                        std::iter::once(0xd800)
+                            .chain("OverflowError: not its class".chars().map(u32::from))
+                            .collect(),
+                    ),
                 });
             }
             Ok(1_767_225_660_000_000)
@@ -154,7 +163,17 @@ print(json.dumps(cases))
             assert!(run(control).unwrap().satisfied, "{}", case["name"]);
         }
         let actual = match run(case["policy"].as_str().unwrap()) {
-            Err(error) => json!({"global_reason":error.reason}),
+            Err(error) => match error.origin {
+                ErrorOrigin::Failure => json!({"global_reason":error.reason}),
+                ErrorOrigin::Exception {
+                    class: "ValueError",
+                } => {
+                    json!({"global_reason":error.reason,"global_class":"ValueError","global_detail":error.detail.borrowed().points().collect::<Vec<_>>()})
+                }
+                ErrorOrigin::Exception { class } => {
+                    json!({"global_reason":error.reason,"global_class":class})
+                }
+            },
             Ok(all) => {
                 let lanes: Vec<_> = all
                     .lanes

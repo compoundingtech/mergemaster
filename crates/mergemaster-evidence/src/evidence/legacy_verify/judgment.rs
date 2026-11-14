@@ -106,13 +106,13 @@ fn judge_source<'a>(
     attempts: usize,
 ) -> Result<Routing<'a>, Failure> {
     let fail = |reason| Failure {
-        exception: false,
+        origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason,
         detail: format!("record fails legacy {reason} guard").into(),
         attempts,
     };
     let error = |e: PolicyError| Failure {
-        exception: false,
+        origin: e.origin,
         reason: e.reason,
         detail: e.detail,
         attempts,
@@ -176,7 +176,7 @@ fn check_lane(
     attempts: usize,
 ) -> Result<(), Failure> {
     let fail = |reason| Failure {
-        exception: false,
+        origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason,
         detail: format!("record fails legacy {reason} guard").into(),
         attempts,
@@ -206,7 +206,7 @@ fn check_bindings<'a>(
     attempts: usize,
 ) -> Result<(), Failure> {
     let error = |e: PolicyError| Failure {
-        exception: false,
+        origin: e.origin,
         reason: e.reason,
         detail: e.detail,
         attempts,
@@ -219,7 +219,7 @@ fn check_bindings<'a>(
                 .is_none_or(|value| value.len() == 0 || !value.equals(actual))
         }) {
             return Err(Failure {
-                exception: false,
+                origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                 reason: "wrong_input",
                 detail: "record fails legacy wrong_input guard".into(),
                 attempts,
