@@ -72,10 +72,74 @@ impl std::fmt::Display for TextRef<'_> {
         Ok(())
     }
 }
+/// A borrowed object whose IDs resolve to string nodes in this immutable document.
+#[derive(Clone, Copy)]
+pub struct ValidatedInputs<'a> {
+    document: &'a Document,
+    entries: &'a indexmap::IndexMap<Vec<u32>, usize>,
+}
+impl<'a> ValidatedInputs<'a> {
+    pub fn new(document: &'a Document, node: &'a Node) -> Option<Self> {
+        let Node::Object(entries) = node else {
+            return None;
+        };
+        entries
+            .values()
+            .all(|id| matches!(document.try_node(*id), Some(Node::String(_))))
+            .then_some(Self { document, entries })
+    }
+    fn get(self, key: &[u32]) -> Option<&'a [u32]> {
+        match self.document.try_node(*self.entries.get(key)?)? {
+            Node::String(value) => Some(value),
+            _ => None, // Constructor proves this cannot occur; no mutable arena access.
+        }
+    }
+    pub(super) fn iter(self) -> impl Iterator<Item = (&'a [u32], &'a [u32])> {
+        self.entries
+            .iter()
+            .filter_map(move |(key, id)| match self.document.try_node(*id)? {
+                Node::String(value) => Some((key.as_slice(), value.as_slice())),
+                _ => None,
+            })
+    }
+}
+
+/// Validation and iteration share the same immutable arena, with no copied strings.
+#[derive(Clone)]
+pub(super) struct StringNodes<'a> {
+    document: &'a Document,
+    ids: std::slice::Iter<'a, usize>,
+}
+impl<'a> StringNodes<'a> {
+    pub(super) fn new(document: &'a Document, node: &'a Node) -> Option<Self> {
+        let Node::Array(ids) = node else { return None };
+        ids.iter()
+            .all(|id| matches!(document.try_node(*id), Some(Node::String(_))))
+            .then_some(Self {
+                document,
+                ids: ids.iter(),
+            })
+    }
+}
+impl<'a> Iterator for StringNodes<'a> {
+    type Item = &'a [u32];
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.document.try_node(*self.ids.next()?)? {
+            Node::String(value) => Some(value),
+            _ => None, // Only the validating constructor creates this view.
+        }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.ids.size_hint()
+    }
+}
+impl ExactSizeIterator for StringNodes<'_> {}
+
+#[derive(Clone, Copy)]
 pub(super) enum InputSource<'a> {
     Empty,
     Native(&'a BTreeMap<String, String>),
-    Document(&'a Document, &'a indexmap::IndexMap<Vec<u32>, usize>),
+    Document(ValidatedInputs<'a>),
 }
 impl<'a> InputSource<'a> {
     pub(super) fn get_text(&self, key: TextRef<'_>) -> Option<TextRef<'a>> {
@@ -89,19 +153,14 @@ impl<'a> InputSource<'a> {
                 .iter()
                 .find(|(name, _)| TextRef::Points(key).equals(name))
                 .map(|(_, value)| TextRef::Str(value)),
-            Self::Document(doc, inputs) => {
-                let Node::String(value) = doc.node(*inputs.get(key)?) else {
-                    unreachable!("validated input values are strings")
-                };
-                Some(TextRef::Points(value))
-            }
+            Self::Document(inputs) => inputs.get(key).map(TextRef::Points),
         }
     }
     pub(super) fn get(&self, key: &str) -> Option<TextRef<'a>> {
         match self {
             Self::Empty => None,
             Self::Native(inputs) => inputs.get(key).map(|value| TextRef::Str(value)),
-            Self::Document(doc, inputs) => {
+            Self::Document(inputs) => {
                 let mut small = [0; 32];
                 let mut chars = key.chars();
                 let mut length = 0;
@@ -121,10 +180,7 @@ impl<'a> InputSource<'a> {
                 } else {
                     &small[..length]
                 };
-                let Node::String(value) = doc.node(*inputs.get(key)?) else {
-                    unreachable!("validated input values are strings")
-                };
-                Some(TextRef::Points(value))
+                inputs.get(key).map(TextRef::Points)
             }
         }
     }
