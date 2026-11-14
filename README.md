@@ -686,6 +686,9 @@ source conversion still comes from the retained serde path for now.
 Header, value-rule and level validation run through a borrowed value facade over a lossless
 statement document; the retained serde entry is re-encoded into it as a
 temporary bridge, removed by the step-5 PolicyDocument ingress cutover.
+Binding paths retain normalized text until the blob read, after earlier guards.
+The boundary uses UTF-8 surrogateescape; other lone surrogates raise the exact
+Python UnicodeEncodeError with exception provenance and no attempts metadata.
 Nested surrogate payload keys/values still require lossless source decoding before
 full CLI parity; scalar payload fixtures do not claim that separate domain is ported.
 Failure attempts distinguish `None` (absent) from `Some(0)` (explicit zero).
