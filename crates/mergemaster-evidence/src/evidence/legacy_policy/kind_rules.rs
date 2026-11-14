@@ -16,9 +16,9 @@ pub struct KindRule {
     #[serde(flatten)]
     pub inputs: CommandInputs,
     pub runner_prefix: Option<NormalizedText>,
-    pub trust_levels: Option<Vec<String>>,
+    pub trust_levels: Option<Vec<NormalizedText>>,
     #[serde(serialize_with = "super::level_rules::serialize_level_pairs")]
-    pub by_level: Vec<(String, LevelRule)>,
+    pub by_level: Vec<(NormalizedText, LevelRule)>,
     #[serde(flatten)]
     pub values: ValueRules,
     #[serde(serialize_with = "super::serialize_pairs")]
@@ -26,7 +26,7 @@ pub struct KindRule {
 }
 pub fn checked_kinds<'a>(
     kinds: Map<String, Value>,
-    levels: &[String],
+    levels: &[NormalizedText],
     repository: &str,
     check: impl Into<CheckName<'a>>,
 ) -> Result<Vec<(String, KindRule)>, PolicyError> {
@@ -70,9 +70,15 @@ pub fn checked_kinds<'a>(
             let base_inputs = checked_base_inputs(&mut rule, &where_)?;
             let trust_levels = match rule.remove("trust_levels") {
                 None | Some(Value::Null) => None,
-                Some(value) => Some(names(value).ok_or_else(|| {
-                    rule_error(&where_, "trust_levels must be a nonempty list of names")
-                })?),
+                Some(value) => Some(
+                    names(value)
+                        .ok_or_else(|| {
+                            rule_error(&where_, "trust_levels must be a nonempty list of names")
+                        })?
+                        .into_iter()
+                        .map(NormalizedText::Scalar)
+                        .collect(),
+                ),
             };
             let runner_prefix = match rule.remove("runner_prefix") {
                 None | Some(Value::Null) => None,

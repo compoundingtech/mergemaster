@@ -55,7 +55,8 @@ fn candidate_prelude_matches_python() {
                     unreachable!()
                 };
                 json!({"commits":prepared.candidates.iter().map(|c| c.commit).collect::<Vec<_>>(),
-                "attempts":prepared.attempts(),"accepted":accepted})
+                "attempts":prepared.attempts(),
+                "accepted":accepted.iter().map(|a| a.to_string()).collect::<Vec<_>>()})
             }
             Err(failure) => {
                 json!({"reason":failure.reason,"detail":failure.detail,"attempts":failure.attempts})
@@ -270,7 +271,10 @@ print(json.dumps(cases))
                 .map(|points| points.iter().map(|&p| char::from_u32(p)).collect())
                 .collect();
             if let Some(native) = native {
-                let set = native.iter().map(String::as_str).collect();
+                let set: Vec<_> = native
+                    .iter()
+                    .map(|t| super::TextRef::Str(t.as_str()))
+                    .collect();
                 assert_eq!(
                     Levels::Utf8(&native).contains(query),
                     preferred.contains(query)

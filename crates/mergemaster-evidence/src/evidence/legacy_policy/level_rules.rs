@@ -32,11 +32,11 @@ impl Serialize for LaneBinding {
 }
 pub fn checked_levels<'a>(
     overrides: Map<String, Value>,
-    accepted_levels: &[String],
+    accepted_levels: &[NormalizedText],
     repository: &str,
     check: impl Into<CheckName<'a>>,
     kind: &str,
-) -> Result<Vec<(String, LevelRule)>, PolicyError> {
+) -> Result<Vec<(NormalizedText, LevelRule)>, PolicyError> {
     let check = check.into();
     let kind_context = [check.text(), TextRef::Str("/"), TextRef::Str(kind)];
     let refusal = |level: &str, message: &str| {
@@ -76,7 +76,7 @@ pub fn checked_levels<'a>(
         if level.is_empty() {
             return Err(refusal(&level, " is not valid"));
         }
-        if !accepted_levels.contains(&level) {
+        if !accepted_levels.iter().any(|a| a.borrowed().equals(&level)) {
             return Err(refusal(
                 &level,
                 " is not among the trust levels this kind accepts",
@@ -127,7 +127,7 @@ pub fn checked_levels<'a>(
             _ => return Err(refusal(&level, " lane must be true, false or \"tree\"")),
         };
         by_level.push((
-            level,
+            NormalizedText::Scalar(level),
             LevelRule {
                 inputs: normalized(inputs, repository, check),
                 events,
@@ -167,7 +167,7 @@ pub(super) fn normalized(
 }
 
 pub(super) fn serialize_level_pairs<S: serde::Serializer>(
-    pairs: &[(String, LevelRule)],
+    pairs: &[(NormalizedText, LevelRule)],
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
     serializer.collect_map(pairs.iter().map(|(key, value)| (key, value)))
@@ -255,7 +255,12 @@ print(json.dumps(results))
                 Value::Object(
                     rules
                         .into_iter()
-                        .map(|(level, rule)| (level, serde_json::to_value(rule).unwrap()))
+                        .map(|(level, rule)| {
+                            (
+                                level.borrowed().to_string(),
+                                serde_json::to_value(rule).unwrap(),
+                            )
+                        })
                         .collect(),
                 )
             })

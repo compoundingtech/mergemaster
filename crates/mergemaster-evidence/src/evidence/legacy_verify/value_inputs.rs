@@ -30,7 +30,7 @@ impl TextRef<'_> {
             Self::Points(points) => points.len(),
         }
     }
-    pub(super) fn equals(self, text: &str) -> bool {
+    pub(crate) fn equals(self, text: &str) -> bool {
         match self {
             Self::Str(value) => value == text,
             Self::Points(points) => points.iter().copied().eq(text.chars().map(u32::from)),

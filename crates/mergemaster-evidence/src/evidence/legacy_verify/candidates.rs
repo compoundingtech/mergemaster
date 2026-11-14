@@ -9,14 +9,13 @@ use super::{
 use crate::evidence::legacy_policy::{
     PolicyError, PolicyRules, check_names::CheckName, normalized_text::NormalizedText,
 };
-use std::collections::BTreeSet;
 
 /// Borrowed selection-level membership, not signer verification.
 /// Unrestricted represents accepted=None; absent preferences use an empty view instead.
 #[derive(Clone, Copy)]
 pub enum Levels<'a> {
     Unrestricted,
-    Policy(&'a BTreeSet<&'a str>),
+    Policy(&'a [TextRef<'a>]),
     Utf8(&'a [String]),
     Codepoints(&'a [Vec<u32>]),
 }
@@ -24,7 +23,7 @@ impl Levels<'_> {
     pub fn contains(self, level: &str) -> bool {
         match self {
             Self::Unrestricted => true,
-            Self::Policy(levels) => levels.contains(level),
+            Self::Policy(levels) => levels.iter().any(|entry| entry.equals(level)),
             Self::Utf8(levels) => levels.iter().any(|entry| entry == level),
             Self::Codepoints(levels) => levels
                 .iter()
@@ -44,7 +43,7 @@ pub struct Prepared<'a> {
 pub(super) enum Rules<'a> {
     Policy {
         policy: &'a PolicyRules,
-        accepted: BTreeSet<&'a str>,
+        accepted: Vec<TextRef<'a>>,
     },
     Unconfigured(&'a super::judgment::Unconfigured<'a>),
 }
@@ -87,7 +86,7 @@ impl<'a> Prepared<'a> {
                     .as_deref()
                     .unwrap_or(&policy.header.trust_levels)
                     .iter()
-                    .map(String::as_str)
+                    .map(NormalizedText::borrowed)
             })
             .collect();
         Ok(Self {
