@@ -253,12 +253,10 @@ fn check_inputs_source(
         detail: detail.into(),
         attempts: Some(attempts),
     };
-    if clock.future().map_err(|()| {
-        Failure::exception(
-            "OverflowError",
-            "current UTC clock exceeds the legacy datetime range",
-        )
-    })? {
+    if clock
+        .future()
+        .map_err(|()| Failure::exception("OverflowError", "date value out of range"))?
+    {
         return Err(fail(
             "future_dated",
             "record claims to be observed in the future",
@@ -268,15 +266,18 @@ fn check_inputs_source(
         let AgeLimit::Seconds(seconds) = age else {
             return Err(Failure::exception(
                 "OverflowError",
-                "max_age_s exceeds the legacy duration range",
+                "Python int too large to convert to C int",
             ));
         };
         // Python timedelta caps its day count; do not accept what its verifier aborts.
         if seconds >= 86_400_000_000_000 {
-            return Err(Failure::exception(
-                "OverflowError",
-                "max_age_s exceeds the legacy duration range",
-            ));
+            let days = seconds / 86_400;
+            let detail = if days > i32::MAX as u64 {
+                "Python int too large to convert to C int".into()
+            } else {
+                format!("days={days}; must have magnitude <= 999999999")
+            };
+            return Err(Failure::exception("OverflowError", detail));
         }
         if clock.older_than(seconds) {
             return Err(fail(

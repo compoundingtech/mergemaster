@@ -32,7 +32,7 @@ def add(label, observed='2026-01-01T00:00:00Z', now='2026-01-01T00:00:05Z', age=
     except v['Failure'] as failure:
         expected = dict(reason=failure.reason,attempts=failure.extra['attempts'])
         if failure.reason in ('missing_input','check_failed','wrong_command','too_old'): expected['detail']=list(map(ord,failure.detail))
-    except OverflowError: expected = dict(reason='error',attempts=0) # absent metadata, normalized transport only
+    except OverflowError as e: expected = dict(reason='error',attempts=0,detail=list(map(ord,str(e)))) # normalized absent attempts only
     if prepared: assert expected['reason']==prepared['reason'], (label,expected,prepared['reason'])
     delta = v['now'] - datetime(1970,1,1,tzinfo=timezone.utc)
     cases.append(dict(label=ascii(label),policy=policy,raw=json.dumps(statement),expected=expected,intended=None if prepared is None else prepared['reason'],exit_code=str(code),now=(delta.days*86400+delta.seconds)*1000000+delta.microseconds,prepared=None if prepared is None else dict(command=[list(map(ord,x)) for x in prepared['command']],prefix=list(map(ord,prepared['prefix'])))))
@@ -64,7 +64,7 @@ def loose(label, actual=['true'], expected=['true'], age=None, code=0, observed=
     except v['Failure'] as e:
         verdict=dict(reason=e.reason,attempts=e.extra['attempts'])
         if e.reason in ('check_failed','wrong_command','too_old'): verdict['detail']=list(map(ord,e.detail))
-    except OverflowError: verdict=dict(reason='error',attempts=0) # absent metadata, normalized transport only
+    except OverflowError as e: verdict=dict(reason='error',attempts=0,detail=list(map(ord,str(e)))) # normalized absent attempts only
     delta=v['now']-datetime(1970,1,1,tzinfo=timezone.utc)
     points=None if expected is None else [list(map(ord,arg)) for arg in expected]
     cases.append(dict(label=ascii(label),policy=None,raw=json.dumps(statement),expected=verdict,exit_code=str(code),now=(delta.days*86400+delta.seconds)*1000000+delta.microseconds,command=points,age=None if age is None else str(age)))
@@ -75,6 +75,8 @@ for actual in commands:
         for code in (0,-10**100): loose('loose command '+repr((actual,expected,code)),actual,expected,code=code)
 for age in (None,0,1,2,86399999999999,86400000000000,2**64-1,2**64,10**100):
     loose('loose age '+str(age),age=age)
+for age in (86400000000001,86400000086399,86400000086400,(2**31-1)*86400,(2**31)*86400-1,(2**31)*86400):
+    loose('duration bucket '+str(age),age=age)
 for now in ('2026-01-01T00:00:01Z','2026-01-01T00:00:01.0000009Z','2026-01-01T00:00:01.000001Z'):
     loose('loose exact age '+now,age=1,now=now)
 for offset in ('00:02:00','00:02:00.000001','00:02:01'):
@@ -98,7 +100,7 @@ print(json.dumps(cases))
         String::from_utf8_lossy(&output.stderr)
     );
     let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(cases.len(), 174);
+    assert_eq!(cases.len(), 180);
     for case in cases {
         let doc = super::super::statement_document::Document::from_bytes(
             case["raw"].as_str().unwrap().as_bytes(),
