@@ -3,6 +3,7 @@ mod binding_path;
 pub mod candidates;
 pub mod collection;
 pub mod configured;
+pub mod crate_bindings;
 pub mod crate_closure;
 pub mod crate_input_document;
 pub mod crate_inputs;
