@@ -1,8 +1,10 @@
 //! Legacy signer-level override declarations; no evidence evaluation.
 use super::check_names::CheckName;
 use super::normalized_text::NormalizedText;
-use super::{CommandInputs, PolicyError, checked_command_inputs, invalid, names};
-use crate::evidence::legacy_verify::value_inputs::TextRef;
+use super::{
+    CommandInputs, PolicyError, checked_command_inputs, exception, invalid, names, rule_error,
+};
+use crate::evidence::legacy_verify::{failure_json::TextRef, python_repr::Repr};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -36,18 +38,26 @@ pub fn checked_levels<'a>(
     kind: &str,
 ) -> Result<Vec<(String, LevelRule)>, PolicyError> {
     let check = check.into();
-    let error = || {
-        invalid(format!(
-            "skip policy for {check}/{kind}: invalid level override"
+    let kind_context = [check.text(), TextRef::Str("/"), TextRef::Str(kind)];
+    let refusal = |level: &str, message: &str| {
+        invalid(NormalizedText::concat(
+            [
+                TextRef::Str("skip policy for "),
+                check.text(),
+                TextRef::Str("/"),
+                TextRef::Str(kind),
+            ]
+            .into_iter()
+            .chain([
+                TextRef::Str(": by_level "),
+                TextRef::Str(&format!("{}{message}", Repr(TextRef::Str(level)))),
+            ]),
         ))
     };
     let mut by_level = Vec::with_capacity(overrides.len());
     for (level, raw) in overrides {
-        if level.is_empty() || !accepted_levels.contains(&level) {
-            return Err(error());
-        }
         let Value::Object(mut fields) = raw else {
-            return Err(error());
+            return Err(refusal(&level, " is not valid"));
         };
         if fields.keys().any(|key| {
             ![
@@ -61,18 +71,45 @@ pub fn checked_levels<'a>(
         }) || !fields.contains_key("command")
             || !fields.contains_key("events")
         {
-            return Err(error());
+            return Err(refusal(&level, " is not valid"));
         }
-        let events = fields
-            .remove("events")
-            .and_then(names)
+        if level.is_empty() {
+            return Err(refusal(&level, " is not valid"));
+        }
+        if !accepted_levels.contains(&level) {
+            return Err(refusal(
+                &level,
+                " is not among the trust levels this kind accepts",
+            ));
+        }
+        let raw_events = fields.remove("events").unwrap_or(Value::Null);
+        // Python builds set(events) before checking event membership.
+        if let Some(members) = raw_events.as_array().filter(|m| !m.is_empty()) {
+            for member in members {
+                let kind = match member {
+                    Value::Array(_) => "list",
+                    Value::Object(_) => "dict",
+                    _ => continue,
+                };
+                return Err(exception(
+                    "TypeError",
+                    format!("cannot use '{kind}' as a set element (unhashable type: '{kind}')"),
+                ));
+            }
+        }
+        let events = names(raw_events)
             .filter(|events| {
                 events
                     .iter()
                     .all(|event| matches!(event.as_str(), "pull_request" | "merge_group"))
                     && (events.len() == 1 || (events.len() == 2 && events[0] != events[1]))
             })
-            .ok_or_else(error)?;
+            .ok_or_else(|| {
+                rule_error(
+                    &kind_context,
+                    "events must be a nonempty list of pull_request, merge_group",
+                )
+            })?;
         let inputs = checked_command_inputs(
             &mut fields,
             &[
@@ -87,7 +124,7 @@ pub fn checked_levels<'a>(
             None | Some(Value::Bool(false)) => LaneBinding::None,
             Some(Value::Bool(true)) => LaneBinding::Base,
             Some(Value::String(s)) if s == "tree" => LaneBinding::Tree,
-            _ => return Err(error()),
+            _ => return Err(refusal(&level, " lane must be true, false or \"tree\"")),
         };
         by_level.push((
             level,
@@ -220,3 +257,6 @@ print(json.dumps(results))
         }
     }
 }
+#[cfg(test)]
+#[path = "level_diagnostics_tests.rs"]
+mod diagnostics_tests;
