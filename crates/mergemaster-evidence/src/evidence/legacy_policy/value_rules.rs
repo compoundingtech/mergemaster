@@ -33,7 +33,7 @@ pub struct ShardInputs {
     pub index: Option<NormalizedText>,
 }
 
-/// Consume the two value-rule fields; outer kind key validation is separate.
+/// Borrow the two value-rule fields from the original Document; outer kind key validation is separate.
 pub fn checked_value_rules(
     rule: Source<'_>,
     where_: &[TextRef<'_>],
