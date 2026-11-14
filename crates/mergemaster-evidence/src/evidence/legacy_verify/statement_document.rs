@@ -1,6 +1,9 @@
 //! Python JSON containers in a flat arena: parsing, traversal and drop never recurse.
-pub use super::statement_tokens::SyntaxError;
+//! CPython 3.14.7 syntax kind/positions are reported without changing acceptance.
+//! Grammar lookahead precedes tokenization, preserving delimiter/extra-data errors
+//! even when the following token itself is malformed. Resource limits stay distinct.
 use super::statement_tokens::{self, Token, Tokens};
+pub use super::statement_tokens::{SyntaxError, SyntaxKind};
 use indexmap::IndexMap;
 /// Inclusive container depth, counting arrays, objects and an empty root container.
 pub const MAX_CONTAINER_DEPTH: usize = 256;
@@ -28,10 +31,8 @@ const _: () = {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     Encoding,
-    Invalid,
     Syntax(SyntaxError),
     IntegerLimit,
-    ExtraData,
     NestingLimit,
 }
 #[derive(Clone, Copy)]
@@ -46,6 +47,7 @@ struct Frame {
     id: usize,
     state: State,
     key: Option<Vec<u32>>,
+    comma: usize,
 }
 impl Document {
     /// Two units/node, four/object entry, one/text point, integer digit or array index.
@@ -86,17 +88,69 @@ impl Document {
     }
     /// JSON str input is already decoded; never strip BOM or detect UTF-16/32.
     pub fn from_text_with_depth_limit(text: &str, max_depth: Option<usize>) -> Result<Self, Error> {
+        if text.starts_with('\u{feff}') {
+            return Err(Error::Syntax(SyntaxError {
+                kind: SyntaxKind::UnexpectedUtf8Bom,
+                pos: 0,
+                lineno: 1,
+                colno: 1,
+            }));
+        }
         Self::from_tokens(Tokens::from_text(text), max_depth)
     }
-    fn from_tokens(tokens: Tokens, max_depth: Option<usize>) -> Result<Self, Error> {
+    fn from_tokens(mut tokens: Tokens, max_depth: Option<usize>) -> Result<Self, Error> {
         let mut nodes = Vec::new();
         let mut stack: Vec<Frame> = Vec::new();
         let mut root = None;
-        for token in tokens {
-            // Even an invalid token after a complete value is Python's Extra data.
+        loop {
+            let point = tokens.peek();
+            let pos = tokens.position();
+            let syntax = |kind, at| Error::Syntax(tokens.syntax_error(kind, at));
             if root.is_some() && stack.is_empty() {
-                return Err(Error::ExtraData);
+                if point.is_some() {
+                    return Err(syntax(SyntaxKind::ExtraData, pos));
+                }
+                break;
             }
+            if let Some(frame) = stack.last() {
+                let object = matches!(nodes[frame.id], Node::Object(_));
+                let close = if object { 125 } else { 93 };
+                let expected = match frame.state {
+                    State::After if point != Some(44) && point != Some(close) => {
+                        Some(SyntaxKind::CommaDelimiter)
+                    }
+                    State::Colon if point != Some(58) => Some(SyntaxKind::ColonDelimiter),
+                    State::Key | State::Value
+                        if point == Some(close)
+                            && (!object || matches!(frame.state, State::Key)) =>
+                    {
+                        return Err(syntax(
+                            if object {
+                                SyntaxKind::TrailingObjectComma
+                            } else {
+                                SyntaxKind::TrailingArrayComma
+                            },
+                            frame.comma,
+                        ));
+                    }
+                    State::First | State::Key
+                        if object
+                            && point != Some(34)
+                            && !(matches!(frame.state, State::First) && point == Some(close)) =>
+                    {
+                        Some(SyntaxKind::PropertyName)
+                    }
+                    _ => None,
+                };
+                if let Some(kind) = expected {
+                    return Err(syntax(kind, pos));
+                }
+            }
+            let Some(token) = tokens.next() else {
+                return Err(Error::Syntax(
+                    tokens.syntax_error(SyntaxKind::ExpectingValue, pos),
+                ));
+            };
             let token = token.map_err(|error| match error {
                 statement_tokens::Error::Syntax(error) => Error::Syntax(error),
                 statement_tokens::Error::IntegerLimit => Error::IntegerLimit,
@@ -113,21 +167,28 @@ impl Document {
                 match frame.state {
                     State::After => {
                         if !matches!(token, Token::Punctuation(b',')) {
-                            return Err(Error::Invalid);
+                            return Err(Error::Syntax(
+                                tokens.syntax_error(SyntaxKind::CommaDelimiter, pos),
+                            ));
                         }
                         frame.state = if object { State::Key } else { State::Value };
+                        frame.comma = pos;
                         continue;
                     }
                     State::Colon => {
                         if !matches!(token, Token::Punctuation(b':')) {
-                            return Err(Error::Invalid);
+                            return Err(Error::Syntax(
+                                tokens.syntax_error(SyntaxKind::ColonDelimiter, pos),
+                            ));
                         }
                         frame.state = State::Value;
                         continue;
                     }
                     State::First | State::Key if object => {
                         let Token::String(key) = token else {
-                            return Err(Error::Invalid);
+                            return Err(Error::Syntax(
+                                tokens.syntax_error(SyntaxKind::PropertyName, pos),
+                            ));
                         };
                         frame.key = Some(key);
                         frame.state = State::Colon;
@@ -149,7 +210,11 @@ impl Document {
                 Token::String(v) => Node::String(v),
                 Token::Punctuation(b'[') => Node::Array(Vec::new()),
                 Token::Punctuation(b'{') => Node::Object(IndexMap::new()),
-                _ => return Err(Error::Invalid),
+                _ => {
+                    return Err(Error::Syntax(
+                        tokens.syntax_error(SyntaxKind::ExpectingValue, pos),
+                    ));
+                }
             };
             let container = matches!(node, Node::Array(_) | Node::Object(_));
             if container && max_depth.is_some_and(|limit| stack.len() >= limit) {
@@ -162,9 +227,16 @@ impl Document {
                     Node::Array(values) => values.push(id),
                     Node::Object(values) => {
                         // IndexMap replaces the value without moving the original key.
-                        values.insert(frame.key.take().ok_or(Error::Invalid)?, id);
+                        let key = frame.key.take().ok_or_else(|| {
+                            Error::Syntax(tokens.syntax_error(SyntaxKind::PropertyName, pos))
+                        })?;
+                        values.insert(key, id);
                     }
-                    _ => unreachable!(),
+                    _ => {
+                        return Err(Error::Syntax(
+                            tokens.syntax_error(SyntaxKind::ExpectingValue, pos),
+                        ));
+                    }
                 }
                 frame.state = State::After;
             } else {
@@ -175,15 +247,15 @@ impl Document {
                     id,
                     state: State::First,
                     key: None,
+                    comma: 0,
                 });
             }
         }
-        if !stack.is_empty() {
-            return Err(Error::Invalid);
-        }
         Ok(Self {
             nodes,
-            root: root.ok_or(Error::Invalid)?,
+            root: root.ok_or_else(|| {
+                Error::Syntax(tokens.syntax_error(SyntaxKind::ExpectingValue, tokens.position()))
+            })?,
         })
     }
 }
