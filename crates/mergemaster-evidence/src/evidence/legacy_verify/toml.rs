@@ -7,12 +7,14 @@ use std::fmt;
 pub enum ErrorKind {
     Decode,
     Recursion,
+    Value,
 }
 impl ErrorKind {
     pub fn class(self) -> &'static str {
         match self {
             Self::Decode => "TOMLDecodeError",
             Self::Recursion => "RecursionError",
+            Self::Value => "ValueError",
         }
     }
 }
@@ -157,6 +159,11 @@ fn repr(c: char) -> String {
 mod keys;
 #[path = "toml_strings.rs"]
 mod strings;
+#[path = "toml_value.rs"]
+mod value;
+pub use value::{Date, Table, Time, Value};
+#[path = "toml_numbers.rs"]
+mod numbers;
 
 #[cfg(test)]
 #[path = "toml_lexing_tests.rs"]
