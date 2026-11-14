@@ -4,6 +4,21 @@ use super::{
     statement_document::{Document, Node},
 };
 
+/// Numeric source used only to spell a refusal; document integers are never narrowed.
+#[derive(Clone, Copy)]
+pub(super) enum ExitCode<'a> {
+    Native(i32),
+    Decimal(&'a str),
+}
+impl std::fmt::Display for ExitCode<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Native(code) => std::fmt::Display::fmt(code, f),
+            Self::Decimal(code) => f.write_str(code),
+        }
+    }
+}
+
 /// Lossless counterpart of native routing facts, not an authorization decision.
 /// Construct from a validated statement and an independently verified principal.
 /// Missing or ill-shaped viewed fields return None; unrelated fields are not validated.
