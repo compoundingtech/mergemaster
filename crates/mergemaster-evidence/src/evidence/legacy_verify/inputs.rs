@@ -89,19 +89,34 @@ impl<'a> Guards<'a> {
     }
 }
 enum CheckSource<'a> {
-    Native(&'a crate::evidence::Check),
+    Native {
+        check: &'a crate::evidence::Check,
+        name: crate::evidence::legacy_policy::check_names::CheckName<'a>,
+    },
     Document(&'a DocumentFacts<'a>),
 }
 impl CheckSource<'_> {
+    fn name(&self) -> crate::evidence::legacy_policy::check_names::CheckName<'_> {
+        match self {
+            Self::Native { name, .. } => *name,
+            Self::Document(record) => record.check_name.into(),
+        }
+    }
+    fn exit_code(&self) -> super::facts::ExitCode<'_> {
+        match self {
+            Self::Native { check, .. } => super::facts::ExitCode::Native(check.exit_code),
+            Self::Document(record) => super::facts::ExitCode::Decimal(record.exit_code),
+        }
+    }
     fn failed(&self) -> bool {
         match self {
-            Self::Native(check) => check.exit_code != 0,
+            Self::Native { check, .. } => check.exit_code != 0,
             Self::Document(record) => record.failed(),
         }
     }
     fn matches_command(&self, expected: ExpectedCommand<'_>) -> bool {
         match (self, expected) {
-            (Self::Native(check), ExpectedCommand::Text(expected)) => {
+            (Self::Native { check, .. }, ExpectedCommand::Text(expected)) => {
                 check.command.len() == expected.len()
                     && check
                         .command
@@ -109,7 +124,7 @@ impl CheckSource<'_> {
                         .zip(expected)
                         .all(|(actual, expected)| expected.borrowed().equals(actual))
             }
-            (Self::Native(check), ExpectedCommand::Points(expected)) => {
+            (Self::Native { check, .. }, ExpectedCommand::Points(expected)) => {
                 check.command.len() == expected.len()
                     && check
                         .command
@@ -168,7 +183,10 @@ pub fn check_inputs(
 ) -> Result<(), Failure> {
     check_inputs_source(
         Guards::policy(policy, routing),
-        CheckSource::Native(record.check),
+        CheckSource::Native {
+            check: record.check,
+            name: record.check_name,
+        },
         InputSource::Native(record.inputs),
         // Truncate each subsecond field, not the delta, including before the epoch.
         Moments::Native(
@@ -235,12 +253,10 @@ fn check_inputs_source(
         detail: detail.into(),
         attempts: Some(attempts),
     };
-    if clock.future().map_err(|()| {
-        Failure::exception(
-            "OverflowError",
-            "current UTC clock exceeds the legacy datetime range",
-        )
-    })? {
+    if clock
+        .future()
+        .map_err(|()| Failure::exception("OverflowError", "date value out of range"))?
+    {
         return Err(fail(
             "future_dated",
             "record claims to be observed in the future",
@@ -250,18 +266,24 @@ fn check_inputs_source(
         let AgeLimit::Seconds(seconds) = age else {
             return Err(Failure::exception(
                 "OverflowError",
-                "max_age_s exceeds the legacy duration range",
+                "Python int too large to convert to C int",
             ));
         };
         // Python timedelta caps its day count; do not accept what its verifier aborts.
         if seconds >= 86_400_000_000_000 {
-            return Err(Failure::exception(
-                "OverflowError",
-                "max_age_s exceeds the legacy duration range",
-            ));
+            let days = seconds / 86_400;
+            let detail = if days > i32::MAX as u64 {
+                "Python int too large to convert to C int".into()
+            } else {
+                format!("days={days}; must have magnitude <= 999999999")
+            };
+            return Err(Failure::exception("OverflowError", detail));
         }
         if clock.older_than(seconds) {
-            return Err(fail("too_old", "record is older than max_age_s"));
+            return Err(fail(
+                "too_old",
+                &format!("record is older than {seconds} seconds"),
+            ));
         }
     }
     for key in guards.required {
@@ -275,16 +297,31 @@ fn check_inputs_source(
         }
     }
     if check.failed() {
-        return Err(fail("check_failed", "latest record for the check failed"));
+        return Err(Failure {
+            origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
+            reason: "check_failed",
+            detail: NormalizedText::around(
+                "latest record for check ",
+                check.name().text(),
+                &format!(" exited {}", check.exit_code()),
+            ),
+            attempts: Some(attempts),
+        });
     }
     if guards
         .command
         .is_some_and(|command| !check.matches_command(command))
     {
-        return Err(fail(
-            "wrong_command",
-            "latest record ran a different command",
-        ));
+        return Err(Failure {
+            origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
+            reason: "wrong_command",
+            detail: NormalizedText::around(
+                "latest record for check ",
+                check.name().text(),
+                " ran a different command",
+            ),
+            attempts: Some(attempts),
+        });
     }
     match guards.values {
         Some(kind) => value_checks_source(kind, inputs, run_inputs, attempts),

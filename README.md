@@ -670,6 +670,12 @@ Conservative selection's newer-failure detail also carries the check name lossle
 without changing its pinned commit/level wording or failure precedence.
 Judgment lane/digest and bound-input refusals use the pinned details; changed paths
 and native binding paths preserve Python's surrogateescaped filesystem bytes.
+Routing's shard-failure, tier, unsupported-kind and signer-level refusals retain
+the pinned details, Python repr and lossless check/runner/tier/kind-list code points.
+Input guards spell check-failure exits without integer narrowing, retain borrowed
+check names in exit/command refusals, and include the exact seconds in age refusals.
+Duration overflow messages distinguish the bounded day-count and C-int overflow
+buckets exactly; current-plus-skew overflow retains Python's date-range message.
 Nested surrogate payload keys/values still require lossless source decoding before
 full CLI parity; scalar payload fixtures do not claim that separate domain is ported.
 Failure attempts distinguish `None` (absent) from `Some(0)` (explicit zero).

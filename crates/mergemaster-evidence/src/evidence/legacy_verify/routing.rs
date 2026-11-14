@@ -1,10 +1,12 @@
 //! Policy routing for a signature-verified generic observation with the requested check.
+use super::python_repr::Repr;
 use super::{
     Failure,
     events::{kind_of_text, shard_part_source},
-    facts::DocumentFacts,
+    facts::{DocumentFacts, ExitCode},
     value_inputs::{InputSource, TextRef},
 };
+use crate::evidence::legacy_policy::{check_names::CheckName, normalized_text::NormalizedText};
 use crate::evidence::{
     Check, TrustTier,
     legacy_policy::{CommandInputs, PolicyRules, kind_rules::KindRule, level_rules::LevelRule},
@@ -38,7 +40,9 @@ enum Rules<'a> {
     Unconfigured(Unconfigured<'a>),
 }
 struct RoutingFacts<'a> {
-    full: bool,
+    tier: TextRef<'a>,
+    check: CheckName<'a>,
+    exit_code: ExitCode<'a>,
     failed: bool,
     runner: TextRef<'a>,
     principal: &'a str,
@@ -52,7 +56,13 @@ pub fn route<'a>(
     route_source(
         Rules::Policy(policy),
         RoutingFacts {
-            full: record.tier == TrustTier::Full,
+            tier: TextRef::Str(match record.tier {
+                TrustTier::Full => "full",
+                TrustTier::Degraded => "degraded",
+                TrustTier::Test => "test",
+            }),
+            check: record.check_name,
+            exit_code: ExitCode::Native(record.check.exit_code),
             failed: record.check.exit_code != 0,
             runner: TextRef::Str(record.runner),
             principal: record.principal,
@@ -71,7 +81,9 @@ pub fn route_document<'a>(
     route_source(
         Rules::Policy(policy),
         RoutingFacts {
-            full: TextRef::Points(record.tier).equals("full"),
+            tier: TextRef::Points(record.tier),
+            check: record.check_name.into(),
+            exit_code: ExitCode::Decimal(record.exit_code),
             failed: record.failed(),
             runner: TextRef::Points(record.runner),
             principal: record.principal,
@@ -91,7 +103,9 @@ pub fn route_unconfigured(
     route_source(
         Rules::Unconfigured(rules),
         RoutingFacts {
-            full: TextRef::Points(record.tier).equals("full"),
+            tier: TextRef::Points(record.tier),
+            check: record.check_name.into(),
+            exit_code: ExitCode::Decimal(record.exit_code),
             failed: record.failed(),
             runner: TextRef::Points(record.runner),
             principal: record.principal,
@@ -110,23 +124,51 @@ fn route_source<'a>(
     record: RoutingFacts<'_>,
     attempts: usize,
 ) -> Result<Option<Routing<'a>>, Failure> {
-    let fail = |reason| Failure {
+    let fail = |reason, detail| Failure {
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason,
-        detail: format!("record from {} fails policy routing", record.runner).into(),
+        detail,
         attempts: Some(attempts),
+    };
+    let unsupported = || {
+        let prefix = format!("runner {} is not one of ", Repr(record.runner));
+        let kinds = match rules {
+            Rules::Policy(_) => &[][..],
+            Rules::Unconfigured(rules) => rules.kinds,
+        };
+        fail(
+            "unsupported_kind",
+            NormalizedText::concat(std::iter::once(TextRef::Str(prefix.as_str())).chain(
+                kinds.iter().enumerate().flat_map(|(i, name)| {
+                    (i > 0)
+                        .then_some(TextRef::Str(", "))
+                        .into_iter()
+                        .chain(std::iter::once(TextRef::Points(name)))
+                }),
+            )),
+        )
     };
     let policy = match rules {
         Rules::Policy(policy) => Some(policy),
         Rules::Unconfigured(_) => None,
     };
     if record.failed && shard_part_source(policy, record.runner, &record.inputs) {
-        return Err(fail("check_failed"));
+        return Err(fail(
+            "check_failed",
+            NormalizedText::around(
+                "a shard of the latest run of check ",
+                record.check.text(),
+                &format!(" exited {}", record.exit_code),
+            ),
+        ));
     }
-    if !record.full {
-        return Err(fail("untrusted_tier"));
+    if !record.tier.equals("full") {
+        return Err(fail(
+            "untrusted_tier",
+            NormalizedText::around("latest record has tier ", record.tier, ", not full"),
+        ));
     }
-    let name = kind_of_text(record.runner).ok_or_else(|| fail("unsupported_kind"))?;
+    let name = kind_of_text(record.runner).ok_or_else(unsupported)?;
     let kind = match rules {
         Rules::Policy(policy) => Some(
             policy
@@ -134,7 +176,7 @@ fn route_source<'a>(
                 .iter()
                 .find(|(key, _)| key == name)
                 .map(|(_, rule)| rule)
-                .ok_or_else(|| fail("unsupported_kind"))?,
+                .ok_or_else(unsupported)?,
         ),
         Rules::Unconfigured(rules) => {
             if !rules
@@ -142,7 +184,7 @@ fn route_source<'a>(
                 .iter()
                 .any(|kind| TextRef::Points(kind).equals(name))
             {
-                return Err(fail("unsupported_kind"));
+                return Err(unsupported());
             }
             None
         }
@@ -163,7 +205,14 @@ fn route_source<'a>(
         _ => unreachable!("policy kind was resolved above"),
     };
     if !accepted {
-        return Err(fail("untrusted_level"));
+        return Err(fail(
+            "untrusted_level",
+            format!(
+                "signer trust level {} is not accepted for this check",
+                Repr(TextRef::Str(level)),
+            )
+            .into(),
+        ));
     }
     let Some(kind) = kind else {
         return Ok(None);

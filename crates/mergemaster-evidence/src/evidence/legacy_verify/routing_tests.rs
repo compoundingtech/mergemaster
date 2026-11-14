@@ -28,13 +28,13 @@ for runner in ['wrapper','wrapper\ud800','github:','github:\ud800','github:\ufff
     statement = dict(predicate=dict(tier=tier,observed_at='2026-01-01T00:00:00Z',observed=dict(runner=runner,checks=dict(check=dict(exit_code=code,command=['true'])))))
     if part: statement['predicate']['observed']['inputs'] = {'i':'\ud800'}
     try: expected = v['judge'](('record',statement,'agent/alice'))
-    except v['Failure'] as failure: expected = dict(reason=failure.reason,attempts=failure.extra['attempts'])
+    except v['Failure'] as failure: expected = dict(reason=failure.reason,attempts=failure.extra['attempts'],detail=list(map(ord,failure.detail)))
     cases.append(dict(policy=policy,raw=json.dumps(statement),expected=expected))
 def loose(runner, tier, code, kinds, levels, prefix, principal='agent/alice'):
     v['rules'] = None
     statement = dict(predicate=dict(tier=tier,observed_at='2026-01-01T00:00:00Z',observed=dict(runner=runner,inputs={'i':'part'},checks=dict(check=dict(exit_code=code,command=['true'])))))
     try: expected = v['judge'](('record',statement,principal),kinds=kinds,trust_levels=levels,runner_prefix=prefix)
-    except v['Failure'] as failure: expected = dict(reason=failure.reason,attempts=failure.extra['attempts'])
+    except v['Failure'] as failure: expected = dict(reason=failure.reason,attempts=failure.extra['attempts'],detail=list(map(ord,failure.detail)))
     points = lambda value: None if value is None else list(map(ord,value))
     cases.append(dict(policy=None,raw=json.dumps(statement),expected=expected,principal=principal,
                       kinds=[points(kind) for kind in kinds],levels=None if levels is None else [points(level) for level in levels],prefix=points(prefix)))
@@ -83,7 +83,11 @@ print(json.dumps(cases))
                     "required":routing.command_inputs.required_inputs,"bind":routing.command_inputs.bind_inputs,
                     "events":routing.level.map(|level| &level.events)}))
             })
-        }.unwrap_or_else(|failure| json!({"reason":failure.reason,"attempts":failure.attempts}));
+        }.unwrap_or_else(|failure| {
+            assert_eq!(failure.origin, crate::evidence::legacy_policy::ErrorOrigin::Failure);
+            json!({"reason":failure.reason,"attempts":failure.attempts,
+                "detail":failure.detail.borrowed().points().collect::<Vec<_>>()})
+        });
         assert_eq!(actual, case["expected"], "{case}");
     }
 }
