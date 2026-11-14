@@ -16,7 +16,7 @@ pub enum Token {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     Syntax(SyntaxError),
-    IntegerLimit,
+    IntegerLimit { digits: usize },
 }
 
 /// CPython 3.14.7 `Modules/_json.c` and `Lib/json/decoder.py` diagnostics.
@@ -225,7 +225,9 @@ impl Tokens {
             }
         }
         if !float && self.at - digits > 4300 {
-            return Err(Error::IntegerLimit);
+            return Err(Error::IntegerLimit {
+                digits: self.at - digits,
+            });
         }
         let text: String = self.text[start..self.at]
             .iter()

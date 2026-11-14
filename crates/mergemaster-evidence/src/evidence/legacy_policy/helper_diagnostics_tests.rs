@@ -264,3 +264,80 @@ print(json.dumps(out))
         })
     );
 }
+
+#[test]
+fn policy_integer_limit_preserves_digit_count_and_python_value_error() {
+    let output = std::process::Command::new("python3").args(["-c", r#"
+import json,runpy,sys
+assert sys.version_info[:3]==(3,14,7)
+v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify');cases=[]
+for digits in [4300,4301,5000]:
+ for negative in [False,True]:
+  for placement in ['ignored','age']:
+   entry=dict(trust_levels=['agent'],kinds=dict(wrapper=dict(command=['run'])))
+   checks=dict(check=entry)
+   if placement=='age':entry['max_age_s']='TOKEN'
+   else:checks['ignored']='TOKEN'
+   decimal=('-' if negative else '')+'9'*digits
+   text=json.dumps(dict(version=1,checks=checks)).replace('"TOKEN"',decimal)
+   if digits>4300:
+    try:json.loads(text)
+    except ValueError as error:
+     assert type(error) is ValueError
+     assert str(error)==f'Exceeds the limit (4300 digits) for integer string conversion: value has {digits} digits; use sys.set_int_max_str_digits() to increase the limit'
+    else:raise AssertionError('expected integer conversion limit')
+   case=dict(text=text,digits=digits,limit=digits>4300)
+   try:
+    result=v['policy_rules'](text,'check','org/repo')
+    case.update(accepted=True,seconds=None if result['max_age_s'] is None else str(result['max_age_s']))
+   except v['Failure'] as error:
+    case.update(accepted=False,reason=error.reason,detail=list(map(ord,error.detail)))
+   cases.append(case)
+print(json.dumps(cases))
+"#, &std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle")]).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(cases.len(), 12);
+    let mut accepted = 0;
+    let mut limited = 0;
+    for case in cases {
+        let text = case["text"].as_str().unwrap();
+        if case["limit"] == true {
+            use crate::evidence::legacy_verify::statement_document::Error;
+            assert_eq!(
+                Document::from_text_with_depth_limit(text, None).unwrap_err(),
+                Error::IntegerLimit {
+                    digits: case["digits"].as_u64().unwrap() as usize
+                }
+            );
+            limited += 1;
+        }
+        match PolicyDocument::parse(text, "check").and_then(|p| p.into_rules("org/repo")) {
+            Ok(rules) => {
+                assert_eq!(case["accepted"], true);
+                let mut seconds = None;
+                if let Some(age) = rules.header.max_age_s {
+                    let mut text = String::new();
+                    legacy_output::write(&mut text, |writer| writer.policy_seconds(&age)).unwrap();
+                    seconds = Some(text);
+                }
+                assert_eq!(serde_json::json!(seconds), case["seconds"]);
+                accepted += 1;
+            }
+            Err(error) => {
+                assert_eq!(case["accepted"], false);
+                assert_eq!(error.origin, ErrorOrigin::Failure);
+                assert_eq!(error.reason, case["reason"]);
+                assert_eq!(
+                    serde_json::json!(error.detail.borrowed().points().collect::<Vec<_>>()),
+                    case["detail"]
+                );
+            }
+        }
+    }
+    assert_eq!((accepted, limited), (3, 8));
+}
