@@ -5,7 +5,9 @@ pub mod level_rules;
 pub mod normalized_text;
 pub mod seconds;
 pub mod value_rules;
-mod value_source;
+pub mod value_source;
+#[cfg(test)]
+use super::legacy_verify::statement_document::Document;
 use super::legacy_verify::{failure_json::TextRef, python_repr::Repr};
 use check_names::{CheckKey, CheckName, Selection};
 use normalized_text::NormalizedText;
@@ -14,6 +16,7 @@ use serde::{
     de::{self, DeserializeSeed, IgnoredAny, MapAccess, Visitor},
 };
 use serde_json::{Map, Value};
+use value_source::Source;
 
 /// Python handler provenance; exception classification is never inferred from text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -386,12 +389,10 @@ fn serialize_kind_pairs<S: serde::Serializer>(
 /// Consume only command/input fields; kind/level key validation is separate.
 /// Required-input duplicates/order and placeholders remain unnormalized here.
 pub fn checked_command_inputs(
-    rule: &mut Map<String, Value>,
+    rule: Source<'_>,
     where_: &[TextRef<'_>],
 ) -> Result<CommandInputs, PolicyError> {
-    // Temporary bridge; removed by the step-5 PolicyDocument ingress cutover.
-    let document = value_source::bridge(rule)?;
-    command_source(value_source::Source::root(&document), where_)
+    command_source(rule, where_)
 }
 fn command_source(
     rule: value_source::Source<'_>,
@@ -421,12 +422,10 @@ fn command_source(
 
 /// Consume and validate accepted-base file bindings without reading any files.
 pub fn checked_base_inputs(
-    rule: &mut Map<String, Value>,
+    rule: Source<'_>,
     where_: &[TextRef<'_>],
 ) -> Result<Vec<(normalized_text::NormalizedText, String)>, PolicyError> {
-    // Temporary bridge; removed by the step-5 PolicyDocument ingress cutover.
-    let document = value_source::bridge(rule)?;
-    base_source(value_source::Source::root(&document), where_)
+    base_source(rule, where_)
 }
 fn base_source(
     rule: value_source::Source<'_>,
@@ -751,10 +750,11 @@ print(json.dumps(results))
         let expected: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(expected.len(), cases.len());
         for (rule, expected) in cases.iter().zip(expected) {
-            let mut fields = rule.as_object().unwrap().clone();
-            let actual = checked_command_inputs(&mut fields, &[TextRef::Str("fixture")])
+            let document = Document::from_bytes(rule.to_string().as_bytes()).unwrap();
+            let fields = Source::root(&document);
+            let actual = checked_command_inputs(fields, &[TextRef::Str("fixture")])
                 .and_then(|inputs| {
-                    let base = checked_base_inputs(&mut fields, &[TextRef::Str("fixture")])?;
+                    let base = checked_base_inputs(fields, &[TextRef::Str("fixture")])?;
                     let mut value = serde_json::to_value(inputs).unwrap();
                     value["base_inputs"] = Value::Object(
                         base.into_iter()
@@ -793,8 +793,9 @@ print(json.dumps(results))
             .unwrap()
             .iter()
             .map(|rule| {
-                let mut fields = rule.as_object().unwrap().clone();
-                let base = checked_base_inputs(&mut fields, &[TextRef::Str("fixture")]).unwrap();
+                let document = Document::from_bytes(rule.to_string().as_bytes()).unwrap();
+                let base = checked_base_inputs(Source::root(&document), &[TextRef::Str("fixture")])
+                    .unwrap();
                 Value::Object(
                     base.into_iter()
                         .map(|(key, value)| (key.borrowed().to_string(), Value::String(value)))

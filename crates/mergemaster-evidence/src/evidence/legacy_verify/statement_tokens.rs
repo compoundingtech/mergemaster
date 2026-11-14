@@ -27,6 +27,13 @@ impl Tokens {
             at: 0,
         })
     }
+    /// JSON str semantics: preserve BOM and NUL codepoints, with no byte sniffing.
+    pub fn from_text(text: &str) -> Self {
+        Self {
+            text: text.chars().map(u32::from).collect(),
+            at: 0,
+        }
+    }
     fn eat(&mut self, point: u32) -> bool {
         if self.text.get(self.at) == Some(&point) {
             self.at += 1;

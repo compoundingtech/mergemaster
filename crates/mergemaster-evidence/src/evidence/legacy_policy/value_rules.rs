@@ -7,7 +7,6 @@ use super::{
 use crate::evidence::legacy_verify::failure_json::TextRef;
 use crate::evidence::legacy_verify::statement_document::Node;
 use serde::Serialize;
-use serde_json::{Map, Value};
 use std::collections::BTreeSet;
 
 #[derive(Debug, Serialize)]
@@ -36,12 +35,10 @@ pub struct ShardInputs {
 
 /// Consume the two value-rule fields; outer kind key validation is separate.
 pub fn checked_value_rules(
-    rule: &mut Map<String, Value>,
+    rule: Source<'_>,
     where_: &[TextRef<'_>],
 ) -> Result<ValueRules, PolicyError> {
-    // Temporary serde-to-Document bridge; removed by the step-5 ingress cutover.
-    let document = value_source::bridge(rule)?;
-    from_source(Source::root(&document), where_)
+    from_source(rule, where_)
 }
 pub(super) fn from_source(
     rule: Source<'_>,
@@ -146,7 +143,8 @@ pub(super) fn from_source(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use crate::evidence::legacy_verify::statement_document::Document;
+    use serde_json::{Value, json};
     #[test]
     fn value_schemas_match_the_pinned_oracle() {
         let mut cases = vec![json!({}), json!({"unrelated":true})];
@@ -215,8 +213,8 @@ print(json.dumps(results))
         let expected: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(expected.len(), cases.len());
         for (rule, expected) in cases.iter().zip(expected) {
-            let mut fields = rule.as_object().unwrap().clone();
-            let actual = checked_value_rules(&mut fields, &[TextRef::Str("fixture")])
+            let document = Document::from_bytes(rule.to_string().as_bytes()).unwrap();
+            let actual = checked_value_rules(Source::root(&document), &[TextRef::Str("fixture")])
                 .map(|rules| serde_json::to_value(rules).unwrap())
                 .unwrap_or_else(|error| {
                     assert!(
@@ -240,12 +238,12 @@ print(json.dumps(results))
           "bind_inputs":{"z":"old","a":"middle","z":"last"},
           "base_inputs":{"z":"old.txt","a":"middle.txt","z":"last.txt"},
           "input_order":{"z":["old","weak"],"a":["middle","weak"],"z":["last","weak"]}}"#;
-        let mut fields: Map<String, Value> = serde_json::from_str(text).unwrap();
+        let document = Document::from_bytes(text.as_bytes()).unwrap();
+        let fields = Source::root(&document);
         let command =
-            super::super::checked_command_inputs(&mut fields, &[TextRef::Str("fixture")]).unwrap();
-        let base =
-            super::super::checked_base_inputs(&mut fields, &[TextRef::Str("fixture")]).unwrap();
-        let values = checked_value_rules(&mut fields, &[TextRef::Str("fixture")]).unwrap();
+            super::super::checked_command_inputs(fields, &[TextRef::Str("fixture")]).unwrap();
+        let base = super::super::checked_base_inputs(fields, &[TextRef::Str("fixture")]).unwrap();
+        let values = checked_value_rules(fields, &[TextRef::Str("fixture")]).unwrap();
         let actual = json!([command.bind_inputs, base, values.input_order]);
         let root = std::env::var("MERGEMASTER_PYTHON_ORACLE")
             .expect("MERGEMASTER_PYTHON_ORACLE must point to the pinned Python oracle");
@@ -287,9 +285,10 @@ print(json.dumps([list(value.items()) for value in (binds, base, order)]))
             .unwrap()
             .iter()
             .map(|rule| {
-                let mut fields = rule.as_object().unwrap().clone();
+                let document = Document::from_bytes(rule.to_string().as_bytes()).unwrap();
                 serde_json::to_value(
-                    checked_value_rules(&mut fields, &[TextRef::Str("fixture")]).unwrap(),
+                    checked_value_rules(Source::root(&document), &[TextRef::Str("fixture")])
+                        .unwrap(),
                 )
                 .unwrap()
             })

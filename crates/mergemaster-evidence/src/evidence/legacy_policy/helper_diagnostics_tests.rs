@@ -33,12 +33,13 @@ print(json.dumps(cases))
     for case in cases {
         let name: Vec<u32> = serde_json::from_value(case["name"].clone()).unwrap();
         let context = [TextRef::Points(&name)];
-        let mut fields = case["rule"].as_object().unwrap().clone();
+        let document = Document::from_bytes(case["rule"].to_string().as_bytes()).unwrap();
+        let fields = Source::root(&document);
         let error = match case["helper"].as_str().unwrap() {
-            "checked_command_inputs" => checked_command_inputs(&mut fields, &context).unwrap_err(),
-            "checked_base_inputs" => checked_base_inputs(&mut fields, &context).unwrap_err(),
+            "checked_command_inputs" => checked_command_inputs(fields, &context).unwrap_err(),
+            "checked_base_inputs" => checked_base_inputs(fields, &context).unwrap_err(),
             "checked_value_rules" => {
-                value_rules::checked_value_rules(&mut fields, &context).unwrap_err()
+                value_rules::checked_value_rules(fields, &context).unwrap_err()
             }
             _ => panic!("fixture helper"),
         };
@@ -118,4 +119,66 @@ print(json.dumps(cases))
             case["detail"]
         );
     }
+}
+
+#[test]
+fn full_policy_consumers_are_stack_safe_at_five_million_depth() {
+    // Explicit divergence: Python's resource-dependent RecursionError around
+    // depth 51.9k is not reproduced. Policy ingress keeps Rust's prior acceptance.
+    for depth in [128, 129, 256, 257, 5_000_000] {
+        let ignored = format!("{}0{}", "[".repeat(depth - 2), "]".repeat(depth - 2));
+        let text = serde_json::json!({"version":1,"checks":{"ignored":"DEPTH",
+        "check":{"trust_levels":["agent"],"inputs":["."],"kinds":{"wrapper":{
+            "command":["run"],"required_inputs":["x"],"bind_inputs":{"x":"path"},
+            "base_inputs":{"base":"path"},"input_order":{"rank":["a","b"]}
+        }}}}})
+        .to_string()
+        .replacen("\"DEPTH\"", &ignored, 1);
+        let names = check_names::sorted(&text).unwrap();
+        assert_eq!(
+            names,
+            ["check", "ignored"].map(|s| s.chars().map(u32::from).collect::<Vec<_>>())
+        );
+        let header = PolicyDocument::parse(&text, "check")
+            .unwrap()
+            .into_header()
+            .unwrap();
+        assert_eq!(header.trust_levels, ["agent"]);
+        let rules = PolicyDocument::parse(&text, "check")
+            .unwrap()
+            .into_rules("org/repo")
+            .unwrap();
+        assert_eq!(rules.kinds.len(), 1);
+        assert_eq!(rules.kinds[0].1.inputs.command, ["run"]);
+    }
+}
+
+#[test]
+fn selected_payload_at_five_million_depth_is_stack_safe() {
+    let template = serde_json::json!({"version":1,"checks":{"check":{
+        "trust_levels":["agent"],"kinds":{"wrapper":{"command":"DEPTH"}}
+    }}})
+    .to_string();
+    let shallow = template.replace("\"DEPTH\"", "[[0]]");
+    let expected = PolicyDocument::parse(&shallow, "check")
+        .unwrap()
+        .into_rules("org/repo")
+        .unwrap_err();
+    let payload = format!("{}0{}", "[".repeat(5_000_000), "]".repeat(5_000_000));
+    let text = template.replace("\"DEPTH\"", &payload);
+    let document = Document::from_bytes_with_depth_limit(text.as_bytes(), None).unwrap();
+    let selected = Source::root(&document)
+        .get("checks")
+        .unwrap()
+        .get("check")
+        .unwrap();
+    let error = kind_rules::from_source(
+        selected.get("kinds").unwrap(),
+        &["agent".into()],
+        "org/repo",
+        "check".into(),
+    )
+    .unwrap_err();
+    assert_eq!(error, expected);
+    // The coupled ingress slice adds the real PolicyDocument consumer here.
 }
