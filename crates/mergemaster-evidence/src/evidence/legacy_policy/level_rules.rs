@@ -2,7 +2,7 @@
 use super::check_names::CheckName;
 use super::normalized_text::NormalizedText;
 use super::value_source::{self, Source};
-use super::{CommandInputs, PolicyError, checked_command_inputs, exception, invalid, rule_error};
+use super::{CommandInputs, PolicyError, command_source, exception, invalid, rule_error};
 use crate::evidence::legacy_verify::statement_document::Node;
 use crate::evidence::legacy_verify::{failure_json::TextRef, python_repr::Repr};
 use serde::Serialize;
@@ -129,11 +129,8 @@ pub(super) fn from_source(
                     "events must be a nonempty list of pull_request, merge_group",
                 )
             })?;
-        let Value::Object(mut legacy_fields) = value_source::to_value(fields) else {
-            return Err(refusal(level, " is not valid"));
-        };
-        let inputs = checked_command_inputs(
-            &mut legacy_fields,
+        let inputs = command_source(
+            fields,
             &[
                 check.text(),
                 TextRef::Str("/"),

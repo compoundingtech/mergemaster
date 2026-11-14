@@ -683,7 +683,7 @@ exceptions still propagate while missing files read as absent.
 Value-rule, shard and base-input payload names ride the widened normalized text
 storage, so surrogate-escaped policy keys stay lossless end to end; their scalar
 source conversion still comes from the retained serde path for now.
-Header, value-rule and level validation run through a borrowed value facade over a lossless
+Header, command/base, value-rule and level validation borrow a lossless
 statement document; the retained serde entry is re-encoded into it as a
 temporary bridge, removed by the step-5 PolicyDocument ingress cutover.
 Binding paths retain normalized text until the blob read, after earlier guards.
