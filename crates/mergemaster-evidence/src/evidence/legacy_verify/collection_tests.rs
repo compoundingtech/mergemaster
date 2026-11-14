@@ -69,7 +69,7 @@ print(json.dumps(results))
         for call in fixture["calls"].as_array().unwrap() {
             let paths = call["paths"].as_array().map(|a| {
                 a.iter()
-                    .map(|s| s.as_str().unwrap().to_owned())
+                    .map(|s| NormalizedText::from(s.as_str().unwrap()))
                     .collect::<Vec<_>>()
             });
             let crate_key = call["crate"]

@@ -5,7 +5,9 @@ use super::{
     statement::{field, string},
     statement_document::Document,
 };
-use crate::evidence::legacy_policy::{PolicyError, check_names::CheckName};
+use crate::evidence::legacy_policy::{
+    PolicyError, check_names::CheckName, normalized_text::NormalizedText,
+};
 use indexmap::{IndexMap, IndexSet};
 use std::{path::Path, sync::Arc};
 
@@ -46,7 +48,7 @@ impl CandidateCollector {
         repo: &Path,
         tree: &str,
         check: impl Into<CheckName<'a>>,
-        inputs: Option<&[String]>,
+        inputs: Option<&[NormalizedText]>,
         crate_key: Option<(&str, &str)>,
     ) -> Result<Collected, PolicyError> {
         self.cache.check_budget()?;

@@ -15,7 +15,7 @@ pub struct Request<'a> {
     pub tree: &'a str,
     pub check: CheckName<'a>,
     pub keys: &'a str,
-    pub inputs: Option<&'a [String]>,
+    pub inputs: Option<&'a [NormalizedText]>,
     pub crate_key: Option<(&'a str, &'a str)>,
 }
 fn failure(

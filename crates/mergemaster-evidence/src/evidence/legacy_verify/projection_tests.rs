@@ -98,7 +98,7 @@ fn projection_matches_oracle_for_raw_modes_layout_and_selectors() {
     let mut actual = Vec::new();
     for tree in [&tree, &unrelated, &both] {
         for paths in &paths {
-            let paths: Vec<String> = paths.iter().map(|p| (*p).into()).collect();
+            let paths: Vec<NormalizedText> = paths.iter().map(|p| (*p).into()).collect();
             cases.push(json!([tree, paths]));
             actual.push(match project(repo, tree, &paths) {
                 Ok(key) => json!({"key":key}),
@@ -477,7 +477,7 @@ print(json.dumps(out))
     assert!(output.status.success());
     let expected: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
     for (paths, expected) in cases.into_iter().zip(expected) {
-        let paths: Vec<String> = paths.into_iter().map(str::to_owned).collect();
+        let paths: Vec<NormalizedText> = paths.into_iter().map(Into::into).collect();
         match project(Path::new("."), &tree, &paths) {
             Ok(key) => assert_eq!(json!({"key":key}), expected),
             Err(error) => {
@@ -493,5 +493,82 @@ print(json.dumps(out))
                 );
             }
         }
+    }
+}
+
+#[test]
+fn lossless_project_paths_match_full_oracle_results() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path();
+    let script = r#"
+import json,os,pathlib,runpy,subprocess,sys
+v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify'); repo=sys.argv[2]
+def git(*args):
+ return subprocess.check_output(['git','-C',repo,*args]).decode().strip()
+git('init')
+for name,body in [('raw\udcff.json',b'{"x":1}'),('astral🦀.json',b'{"x":2}'),
+                  ('scalar.json',b'{"x":3}'),('bad.json',b'{'),('raw\udc80',b'raw')]:
+ with open(os.path.join(repo,name),'wb') as f: f.write(body)
+git('add','.'); tree=git('write-tree')
+cases=[
+ ['raw\udcff.json'],['raw\udc80'],['astral🦀.json'],['scalar.json'],
+ ['raw\udcff.json::x'],['raw\udcff.json::missing'],['absent\udcff.json::x'],
+ ['scalar.json::\udcff'],['scalar.json::\ud800'],['astral🦀.json::x'],
+ ['.','raw\udcff.json::missing'],['.','absent\udcff.json::x'],
+ ['.','\ud800'],['.','\udcff'],['.','nul\0path'],
+ ['.','\ud800','!scalar.json'],['.','nul\0path','!scalar.json'],
+ ['.','!raw\udcff.json'],['!🦀\ud800'],['!\udc80','bad.json::x'],
+ ['bad.json::x','!\ud800'],['!raw\0name'],['raw\0name'],
+ ['raw\0name::x'],['scalar.json::x\0'],['\ud800'],['\udc7f'],
+ ['\udfff'],['.','!astral🦀.json'],['scalar.json','!scalar.json'],
+ ['.','raw\udcff.json::x'],['scalar.json::x','raw\udcff.json::x'],
+ ['scalar.json::x','scalar.json::x'],['.','!scalar.json::x'],
+]
+out=[]
+for paths in cases:
+ try: result=dict(key=v['project'](repo,tree,paths))
+ except v['Failure'] as e: result=dict(failure=e.reason,message=e.detail)
+ except Exception as e: result=dict(exception=type(e).__name__,message=str(e))
+ out.append(dict(paths=[list(map(ord,p)) for p in paths],result=result))
+print(json.dumps(dict(tree=tree,cases=out)))
+"#;
+    let output = Command::new("python3")
+        .args([
+            "-c",
+            script,
+            &std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap(),
+            repo.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let fixture: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let cases = fixture["cases"].as_array().unwrap();
+    assert_eq!(cases.len(), 34);
+    for case in cases {
+        let paths: Vec<NormalizedText> = case["paths"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|points| {
+                NormalizedText::Codepoints(serde_json::from_value(points.clone()).unwrap())
+            })
+            .collect();
+        let actual = match project(repo, fixture["tree"].as_str().unwrap(), &paths) {
+            Ok(key) => json!({"key":key}),
+            Err(error) => match error.origin {
+                crate::evidence::legacy_policy::ErrorOrigin::Exception { class } => {
+                    json!({"exception":class,"message":error.detail.to_string()})
+                }
+                crate::evidence::legacy_policy::ErrorOrigin::Failure => {
+                    json!({"failure":error.reason,"message":error.detail.to_string()})
+                }
+            },
+        };
+        assert_eq!(actual, case["result"], "{paths:?}");
     }
 }

@@ -134,7 +134,7 @@ pub struct CheckHeader {
     pub trust_levels: Vec<NormalizedText>,
     pub max_age_s: Option<seconds::Seconds>,
     pub enforce: bool,
-    pub inputs: Option<Vec<String>>,
+    pub inputs: Option<Vec<NormalizedText>>,
     pub sample_one_in: u64,
     pub require: RequireMode,
     pub events: Option<Vec<String>>,
@@ -220,11 +220,16 @@ impl CheckHeader {
         let inputs = match source.get("inputs") {
             None => None,
             Some(value) if value.is_null() => None,
-            Some(value) => Some(declared_source_paths(
-                value,
-                &[TextRef::Str("skip policy for "), check.text()],
-                true,
-            )?),
+            Some(value) => Some(
+                declared_source_paths(
+                    value,
+                    &[TextRef::Str("skip policy for "), check.text()],
+                    true,
+                )?
+                .into_iter()
+                .map(NormalizedText::from)
+                .collect(),
+            ),
         };
         let sample_one_in = source
             .get("sample_one_in")
