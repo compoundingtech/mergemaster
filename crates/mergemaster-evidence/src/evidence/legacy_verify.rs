@@ -38,6 +38,7 @@ pub mod routing;
 pub mod selection;
 pub mod selection_json;
 pub mod signature;
+pub mod source_io;
 pub mod stale;
 pub mod statement;
 pub mod statement_bytes;

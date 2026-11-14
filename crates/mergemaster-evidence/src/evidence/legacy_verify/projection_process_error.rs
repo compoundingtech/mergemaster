@@ -39,15 +39,14 @@ pub fn diagnostic(
             timeout.as_secs_f64()
         );
     }
+    os_diagnostic(error, (!spawned).then(|| command.get_program()))
+}
+pub(super) fn os_diagnostic(error: &io::Error, filename: Option<&OsStr>) -> String {
     if let Some(errno) = error.raw_os_error() {
         let text = error.to_string();
         let suffix = format!(" (os error {errno})");
         let message = text.strip_suffix(&suffix).unwrap_or(&text);
-        let filename = if spawned {
-            String::new()
-        } else {
-            format!(": {}", repr(command.get_program()))
-        };
+        let filename = filename.map_or_else(String::new, |name| format!(": {}", repr(name)));
         return format!("[Errno {errno}] {message}{filename}");
     }
     error.to_string()
