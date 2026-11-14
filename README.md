@@ -621,6 +621,19 @@ Successful views also borrow lossless check names; `CheckName::codepoints` expos
 their exact identity without using diagnostic Display as serialization.
 `legacy_output` streams insertion-ordered, two-space Python JSON without an intermediate
 tree, preserving surrogate code points and ASCII escaping. It adds no final newline.
+`python_repr::Repr` streams Python string repr with the pinned oracle's Python
+3.14.7 / Unicode 16.0.0 printability, not Rust Debug's Unicode tables.
+Its generated 5,888-byte little-endian range asset is binary-searched without allocation;
+the JSON provenance header pins interpreter, Unicode version and generator/input hashes.
+Regenerate with the following command; append `--check` for byte-for-byte regeneration
+comparison and read-only locking:
+```sh
+nix develop -c python3 crates/mergemaster-evidence/src/evidence/legacy_verify/gen_python_printable.py
+```
+Production Python before cutover is ambient/unpinned (including ubuntu-latest);
+the Rust table follows the pinned differential oracle to make output deterministic.
+Any ambient-version mismatch is confined to diagnostic repr escaping of code points
+classified non-printable by one version, not record acceptance. Guard wiring follows separately.
 `All::write_json` preserves require-all lane order and success/refusal field presence.
 `require_all::write_error` emits the global envelope with reason/detail verbatim,
 not exception classification or diagnostic normalization. `failure_json::WireError`

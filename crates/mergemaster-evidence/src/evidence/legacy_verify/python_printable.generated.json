@@ -1,0 +1,11 @@
+{
+  "asset_sha256": "467840eb56bc5e657a8eae9dc6e511ddbd9ffc8036850e5b67bf02b33db1068e",
+  "generated": true,
+  "generated_on": "2026-11-13",
+  "generator": "crates/mergemaster-evidence/src/evidence/legacy_verify/gen_python_printable.py",
+  "generator_sha256": "6b2b72a5a381972c7bdd08fa759c213ef6c1fb3fd467566ecf3025edc479c338",
+  "printable_sha256": "88d55a36f9cfaa0fb3f843f787cc267686953939f2e295f7b3156d63d184adb4",
+  "python_version": "3.14.7",
+  "range_bytes": 5888,
+  "unicodedata_version": "16.0.0"
+}
