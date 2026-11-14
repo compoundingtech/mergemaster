@@ -8,12 +8,9 @@ pub mod value_rules;
 pub mod value_source;
 use super::legacy_verify::statement_document::{Document, Node};
 use super::legacy_verify::{failure_json::TextRef, python_repr::Repr};
-use check_names::{CheckKey, CheckName, Selection};
+use check_names::CheckName;
 use normalized_text::NormalizedText;
-use serde::{
-    Serialize,
-    de::{self, DeserializeSeed, IgnoredAny, MapAccess, Visitor},
-};
+use serde::Serialize;
 use serde_json::Value;
 use value_source::Source;
 
@@ -117,100 +114,6 @@ fn policy_document(text: &str) -> Result<Document, PolicyError> {
         ));
     }
     Ok(document)
-}
-/// Syntax-check unrelated entries without converting their numeric values.
-pub fn selected_entry(text: &str, name: &str, group: &str) -> Result<Option<Value>, PolicyError> {
-    CheckName::from(name).entry(text, group)
-}
-fn entries(text: &str, selection: Selection<'_>, group: &str) -> Result<Entries, PolicyError> {
-    if !super::legacy_json::strict_strings(text) {
-        return Err(invalid("unescaped control character in JSON string"));
-    }
-    let mut decoder = serde_json::Deserializer::from_str(text);
-    let entry = DocumentSeed(selection, group)
-        .deserialize(&mut decoder)
-        .map_err(|e| invalid(e.to_string()))?;
-    decoder.end().map_err(|e| invalid(e.to_string()))?;
-    Ok(entry)
-}
-#[derive(Default)]
-struct Entries {
-    entry: Option<Value>,
-    names: std::collections::BTreeSet<Vec<u32>>,
-}
-struct DocumentSeed<'a>(Selection<'a>, &'a str);
-impl<'de> DeserializeSeed<'de> for DocumentSeed<'_> {
-    type Value = Entries;
-    fn deserialize<D: de::Deserializer<'de>>(self, decoder: D) -> Result<Self::Value, D::Error> {
-        decoder.deserialize_map(self)
-    }
-}
-impl<'de> Visitor<'de> for DocumentSeed<'_> {
-    type Value = Entries;
-    fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("a legacy skip policy object")
-    }
-    fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
-        let (mut version, mut entry, mut checks, mut unknown) =
-            (None, Entries::default(), false, false);
-        while let Some(key) = map.next_key::<String>()? {
-            match key.as_str() {
-                "version" => version = Some(map.next_value::<Value>()?),
-                name if name == self.1 => {
-                    entry = map.next_value_seed(ChecksSeed(self.0))?;
-                    checks = true;
-                }
-                _ => {
-                    map.next_value::<IgnoredAny>()?;
-                    unknown = true;
-                }
-            }
-        }
-        // Match Python's version-one equality, including true and 1.0.
-        if unknown
-            || !checks
-            || !(version.as_ref().and_then(Value::as_f64) == Some(1.0)
-                || version == Some(Value::Bool(true)))
-        {
-            return Err(de::Error::custom(format!(
-                "document must contain version 1 and a {} object",
-                self.1
-            )));
-        }
-        Ok(entry)
-    }
-}
-struct ChecksSeed<'a>(Selection<'a>);
-impl<'de> DeserializeSeed<'de> for ChecksSeed<'_> {
-    type Value = Entries;
-    fn deserialize<D: de::Deserializer<'de>>(self, decoder: D) -> Result<Self::Value, D::Error> {
-        decoder.deserialize_map(self)
-    }
-}
-impl<'de> Visitor<'de> for ChecksSeed<'_> {
-    type Value = Entries;
-    fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("a map of legacy check entries")
-    }
-    fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
-        let mut entry = Entries::default();
-        while let Some(CheckKey(key)) = map.next_key::<CheckKey>()? {
-            let selected = match self.0 {
-                Selection::Scalar(name) => name.chars().map(u32::from).eq(key.iter().copied()),
-                Selection::Points(name) => name == key,
-                Selection::Names => {
-                    entry.names.insert(key);
-                    false
-                }
-            };
-            if selected {
-                entry.entry = Some(map.next_value::<Value>()?);
-            } else {
-                map.next_value::<IgnoredAny>()?;
-            }
-        }
-        Ok(entry)
-    }
 }
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]

@@ -1,7 +1,7 @@
 //! Policy-name enumeration/selection only; rule normalization remains a separate boundary.
-use super::{PolicyError, entries};
+use super::{PolicyDocument, PolicyError, invalid, policy_document, value_source::Source};
 use crate::evidence::legacy_verify::value_inputs::TextRef;
-use serde::de::{self, Visitor};
+use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, Visitor};
 use serde_json::Value;
 
 /// Borrowed policy identity; never convert a Python name through lossy UTF-8.
@@ -34,12 +34,17 @@ impl<'a> CheckName<'a> {
             TextRef::Points(name) => name == points,
         }
     }
-    pub(crate) fn entry(self, text: &str, group: &str) -> Result<Option<Value>, PolicyError> {
-        let selection = match self.0 {
-            TextRef::Str(name) => Selection::Scalar(name),
-            TextRef::Points(name) => Selection::Points(name),
-        };
-        Ok(entries(text, selection, group)?.entry)
+    /// The lane domain retains its existing serde value API.
+    pub(crate) fn lane_entry(self, text: &str) -> Result<Option<Value>, PolicyError> {
+        if !crate::evidence::legacy_json::strict_strings(text) {
+            return Err(invalid("unescaped control character in JSON string"));
+        }
+        let mut decoder = serde_json::Deserializer::from_str(text);
+        let entry = LaneDocument(self)
+            .deserialize(&mut decoder)
+            .map_err(|error| invalid(error.to_string()))?;
+        decoder.end().map_err(|error| invalid(error.to_string()))?;
+        Ok(entry)
     }
 }
 impl std::fmt::Display for CheckName<'_> {
@@ -56,21 +61,87 @@ impl std::fmt::Debug for CheckName<'_> {
 /// Sorted Python code-point names, including lone surrogates; duplicate keys collapse.
 /// Entries are syntax-checked, not policy-validated or filtered by `require`.
 pub fn sorted(text: &str) -> Result<Vec<Vec<u32>>, PolicyError> {
-    Ok(entries(text, Selection::Names, "checks")?
-        .names
+    let document = policy_document(text)?;
+    let mut names: Vec<_> = Source::root(&document)
+        .get("checks")
+        .and_then(Source::object)
         .into_iter()
-        .collect())
+        .flat_map(|entries| entries.keys().cloned())
+        .collect();
+    names.sort_unstable();
+    Ok(names)
 }
 /// Select by borrowed code points without converting the name through Rust String.
-/// Selected values retain the existing serde-value validation domain.
-pub fn selected(text: &str, name: &[u32]) -> Result<Option<Value>, PolicyError> {
-    CheckName::from(name).entry(text, "checks")
+/// The selected entry stays owned by its original lossless Document.
+pub fn selected<'a>(
+    text: &str,
+    name: &'a [u32],
+) -> Result<Option<PolicyDocument<'a>>, PolicyError> {
+    let policy = PolicyDocument::parse(text, name)?;
+    Ok(policy.entry.is_some().then_some(policy))
 }
-#[derive(Clone, Copy)]
-pub(super) enum Selection<'a> {
-    Scalar(&'a str),
-    Points(&'a [u32]),
-    Names,
+struct LaneDocument<'a>(CheckName<'a>);
+impl<'de> DeserializeSeed<'de> for LaneDocument<'_> {
+    type Value = Option<Value>;
+    fn deserialize<D: de::Deserializer<'de>>(self, decoder: D) -> Result<Self::Value, D::Error> {
+        decoder.deserialize_map(self)
+    }
+}
+impl<'de> Visitor<'de> for LaneDocument<'_> {
+    type Value = Option<Value>;
+    fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a legacy skip policy object")
+    }
+    fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
+        let (mut version, mut entry, mut present, mut unknown) = (None, None, false, false);
+        while let Some(key) = map.next_key::<String>()? {
+            match key.as_str() {
+                "version" => version = Some(map.next_value::<Value>()?),
+                "lanes" => {
+                    entry = map.next_value_seed(LaneEntries(self.0))?;
+                    present = true;
+                }
+                _ => {
+                    map.next_value::<IgnoredAny>()?;
+                    unknown = true;
+                }
+            }
+        }
+        if unknown
+            || !present
+            || !(version.as_ref().and_then(Value::as_f64) == Some(1.0)
+                || version == Some(Value::Bool(true)))
+        {
+            return Err(de::Error::custom(
+                "document must contain version 1 and a lanes object",
+            ));
+        }
+        Ok(entry)
+    }
+}
+struct LaneEntries<'a>(CheckName<'a>);
+impl<'de> DeserializeSeed<'de> for LaneEntries<'_> {
+    type Value = Option<Value>;
+    fn deserialize<D: de::Deserializer<'de>>(self, decoder: D) -> Result<Self::Value, D::Error> {
+        decoder.deserialize_map(self)
+    }
+}
+impl<'de> Visitor<'de> for LaneEntries<'_> {
+    type Value = Option<Value>;
+    fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a map of legacy check entries")
+    }
+    fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
+        let mut entry = None;
+        while let Some(CheckKey(key)) = map.next_key::<CheckKey>()? {
+            if self.0.matches(&key) {
+                entry = Some(map.next_value::<Value>()?);
+            } else {
+                map.next_value::<IgnoredAny>()?;
+            }
+        }
+        Ok(entry)
+    }
 }
 pub(crate) struct CheckKey(pub Vec<u32>);
 impl<'de> serde::Deserialize<'de> for CheckKey {
@@ -96,7 +167,8 @@ impl<'de> Visitor<'de> for KeyVisitor {
                 }
                 Err(error) => {
                     let (valid, rest) = bytes.split_at(error.valid_up_to());
-                    points.extend(std::str::from_utf8(valid).unwrap().chars().map(u32::from));
+                    let text = std::str::from_utf8(valid).map_err(E::custom)?;
+                    points.extend(text.chars().map(u32::from));
                     match rest {
                         [0xed, second @ 0xa0..=0xbf, third @ 0x80..=0xbf, tail @ ..] => {
                             points.push(
@@ -182,7 +254,9 @@ print(json.dumps(out))
                 assert!(actual.is_err(), "{text}");
                 assert!(selected(text, &[97]).is_err(), "{text}");
                 assert!(
-                    super::super::selected_entry(text, "a", "checks").is_err(),
+                    CheckName::from("a")
+                        .lane_entry(&text.replace("\"checks\"", "\"lanes\""))
+                        .is_err(),
                     "{text}"
                 );
                 continue;
@@ -193,20 +267,31 @@ print(json.dumps(out))
                 if expected["values"][index].is_null() {
                     continue;
                 }
-                assert_eq!(
-                    selected(text, name).unwrap(),
-                    Some(expected["values"][index].clone()),
-                    "{text}"
-                );
+                let policy = selected(text, name).unwrap().unwrap();
+                if expected["values"][index].is_object() {
+                    let actual = policy.into_rules("org/repo").unwrap();
+                    assert_eq!(serde_json::to_value(actual).unwrap()["require"], "off");
+                } else {
+                    assert!(
+                        matches!(policy.source().unwrap().node(),
+                        crate::evidence::legacy_verify::statement_document::Node::Integer(decimal)
+                        if expected["values"][index].as_i64().is_some_and(|n| decimal.parse::<i64>() == Ok(n))),
+                        "{text}"
+                    );
+                }
             }
-            assert_eq!(selected(text, &[0x10ffff]).unwrap(), None);
+            assert!(selected(text, &[0x10ffff]).unwrap().is_none());
         }
         assert_eq!(
-            super::super::selected_entry(&cases[5], "unit", "checks").unwrap(),
+            CheckName::from("unit")
+                .lane_entry(&cases[5].replace("\"checks\"", "\"lanes\""))
+                .unwrap(),
             Some(json!(2))
         );
         assert_eq!(
-            super::super::selected_entry(&cases[1], "😀", "checks").unwrap(),
+            CheckName::from("😀")
+                .lane_entry(&cases[1].replace("\"checks\"", "\"lanes\""))
+                .unwrap(),
             Some(json!(4))
         );
     }

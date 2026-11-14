@@ -26,7 +26,7 @@ impl LaneRules {
             detail: NormalizedText::around("lane ", lane.text(), suffix),
         };
         let shape = || error(" needs argv and definition_paths, and nothing unknown");
-        let entry = lane.entry(text, "lanes")?.ok_or_else(|| PolicyError {
+        let entry = lane.lane_entry(text)?.ok_or_else(|| PolicyError {
             origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
             reason: "no_lane",
             detail: NormalizedText::around("the lane file has no entry for ", lane.text(), ""),
