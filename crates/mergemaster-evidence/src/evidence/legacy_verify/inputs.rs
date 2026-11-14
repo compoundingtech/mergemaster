@@ -296,7 +296,11 @@ fn check_inputs_source(
             return Err(Failure {
                 origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                 reason: "missing_input",
-                detail: format!("record lacks required input {key}").into(),
+                detail: crate::evidence::legacy_policy::normalized_text::NormalizedText::around(
+                    "record lacks required input ",
+                    key,
+                    "",
+                ),
                 attempts: Some(attempts),
             });
         }
