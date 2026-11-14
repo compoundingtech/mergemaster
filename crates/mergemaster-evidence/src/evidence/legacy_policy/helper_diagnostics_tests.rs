@@ -180,5 +180,15 @@ fn selected_payload_at_five_million_depth_is_stack_safe() {
     )
     .unwrap_err();
     assert_eq!(error, expected);
-    // The coupled ingress slice adds the real PolicyDocument consumer here.
+    drop(document);
+    let header = PolicyDocument::parse(&text, "check")
+        .unwrap()
+        .into_header()
+        .unwrap();
+    assert_eq!(header.trust_levels, ["agent"]);
+    let error = PolicyDocument::parse(&text, "check")
+        .unwrap()
+        .into_rules("org/repo")
+        .unwrap_err();
+    assert_eq!(error, expected);
 }

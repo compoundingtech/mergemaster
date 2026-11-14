@@ -6,8 +6,7 @@ pub mod normalized_text;
 pub mod seconds;
 pub mod value_rules;
 pub mod value_source;
-#[cfg(test)]
-use super::legacy_verify::statement_document::Document;
+use super::legacy_verify::statement_document::{Document, Node};
 use super::legacy_verify::{failure_json::TextRef, python_repr::Repr};
 use check_names::{CheckKey, CheckName, Selection};
 use normalized_text::NormalizedText;
@@ -15,7 +14,7 @@ use serde::{
     Serialize,
     de::{self, DeserializeSeed, IgnoredAny, MapAccess, Visitor},
 };
-use serde_json::{Map, Value};
+use serde_json::Value;
 use value_source::Source;
 
 /// Python handler provenance; exception classification is never inferred from text.
@@ -40,18 +39,31 @@ impl std::error::Error for PolicyError {}
 #[derive(Debug)]
 pub struct PolicyDocument<'a> {
     check: CheckName<'a>,
-    entry: Option<Value>,
+    document: Document,
+    entry: Option<usize>,
 }
 impl<'a> PolicyDocument<'a> {
     pub fn parse(text: &str, check: impl Into<CheckName<'a>>) -> Result<Self, PolicyError> {
         let check = check.into();
+        let document = policy_document(text)?;
+        let entry = Source::root(&document).get("checks").and_then(|checks| {
+            checks
+                .object()?
+                .iter()
+                .find(|(name, _)| check.matches(name))
+                .map(|(_, id)| *id)
+        });
         Ok(Self {
             check,
-            entry: check.entry(text, "checks")?,
+            document,
+            entry,
         })
     }
     /// Unrelated entries are syntax-checked without bounded numeric conversion.
     pub fn into_header(self) -> Result<CheckHeader, PolicyError> {
+        CheckHeader::parse(self.source()?, self.check)
+    }
+    pub fn source(&self) -> Result<Source<'_>, PolicyError> {
         let entry = self.entry.ok_or_else(|| PolicyError {
             origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
             reason: "no_policy",
@@ -61,20 +73,50 @@ impl<'a> PolicyDocument<'a> {
                 "",
             ),
         })?;
-        CheckHeader::parse(entry, self.check)
+        Ok(Source::root(&self.document).at(entry))
     }
     /// Validate and normalize every selected kind before evidence evaluation.
     pub fn into_rules(self, repository: &str) -> Result<PolicyRules, PolicyError> {
-        let check = self.check;
-        let mut header = self.into_header()?;
-        let kinds = kind_rules::checked_kinds(
-            std::mem::take(&mut header.kinds),
-            &header.trust_levels,
-            repository,
-            check,
-        )?;
+        let source = self.source()?;
+        let header = CheckHeader::parse(source, self.check)?;
+        let kinds = match source.get("kinds") {
+            Some(kinds) => {
+                kind_rules::checked_kinds(kinds, &header.trust_levels, repository, self.check)?
+            }
+            None => {
+                return Err(invalid(NormalizedText::around(
+                    "skip policy for ",
+                    self.check.text(),
+                    " needs kinds and trust_levels, and nothing unknown",
+                )));
+            }
+        };
         Ok(PolicyRules { header, kinds })
     }
+}
+/// Parse the complete policy before selection; duplicate keys use the last value.
+fn policy_document(text: &str) -> Result<Document, PolicyError> {
+    // Exact decoder diagnostics are supplied by the decoder-parity integration.
+    let document = Document::from_text_with_depth_limit(text, None)
+        .map_err(|error| invalid(format!("skip policy is not valid JSON: {error:?}")))?;
+    let root = Source::root(&document);
+    let version_one = root.get("version").is_some_and(|value| match value.node() {
+        Node::Bool(true) => true,
+        Node::Integer(decimal) => decimal == "1",
+        Node::Float(value) => *value == 1.0,
+        _ => false,
+    });
+    if root.object().is_none_or(|entries| entries.len() != 2)
+        || !version_one
+        || root
+            .get("checks")
+            .is_none_or(|checks| checks.object().is_none())
+    {
+        return Err(invalid(
+            "skip policy must be {\"version\": 1, \"checks\": {...}}",
+        ));
+    }
+    Ok(document)
 }
 /// Syntax-check unrelated entries without converting their numeric values.
 pub fn selected_entry(text: &str, name: &str, group: &str) -> Result<Option<Value>, PolicyError> {
@@ -180,8 +222,6 @@ pub enum RequireMode {
 
 #[derive(Debug, Serialize)]
 pub struct CheckHeader {
-    #[serde(skip_serializing)]
-    kinds: Map<String, Value>,
     pub trust_levels: Vec<NormalizedText>,
     pub max_age_s: Option<seconds::Seconds>,
     pub enforce: bool,
@@ -199,7 +239,10 @@ pub struct PolicyRules {
     pub kinds: Vec<(String, kind_rules::KindRule)>,
 }
 impl CheckHeader {
-    pub fn parse<'a>(entry: Value, check: impl Into<CheckName<'a>>) -> Result<Self, PolicyError> {
+    pub fn parse<'a>(
+        source: Source<'_>,
+        check: impl Into<CheckName<'a>>,
+    ) -> Result<Self, PolicyError> {
         let check = check.into();
         let error = |message: &str| {
             invalid(NormalizedText::concat(
@@ -219,11 +262,6 @@ impl CheckHeader {
                 " needs kinds and trust_levels, and nothing unknown",
             ))
         };
-        // Temporary bridge: the retained serde entry is re-encoded into a
-        // lossless Document and validated through the borrowed value facade;
-        // the step-5 PolicyDocument ingress cutover slice removes it.
-        let document = value_source::bridge(&entry)?;
-        let source = value_source::Source::root(&document);
         const KEYS: &[&str] = &[
             "kinds",
             "trust_levels",
@@ -251,19 +289,11 @@ impl CheckHeader {
             None => None,
             Some(value) if value.is_null() => None,
             Some(value) => Some(
-                value
-                    .as_u64()
-                    .filter(|v| *v > 0)
-                    .ok_or_else(|| {
-                        // The bridge still loses wide numeric provenance until step 5.
-                        let exceeds_u64 = value.as_f64().is_some_and(|v| v >= u64::MAX as f64);
-                        error(if exceeds_u64 {
-                            "max_age_s must be null or a positive integer within u64"
-                        } else {
-                            "max_age_s must be null or a positive integer"
-                        })
-                    })?
-                    .into(),
+                match value.node() {
+                    Node::Integer(decimal) => seconds::Seconds::positive(decimal),
+                    _ => None,
+                }
+                .ok_or_else(|| error("max_age_s must be null or a positive integer"))?,
             ),
         };
         let enforce = source.get("enforce").map_or(Ok(false), |value| {
@@ -292,16 +322,12 @@ impl CheckHeader {
             .map_or(Some(1), |value| value.as_u64())
             .filter(|v| (1..=1000).contains(v))
             .ok_or_else(|| error("sample_one_in must be an integer from 1 to 1000"))?;
-        let kinds = match source.get("kinds") {
-            Some(kinds) if kinds.object().is_some_and(|entries| !entries.is_empty()) => {
-                // Bridged back for the kind module until its facade slice.
-                let Value::Object(kinds) = value_source::to_value(kinds) else {
-                    return Err(error("kinds must name at least one kind"));
-                };
-                kinds
-            }
-            _ => return Err(error("kinds must name at least one kind")),
-        };
+        if source
+            .get("kinds")
+            .is_none_or(|kinds| kinds.object().is_none_or(|entries| entries.is_empty()))
+        {
+            return Err(error("kinds must name at least one kind"));
+        }
         let events = match source.get("events") {
             None => None,
             Some(value) if value.is_null() => None,
@@ -330,7 +356,6 @@ impl CheckHeader {
             ),
         };
         Ok(Self {
-            kinds,
             trust_levels,
             max_age_s,
             enforce,
@@ -651,7 +676,7 @@ for name in ['check','\ud800','\udfff','😀','quote\'"\n','\u0378']:
    cases.append(dict(text=text,name=list(map(ord,name)),reason=failure.reason,detail=list(map(ord,failure.detail)),single=eval(single,env),global_=eval(global_,env)))
   else:
    assert entry['max_age_s']==2**64
-   cases.append(dict(text=text,name=list(map(ord,name)),u64_divergence=True))
+   cases.append(dict(text=text,name=list(map(ord,name)),accepted_seconds=str(entry['max_age_s'])))
 print(json.dumps(cases))
 "#, &root]).output().unwrap();
         assert!(
@@ -661,26 +686,25 @@ print(json.dumps(cases))
         );
         let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(cases.len(), 132);
-        let mut divergences = 0;
+        let mut accepted = 0;
         for case in cases {
             let name: Vec<u32> = serde_json::from_value(case["name"].clone()).unwrap();
-            let error = PolicyDocument::parse(case["text"].as_str().unwrap(), name.as_slice())
+            let header = PolicyDocument::parse(case["text"].as_str().unwrap(), name.as_slice())
                 .unwrap()
-                .into_header()
-                .unwrap_err();
-            assert_eq!(error.origin, ErrorOrigin::Failure);
-            let detail: Vec<u32> = error.detail.borrowed().points().collect();
-            if case["u64_divergence"] == true {
-                assert_eq!(error.reason, "error");
-                let expected = NormalizedText::around(
-                    "skip policy for ",
-                    TextRef::Points(&name),
-                    ": max_age_s must be null or a positive integer within u64",
-                );
-                assert_eq!(error.detail, expected);
-                divergences += 1;
+                .into_rules("org/repo")
+                .map(|rules| rules.header);
+            if let Some(expected) = case["accepted_seconds"].as_str() {
+                let seconds = header.unwrap().max_age_s.unwrap();
+                let mut actual = String::new();
+                legacy_output::write(&mut actual, |writer| writer.policy_seconds(&seconds))
+                    .unwrap();
+                assert_eq!(actual, expected);
+                accepted += 1;
                 continue;
             }
+            let error = header.unwrap_err();
+            assert_eq!(error.origin, ErrorOrigin::Failure);
+            let detail: Vec<u32> = error.detail.borrowed().points().collect();
             assert_eq!(error.reason, case["reason"]);
             assert_eq!(json!(detail), case["detail"]);
             let view = WireError::from_policy(&error);
@@ -692,7 +716,7 @@ print(json.dumps(cases))
             legacy_output::write(&mut global, |w| view.write_global(w)).unwrap();
             assert_eq!(global, case["global_"]);
         }
-        assert_eq!(divergences, 6);
+        assert_eq!(accepted, 6);
     }
 
     #[test]
@@ -843,8 +867,13 @@ print(json.dumps(reasons))
     fn document_and_check_headers_match_the_oracle() {
         let base = json!({"version":1,"checks":{"unit":{"trust_levels":["agent"],
             "kinds":{"wrapper":{"command":["test","{repository}","{check}"]}}}}});
-        let parse = |text: &str| PolicyDocument::parse(text, "unit")?.into_header();
+        let parse = |text: &str| {
+            PolicyDocument::parse(text, "unit")?
+                .into_rules("fixture/repo")
+                .map(|rules| rules.header)
+        };
         let mut cases: Vec<String> = [
+            "\u{feff}{}",
             "{",
             "[]",
             r#"{"version":1,"checks":{}}"#,
@@ -892,7 +921,6 @@ print(json.dumps(reasons))
         cases.push(other.to_string());
         cases.push(base.to_string().replace(":1,", ":true,"));
         cases.push(base.to_string().replace(":1,", ":1.0,"));
-        let shadowed = cases.len()..cases.len() + 3;
         cases.extend([
             base.to_string()
                 .replace(r#""version":1"#, r#""version":1e1000,"version":1"#),
@@ -906,6 +934,15 @@ print(json.dumps(reasons))
             "\"max_age_s\":18446744073709551616,\"trust_levels\"",
         );
         cases.push(large);
+        for decimal in [
+            "340282366920938463463374607431768211456".to_owned(),
+            "9".repeat(400),
+        ] {
+            cases.push(base.to_string().replace(
+                "\"trust_levels\"",
+                &format!("\"max_age_s\":{decimal},\"trust_levels\""),
+            ));
+        }
         let root = std::env::var("MERGEMASTER_PYTHON_ORACLE")
             .expect("MERGEMASTER_PYTHON_ORACLE must point to the pinned Python oracle");
         let script = r#"
@@ -916,6 +953,7 @@ for text in json.loads(sys.argv[2]):
     try:
         header = oracle['policy_rules'](text, 'unit', 'fixture/repo')
         del header['kinds']
+        if header['max_age_s'] is not None: header['max_age_s']=str(header['max_age_s'])
         results.append(header)
     except oracle['Failure'] as failure:
         results.append({'reason': failure.reason})
@@ -932,22 +970,27 @@ print(json.dumps(results))
         );
         let expected: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(expected.len(), cases.len());
-        for (index, (text, expected)) in cases.iter().zip(expected).enumerate() {
+        for (text, expected) in cases.iter().zip(expected) {
             let actual = parse(text)
-                .map(|header| serde_json::to_value(header).unwrap())
+                .map(|mut header| {
+                    let seconds = header.max_age_s.take().map(|seconds| {
+                        let mut text = String::new();
+                        crate::evidence::legacy_output::write(&mut text, |writer| {
+                            writer.policy_seconds(&seconds)
+                        })
+                        .unwrap();
+                        text
+                    });
+                    let mut value = serde_json::to_value(header).unwrap();
+                    value["max_age_s"] = json!(seconds);
+                    value
+                })
                 .unwrap_or_else(|error| {
                     assert!(!error.detail.to_string().is_empty());
+                    assert_eq!(error.origin, ErrorOrigin::Failure);
                     json!({"reason":error.reason})
                 });
-            if shadowed.contains(&index) {
-                assert!(expected["trust_levels"].is_array());
-                assert_eq!(actual, json!({"reason":"error"}), "{text}");
-            } else if index == cases.len() - 1 {
-                assert!(expected["max_age_s"].is_number()); // max-age-above-u64.
-                assert_eq!(actual, json!({"reason":"error"}));
-            } else {
-                assert_eq!(actual, expected, "{text}");
-            }
+            assert_eq!(actual, expected, "{text}");
         }
         other["checks"]["unit"]["kinds"] = json!({"raw":false});
         assert_eq!(

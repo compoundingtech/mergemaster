@@ -10,7 +10,6 @@ use super::{
 use crate::evidence::legacy_verify::statement_document::Node;
 use crate::evidence::legacy_verify::{failure_json::TextRef, python_repr::Repr};
 use serde::Serialize;
-use serde_json::{Map, Value};
 
 #[derive(Debug, Serialize)]
 pub struct KindRule {
@@ -26,14 +25,12 @@ pub struct KindRule {
     pub base_inputs: Vec<(NormalizedText, String)>,
 }
 pub fn checked_kinds<'a>(
-    kinds: Map<String, Value>,
+    kinds: Source<'_>,
     levels: &[NormalizedText],
     repository: &str,
     check: impl Into<CheckName<'a>>,
 ) -> Result<Vec<(String, KindRule)>, PolicyError> {
-    // Temporary bridge, removed by the step-5 PolicyDocument ingress cutover.
-    let document = value_source::bridge(&kinds)?;
-    from_source(Source::root(&document), levels, repository, check.into())
+    from_source(kinds, levels, repository, check.into())
 }
 pub(super) fn from_source(
     kinds: Source<'_>,
