@@ -6,13 +6,13 @@ use super::{PolicyError, invalid};
 use crate::evidence::legacy_verify::statement_document::{Document, Node};
 use indexmap::IndexMap;
 
-#[derive(Clone, Copy)]
-pub(super) struct Source<'a> {
+#[derive(Clone, Copy, Debug)]
+pub struct Source<'a> {
     document: &'a Document,
     node: &'a Node,
 }
 impl<'a> Source<'a> {
-    pub(super) fn root(document: &'a Document) -> Self {
+    pub fn root(document: &'a Document) -> Self {
         Self {
             document,
             node: document.root(),

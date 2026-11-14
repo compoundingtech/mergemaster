@@ -6,7 +6,6 @@ use super::{CommandInputs, PolicyError, command_source, exception, invalid, rule
 use crate::evidence::legacy_verify::statement_document::Node;
 use crate::evidence::legacy_verify::{failure_json::TextRef, python_repr::Repr};
 use serde::Serialize;
-use serde_json::{Map, Value};
 
 #[derive(Debug, Serialize)]
 pub struct LevelRule {
@@ -31,21 +30,13 @@ impl Serialize for LaneBinding {
     }
 }
 pub fn checked_levels<'a>(
-    overrides: Map<String, Value>,
+    overrides: Source<'_>,
     accepted_levels: &[NormalizedText],
     repository: &str,
     check: impl Into<CheckName<'a>>,
     kind: &str,
 ) -> Result<Vec<(NormalizedText, LevelRule)>, PolicyError> {
-    // Temporary bridge, removed by the step-5 PolicyDocument ingress cutover.
-    let document = value_source::bridge(&overrides)?;
-    from_source(
-        Source::root(&document),
-        accepted_levels,
-        repository,
-        check.into(),
-        kind,
-    )
+    from_source(overrides, accepted_levels, repository, check.into(), kind)
 }
 pub(super) fn from_source(
     overrides: Source<'_>,
@@ -196,7 +187,8 @@ pub(super) fn serialize_level_pairs<S: serde::Serializer>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use crate::evidence::legacy_verify::statement_document::Document;
+    use serde_json::{Value, json};
     #[test]
     fn level_overrides_match_the_pinned_oracle() {
         let mut cases: Vec<Value> = serde_json::from_str(r#"[
@@ -264,8 +256,9 @@ print(json.dumps(results))
         let expected: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(cases.len(), expected.len());
         for (overrides, expected) in cases.into_iter().zip(expected) {
+            let document = Document::from_bytes(overrides.to_string().as_bytes()).unwrap();
             let actual = checked_levels(
-                overrides.as_object().unwrap().clone(),
+                Source::root(&document),
                 &["agent".into()],
                 "owner/{check}",
                 "check",

@@ -33,12 +33,13 @@ print(json.dumps(cases))
     for case in cases {
         let name: Vec<u32> = serde_json::from_value(case["name"].clone()).unwrap();
         let context = [TextRef::Points(&name)];
-        let mut fields = case["rule"].as_object().unwrap().clone();
+        let document = Document::from_bytes(case["rule"].to_string().as_bytes()).unwrap();
+        let fields = Source::root(&document);
         let error = match case["helper"].as_str().unwrap() {
-            "checked_command_inputs" => checked_command_inputs(&mut fields, &context).unwrap_err(),
-            "checked_base_inputs" => checked_base_inputs(&mut fields, &context).unwrap_err(),
+            "checked_command_inputs" => checked_command_inputs(fields, &context).unwrap_err(),
+            "checked_base_inputs" => checked_base_inputs(fields, &context).unwrap_err(),
             "checked_value_rules" => {
-                value_rules::checked_value_rules(&mut fields, &context).unwrap_err()
+                value_rules::checked_value_rules(fields, &context).unwrap_err()
             }
             _ => panic!("fixture helper"),
         };
