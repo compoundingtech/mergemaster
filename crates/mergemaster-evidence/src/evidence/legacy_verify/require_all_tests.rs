@@ -72,7 +72,7 @@ for fmt in ['sha1','sha256']:
     result['lanes']=[[list(map(ord,point)),dict(item,tier=list(map(ord,item['tier']))) if item['satisfied'] else {k:item[k] for k in ['require','satisfied','reason','decision']}] for point,item in result['lanes'].items()]
     return result
    except v['Failure'] as e: return dict(global_reason=e.reason)
-   except OverflowError: return dict(global_reason='error',global_class='OverflowError')
+   except OverflowError as error: return dict(global_reason='error',global_class='OverflowError',global_detail=list(map(ord,str(error))))
    except ValueError as error: return dict(global_reason='error',global_class='ValueError',global_detail=list(map(ord,str(error))))
   control=json.dumps(dict(version=1,checks={'a':entry()})) if name in ['eager-after','policy-after','budget','clock-exception'] or name in overflow_ages else None
   if control: assert verify(control)['satisfied'],name
@@ -168,13 +168,8 @@ print(json.dumps(cases))
         let actual = match run(case["policy"].as_str().unwrap()) {
             Err(error) => match error.origin {
                 ErrorOrigin::Failure => json!({"global_reason":error.reason}),
-                ErrorOrigin::Exception {
-                    class: "ValueError",
-                } => {
-                    json!({"global_reason":error.reason,"global_class":"ValueError","global_detail":error.detail.borrowed().points().collect::<Vec<_>>()})
-                }
                 ErrorOrigin::Exception { class } => {
-                    json!({"global_reason":error.reason,"global_class":class})
+                    json!({"global_reason":error.reason,"global_class":class,"global_detail":error.detail.borrowed().points().collect::<Vec<_>>()})
                 }
             },
             Ok(all) => {
