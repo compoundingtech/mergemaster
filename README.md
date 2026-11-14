@@ -799,6 +799,11 @@ join/normpath semantics, including empty directories and exactly two leading sla
 environment; its member-verifier mode sets only `GIT_NO_LAZY_FETCH=1`.
 Configuration prefers `.fractal` over `.st`. TOML decode refusals retain their path;
 integer-limit and key-part-limit exceptions propagate without a path prefix.
+`crate_manifest_ops` preserves Python truthiness, attribute and path operations on
+typed TOML values; non-table dependency specs remain ignored as in the oracle.
+Approved diagnostic divergence: uncaught manifest-operation exceptions retain the
+final `Class: message` and exit status, but Rust does not reproduce Python traceback
+frames. Their structured library origin remains Exception, not Failure.
 `records::read_statement` adds bounded Git capture and record layout/parent/subject
 checks (3f-3a), with `statement-too-large` distinct from malformed-record refusal.
 Missing subjects are allowed without lazy fetch. `records::RecordCache`
