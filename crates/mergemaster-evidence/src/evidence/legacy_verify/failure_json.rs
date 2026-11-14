@@ -1,9 +1,9 @@
-//! Emitter-only Python CLI error view. Construct from explicit source provenance;
-//! never recover lost text, infer an exception class, or classify a core Failure.
+//! Python CLI error views borrowed from explicit source provenance.
+//! Never recover lost text or infer an exception class from diagnostic content.
 pub use super::value_inputs::TextRef;
 use crate::evidence::{
     legacy_output::{ValueWriter, Written},
-    legacy_policy::check_names::CheckName,
+    legacy_policy::{ErrorOrigin, PolicyError, check_names::CheckName},
 };
 use std::fmt::{self, Write};
 
@@ -26,9 +26,85 @@ pub enum WireError<'a> {
         detail: TextRef<'a>,
     },
 }
-impl WireError<'_> {
-    /// Single-check handler dictionary; no exit policy or final LF. Discard
-    /// partial output on error. This is not wired to normalized core diagnostics.
+impl<'a> WireError<'a> {
+    /// Preserve source metadata; selection extras apply only to ordinary failures.
+    pub fn from_failure(
+        failure: &'a super::Failure,
+        decided_by: Option<TextRef<'a>>,
+        skipped_newer: Option<&'a [TextRef<'a>]>,
+    ) -> Self {
+        Self::from_parts(
+            failure.origin,
+            failure.reason,
+            failure.detail.borrowed(),
+            Extras {
+                attempts: failure.attempts,
+                decided_by,
+                skipped_newer,
+            },
+        )
+    }
+    pub fn from_policy(error: &'a PolicyError) -> Self {
+        Self::from_parts(
+            error.origin,
+            error.reason,
+            error.detail.borrowed(),
+            Extras::default(),
+        )
+    }
+    fn from_parts(
+        origin: ErrorOrigin,
+        reason: &'a str,
+        detail: TextRef<'a>,
+        extras: Extras<'a>,
+    ) -> Self {
+        match origin {
+            ErrorOrigin::Failure => Self::Failure {
+                reason: TextRef::Str(reason),
+                detail,
+                extras,
+            },
+            ErrorOrigin::Exception { class } => Self::Exception {
+                class: TextRef::Str(class),
+                detail,
+            },
+        }
+    }
+    fn write_reason<'s>(
+        &self,
+        writer: ValueWriter<'s, '_, impl Write>,
+    ) -> Result<Written<'s>, fmt::Error> {
+        match self {
+            Self::Failure { reason, .. } => writer.codepoints(reason.points()),
+            Self::Exception { .. } => writer.text("error"),
+        }
+    }
+    fn write_detail<'s>(
+        &self,
+        writer: ValueWriter<'s, '_, impl Write>,
+    ) -> Result<Written<'s>, fmt::Error> {
+        match self {
+            Self::Failure { detail, .. } => writer.codepoints(detail.points()),
+            Self::Exception { class, detail } => {
+                writer.codepoints(class.points().chain([58, 32]).chain(detail.points()))
+            }
+        }
+    }
+    /// Global require-all handler; no per-check or selection metadata.
+    pub fn write_global<'s>(
+        &self,
+        writer: ValueWriter<'s, '_, impl Write>,
+    ) -> Result<Written<'s>, fmt::Error> {
+        writer.object(|o| {
+            o.field_text("mode", |w| w.text("require-all"))?;
+            o.field_text("decision", |w| w.text("error"))?;
+            o.field_text("satisfied", |w| w.boolean(false))?;
+            o.field_text("reason", |w| self.write_reason(w))?;
+            o.field_text("detail", |w| self.write_detail(w))
+        })
+    }
+    /// Single-check handler dictionary; no exit policy or final LF.
+    /// Discard partial output on error.
     pub fn write_json<'s>(
         &self,
         check: CheckName<'_>,
@@ -36,17 +112,9 @@ impl WireError<'_> {
     ) -> Result<Written<'s>, fmt::Error> {
         writer.object(|o| {
             o.field_text("satisfied", |w| w.boolean(false))?;
-            o.field_text("reason", |w| match self {
-                Self::Failure { reason, .. } => w.codepoints(reason.points()),
-                Self::Exception { .. } => w.text("error"),
-            })?;
+            o.field_text("reason", |w| self.write_reason(w))?;
             o.field_text("check", |w| w.codepoints(check.text().points()))?;
-            o.field_text("detail", |w| match self {
-                Self::Failure { detail, .. } => w.codepoints(detail.points()),
-                Self::Exception { class, detail } => {
-                    w.codepoints(class.points().chain([58, 32]).chain(detail.points()))
-                }
-            })?;
+            o.field_text("detail", |w| self.write_detail(w))?;
             if let Self::Failure { extras, .. } = self {
                 if let Some(attempts) = extras.attempts {
                     o.field_text("attempts", |w| w.integer(attempts as i128))?;

@@ -15,6 +15,12 @@ struct Fixture {
     skipped: Option<Vec<Vec<u32>>>,
     wire: String,
 }
+struct Fault(Option<super::super::inputs::ClockException>);
+impl super::super::inputs::CurrentTime for Fault {
+    fn epoch_micros(&mut self) -> Result<i64, super::super::inputs::ClockException> {
+        Err(self.0.take().unwrap())
+    }
+}
 #[test]
 fn lossless_error_views_match_pinned_cli_handler_bytes() {
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
@@ -47,6 +53,7 @@ print(json.dumps(cases))
     );
     let cases: Vec<Fixture> = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(cases.len(), 690);
+    let mut bridged = 0;
     for case in cases {
         let failure = super::super::Failure {
             reason: "fixture",
@@ -87,7 +94,51 @@ print(json.dumps(cases))
         let mut actual = String::new();
         legacy_output::write(&mut actual, |w| error.write_json(check, w)).unwrap();
         assert_eq!(actual, case.wire);
+        let reason = ["no_record", "wrong_check", "error"]
+            .into_iter()
+            .find(|name| {
+                case.reason
+                    .as_deref()
+                    .is_some_and(|points| points.iter().copied().eq(name.chars().map(u32::from)))
+            });
+        let class = ["OverflowError", "ValueError", "Échec😀"]
+            .into_iter()
+            .find(|name| case.class.as_deref() == Some(*name));
+        if reason.is_some() || class.is_some() {
+            let source = if let Some(class) = class {
+                super::super::inputs::sample(&mut Fault(Some(
+                    super::super::inputs::ClockException {
+                        class,
+                        detail: policy.detail,
+                    },
+                )))
+                .unwrap_err()
+            } else {
+                super::super::Failure {
+                    reason: reason.unwrap(),
+                    detail: policy.detail,
+                    attempts: case.attempts,
+                    origin: ErrorOrigin::Failure,
+                }
+            };
+            if class.is_some() {
+                assert_eq!(source.attempts, None);
+            }
+            let mut actual = String::new();
+            let view = WireError::from_failure(
+                &source,
+                case.decided
+                    .as_deref()
+                    .map(TextRef::Points)
+                    .or(class.map(|_| TextRef::Str("ignored"))),
+                skipped.as_deref().or(class.map(|_| &[][..])),
+            );
+            legacy_output::write(&mut actual, |w| view.write_json(check, w)).unwrap();
+            assert_eq!(actual, case.wire);
+            bridged += 1;
+        }
     }
+    assert_eq!(bridged, 540);
     let text = String::from("scalar 😀");
     let pointer = text.as_ptr();
     let scalar = NormalizedText::from(text);

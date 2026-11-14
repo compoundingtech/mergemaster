@@ -38,7 +38,11 @@ for kind in ['Failure','Exception']:
  dump=compile(ast.Expression(handler.body[0].body[0].value.args[0]),'<pinned-global-envelope>','eval')
  for reason in ['error','no_policy'] if kind=='Failure' else ['error']:
   env=dict(v,failure=v['Failure'](reason,'fixture detail\nλ😀\ud800'),error=OverflowError('fixture overflow\udfff'))
-  wire=eval(dump,env);value=json.loads(wire);value['detail']=list(map(ord,value['detail']));errors.append(dict(value=value,wire=wire))
+  wire=eval(dump,env);value=json.loads(wire)
+  value['detail']=list(map(ord,value['detail']))
+  source=env['failure'] if kind=='Failure' else env['error']
+  detail=source.detail if kind=='Failure' else str(source)
+  errors.append(dict(value=value,wire=wire,source_detail=list(map(ord,detail)),exception=kind=='Exception'))
 print(json.dumps(dict(cases=cases,errors=errors)))
 "#, &oracle]).output().unwrap();
     assert!(
@@ -102,14 +106,20 @@ print(json.dumps(dict(cases=cases,errors=errors)))
     assert_eq!(fixtures["errors"].as_array().unwrap().len(), 3);
     for fixture in fixtures["errors"].as_array().unwrap() {
         let error = PolicyError {
-            origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
+            origin: if fixture["exception"] == true {
+                crate::evidence::legacy_policy::ErrorOrigin::Exception {
+                    class: "OverflowError",
+                }
+            } else {
+                crate::evidence::legacy_policy::ErrorOrigin::Failure
+            },
             reason: if fixture["value"]["reason"] == "no_policy" {
                 "no_policy"
             } else {
                 "error"
             },
             detail: NormalizedText::Codepoints(
-                serde_json::from_value(fixture["value"]["detail"].clone()).unwrap(),
+                serde_json::from_value(fixture["source_detail"].clone()).unwrap(),
             ),
         };
         let mut actual = String::new();

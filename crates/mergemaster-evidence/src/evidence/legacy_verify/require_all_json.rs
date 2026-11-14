@@ -67,20 +67,13 @@ impl All<'_> {
         })
     }
 }
-/// Global CLI error envelope, preserving reason/detail verbatim. Exception class
-/// formatting requires explicit caller provenance; this adapter never infers it.
+/// Global CLI error envelope, using the source's explicit exception provenance.
 /// No exit-code policy or trailing LF; discard partial output on error.
 pub fn write_error<'s>(
     error: &PolicyError,
     writer: ValueWriter<'s, '_, impl Write>,
 ) -> Result<Written<'s>, fmt::Error> {
-    writer.object(|o| {
-        o.field_text("mode", |w| w.text("require-all"))?;
-        o.field_text("decision", |w| w.text("error"))?;
-        o.field_text("satisfied", |w| w.boolean(false))?;
-        o.field_text("reason", |w| w.text(error.reason))?;
-        o.field_text("detail", |w| w.codepoints(error.detail.borrowed().points()))
-    })
+    super::failure_json::WireError::from_policy(error).write_global(writer)
 }
 #[cfg(test)]
 #[path = "require_all_json_tests.rs"]
