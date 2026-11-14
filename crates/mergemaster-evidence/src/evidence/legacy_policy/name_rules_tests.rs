@@ -106,3 +106,64 @@ print(json.dumps(cases))
         }
     }
 }
+
+#[test]
+fn nested_policy_text_keeps_python_point_identity() {
+    let output = std::process::Command::new("python3").args(["-c", r#"
+import json,runpy,sys
+v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify'); cases=[]
+p=lambda s:list(map(ord,s))
+for name in ['\ud800','\udfff','a\ud800b','😀']:
+ level='level/'+name
+ fields=dict(command=[name,'{check}'],required_inputs=[name],bind_inputs={name:name},
+             input_order={name:[name,'weak']},base_inputs={name:'.'},
+             shard_inputs=dict(count=name,results=name,index=name),
+             by_level={level:dict(command=[name,'{check}'],required_inputs=[name],bind_inputs={name:name},events=['pull_request'])})
+ text=json.dumps(dict(version=1,checks={name:dict(kinds=dict(wrapper=fields),trust_levels=[level])}))
+ r=v['policy_rules'](text,name,'org/repo'); k=r['kinds']['wrapper']; l=k['by_level'][level]
+ expected=dict(level=p(r['trust_levels'][0]),command=[p(s) for s in k['command']],
+   required=[p(s) for s in k['required_inputs']],bind=[[p(a),p(b)] for a,b in k['bind_inputs'].items()],
+   order=[[p(a),[p(b) for b in bs]] for a,bs in k['input_order'].items()],
+   base=[[p(a),b] for a,b in k['base_inputs'].items()],
+   shard=[p(k['shard_inputs'][a]) for a in ['count','results','index']],
+   by_level=p(level),level_command=[p(s) for s in l['command']],
+   level_required=[p(s) for s in l['required_inputs']],level_bind=[[p(a),p(b)] for a,b in l['bind_inputs'].items()])
+ cases.append(dict(text=text,name=p(name),expected=expected))
+print(json.dumps(cases))
+"#, &std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle")])
+        .output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(cases.len(), 4);
+    for case in cases {
+        let name: Vec<u32> = serde_json::from_value(case["name"].clone()).unwrap();
+        let rules = PolicyDocument::parse(case["text"].as_str().unwrap(), name.as_slice())
+            .unwrap()
+            .into_rules("org/repo")
+            .unwrap();
+        let points = |text: &super::super::normalized_text::NormalizedText| {
+            text.borrowed().points().collect::<Vec<_>>()
+        };
+        let kind = &rules.kinds[0].1;
+        let (level, rule) = &kind.by_level[0];
+        let shard = kind.values.shard_inputs.as_ref().unwrap();
+        let actual = json!({
+            "level":points(&rules.header.trust_levels[0]),
+            "command":kind.inputs.command.iter().map(points).collect::<Vec<_>>(),
+            "required":kind.inputs.required_inputs.iter().map(points).collect::<Vec<_>>(),
+            "bind":kind.inputs.bind_inputs.iter().map(|(a,b)| (points(a),points(b))).collect::<Vec<_>>(),
+            "order":kind.values.input_order.iter().map(|(a,bs)| (points(a),bs.iter().map(points).collect::<Vec<_>>())).collect::<Vec<_>>(),
+            "base":kind.base_inputs.iter().map(|(a,b)| (points(a),b)).collect::<Vec<_>>(),
+            "shard":[points(&shard.count),points(&shard.results),points(shard.index.as_ref().unwrap())],
+            "by_level":points(level),
+            "level_command":rule.inputs.command.iter().map(points).collect::<Vec<_>>(),
+            "level_required":rule.inputs.required_inputs.iter().map(points).collect::<Vec<_>>(),
+            "level_bind":rule.inputs.bind_inputs.iter().map(|(a,b)| (points(a),points(b))).collect::<Vec<_>>()
+        });
+        assert_eq!(actual, case["expected"]);
+    }
+}

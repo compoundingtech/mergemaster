@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Decode Rust legacy skip policies from their original JSON text with lossless codepoint identities and wide positive-integer age limits; retain lazy age-overflow errors and remove the serde-value conversion bridge.
+
 ## [0.8.0] - 2026-11-13
 
 - Resolve `ci-signed-tree`'s verifier adjacent to the script, not from the consumer working directory; keep consumer policy, Git operations and verifier arguments unchanged. Record the intentional oracle divergence with exact source/destination blobs. (see #141)

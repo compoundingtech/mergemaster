@@ -260,3 +260,52 @@ fn normalized_policy_text_preserves_native_command_comparisons() {
         );
     }
 }
+
+#[test]
+fn policy_out_of_range_float_refusals_match_the_oracle() {
+    let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned Python oracle");
+    let output = std::process::Command::new("python3")
+        .args([
+            "-c",
+            r#"
+import json,runpy,sys
+v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify');cases=[]
+for literal in ['1e400','-1e400','1e-400','-1e-400']:
+ for field in ['max_age_s','sample_one_in','enforce','inputs','command']:
+  entry=dict(trust_levels=['agent'],kinds=dict(wrapper=dict(command=['run'])))
+  if field=='command': entry['kinds']['wrapper']['command']=['TOKEN']
+  else: entry[field]='TOKEN'
+  text=json.dumps(dict(version=1,checks=dict(check=entry))).replace('"TOKEN"',literal)
+  try: v['policy_rules'](text,'check','org/repo')
+  except v['Failure'] as error:
+   cases.append(dict(text=text,reason=error.reason,detail=list(map(ord,error.detail))))
+  else: raise AssertionError((field,literal,'expected refusal'))
+print(json.dumps(cases))
+"#,
+            &root,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(cases.len(), 20);
+    for case in cases {
+        let error = PolicyDocument::parse(case["text"].as_str().unwrap(), "check")
+            .unwrap()
+            .into_rules("org/repo")
+            .unwrap_err();
+        assert_eq!(
+            error.origin,
+            crate::evidence::legacy_policy::ErrorOrigin::Failure
+        );
+        assert_eq!(error.reason, case["reason"]);
+        assert_eq!(
+            json!(error.detail.borrowed().points().collect::<Vec<_>>()),
+            case["detail"]
+        );
+    }
+}
