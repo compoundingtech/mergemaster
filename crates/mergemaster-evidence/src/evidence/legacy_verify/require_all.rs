@@ -1,4 +1,5 @@
 //! Complete require-all aggregation; global errors never return partial results.
+pub use super::require_all_json::write_error;
 use super::{
     Failure, configured,
     inputs::{CurrentTime, SystemClock},
