@@ -323,7 +323,7 @@ fn successful_noisy_fsmonitor_matches_projection_oracle() {
 #[test]
 fn projection_timeout_uses_oracle_full_argv_and_caller_cwd() {
     let repo = Path::new("relative-repository");
-    let mut command = projection_command(repo, &["hash-object", "--stdin"]);
+    let mut command = projection_command(repo, &["hash-object", "--stdin"]).unwrap();
     assert!(command.get_current_dir().is_none());
     let oracle = Command::new("python3").args(["-c", "import subprocess; print('git hash-object: '+str(subprocess.TimeoutExpired(['git','-C','relative-repository','-c','gpg.format=ssh','-c','gpg.ssh.program=ssh-keygen','-c','commit.gpgSign=false','hash-object','--stdin'],0)))"]).output().unwrap();
     assert!(oracle.status.success());
@@ -444,5 +444,54 @@ print(json.dumps(out))
     EXCHANGE_TIMEOUT.set(Duration::from_secs(60));
     for (error, expected) in actual.into_iter().zip(expected) {
         assert_eq!(error.detail.to_string(), expected);
+    }
+}
+
+#[test]
+fn embedded_nul_refusals_and_whole_tree_laziness_match_oracle() {
+    let cases = vec![
+        vec!["a\0b"],
+        vec!["a\0b::key"],
+        vec![".st/a\0b::key"],
+        vec![".", "a\0b"],
+        vec!["!a\0b"],
+    ];
+    let tree = "a".repeat(40);
+    let output = Command::new("python3")
+        .args([
+            "-c",
+            r#"
+import json,runpy,sys
+v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify'); out=[]
+for paths in json.loads(sys.argv[3]):
+ try: out.append(dict(key=v['project']('.',sys.argv[2],paths)))
+ except Exception as e: out.append(dict(exception=type(e).__name__,message=str(e)))
+print(json.dumps(out))
+"#,
+            &std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap(),
+            &tree,
+            &serde_json::to_string(&cases).unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let expected: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    for (paths, expected) in cases.into_iter().zip(expected) {
+        let paths: Vec<String> = paths.into_iter().map(str::to_owned).collect();
+        match project(Path::new("."), &tree, &paths) {
+            Ok(key) => assert_eq!(json!({"key":key}), expected),
+            Err(error) => {
+                assert_eq!(
+                    error.origin,
+                    crate::evidence::legacy_policy::ErrorOrigin::Exception {
+                        class: "ValueError"
+                    }
+                );
+                assert_eq!(
+                    json!({"exception":"ValueError","message":error.detail.to_string()}),
+                    expected
+                );
+            }
+        }
     }
 }

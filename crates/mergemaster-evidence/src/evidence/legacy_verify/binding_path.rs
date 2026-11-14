@@ -1,6 +1,12 @@
-//! Encode configured binding paths only when judgment reaches the blob read.
+//! Shared strict/filesystem UTF-8 encoding, evaluated only at the required boundary.
+use super::value_inputs::TextRef;
 use crate::evidence::legacy_policy::{ErrorOrigin, PolicyError, normalized_text::NormalizedText};
-use std::{borrow::Cow, ffi::OsString, os::unix::ffi::OsStringExt, path::Path};
+use std::{
+    borrow::Cow,
+    ffi::{OsStr, OsString},
+    os::unix::ffi::{OsStrExt, OsStringExt},
+    path::Path,
+};
 
 impl<'a> super::judgment::BindingPath<'a> {
     /// Encode at the provider boundary, where the full tree:path argv is known.
@@ -12,14 +18,25 @@ impl<'a> super::judgment::BindingPath<'a> {
     }
 }
 fn native(text: &NormalizedText, offset: usize) -> Result<Cow<'_, Path>, PolicyError> {
+    Ok(match encode(text.borrowed(), offset, true)? {
+        Cow::Borrowed(bytes) => Cow::Borrowed(Path::new(OsStr::from_bytes(bytes))),
+        Cow::Owned(bytes) => Cow::Owned(OsString::from_vec(bytes).into()),
+    })
+}
+/// Scalar storage stays borrowed; filesystem encoding admits DC80..DCFF raw bytes.
+pub(super) fn encode(
+    text: TextRef<'_>,
+    offset: usize,
+    surrogateescape: bool,
+) -> Result<Cow<'_, [u8]>, PolicyError> {
     let points = match text {
-        NormalizedText::Scalar(text) => return Ok(Cow::Borrowed(Path::new(text))),
-        NormalizedText::Codepoints(points) => points,
+        TextRef::Str(text) => return Ok(Cow::Borrowed(text.as_bytes())),
+        TextRef::Points(points) => points,
     };
     let mut bytes = Vec::with_capacity(points.len());
     let mut utf8 = [0; 4];
     for (index, &point) in points.iter().enumerate() {
-        if (0xdc80..=0xdcff).contains(&point) {
+        if surrogateescape && (0xdc80..=0xdcff).contains(&point) {
             bytes.push((point - 0xdc00) as u8);
         } else if let Some(ch) = char::from_u32(point) {
             bytes.extend_from_slice(ch.encode_utf8(&mut utf8).as_bytes());
@@ -47,7 +64,7 @@ fn native(text: &NormalizedText, offset: usize) -> Result<Cow<'_, Path>, PolicyE
             });
         }
     }
-    Ok(Cow::Owned(OsString::from_vec(bytes).into()))
+    Ok(Cow::Owned(bytes))
 }
 
 #[cfg(test)]
@@ -137,5 +154,64 @@ print(json.dumps(out))
                 }
             );
         }
+    }
+    #[test]
+    fn shared_strict_and_filesystem_encoding_match_python() {
+        let cases = vec![
+            vec![],
+            vec![97, 0, 98],
+            vec![0x1f600, 0xdcff],
+            vec![97, 0xd800, 0xd801, 98],
+            vec![0xdc80, 0xd800, 0xdcff],
+            vec![0xd800, 0xdc80, 0xd801],
+            vec![0xdfff],
+            vec![0x1f600],
+        ];
+        let output = std::process::Command::new("python3")
+            .args([
+                "-c",
+                r#"
+import json,sys
+out=[]
+for points in json.loads(sys.argv[1]):
+ for mode in ['strict','surrogateescape']:
+  for prefix in ['', 'tree:', '🦀tree:']:
+   try: out.append(dict(bytes=(''.join(map(chr,points))).encode('utf-8',mode).hex()))
+   except UnicodeEncodeError:
+    try: (prefix+''.join(map(chr,points))).encode('utf-8',mode)
+    except UnicodeEncodeError as e: out.append(dict(exception=type(e).__name__,message=str(e)))
+print(json.dumps(out))
+"#,
+                &serde_json::to_string(&cases).unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let expected: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
+        let mut expected = expected.into_iter();
+        for points in cases {
+            for surrogateescape in [false, true] {
+                for offset in [0, 5, 6] {
+                    let expected = expected.next().unwrap();
+                    match encode(TextRef::Points(&points), offset, surrogateescape) {
+                        Ok(bytes) => assert_eq!(hex::encode(bytes), expected["bytes"]),
+                        Err(error) => {
+                            assert_eq!(
+                                error.origin,
+                                ErrorOrigin::Exception {
+                                    class: "UnicodeEncodeError"
+                                }
+                            );
+                            assert_eq!(error.detail.to_string(), expected["message"]);
+                        }
+                    }
+                }
+            }
+        }
+        assert!(expected.next().is_none());
+        assert!(matches!(
+            encode(TextRef::Str("scalar"), 0, false).unwrap(),
+            Cow::Borrowed(_)
+        ));
     }
 }
