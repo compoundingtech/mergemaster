@@ -649,7 +649,13 @@ the class from a message. The wire bridge preserves that class without text infe
 Lane and declared-path diagnostics preserve borrowed Python code-point contexts;
 their missing/shape/argv/path reasons and details follow the pinned source.
 Invalid path text uses the pinned Python repr primitive, not Rust Debug.
-Other policy/judgment diagnostic construction is ported in separate module slices.
+Policy-header refusals and lane branch-point mismatches also preserve check code points
+and the pinned diagnostic text. The existing policy-header u64 max-age bound remains
+a fail-closed divergence: Python accepts larger positive integers until reached datetime
+arithmetic; Rust's distinct bound diagnostic is not claimed as Python refusal parity.
+Out-of-range floats share that inherited bound diagnostic because serde_json::Value
+has lost numeric provenance. The retained-source numeric slice fixes this before CLI parity.
+Nested kind/level and other judgment construction follow in separate module slices.
 Failure attempts distinguish `None` (absent) from `Some(0)` (explicit zero).
 Exceptions and prefix misses retain absence; degraded records retain their explicit
 count. Zero normalization is confined to existing oracle-test transports, not wire output.

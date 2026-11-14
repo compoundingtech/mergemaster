@@ -4436,6 +4436,71 @@ print(json.dumps(dict(entries=entries,result=result)))
 }
 
 #[test]
+fn legacy_lane_branch_diagnostics_match_pinned_handlers_losslessly() {
+    use mergemaster_evidence::evidence::{
+        legacy_output,
+        legacy_policy::{ErrorOrigin, normalized_text::NormalizedText},
+        legacy_verify::{failure_json::WireError, lane_git::lane_for},
+    };
+    let f = Fixture::new();
+    let text = r#"{"version":1,"lanes":{}}"#;
+    f.write(".st/required-lanes.json", text);
+    let accepted = f.commit("empty accepted lanes");
+    let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
+    let output = f.command("python3").args(["-c", r#"
+import ast,json,runpy,sys,types
+path=sys.argv[1]+'/scripts/evidence-verify';v=runpy.run_path(path)
+repo,accepted,tree,base=sys.argv[2:]
+main=next(n for n in ast.parse(open(path).read()).body if isinstance(n,ast.FunctionDef) and n.name=='main')
+handler=next(n for n in ast.walk(main) if isinstance(n,ast.ExceptHandler) and isinstance(n.type,ast.Name) and n.type.id=='Failure')
+single=compile(ast.Expression(handler.body[1].value.args[0]),'<single>','eval')
+global_=compile(ast.Expression(handler.body[0].body[0].value.args[0]),'<global>','eval')
+cases=[]
+for name in ['check','\ud800','\udfff','😀','quote\'"\n','\u0378']:
+ try: v['lane_for'](repo,tree,(v['read_lanes'](repo,accepted),accepted),name,base)
+ except v['Failure'] as failure:
+  assert failure.reason=='definition_changed'
+  env=dict(v,failure=failure,args=types.SimpleNamespace(check=name))
+  cases.append(dict(name=list(map(ord,name)),detail=list(map(ord,failure.detail)),single=eval(single,env),global_=eval(global_,env)))
+ else: raise AssertionError('expected branch-point refusal')
+print(json.dumps(cases))
+"#, &root, f.repo.to_str().unwrap(), &accepted, &f.tree, &f.head]).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(cases.len(), 6);
+    for case in cases {
+        let name: Vec<u32> = serde_json::from_value(case["name"].clone()).unwrap();
+        let error = lane_for(
+            &f.repo,
+            &f.tree,
+            Some((text, &accepted)),
+            name.as_slice(),
+            Some(&f.head),
+        )
+        .err()
+        .expect("branch-point refusal");
+        assert_eq!(error.reason, "definition_changed");
+        assert_eq!(error.origin, ErrorOrigin::Failure);
+        let detail = match &error.detail {
+            NormalizedText::Scalar(text) => text.chars().map(u32::from).collect::<Vec<_>>(),
+            NormalizedText::Codepoints(points) => points.clone(),
+        };
+        assert_eq!(json!(detail), case["detail"]);
+        let view = WireError::from_policy(&error);
+        let mut single = String::new();
+        legacy_output::write(&mut single, |w| view.write_json(name.as_slice().into(), w)).unwrap();
+        assert_eq!(single, case["single"]);
+        let mut global = String::new();
+        legacy_output::write(&mut global, |w| view.write_global(w)).unwrap();
+        assert_eq!(global, case["global_"]);
+    }
+}
+
+#[test]
 fn legacy_lane_for_resolves_accepted_and_branch_configs_before_schema() {
     use mergemaster_evidence::evidence::legacy_verify::lane_git::{lane_for, read_lanes};
     for (case, reason) in [
