@@ -661,6 +661,7 @@ command and unhashable input-order members preserve KeyError/TypeError provenanc
 outer kind/level missing-command guards remain ordinary policy failures.
 Outer kind guards use pinned Python repr and exact trust-level/runner-prefix details;
 truthy non-map by_level values retain explicit AttributeError rather than Failure.
+Level override invalid/unlisted/lane refusals use the exact pinned by_level repr text.
 Nested surrogate payload keys/values still require lossless source decoding before
 full CLI parity; scalar payload fixtures do not claim that separate domain is ported.
 Failure attempts distinguish `None` (absent) from `Some(0)` (explicit zero).
