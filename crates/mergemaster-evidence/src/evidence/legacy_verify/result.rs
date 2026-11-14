@@ -145,20 +145,20 @@ impl<'a> Satisfied<'a> {
 /// Only selection metadata is owned separately; signed fields stay in the
 /// original Arc<Document> and are borrowed again when an aggregate is emitted.
 pub struct Retained {
-    pub record: super::trust::TrustedCandidate,
-    pub selection: Selection,
+    record: super::trust::TrustedCandidate,
+    selection: Selection,
 }
-pub struct Selection {
-    pub attempts: usize,
-    pub policy: bool,
-    pub max_age_s: Option<Seconds>,
-    pub enforce: bool,
-    pub r#match: &'static str,
-    pub source_inputs: Option<String>,
-    pub sample_one_in: u64,
-    pub events: Option<Vec<String>>,
-    pub decided_by: Option<String>,
-    pub skipped_newer: Option<Vec<String>>,
+pub(super) struct Selection {
+    attempts: usize,
+    policy: bool,
+    max_age_s: Option<Seconds>,
+    enforce: bool,
+    r#match: &'static str,
+    source_inputs: Option<String>,
+    sample_one_in: u64,
+    events: Option<Vec<String>>,
+    decided_by: Option<String>,
+    skipped_newer: Option<Vec<String>>,
 }
 impl Selection {
     pub(super) fn capture(view: &Satisfied<'_>) -> Self {
@@ -179,6 +179,12 @@ impl Selection {
     }
 }
 impl Retained {
+    pub(super) fn new(record: super::trust::TrustedCandidate, selection: Selection) -> Self {
+        Self { record, selection }
+    }
+    pub fn record(&self) -> &super::trust::TrustedCandidate {
+        &self.record
+    }
     pub fn facts(&self, check: CheckName<'_>) -> Result<DocumentFacts<'_>, Failure> {
         DocumentFacts::for_check(
             &self.record.candidate.statement,

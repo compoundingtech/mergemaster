@@ -189,8 +189,8 @@ print(json.dumps(cases))
             )
             .and_then(|note| {
                 note.with_view(q.tree, q.check, |view| {
-                    assert_eq!(view.record, note.record.candidate.commit);
-                    assert_eq!(view.signer, note.record.principal);
+                    assert_eq!(view.record, note.record().candidate.commit);
+                    assert_eq!(view.signer, note.record().principal);
                     let mut wire = String::new();
                     crate::evidence::legacy_output::write(&mut wire, |w| view.write_json(w))
                         .unwrap();

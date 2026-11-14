@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Hide retained legacy record and selection fields from callers; expose immutable original-record access and complete borrowed views instead of mutable trust metadata.
 - Compute the legacy combined member key with streaming SHA-1 for oracle parity only, not for security.
 - Retain original selected legacy records and typed selection metadata for member aggregation without a JSON conversion bridge.
 - Add the library-only paths project dictionary with lossless comma splitting, shared literal-path validation and escaped JSON output.

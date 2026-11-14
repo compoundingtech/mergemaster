@@ -136,7 +136,7 @@ pub fn retained<P: Provider>(
     selected_record(q, settings, judgment, prefer, |view, _| {
         super::result::Selection::capture(view)
     })
-    .map(|(selection, record)| super::result::Retained { selection, record })
+    .map(|(selection, record)| super::result::Retained::new(record, selection))
 }
 
 fn selected_record<T, P: Provider>(
