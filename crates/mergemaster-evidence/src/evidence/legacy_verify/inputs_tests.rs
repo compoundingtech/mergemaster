@@ -13,7 +13,7 @@ judge = copy.deepcopy(next(n for n in owner.body if isinstance(n,ast.FunctionDef
 stop = next(i for i,n in enumerate(judge.body) if isinstance(n,ast.If) and isinstance(n.test,ast.Compare) and isinstance(n.test.left,ast.Name) and n.test.left.id=='lane')
 judge.body = judge.body[:stop] + ast.parse("return dict(reason='satisfied')").body
 v.update(command=None,kinds=(),bind=(),max_age=None,runner_prefix=None,trust_levels=None,lane=None,level_lane=None,check='check',attempts=7)
-v['failed'] = lambda entry: entry[1]['predicate']['observed']['checks']['check']['exit_code'] != 0
+v['failed'] = lambda entry: entry[1]['predicate']['observed']['checks'][v['check']]['exit_code'] != 0
 exec(compile(ast.fix_missing_locations(ast.Module(body=[judge],type_ignores=[])),str(path),'exec'),v)
 inputs = dict(req='yes',rank='strong',base='same',n='1',r='0=success'); cases = []
 def add(label, observed='2026-01-01T00:00:00Z', now='2026-01-01T00:00:05Z', age=10, changes=None, code=0, command=None, rule_changes=None, prepared=None):
@@ -29,7 +29,9 @@ def add(label, observed='2026-01-01T00:00:00Z', now='2026-01-01T00:00:05Z', age=
         v['rules']['kinds']['observed'].update(command=prepared['command'],runner_prefix=prepared['prefix'])
         statement['predicate']['observed']['runner']=prepared['runner']
     try: expected = v['judge'](('record',statement,'agent/alice'))
-    except v['Failure'] as failure: expected = dict(reason=failure.reason,attempts=failure.extra['attempts'])
+    except v['Failure'] as failure:
+        expected = dict(reason=failure.reason,attempts=failure.extra['attempts'])
+        if failure.reason in ('missing_input','check_failed','wrong_command','too_old'): expected['detail']=list(map(ord,failure.detail))
     except OverflowError: expected = dict(reason='error',attempts=0) # absent metadata, normalized transport only
     if prepared: assert expected['reason']==prepared['reason'], (label,expected,prepared['reason'])
     delta = v['now'] - datetime(1970,1,1,tzinfo=timezone.utc)
@@ -55,15 +57,18 @@ add('exit before command',changes={},code=1,command=['bad'])
 add('command before value',changes=dict(rank='bad'),command=['bad'])
 add('overflow before required',age=86400000000000)
 add('omitted inputs')
-def loose(label, actual=['true'], expected=['true'], age=None, code=0, observed='2026-01-01T00:00:00Z', now='2026-01-01T00:00:05Z'):
-    statement=dict(predicate=dict(tier='full',observed_at=observed,observed=dict(runner='wrapper',inputs=dict(req='',rank='bad'),checks=dict(check=dict(exit_code=code,command=actual)))))
-    v.update(rules=None,now=v['parse_time'](now),run_inputs={})
+def loose(label, actual=['true'], expected=['true'], age=None, code=0, observed='2026-01-01T00:00:00Z', now='2026-01-01T00:00:05Z', name='check'):
+    statement=dict(predicate=dict(tier='full',observed_at=observed,observed=dict(runner='wrapper',inputs=dict(req='',rank='bad'),checks={name:dict(exit_code=code,command=actual)})))
+    v.update(rules=None,now=v['parse_time'](now),run_inputs={},check=name)
     try: verdict=v['judge'](('record',statement,'agent/alice'),command=expected,kinds=('wrapper',),max_age=age)
-    except v['Failure'] as e: verdict=dict(reason=e.reason,attempts=e.extra['attempts'])
+    except v['Failure'] as e:
+        verdict=dict(reason=e.reason,attempts=e.extra['attempts'])
+        if e.reason in ('check_failed','wrong_command','too_old'): verdict['detail']=list(map(ord,e.detail))
     except OverflowError: verdict=dict(reason='error',attempts=0) # absent metadata, normalized transport only
     delta=v['now']-datetime(1970,1,1,tzinfo=timezone.utc)
     points=None if expected is None else [list(map(ord,arg)) for arg in expected]
     cases.append(dict(label=ascii(label),policy=None,raw=json.dumps(statement),expected=verdict,exit_code=str(code),now=(delta.days*86400+delta.seconds)*1000000+delta.microseconds,command=points,age=None if age is None else str(age)))
+    cases[-1]['name']=list(map(ord,name))
 commands=[['true'],['\ud800'],['\ufffd'],['🦀'],['true','\0'],['true','']]
 for actual in commands:
     for expected in [None,[]]+commands:
@@ -78,6 +83,9 @@ for now in ('9999-12-31T23:57:59.999999Z','9999-12-31T23:58:00Z','9999-12-31T23:
     loose('loose UTC overflow '+now,observed='9999-12-31T23:57:59Z',now=now)
 for command,runner,reason in [(['\ud800'],'github:\ud800','satisfied'),(['\ufffd'],'github:\ud800','wrong_command'),(['\ud800'],'github:\ufffd','wrong_runner'),(['🦀'],'github:🦀','satisfied')]:
     add('prepared '+repr((command,runner)),command=command,changes={},prepared=dict(command=['🦀'] if command==['🦀'] else ['\ud800'],prefix='github:🦀' if command==['🦀'] else 'github:\ud800',runner=runner,reason=reason))
+for name in ['\ud800','🦀','']:
+    loose('named exit '+ascii(name),code=-10**100,name=name)
+    loose('named command '+ascii(name),actual=['wrong'],name=name)
 print(json.dumps(cases))
 "#;
     let output = std::process::Command::new("python3")
@@ -90,14 +98,17 @@ print(json.dumps(cases))
         String::from_utf8_lossy(&output.stderr)
     );
     let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(cases.len(), 168);
+    assert_eq!(cases.len(), 174);
     for case in cases {
         let doc = super::super::statement_document::Document::from_bytes(
             case["raw"].as_str().unwrap().as_bytes(),
         )
         .unwrap();
-        let facts =
-            DocumentFacts::for_check(&doc, &[99, 104, 101, 99, 107], "agent/alice").unwrap();
+        let name: Vec<u32> = case.get("name").map_or_else(
+            || "check".chars().map(u32::from).collect(),
+            |v| serde_json::from_value(v.clone()).unwrap(),
+        );
+        let facts = DocumentFacts::for_check(&doc, &name, "agent/alice").unwrap();
         assert_eq!(facts.exit_code, case["exit_code"].as_str().unwrap());
         let run = BTreeMap::from([
             ("rank".into(), "weak".into()),
@@ -194,9 +205,15 @@ print(json.dumps(cases))
         // Existing normalized oracle transport maps absent metadata to zero, not wire output.
         let actual = checked
             .map(|()| json!({"reason":"satisfied"}))
-            .unwrap_or_else(
-                |failure| json!({"reason":failure.reason,"attempts":failure.attempts.unwrap_or(0)}),
-            );
+            .unwrap_or_else(|failure| {
+                let mut result =
+                    json!({"reason":failure.reason,"attempts":failure.attempts.unwrap_or(0)});
+                if !case["expected"]["detail"].is_null() {
+                    result["detail"] =
+                        json!(failure.detail.borrowed().points().collect::<Vec<_>>());
+                }
+                result
+            });
         assert_eq!(actual, case["expected"], "{}", case["label"]);
         if !case["intended"].is_null() {
             assert_eq!(
@@ -222,14 +239,22 @@ fn normalized_policy_text_preserves_native_command_comparisons() {
         )];
         for command in [&scalar, &points] {
             assert_eq!(
-                CheckSource::Native(&check).matches_command(ExpectedCommand::Text(command)),
+                CheckSource::Native {
+                    check: &check,
+                    name: "check".into()
+                }
+                .matches_command(ExpectedCommand::Text(command)),
                 actual == expected
             );
         }
         assert!(
-            !CheckSource::Native(&check).matches_command(ExpectedCommand::Text(&[
-                NormalizedText::Codepoints(vec![0xd800])
-            ]))
+            !CheckSource::Native {
+                check: &check,
+                name: "check".into()
+            }
+            .matches_command(ExpectedCommand::Text(&[NormalizedText::Codepoints(
+                vec![0xd800]
+            )]))
         );
     }
 }
