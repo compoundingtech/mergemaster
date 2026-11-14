@@ -164,6 +164,8 @@ mod value;
 pub use value::{Date, Table, Time, Value};
 #[path = "toml_numbers.rs"]
 mod numbers;
+#[path = "toml_tables.rs"]
+pub mod tables;
 #[path = "toml_temporal.rs"]
 mod temporal;
 #[cfg(test)]
