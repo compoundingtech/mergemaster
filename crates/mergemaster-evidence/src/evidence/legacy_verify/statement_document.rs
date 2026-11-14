@@ -74,6 +74,9 @@ impl Document {
     pub fn node(&self, id: usize) -> &Node {
         &self.nodes[id]
     }
+    pub fn try_node(&self, id: usize) -> Option<&Node> {
+        self.nodes.get(id)
+    }
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
         Self::from_bytes_with_depth_limit(bytes, Some(MAX_CONTAINER_DEPTH))
     }

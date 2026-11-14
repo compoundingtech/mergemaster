@@ -60,15 +60,20 @@ print(json.dumps(cases))
             .unwrap();
         let document = Document::from_bytes(case[1].as_str().unwrap().as_bytes()).unwrap();
         let run = serde_json::from_value(case[2].clone()).unwrap();
-        let actual = value_checks_document(&rules.kinds[0].1, &document, document.root(), &run, 7)
-            .map(|()| json!({"reason":"satisfied"}))
-            .unwrap_or_else(|e| {
-                let mut result = json!({"reason":e.reason,"attempts":e.attempts});
-                if case[3].get("detail").is_some() {
-                    result["detail"] = json!(e.detail.borrowed().points().collect::<Vec<_>>());
-                }
-                result
-            });
+        let actual = value_checks_document(
+            &rules.kinds[0].1,
+            super::ValidatedInputs::new(&document, document.root()).unwrap(),
+            &run,
+            7,
+        )
+        .map(|()| json!({"reason":"satisfied"}))
+        .unwrap_or_else(|e| {
+            let mut result = json!({"reason":e.reason,"attempts":e.attempts});
+            if case[3].get("detail").is_some() {
+                result["detail"] = json!(e.detail.borrowed().points().collect::<Vec<_>>());
+            }
+            result
+        });
         if case[3]["reason"] == "ValueError" {
             // Existing unicode-shard-count divergence, not a new parser refusal.
             assert_eq!(actual, json!({"reason":"wrong_input","attempts":7}));
@@ -76,4 +81,27 @@ print(json.dumps(cases))
             assert_eq!(actual, case[3], "{case}");
         }
     }
+}
+
+#[test]
+fn validated_views_refuse_wrong_shapes_and_foreign_ids() {
+    use super::super::statement_document::Node;
+    use super::{StringNodes, ValidatedInputs};
+    for text in ["null", "[]", r#"{"x":false}"#, r#"{"x":["nested"]}"#] {
+        let doc = Document::from_bytes(text.as_bytes()).unwrap();
+        assert!(ValidatedInputs::new(&doc, doc.root()).is_none());
+    }
+    let doc = Document::from_bytes(br#"{"x":"value"}"#).unwrap();
+    let invalid = Node::Object(indexmap::IndexMap::from([(vec![120], usize::MAX)]));
+    assert!(ValidatedInputs::new(&doc, &invalid).is_none());
+    let invalid = Node::Array(vec![usize::MAX]);
+    assert!(StringNodes::new(&doc, &invalid).is_none());
+    let doc = Document::from_bytes(br#"["a","\ud800"]"#).unwrap();
+    let mut strings = StringNodes::new(&doc, doc.root()).unwrap();
+    assert_eq!(strings.len(), 2);
+    assert_eq!(strings.next(), Some(&[97][..]));
+    assert_eq!(strings.len(), 1);
+    assert_eq!(strings.next(), Some(&[0xd800][..]));
+    assert_eq!(strings.len(), 0);
+    assert_eq!(strings.next(), None);
 }

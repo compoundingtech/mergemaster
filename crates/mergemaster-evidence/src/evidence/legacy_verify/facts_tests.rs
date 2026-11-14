@@ -65,10 +65,7 @@ print(json.dumps(cases))
         .expect("oracle-valid statement");
         let key: Vec<u32> = serde_json::from_value(case["key"].clone()).unwrap();
         let actual = DocumentFacts::for_check(&doc, &key, case["principal"].as_str().unwrap()).map(|facts| {
-            let inputs = facts.inputs.map(|node| {
-                let Node::Object(entries) = node else { unreachable!() };
-                entries.iter().map(|(key,id)| json!([key,string(doc.node(*id)).unwrap()])).collect::<Vec<_>>()
-            });
+            let inputs = facts.inputs.map(|inputs| inputs.iter().map(|(key,value)| json!([key,value])).collect::<Vec<_>>());
             json!({"tier":facts.tier,"runner":facts.runner,"principal":facts.principal,
                 "exit_code":facts.exit_code,"observed_at":facts.observed_at,"moment_micros":facts.moment_micros,
                 "failed":facts.failed(),"level":facts.level(),"command":facts.command().collect::<Vec<_>>(),"inputs":inputs})

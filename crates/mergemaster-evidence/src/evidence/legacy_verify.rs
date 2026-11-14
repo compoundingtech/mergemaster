@@ -38,6 +38,7 @@ pub mod workflow;
 use super::legacy_policy::{ErrorOrigin, kind_rules::KindRule, normalized_text::NormalizedText};
 use serde::Serialize;
 use std::collections::BTreeMap;
+pub use value_inputs::ValidatedInputs;
 use value_inputs::{InputSource, TextRef};
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -75,22 +76,13 @@ pub fn value_checks(
     value_checks_source(rule, InputSource::Native(inputs), run, attempts)
 }
 /// Apply value guards to a validated statement's input object without narrowing strings.
-///
-/// # Panics
-/// Requires an already validated input object belonging to `document`, with string
-/// values. Unvalidated non-objects/non-string values or foreign arena IDs may panic;
-/// this is not an entry point for untrusted input.
 pub fn value_checks_document(
     rule: &KindRule,
-    document: &statement_document::Document,
-    inputs: &statement_document::Node,
+    inputs: ValidatedInputs<'_>,
     run: &BTreeMap<String, String>,
     attempts: usize,
 ) -> Result<(), Failure> {
-    let statement_document::Node::Object(inputs) = inputs else {
-        panic!("validated inputs are an object")
-    };
-    value_checks_source(rule, InputSource::Document(document, inputs), run, attempts)
+    value_checks_source(rule, InputSource::Document(inputs), run, attempts)
 }
 fn value_checks_source(
     rule: &KindRule,
@@ -396,7 +388,12 @@ print(json.dumps(results))
                 statement_document::Document::from_bytes(case[1].to_string().as_bytes()).unwrap();
             assert_eq!(
                 native,
-                value_checks_document(&rules.kinds[0].1, &document, document.root(), &run, 7)
+                value_checks_document(
+                    &rules.kinds[0].1,
+                    ValidatedInputs::new(&document, document.root()).unwrap(),
+                    &run,
+                    7
+                )
             );
             let actual = native
                 .map(|()| json!({"reason":"satisfied"}))

@@ -6,7 +6,6 @@ use super::{
     facts::DocumentFacts,
     ordering::Decision,
     statement::{array, field, string},
-    statement_document::Node,
     value_inputs::TextRef,
 };
 use crate::evidence::legacy_policy::check_names::CheckName;
@@ -128,18 +127,7 @@ impl<'a> Satisfied<'a> {
         self.facts
             .inputs
             .into_iter()
-            .flat_map(|node| {
-                let Node::Object(entries) = node else {
-                    unreachable!("validated input object")
-                };
-                entries.iter()
-            })
-            .map(|(key, id)| {
-                (
-                    key.as_slice(),
-                    string(self.facts.document.node(*id)).expect("validated input string"),
-                )
-            })
+            .flat_map(super::value_inputs::ValidatedInputs::iter)
     }
     pub fn events(&self) -> Option<impl Iterator<Item = &str>> {
         narrowed_event_iter(self.check_events, self.level_events)
