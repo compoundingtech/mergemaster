@@ -32,7 +32,7 @@ const _: () = {
 pub enum Error {
     Encoding,
     Syntax(SyntaxError),
-    IntegerLimit,
+    IntegerLimit { digits: usize },
     NestingLimit,
 }
 #[derive(Clone, Copy)]
@@ -153,7 +153,7 @@ impl Document {
             };
             let token = token.map_err(|error| match error {
                 statement_tokens::Error::Syntax(error) => Error::Syntax(error),
-                statement_tokens::Error::IntegerLimit => Error::IntegerLimit,
+                statement_tokens::Error::IntegerLimit { digits } => Error::IntegerLimit { digits },
             })?;
             if let Some(frame) = stack.last_mut() {
                 let object = matches!(nodes[frame.id], Node::Object(_));

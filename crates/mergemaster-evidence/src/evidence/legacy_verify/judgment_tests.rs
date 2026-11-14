@@ -1,6 +1,20 @@
 use super::super::{inputs::AgeLimit, statement_document::Document};
 use super::*;
 use serde_json::{Value, json};
+
+fn assert_handler_bytes(
+    error: &Failure,
+    check: crate::evidence::legacy_policy::check_names::CheckName<'_>,
+    expected: &Value,
+) {
+    let view = super::super::failure_json::WireError::from_failure(error, None, None);
+    let mut single = String::new();
+    crate::evidence::legacy_output::write(&mut single, |w| view.write_json(check, w)).unwrap();
+    assert_eq!(single, expected["single"]);
+    let mut global = String::new();
+    crate::evidence::legacy_output::write(&mut global, |w| view.write_global(w)).unwrap();
+    assert_eq!(global, expected["global_"]);
+}
 #[test]
 fn unconfigured_judgment_matches_the_pinned_joined_guards() {
     use std::{
@@ -9,9 +23,15 @@ fn unconfigured_judgment_matches_the_pinned_joined_guards() {
     };
     let oracle = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned Python oracle");
     let script = r#"
-import ast, copy, json, os, pathlib, runpy, sys
+import ast, copy, json, os, pathlib, runpy, sys, types
 from datetime import datetime, timezone
 path=pathlib.Path(sys.argv[1])/'scripts/evidence-verify'; v=runpy.run_path(str(path))
+main=next(n for n in ast.parse(path.read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='main')
+def dump(error,check):
+ kind='Failure' if isinstance(error,v['Failure']) else 'Exception'
+ h=next(n for n in ast.walk(main) if isinstance(n,ast.ExceptHandler) and isinstance(n.type,ast.Name) and n.type.id==kind)
+ env=dict(v,failure=error,error=error,args=types.SimpleNamespace(check=check))
+ return {key:eval(compile(ast.Expression(expr),'<handler>','eval'),env) for key,expr in [('single',h.body[1].value.args[0]),('global_',h.body[0].body[0].value.args[0])]}
 owner=next(n for n in ast.parse(path.read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='verified')
 judge=copy.deepcopy(next(n for n in owner.body if isinstance(n,ast.FunctionDef) and n.name=='judge'))
 judge.body[-1]=ast.parse("return dict(reason='satisfied')").body[0]
@@ -39,7 +59,7 @@ variants += [('changed paths',dict(changed=['a','b','c','d','e','f'])),
 for label,changes in variants:
     c=dict(command=['true'],actual=['true'],age=None,observed='2026-01-01T00:00:00Z',code=0,tier='full',kinds=['wrapper'],levels=None,prefix=None,bindings=[('bound','path')],inputs={'lane_definition_sha256':'lane','bound':'hash'},changed=[],blobs={'path':'hash'},error=False,exception=False,lane=True)
     c.update(changes); lane=None if c['lane'] is None else dict(sha256='lane',changed=c['changed'],tree_sha256='tree')
-    detail=None
+    detail=None; wire=None
     statement=dict(predicate=dict(tier=c['tier'],observed_at=c['observed'],observed=dict(runner='wrapper',inputs=c['inputs'],checks=dict(check=dict(exit_code=c['code'],command=c['actual'])))))
     calls=[]
     def blob(repo,tree,path):
@@ -52,12 +72,16 @@ for label,changes in variants:
     try: expected=v['judge'](('record',statement,'agent/alice'),command=c['command'],kinds=c['kinds'],bind=c['bindings'],max_age=c['age'],runner_prefix=c['prefix'],trust_levels=c['levels'],lane=lane)
     except v['Failure'] as e:
         expected=dict(reason=e.reason,attempts=e.extra['attempts'])
+        wire=dump(e,'check')
         if e.reason in ('definition_changed','wrong_definition','wrong_input'): detail=list(map(ord,e.detail))
-    except OverflowError: expected=dict(reason='error',attempts=0) # absent metadata, normalized transport only
+    except OverflowError as e:
+        expected=dict(reason='error',attempts=0) # existing normalized transport only
+        wire=dump(e,'check')
     points=lambda text: None if text is None else list(map(ord,text))
     if lane: lane['changed']=[os.fsencode(p).hex() for p in lane['changed']]
     cases.append(dict(label=label,raw=json.dumps(statement),expected=expected,calls=calls,lane=lane,error=c['error'],exception=c['exception'],command=None if c['command'] is None else [points(s) for s in c['command']],age=c['age'],kinds=[points(s) for s in c['kinds']],levels=None if c['levels'] is None else [points(s) for s in c['levels']],prefix=points(c['prefix']),bindings=[(points(k),os.fsencode(p).hex()) for k,p in c['bindings']],blobs={os.fsencode(k).hex():v for k,v in c['blobs'].items()}))
     cases[-1]['detail']=detail
+    cases[-1]['wire']=wire
 print(json.dumps(cases))
 "#;
     let output = std::process::Command::new("python3")
@@ -167,6 +191,9 @@ print(json.dumps(cases))
             &mut provider,
             7,
         );
+        if case["wire"].is_object() {
+            assert_handler_bytes(checked.as_ref().unwrap_err(), "check".into(), &case["wire"]);
+        }
         if !case["detail"].is_null() {
             let error = checked.as_ref().unwrap_err();
             assert_eq!(
@@ -204,17 +231,24 @@ fn lazy_lane_absence_keeps_the_selected_name() {
     }
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
     let output = std::process::Command::new("python3").args(["-c", r#"
-import ast,json,pathlib,runpy,sys
+import ast,json,pathlib,runpy,sys,types
 module=ast.parse((pathlib.Path(sys.argv[1])/'scripts/evidence-verify').read_text())
 raise_=next(n for n in ast.walk(module) if isinstance(n,ast.Raise) and isinstance(n.exc,ast.Call) and len(n.exc.args)>1 and ast.unparse(n.exc.args[1]).startswith("f'no lane definition for check"))
 expr=compile(ast.Expression(raise_.exc.args[1]),'<pinned-no-lane>','eval')
-failure=runpy.run_path(str(pathlib.Path(sys.argv[1])/'scripts/evidence-verify'))['Failure']('error','x')
+v=runpy.run_path(str(pathlib.Path(sys.argv[1])/'scripts/evidence-verify'))
+failure=v['Failure']('error','x')
 assert failure.extra.get('attempts') is None  # pinned: raised lanes carry no attempts
+main=next(n for n in module.body if isinstance(n,ast.FunctionDef) and n.name=='main')
+h=next(n for n in ast.walk(main) if isinstance(n,ast.ExceptHandler) and isinstance(n.type,ast.Name) and n.type.id=='Failure')
+def dump(failure,check):
+ env=dict(v,failure=failure,args=types.SimpleNamespace(check=check))
+ return {key:eval(compile(ast.Expression(expr),'<handler>','eval'),env) for key,expr in [('single',h.body[1].value.args[0]),('global_',h.body[0].body[0].value.args[0])]}
 cases=[]
 for check in ['unit','\ud800','🦀','']:
  policy=dict(version=1,checks={check:dict(trust_levels=['agent'],kinds=dict(wrapper=dict(command=['true'],by_level=dict(agent=dict(command=['true'],events=['pull_request'],lane=True)))))})
  statement=dict(predicate=dict(tier='full',observed_at='2026-01-01T00:00:00Z',observed=dict(runner='wrapper',checks={check:dict(exit_code=0,command=['true'])})))
- cases.append(dict(name=list(map(ord,check)),policy=json.dumps(policy),statement=json.dumps(statement),detail=list(map(ord,eval(expr,dict(check=check))))))
+ failure=v['Failure']('no_lane',eval(expr,dict(check=check)),attempts=3)
+ cases.append(dict(name=list(map(ord,check)),policy=json.dumps(policy),statement=json.dumps(statement),detail=list(map(ord,failure.detail)),wire=dump(failure,check)))
 print(json.dumps(cases))
 "#, &root]).output().unwrap();
     assert!(
@@ -298,5 +332,6 @@ print(json.dumps(cases))
             json!(error.detail.borrowed().points().collect::<Vec<_>>()),
             case["detail"]
         );
+        assert_handler_bytes(&error, name.as_slice().into(), &case["wire"]);
     }
 }

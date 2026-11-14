@@ -650,11 +650,11 @@ Lane and declared-path diagnostics preserve borrowed Python code-point contexts;
 their missing/shape/argv/path reasons and details follow the pinned source.
 Invalid path text uses the pinned Python repr primitive, not Rust Debug.
 Policy-header refusals and lane branch-point mismatches also preserve check code points
-and the pinned diagnostic text. The existing policy-header u64 max-age bound remains
-a fail-closed divergence: Python accepts larger positive integers until reached datetime
-arithmetic; Rust's distinct bound diagnostic is not claimed as Python refusal parity.
-Out-of-range floats share that inherited bound diagnostic because serde_json::Value
-has lost numeric provenance. The retained-source numeric slice fixes this before CLI parity.
+and the pinned diagnostic text. The former u64 max-age bound divergence is closed:
+Python's wide positive integers are accepted through owned decimal seconds until
+datetime arithmetic, where exact OverflowError texts match the pinned source.
+Out-of-range floats and wide integers each keep their own provenance-backed
+refusals from the original lossless document source.
 Nested kind/level and other judgment construction follow in separate module slices.
 Command/base/value helper contexts are borrowed lossless fragments. Direct missing
 command and unhashable input-order members preserve KeyError/TypeError provenance;
@@ -681,20 +681,21 @@ and lane_once propagates them; in-judge raises keep the ambient count. The
 pinned module's blob_sha256 catches git-level Failures itself, so provider
 exceptions still propagate while missing files read as absent.
 Value-rule, shard and base-input payload names ride the widened normalized text
-storage, so surrogate-escaped policy keys stay lossless end to end; their scalar
-source conversion still comes from the retained serde path for now.
-Header, command/base, kind, value-rule and level validation borrow a lossless
-statement document; the retained serde entry is re-encoded into it as a
-temporary bridge, removed by the step-5 PolicyDocument ingress cutover.
-Policy seconds have owned decimal payloads and a lossless integer writer;
-wide values refuse serde. Ingress still rejects max_age_s=2**64, an acceptance
-divergence closed only by the step-5 original-source cutover.
+storage, so surrogate-escaped policy keys stay lossless end to end, decoded
+directly from the original policy text with no serde re-encoding bridge.
+Header, command/base, kind, value-rule and level validation borrow that same
+lossless statement document. Policy seconds have owned decimal payloads and a
+lossless integer writer; max_age_s=2**64 (and wider) is accepted exactly like
+Python, with the pinned later OverflowError texts.
 Binding paths retain normalized text until the blob read, after earlier guards.
 The Git provider uses UTF-8 surrogateescape at the tree:path argument boundary;
 UnicodeEncodeError positions include the tree prefix, with exception provenance
 and no attempts metadata.
-Nested surrogate payload keys/values still require lossless source decoding before
-full CLI parity; scalar payload fixtures do not claim that separate domain is ported.
+Nested surrogate payload keys/values are decoded losslessly from the original
+policy source, including kind/level/command/input-order/shard identities; the
+four-case nested identity oracle fixture pins that domain as ported. Statement
+payloads (observed records) are a separate domain, still scalar-only until the
+legacy statement port slices decode their bytes with the same code-point source.
 Failure attempts distinguish `None` (absent) from `Some(0)` (explicit zero).
 Exceptions and prefix misses retain absence; degraded records retain their explicit
 count. Zero normalization is confined to existing oracle-test transports, not wire output.

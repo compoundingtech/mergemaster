@@ -98,6 +98,9 @@ fn policy_document(text: &str) -> Result<Document, PolicyError> {
             super::legacy_verify::statement_document::Error::Syntax(error) => {
                 invalid(format!("skip policy is not valid JSON: {error}"))
             }
+            super::legacy_verify::statement_document::Error::IntegerLimit { digits } => {
+                invalid(format!("skip policy is not valid JSON: Exceeds the limit (4300 digits) for integer string conversion: value has {digits} digits; use sys.set_int_max_str_digits() to increase the limit"))
+            }
             other => invalid(format!("skip policy is not valid JSON: {other:?}")),
         })?;
     let root = Source::root(&document);

@@ -14,9 +14,15 @@ use std::{cell::RefCell, rc::Rc};
 #[test]
 fn judgment_clock_sampling_matches_python_phase_and_repeated_calls() {
     let script = r#"
-import ast,copy,json,pathlib,runpy,sys
+import ast,copy,json,pathlib,runpy,sys,types
 from datetime import datetime,timezone,timedelta
 path=pathlib.Path(sys.argv[1])/'scripts/evidence-verify'; v=runpy.run_path(str(path))
+main=next(n for n in ast.parse(path.read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='main')
+def dump(error):
+ kind='Failure' if isinstance(error,v['Failure']) else 'Exception'
+ h=next(n for n in ast.walk(main) if isinstance(n,ast.ExceptHandler) and isinstance(n.type,ast.Name) and n.type.id==kind)
+ env=dict(v,failure=error,error=error,args=types.SimpleNamespace(check='check'))
+ return {key:eval(compile(ast.Expression(expr),'<handler>','eval'),env) for key,expr in [('single',h.body[1].value.args[0]),('global_',h.body[0].body[0].value.args[0])]}
 owner=next(n for n in ast.parse(path.read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='verified')
 nodes=[copy.deepcopy(n) for n in owner.body if isinstance(n,ast.FunctionDef) and n.name in ['judge','lane_once']]
 next(n for n in nodes if n.name=='judge').body[-1]=ast.parse("return 'satisfied'").body[0]
@@ -49,14 +55,14 @@ for name in ['satisfied','tier','kind','level','lazy-error','no-lane','runner','
  raw=dict(predicate=dict(tier='test' if name=='tier' else 'full',observed_at='2026-01-01T00:00:00Z',observed=dict(
   runner='other' if name=='kind' else 'wrapper',inputs=dict(bound='hash',lane_definition_sha256='lane',event_name='pull_request'),
   checks={'check':dict(command=['other'] if name=='command' else ['true'],exit_code=0)})))
- principal='host/fixture' if name=='level' else 'agent/fixture'; expected=[]
+ principal='host/fixture' if name=='level' else 'agent/fixture'; expected=[]; wires=[]
  for _ in range(2 if name=='stepping' else 1):
-  try: expected.append(v['judge'](('record',raw,principal)))
-  except v['Failure'] as e: expected.append(e.reason)
-  except OverflowError: expected.append('error') # pinned CLI exception normalization
+  try: expected.append(v['judge'](('record',raw,principal))); wires.append(None)
+  except v['Failure'] as e: expected.append(e.reason); wires.append(dump(e))
+  except OverflowError as e: expected.append('error'); wires.append(dump(e))
  target={'tier':['untrusted_tier'],'kind':['unsupported_kind'],'level':['untrusted_level'],'lazy-error':['error'],'no-lane':['no_lane'],'runner':['wrong_runner'],'command':['wrong_command'],'blob':['wrong_input'],'stepping':['satisfied','too_old'],'clock-error':['error']}.get(name,['satisfied'])
  assert expected==target,(name,expected,calls)
- cases.append(dict(name=name,policy=policy,raw=json.dumps(raw),principal=principal,expected=expected,calls=calls,samples=samples))
+ cases.append(dict(name=name,policy=policy,raw=json.dumps(raw),principal=principal,expected=expected,wire=wires,calls=calls,samples=samples))
 print(json.dumps(cases))
 "#;
     let output = std::process::Command::new("python3")
@@ -84,9 +90,10 @@ print(json.dumps(cases))
         fn epoch_micros(&mut self) -> Result<i64, ClockException> {
             self.calls.borrow_mut().push("clock");
             if self.fail {
-                return super::super::inputs::system_epoch_micros(
-                    std::time::UNIX_EPOCH + std::time::Duration::from_secs(253_402_300_800),
-                );
+                return Err(ClockException {
+                    class: "OverflowError",
+                    detail: "wall clock outside datetime range".into(),
+                });
             }
             self.samples.push(self.next);
             let now = self.next;
@@ -173,7 +180,7 @@ print(json.dumps(cases))
             }),
         };
         let actual: Vec<_> = (0..case["expected"].as_array().unwrap().len())
-            .map(|_| {
+            .map(|index| {
                 judgment
                     .select(&prepared, "check", Levels::Utf8(&[]))
                     .result
@@ -197,6 +204,14 @@ print(json.dumps(cases))
                                 .write_json("check".into(), w)
                         })
                         .unwrap();
+                        assert_eq!(wire, case["wire"][index]["single"], "{name}");
+                        let mut global = String::new();
+                        crate::evidence::legacy_output::write(&mut global, |w| {
+                            super::super::failure_json::WireError::from_failure(error, None, None)
+                                .write_global(w)
+                        })
+                        .unwrap();
+                        assert_eq!(global, case["wire"][index]["global_"], "{name}");
                         assert!(
                             serde_json::from_str::<Value>(&wire)
                                 .unwrap()
