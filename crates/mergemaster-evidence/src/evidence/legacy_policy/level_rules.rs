@@ -1,9 +1,9 @@
 //! Legacy signer-level override declarations; no evidence evaluation.
 use super::check_names::CheckName;
 use super::normalized_text::NormalizedText;
-use super::{
-    CommandInputs, PolicyError, checked_command_inputs, exception, invalid, names, rule_error,
-};
+use super::value_source::{self, Source};
+use super::{CommandInputs, PolicyError, checked_command_inputs, exception, invalid, rule_error};
+use crate::evidence::legacy_verify::statement_document::Node;
 use crate::evidence::legacy_verify::{failure_json::TextRef, python_repr::Repr};
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -37,9 +37,25 @@ pub fn checked_levels<'a>(
     check: impl Into<CheckName<'a>>,
     kind: &str,
 ) -> Result<Vec<(NormalizedText, LevelRule)>, PolicyError> {
-    let check = check.into();
+    // Temporary bridge, removed by the step-5 PolicyDocument ingress cutover.
+    let document = value_source::bridge(&overrides)?;
+    from_source(
+        Source::root(&document),
+        accepted_levels,
+        repository,
+        check.into(),
+        kind,
+    )
+}
+pub(super) fn from_source(
+    overrides: Source<'_>,
+    accepted_levels: &[NormalizedText],
+    repository: &str,
+    check: CheckName<'_>,
+    kind: &str,
+) -> Result<Vec<(NormalizedText, LevelRule)>, PolicyError> {
     let kind_context = [check.text(), TextRef::Str("/"), TextRef::Str(kind)];
-    let refusal = |level: &str, message: &str| {
+    let refusal = |level: &[u32], message: &str| {
         invalid(NormalizedText::concat(
             [
                 TextRef::Str("skip policy for "),
@@ -50,84 +66,91 @@ pub fn checked_levels<'a>(
             .into_iter()
             .chain([
                 TextRef::Str(": by_level "),
-                TextRef::Str(&format!("{}{message}", Repr(TextRef::Str(level)))),
+                TextRef::Str(&format!("{}{message}", Repr(TextRef::Points(level)))),
             ]),
         ))
     };
-    let mut by_level = Vec::with_capacity(overrides.len());
-    for (level, raw) in overrides {
-        let Value::Object(mut fields) = raw else {
-            return Err(refusal(&level, " is not valid"));
-        };
-        if fields.keys().any(|key| {
-            ![
-                "command",
-                "required_inputs",
-                "bind_inputs",
-                "events",
-                "lane",
-            ]
-            .contains(&key.as_str())
-        }) || !fields.contains_key("command")
-            || !fields.contains_key("events")
+    let mut by_level = Vec::new();
+    for (level, fields) in overrides.entries().into_iter().flatten() {
+        if fields.object().is_none_or(|entries| {
+            entries.keys().any(|key| {
+                ![
+                    "command",
+                    "required_inputs",
+                    "bind_inputs",
+                    "events",
+                    "lane",
+                ]
+                .iter()
+                .any(|name| value_source::key_is(key, name))
+            })
+        }) || fields.get("command").is_none()
+            || fields.get("events").is_none()
         {
-            return Err(refusal(&level, " is not valid"));
+            return Err(refusal(level, " is not valid"));
         }
         if level.is_empty() {
-            return Err(refusal(&level, " is not valid"));
+            return Err(refusal(level, " is not valid"));
         }
-        if !accepted_levels.iter().any(|a| a.borrowed().equals(&level)) {
+        if !accepted_levels
+            .iter()
+            .any(|a| a.borrowed().points().eq(level.iter().copied()))
+        {
             return Err(refusal(
-                &level,
+                level,
                 " is not among the trust levels this kind accepts",
             ));
         }
-        let raw_events = fields.remove("events").unwrap_or(Value::Null);
+        let raw_events = fields.get("events");
         // Python builds set(events) before checking event membership.
-        if let Some(members) = raw_events.as_array().filter(|m| !m.is_empty()) {
-            for member in members {
-                let kind = match member {
-                    Value::Array(_) => "list",
-                    Value::Object(_) => "dict",
-                    _ => continue,
-                };
-                return Err(exception(
-                    "TypeError",
-                    format!("cannot use '{kind}' as a set element (unhashable type: '{kind}')"),
-                ));
-            }
+        for member in raw_events.and_then(Source::array).into_iter().flatten() {
+            let kind = match member.node() {
+                Node::Array(_) => "list",
+                Node::Object(_) => "dict",
+                _ => continue,
+            };
+            return Err(exception(
+                "TypeError",
+                format!("cannot use '{kind}' as a set element (unhashable type: '{kind}')"),
+            ));
         }
-        let events = names(raw_events)
+        let events = raw_events
+            .and_then(value_source::names)
             .filter(|events| {
                 events
                     .iter()
-                    .all(|event| matches!(event.as_str(), "pull_request" | "merge_group"))
+                    .all(|event| *event == "pull_request" || *event == "merge_group")
                     && (events.len() == 1 || (events.len() == 2 && events[0] != events[1]))
             })
+            .map(|events| events.into_iter().map(|event| event.to_string()).collect())
             .ok_or_else(|| {
                 rule_error(
                     &kind_context,
                     "events must be a nonempty list of pull_request, merge_group",
                 )
             })?;
+        let Value::Object(mut legacy_fields) = value_source::to_value(fields) else {
+            return Err(refusal(level, " is not valid"));
+        };
         let inputs = checked_command_inputs(
-            &mut fields,
+            &mut legacy_fields,
             &[
                 check.text(),
                 TextRef::Str("/"),
                 TextRef::Str(kind),
                 TextRef::Str("/"),
-                TextRef::Str(&level),
+                TextRef::Points(level),
             ],
         )?;
-        let lane = match fields.remove("lane") {
-            None | Some(Value::Bool(false)) => LaneBinding::None,
-            Some(Value::Bool(true)) => LaneBinding::Base,
-            Some(Value::String(s)) if s == "tree" => LaneBinding::Tree,
-            _ => return Err(refusal(&level, " lane must be true, false or \"tree\"")),
+        let lane = match fields.get("lane") {
+            None => LaneBinding::None,
+            Some(value) if value.as_bool() == Some(false) => LaneBinding::None,
+            Some(value) if value.as_bool() == Some(true) => LaneBinding::Base,
+            Some(value) if value.str_is("tree") => LaneBinding::Tree,
+            _ => return Err(refusal(level, " lane must be true, false or \"tree\"")),
         };
         by_level.push((
-            NormalizedText::Scalar(level),
+            NormalizedText::from_points(level),
             LevelRule {
                 inputs: normalized(inputs, repository, check),
                 events,
