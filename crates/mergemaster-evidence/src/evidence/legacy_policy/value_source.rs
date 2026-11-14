@@ -66,13 +66,6 @@ impl<'a> Source<'a> {
             _ => None,
         }
     }
-    pub(super) fn as_f64(self) -> Option<f64> {
-        match self.node {
-            Node::Integer(text) => text.parse::<f64>().ok(),
-            Node::Float(value) => Some(*value),
-            _ => None,
-        }
-    }
     pub(super) fn string_points(self) -> Option<&'a [u32]> {
         match self.node {
             Node::String(points) => Some(points.as_slice()),

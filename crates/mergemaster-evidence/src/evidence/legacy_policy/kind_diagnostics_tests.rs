@@ -71,3 +71,53 @@ print(json.dumps(cases))
     }
     assert_eq!(exceptions, 54);
 }
+
+#[test]
+fn integer_and_float_zero_overrides_stay_falsy_like_python() {
+    use crate::evidence::legacy_verify::statement_document::{Document, Node};
+    let output = std::process::Command::new("python3")
+        .args([
+            "-c",
+            r#"
+import json,runpy,sys
+v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify');cases=[]
+for literal in ['0','-0','0.0','-0.0','0e5']:
+ entry=dict(trust_levels=['agent'],kinds=dict(wrapper=dict(command=['run'],by_level='TOKEN')))
+ text=json.dumps(dict(version=1,checks=dict(check=entry))).replace('"TOKEN"',literal)
+ rules=v['policy_rules'](text,'check','org/repo')
+ assert rules['kinds']['wrapper']['by_level']=={}
+ value=json.loads(literal)
+ cases.append(dict(literal=literal,text=text,integer=type(value) is int))
+print(json.dumps(cases))
+"#,
+            &std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle"),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(cases.len(), 5);
+    for case in cases {
+        let literal = case["literal"].as_str().unwrap();
+        let document = Document::from_text_with_depth_limit(literal, None).unwrap();
+        if case["integer"] == true {
+            assert!(matches!(document.root(), Node::Integer(decimal) if decimal == "0"));
+        } else {
+            assert!(matches!(document.root(), Node::Float(number) if *number == 0.0));
+            if literal == "-0.0" {
+                assert!(
+                    matches!(document.root(), Node::Float(number) if number.is_sign_negative())
+                );
+            }
+        }
+        let rules = PolicyDocument::parse(case["text"].as_str().unwrap(), "check")
+            .unwrap()
+            .into_rules("org/repo")
+            .unwrap();
+        assert!(rules.kinds[0].1.by_level.is_empty(), "{literal}");
+    }
+}
