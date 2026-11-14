@@ -664,6 +664,8 @@ truthy non-map by_level values retain explicit AttributeError rather than Failur
 Level override invalid/unlisted/lane refusals use the exact pinned by_level repr text.
 Shard-part no-record refusals build the check name losslessly through the shared
 borrowed name type; attempts count only the removed passing shard parts.
+Prefix miss-scan refusals (degraded, untrusted, wrong_check, stale_tree,
+no_record) carry the borrowed check name with exact Python code points.
 Nested surrogate payload keys/values still require lossless source decoding before
 full CLI parity; scalar payload fixtures do not claim that separate domain is ported.
 Failure attempts distinguish `None` (absent) from `Some(0)` (explicit zero).
