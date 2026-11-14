@@ -31,19 +31,19 @@ const INPUTS: [&str; 5] = [
 fn end(value: &str) -> &str {
     value.strip_suffix('\n').unwrap_or(value)
 }
-fn token(value: &Value) -> Cow<'_, str> {
+fn token(value: &Value) -> Result<Cow<'_, str>> {
     match value {
-        Value::String(s) => Cow::Borrowed(s),
+        Value::String(s) => Ok(Cow::Borrowed(s)),
         Value::Number(n) => number_token(n),
-        _ => Cow::Borrowed(""),
+        _ => Ok(Cow::Borrowed("")),
     }
 }
-fn number_token(number: &str) -> Cow<'_, str> {
+fn number_token(number: &str) -> Result<Cow<'_, str>> {
     use std::fmt::Write;
     if !number.contains(['.', 'e', 'E']) {
-        return Cow::Borrowed(if number == "-0" { "0" } else { number });
+        return Ok(Cow::Borrowed(if number == "-0" { "0" } else { number }));
     }
-    let value: f64 = number.parse().unwrap();
+    let value: f64 = number.parse()?;
     let mut text = String::with_capacity(32);
     if value.is_infinite() {
         text.push_str(if value.is_sign_negative() {
@@ -51,15 +51,15 @@ fn number_token(number: &str) -> Cow<'_, str> {
         } else {
             "inf"
         });
-        return Cow::Owned(text);
+        return Ok(Cow::Owned(text));
     }
-    write!(&mut text, "{value:e}").unwrap();
-    let e = text.rfind('e').unwrap();
-    let exponent: i32 = text[e + 1..].parse().unwrap();
+    write!(&mut text, "{value:e}")?;
+    let e = text.rfind('e').ok_or(std::fmt::Error)?;
+    let exponent: i32 = text[e + 1..].parse()?;
     // Python repr uses fixed notation at exponents -4..15, otherwise signed/padded exponents.
     if !(-4..16).contains(&exponent) {
         text.truncate(e + 1);
-        write!(&mut text, "{exponent:+03}").unwrap();
+        write!(&mut text, "{exponent:+03}")?;
     } else {
         text.truncate(e);
         text.retain(|c| c != '.');
@@ -77,7 +77,7 @@ fn number_token(number: &str) -> Cow<'_, str> {
             text.insert(point, '.');
         }
     }
-    Cow::Owned(text)
+    Ok(Cow::Owned(text))
 }
 fn hex(value: &str, size: usize) -> bool {
     value.len() == size
@@ -135,12 +135,12 @@ fn validate(request: &Value) -> Result<()> {
         matches!(runner, Some("wrapper" | "nix")),
         "runner must be one of: wrapper, nix"
     );
-    let commit = token(&request["commit"]);
+    let commit = token(&request["commit"])?;
     ensure!(
         hex(end(&commit), 40) || hex(end(&commit), 64),
         "commit must be a full object id"
     );
-    let check = token(&request["check"]);
+    let check = token(&request["check"])?;
     let name = end(&check);
     ensure!(
         !name.is_empty()
@@ -173,7 +173,7 @@ fn validate(request: &Value) -> Result<()> {
         "exit_code must be an integer"
     );
     ensure!(
-        hex(end(&token(&request["output_sha256"])), 64),
+        hex(end(&token(&request["output_sha256"])?), 64),
         "output_sha256 must be 64 lowercase hex digits"
     );
     let change = request["change_id"]
@@ -211,11 +211,17 @@ fn validate(request: &Value) -> Result<()> {
     }
     for key in &INPUTS[..3] {
         ensure!(
-            hex(end(inputs[*key].as_str().unwrap()), 64),
+            inputs
+                .get(*key)
+                .and_then(Value::as_str)
+                .is_some_and(|s| hex(end(s), 64)),
             "{key} must be 64 lowercase hex digits"
         );
     }
-    let attempt = inputs["attempt"].as_str().unwrap();
+    let attempt = inputs
+        .get("attempt")
+        .and_then(Value::as_str)
+        .context("inputs must be short nonempty strings with required fingerprints")?;
     ensure!(
         (1..=4).contains(&attempt.len())
             && (b'1'..=b'9').contains(&attempt.as_bytes()[0])
@@ -330,7 +336,9 @@ fn validate_nix(
             == if unsigned {
                 "none"
             } else {
-                signatures.split(':').next().unwrap()
+                signatures
+                    .split_once(':')
+                    .map_or(signatures, |(name, _)| name)
             },
         "nix_key_id must name the first signature key"
     );
@@ -460,7 +468,7 @@ json.dump(cases, sys.stdout)
             if let Some(expected) = case["numeric_check"].as_str() {
                 let request = super::super::legacy_json::parse(raw.as_bytes()).unwrap();
                 assert_eq!(
-                    super::token(&request["check"]),
+                    super::token(&request["check"]).unwrap(),
                     expected,
                     "{}",
                     case["label"]

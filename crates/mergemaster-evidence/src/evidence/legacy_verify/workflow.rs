@@ -90,7 +90,7 @@ pub fn workflow_job(text: &str, job: &str) -> Result<Option<Vec<u8>>, PolicyErro
     for line in lines(text) {
         if line.trim_matches(space).is_empty() || line.starts_with('#') {
             if let Some(name) = current.filter(|_| in_jobs) {
-                jobs.get_mut(name).expect("current job").push(line);
+                jobs.get_mut(name).ok_or_else(error)?.push(line);
             } else {
                 top.push(line);
             }
@@ -112,7 +112,7 @@ pub fn workflow_job(text: &str, job: &str) -> Result<Option<Vec<u8>>, PolicyErro
                 let Some(name) = current.filter(|_| line.starts_with("    ")) else {
                     return Err(error());
                 };
-                jobs.get_mut(name).expect("current job").push(line);
+                jobs.get_mut(name).ok_or_else(error)?.push(line);
             }
         } else {
             top.push(line);
@@ -139,7 +139,7 @@ pub fn workflow_job(text: &str, job: &str) -> Result<Option<Vec<u8>>, PolicyErro
         result.extend_from_slice(b"\0job ");
         result.extend_from_slice(name.as_bytes());
         result.push(b'\n');
-        for line in &jobs[name] {
+        for line in jobs.get(name).ok_or_else(error)? {
             result.extend_from_slice(line.as_bytes());
         }
     }

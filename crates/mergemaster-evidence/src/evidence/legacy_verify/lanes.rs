@@ -1,13 +1,12 @@
 //! Legacy lane declarations and definition bytes; no Git reads or native hashing.
 use super::failure_json::TextRef;
-use crate::evidence::legacy_json::string;
+use crate::evidence::legacy_json::emit_string;
 use crate::evidence::legacy_policy::{
     PolicyError, check_names::CheckName, declared_paths, normalized_text::NormalizedText,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::fmt::{self, Write};
 
 #[derive(Debug, Serialize)]
 pub struct LaneRules {
@@ -137,15 +136,15 @@ pub(super) fn codepoints(bytes: &[u8]) -> impl Iterator<Item = u32> + '_ {
             .chain(part.invalid().iter().map(|b| 0xdc00 + u32::from(*b)))
     })
 }
-fn strings(values: &[String], out: &mut impl Write) -> fmt::Result {
-    out.write_char('[')?;
+fn strings(values: &[String], mut emit: impl FnMut(&[u8])) {
+    emit(b"[");
     for (i, value) in values.iter().enumerate() {
         if i != 0 {
-            out.write_str(", ")?;
+            emit(b", ");
         }
-        string(value, out)?;
+        emit_string(value, |part| emit(part.as_bytes()));
     }
-    out.write_char(']')
+    emit(b"]");
 }
 /// Sort in place, as Python sorts surrogateescaped names; emit the exact preimage.
 pub fn definition_bytes(
@@ -154,13 +153,6 @@ pub fn definition_bytes(
     absent: &mut [String],
     mut emit: impl FnMut(&[u8]),
 ) {
-    struct Sink<'a, F>(&'a mut F);
-    impl<F: FnMut(&[u8])> Write for Sink<'_, F> {
-        fn write_str(&mut self, s: &str) -> fmt::Result {
-            self.0(s.as_bytes());
-            Ok(())
-        }
-    }
     entries.sort_unstable_by(|a, b| codepoints(&a.path).cmp(codepoints(&b.path)));
     for entry in entries {
         for part in [
@@ -175,11 +167,11 @@ pub fn definition_bytes(
         }
     }
     emit(b"argv:");
-    strings(argv, &mut Sink(&mut emit)).expect("infallible byte sink");
+    strings(argv, &mut emit);
     if !absent.is_empty() {
         absent.sort_unstable();
         emit(b"\nabsent:");
-        strings(absent, &mut Sink(&mut emit)).expect("infallible byte sink");
+        strings(absent, &mut emit);
     }
 }
 pub fn definition_digest(

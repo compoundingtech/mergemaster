@@ -68,7 +68,7 @@ pub fn prepare(
             inputs: old_inputs,
         } = &old.predicate.fact
         else {
-            unreachable!()
+            bail!("predecessor is not CI tests")
         };
         let (old_run, old_attempt, old_id) = identity(repository, old_runner)?;
         ensure!(
@@ -84,7 +84,9 @@ pub fn prepare(
                 ),
             "predecessor run belongs to a different workflow/repository or is incomplete"
         );
-        let (name, old_check) = old_checks.first_key_value().unwrap();
+        let (name, old_check) = old_checks
+            .first_key_value()
+            .context("CI re-attestation needs one predecessor per check")?;
         ensure!(
             old_job["id"].as_u64() == Some(old_id)
                 && old_job["run_id"].as_u64() == Some(old_run)
@@ -112,19 +114,32 @@ pub fn prepare(
             old_completed == chrono::DateTime::parse_from_rfc3339(&old.predicate.observed_at)?,
             "predecessor timestamp differs from authenticated completion"
         );
-        let applicable = current.iter().filter(|statement| {
-            statement.predicate.change_id == old.predicate.change_id && statement.subject[0].digest == old.subject[0].digest
-                && matches!(&statement.predicate.fact, Fact::Tests { checks, inputs, .. } if inputs == old_inputs
-                    && checks.len() == 1 && checks.get(name).is_some_and(|check| check.command == old_check.command))
-        }).collect::<Vec<_>>();
+        let applicable = current
+            .iter()
+            .filter_map(|statement| {
+                let Fact::Tests {
+                    runner,
+                    checks,
+                    inputs,
+                } = &statement.predicate.fact
+                else {
+                    return None;
+                };
+                (statement.predicate.change_id == old.predicate.change_id
+                    && statement.subject[0].digest == old.subject[0].digest
+                    && inputs == old_inputs
+                    && checks.len() == 1
+                    && checks
+                        .get(name)
+                        .is_some_and(|check| check.command == old_check.command))
+                .then_some((statement, runner))
+            })
+            .collect::<Vec<_>>();
         ensure!(
             applicable.len() == 1,
             "predecessor lacks a unique identical keyed check/tree/input map"
         );
-        let new = applicable[0];
-        let Fact::Tests { runner, .. } = &new.predicate.fact else {
-            unreachable!()
-        };
+        let (new, runner) = applicable[0];
         let (new_run, new_attempt, new_id) = identity(repository, runner)?;
         ensure!(
             (new_run, new_attempt) != (old_run, old_attempt) && new_id != old_id,

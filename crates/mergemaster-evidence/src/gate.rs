@@ -774,14 +774,14 @@ fn compute(
     // Push keeps newest-trusted selection; PR/queue match the pinned oracle.
     candidates
         .sort_by(|a, b| (a.2, failed(&a.1, check), &a.0).cmp(&(b.2, failed(&b.1, check), &b.0)));
-    let judge = |statement: &Statement| {
+    let judge = |statement: &Statement, at: DateTime<chrono::FixedOffset>| {
         if let Fact::Tests { inputs, .. } = &statement.predicate.fact
             && !execution_claims_valid(lane, &config.environment, inputs)
         {
             return "wrong_input";
         }
         let reason = satisfy(
-            statement,
+            (statement, at),
             check,
             head,
             &decision.tree,
@@ -795,7 +795,7 @@ fn compute(
             && inputs.get("lane_definition_sha256") != expected.get("lane_definition_sha256")
             && matches!(
                 satisfy(
-                    statement,
+                    (statement, at),
                     check,
                     head,
                     &decision.tree,
@@ -819,7 +819,7 @@ fn compute(
         candidates
             .iter()
             .enumerate()
-            .filter(|(_, (_, statement, _, _))| {
+            .filter(|(_, (_, statement, at, _))| {
                 !failed(statement, check)
                     && lane.trust_levels.iter().any(|level| {
                         Some(level.as_str())
@@ -829,11 +829,11 @@ fn compute(
                                 .as_deref()
                                 .and_then(|s| s.split('/').next())
                     })
-                    && judge(statement) != "wrong_definition"
+                    && judge(statement, *at) != "wrong_definition"
             })
             .max_by(|(_, a), (_, b)| a.2.cmp(&b.2).then_with(|| (b.3, &b.0).cmp(&(a.3, &a.0))))
             .map(|(index, _)| {
-                let reason = judge(&candidates[index].1);
+                let reason = judge(&candidates[index].1, candidates[index].2);
                 if matches!(reason, "satisfied" | "execution_reused")
                     && let Some(failure) = candidates.iter().rposition(|c| {
                         failed(&c.1, check) && c.2 >= candidates[index].2 - Duration::seconds(120)
@@ -869,7 +869,7 @@ fn compute(
     if let Fact::Tests { inputs, .. } = &statement.predicate.fact {
         decision.lane_definition_sha256 = inputs.get("lane_definition_sha256").cloned();
     }
-    decision.reason = selected.map_or_else(|| judge(&statement), |(_, reason)| reason);
+    decision.reason = selected.map_or_else(|| judge(&statement, chosen.2), |(_, reason)| reason);
     if matches!(decision.reason, "satisfied" | "execution_reused") {
         decision.decision = "skip";
         decision.outcome = "satisfied";
@@ -946,7 +946,7 @@ fn execution_claims_valid(
 }
 
 fn satisfy<'a>(
-    statement: &Statement,
+    (statement, at): (&Statement, DateTime<chrono::FixedOffset>),
     check: &str,
     head: &str,
     tree: &str,
@@ -980,7 +980,6 @@ fn satisfy<'a>(
     {
         return "untrusted_level";
     }
-    let at = DateTime::parse_from_rfc3339(&predicate.observed_at).expect("verified timestamp");
     let now = Utc::now();
     if at > now + Duration::seconds(120) {
         return "future_dated";
