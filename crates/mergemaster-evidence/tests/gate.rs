@@ -3489,6 +3489,7 @@ fn legacy_policy_routing_matches_signed_oracle_reason_order() {
             unreachable!()
         };
         let record = RecordFacts {
+            check_name: CHECK.into(),
             tier: typed.predicate.tier,
             runner,
             principal: PRINCIPAL,
@@ -3741,6 +3742,7 @@ fn legacy_clock_and_input_guards_match_signed_oracle_order() {
             unreachable!()
         };
         let record = RecordFacts {
+            check_name: CHECK.into(),
             tier: typed.predicate.tier,
             runner,
             principal: PRINCIPAL,
@@ -4013,6 +4015,7 @@ fn legacy_lazy_lane_and_blob_composition_matches_signed_oracle() {
             unreachable!()
         };
         let record = RecordFacts {
+            check_name: CHECK.into(),
             tier: typed.predicate.tier,
             runner,
             principal: PRINCIPAL,

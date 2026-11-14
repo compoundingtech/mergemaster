@@ -188,7 +188,18 @@ print(json.dumps(cases))
                         if name == "clock-error" {
                             assert_eq!(error.attempts, None);
                         }
-                        assert!(serde_json::to_value(error).unwrap().get("origin").is_none());
+                        let mut wire = String::new();
+                        crate::evidence::legacy_output::write(&mut wire, |w| {
+                            super::super::failure_json::WireError::from_failure(error, None, None)
+                                .write_json("check".into(), w)
+                        })
+                        .unwrap();
+                        assert!(
+                            serde_json::from_str::<Value>(&wire)
+                                .unwrap()
+                                .get("origin")
+                                .is_none()
+                        );
                     })
                     .map(|_| "satisfied")
                     .unwrap_or_else(|e| e.reason)

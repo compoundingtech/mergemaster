@@ -668,6 +668,8 @@ Prefix miss-scan refusals (degraded, untrusted, wrong_check, stale_tree,
 no_record) carry the borrowed check name with exact Python code points.
 Conservative selection's newer-failure detail also carries the check name losslessly,
 without changing its pinned commit/level wording or failure precedence.
+Judgment lane/digest and bound-input refusals use the pinned details; changed paths
+and native binding paths preserve Python's surrogateescaped filesystem bytes.
 Nested surrogate payload keys/values still require lossless source decoding before
 full CLI parity; scalar payload fixtures do not claim that separate domain is ported.
 Failure attempts distinguish `None` (absent) from `Some(0)` (explicit zero).
