@@ -9,6 +9,7 @@
 - Carry lossless declared paths through legacy projection, collection and prefix requests, preserving strict exclusions, selected index names and lazy whole-tree filesystem encoding.
 - Compose per-crate legacy source-input keys from selected committed inputs, declared dependency paths and Git projection; preserve tree-first resolution and ordered unknown-crate refusals.
 - Retain exact Python UnicodeDecodeError diagnostics for legacy JSON byte decoding, without changing callers that treat invalid encoding as an absent statement.
+- Add lossless, uncapped JSON byte preflight with exact uncaught Python decode, JSON syntax and integer-limit exceptions for accepted-base source selection.
 
 ## [0.8.0] - 2026-11-13
 

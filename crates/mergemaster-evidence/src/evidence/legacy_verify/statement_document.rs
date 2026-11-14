@@ -106,6 +106,9 @@ impl Document {
     pub fn from_text(text: &str) -> Result<Self, TextError> {
         Self::from_tokens(Self::text_tokens(text)?, |_| Ok(()))
     }
+    pub(super) fn from_points(points: Vec<u32>) -> Result<Self, TextError> {
+        Self::from_tokens(Tokens::from_points(points), |_| Ok(()))
+    }
     fn text_tokens(text: &str) -> Result<Tokens, TextError> {
         if text.starts_with('\u{feff}') {
             return Err(TextError::Syntax(SyntaxError {

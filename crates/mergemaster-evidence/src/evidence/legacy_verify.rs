@@ -16,6 +16,7 @@ pub mod events;
 pub mod facts;
 pub mod failure_json;
 pub mod inputs;
+pub mod json_bytes;
 pub mod judgment;
 pub mod lane_entry;
 pub mod lane_git;
