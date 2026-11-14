@@ -134,6 +134,9 @@ fn repr(c: char) -> String {
     Repr(TextRef::Points(&[u32::from(c)])).to_string()
 }
 
+#[path = "toml_strings.rs"]
+mod strings;
+
 #[cfg(test)]
 #[path = "toml_lexing_tests.rs"]
 mod tests;
