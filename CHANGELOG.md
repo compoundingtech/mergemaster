@@ -12,6 +12,7 @@
 - Add lossless, uncapped JSON byte preflight with exact uncaught Python decode, JSON syntax and integer-limit exceptions for accepted-base source selection.
 - Preserve complete Python errno exception subclasses and lossless filename diagnostics at legacy source filesystem boundaries, sharing projection's errno formatter.
 - Resolve accepted-base Rust test tools and inputs before historical bootstrap, refusing missing judged-base artifacts and malformed selected configuration without candidate fallback.
+- Read the legacy verifier's standalone accepted-base no-tests allowance with exact missing, malformed and strict UTF-8 behavior, independently of the crate-inputs schema.
 
 ## [0.8.0] - 2026-11-13
 

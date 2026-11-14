@@ -49,6 +49,7 @@ pub mod toml;
 pub mod trust;
 pub(crate) mod value_inputs;
 pub mod workflow;
+pub mod zero_test_crates;
 use super::legacy_policy::{ErrorOrigin, kind_rules::KindRule, normalized_text::NormalizedText};
 use serde::Serialize;
 use std::collections::BTreeMap;
