@@ -508,6 +508,9 @@ then normalize command placeholders and the required-input/binding-key union.
 before returning typed policy rules; raw kind entries are not exposed to callers.
 `legacy_verify::value_checks` judges ranked/base inputs and complete shard results
 without granting signature trust or changing native gate behavior.
+`legacy_verify::argparse_options` exposes the pinned verifier's complete ordered
+option metadata: aliases, destinations, actions, defaults, metavars, nargs,
+requiredness and exclusive groups. It is not production CLI dispatch or a loader.
 `value_checks_document` applies that same guard body to a validated input object,
 preserving Python code points (including lone surrogates) in keys and values.
 Private borrowed views avoid converting statements into native String maps.
