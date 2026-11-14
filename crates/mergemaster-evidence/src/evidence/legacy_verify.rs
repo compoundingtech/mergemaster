@@ -31,6 +31,7 @@ pub mod statement;
 pub mod statement_bytes;
 pub mod statement_document;
 pub mod statement_tokens;
+pub mod toml;
 pub mod trust;
 pub(crate) mod value_inputs;
 pub mod workflow;
