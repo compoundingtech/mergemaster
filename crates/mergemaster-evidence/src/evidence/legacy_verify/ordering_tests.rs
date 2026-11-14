@@ -111,9 +111,10 @@ cases.extend([
     ['select-provider',[passing,passing],[]]])
 cases += [[case[0].replace('select','select-unconfigured'),copy.deepcopy(case[1]),copy.deepcopy(case[2]),levels]
           for case in list(cases) if case[0].startswith('select') for levels in (None,[],['agent'],['fleet','\ud800'])]
-actual=[]
+actual=[]; details=[]
 for case in cases:
     mode,specs=case[:2]
+    detail=None
     ns['mode']=mode
     ns['blob_reads']=0
     ns['entries']=[(commit,dict(subject=[dict(digest=dict(gitTree='tree'))],predicate=dict(tier='full',observed_at=time,observed=dict(runner=runner,inputs=dict(lane_definition_sha256=definition,bound='hash'),checks=dict(unit=dict(exit_code=exit,command=['true']))))),level+'/key') for commit,time,exit,level,definition,runner in specs]
@@ -125,12 +126,14 @@ for case in cases:
             verdict=ns['verified'](None,'tree','unit',None,['true'],rules=rules,now=ns['parse_time']('2026-01-01T00:05:00Z'),lane=dict(sha256='base',changed=[],tree_sha256='tree'),run_inputs={})
     except ns['Failure'] as e:
         verdict=[e.reason,None,e.extra.get('decided_by'),e.extra.get('skipped_newer',[]),len(specs)]
+        if e.reason == 'check_failed' and 'dated after the pass' in e.detail: detail=e.detail
     except OverflowError:
         verdict=['error',None,None,[],len(specs)]
     actual.append(verdict+[ns['blob_reads']])
+    details.append(detail)
     if mode.startswith('select'): case[2] = [list(map(ord,level)) for level in case[2]]
     if 'unconfigured' in mode and case[3] is not None: case[3] = [list(map(ord,level)) for level in case[3]]
-print(json.dumps([cases,actual]))
+print(json.dumps([cases,actual,details]))
 "#;
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
     let output = std::process::Command::new("python3")
@@ -142,11 +145,11 @@ print(json.dumps([cases,actual]))
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let (cases, expected): (Vec<Value>, Vec<Value>) =
+    let (cases, expected, details): (Vec<Value>, Vec<Value>, Vec<Option<String>>) =
         serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(cases.len(), 1230);
     let mut actual = Vec::new();
-    for case in &cases {
+    for (case_index, case) in cases.iter().enumerate() {
         let entries = case[1].as_array().unwrap();
         let docs: Vec<_> = entries.iter().map(|e| Document::from_bytes(json!({"subject":[{"digest":{"gitTree":"tree"}}],"predicate":{"tier":"full","observed_at":e[1],"observed":{"runner":e[5],"inputs":{"lane_definition_sha256":e[4],"bound":"hash"},"checks":{"unit":{"exit_code":e[2],"command":["true"]}}}}}).to_string().as_bytes()).unwrap()).collect();
         let principals: Vec<_> = entries
@@ -236,6 +239,45 @@ print(json.dumps([cases,actual]))
                     assert_eq!(native.walk.decided_by, decision.walk.decided_by);
                     assert_eq!(native.walk.skipped_newer, decision.walk.skipped_newer);
                     assert_eq!(native_reads.get(), reads.get());
+                }
+                if let Some(detail) = &details[case_index] {
+                    assert_eq!(
+                        decision.result.as_ref().err().unwrap().detail,
+                        detail.as_str()
+                    );
+                    for name in [vec![0xd800], vec![0xfffd], vec![0x1f980], vec![]] {
+                        let named_reads = std::cell::Cell::new(0);
+                        let mut named_judgment = CheckJudgment {
+                            clock: &mut 1_767_225_900_000_000i64,
+                            run_inputs: &BTreeMap::new(),
+                            lane: Some(&lane),
+                            provider: LaneOnce::new(HashSource(false, &named_reads)),
+                        };
+                        let named = named_judgment.select(
+                            &prepared,
+                            name.as_slice(),
+                            Levels::Codepoints(&prefer),
+                        );
+                        let error = named.result.as_ref().err().unwrap();
+                        let (prefix, suffix) = detail.split_once("for check unit").unwrap();
+                        let expected = prefix
+                            .chars()
+                            .chain("for check ".chars())
+                            .map(u32::from)
+                            .chain(name.iter().copied())
+                            .chain(suffix.chars().map(u32::from))
+                            .collect::<Vec<_>>();
+                        assert_eq!(
+                            error.detail.borrowed().points().collect::<Vec<_>>(),
+                            expected
+                        );
+                        assert_eq!(error.reason, "check_failed");
+                        assert_eq!(error.attempts, Some(prepared.attempts()));
+                        assert_eq!(
+                            error.origin,
+                            crate::evidence::legacy_policy::ErrorOrigin::Failure
+                        );
+                    }
                 }
                 walk = decision.walk;
                 decision.result.map(|(i, _)| Some(i))

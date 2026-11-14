@@ -1,4 +1,5 @@
 //! Candidate walks and conservative final selection, with or without policy.
+use super::value_inputs::TextRef;
 use super::{
     Failure,
     candidates::{LaneOnce, Levels, Prepared, Rules},
@@ -6,6 +7,7 @@ use super::{
     judgment::{LaneDefinition, Provider, judge_document, judge_unconfigured},
     routing::Routing,
 };
+use crate::evidence::legacy_policy::{check_names::CheckName, normalized_text::NormalizedText};
 use std::{cmp::Reverse, collections::BTreeMap};
 #[derive(Default)]
 pub struct Walk {
@@ -55,12 +57,13 @@ impl<P: Provider> CheckJudgment<'_, P> {
     }
     /// Select within one prepared check, retaining lazy lane state across judgments.
     /// Metadata indices refer to `prepared`; this is not CLI result serialization.
-    pub fn select<'r>(
+    pub fn select<'r, 'c>(
         &mut self,
         prepared: &Prepared<'r>,
-        check: impl std::fmt::Display,
+        check: impl Into<CheckName<'c>>,
         prefer: Levels<'_>,
     ) -> Decision<'r> {
+        let check = check.into();
         let candidates = &prepared.candidates;
         let attempts = prepared.attempts();
         let mut walk = Walk::default();
@@ -86,10 +89,25 @@ impl<P: Provider> CheckJudgment<'_, P> {
                 if let Some(failed) = latest_failure_after(prepared, i)? {
                     walk.decided_by = Some(failed);
                     let failure = &candidates[failed];
-                    return Err(Failure { origin: crate::evidence::legacy_policy::ErrorOrigin::Failure, reason: "check_failed", detail: format!("record {} ({}) for check {check} failed, dated after the pass that would decide ({})",
-                    failure.commit,
-                    failure.facts.level(),
-                    candidates[i].commit).into(), attempts: Some(attempts),  });
+                    return Err(Failure {
+                        origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
+                        reason: "check_failed",
+                        detail: NormalizedText::concat(
+                            [
+                                TextRef::Str("record "),
+                                TextRef::Str(failure.commit),
+                                TextRef::Str(" ("),
+                                TextRef::Str(failure.facts.level()),
+                                TextRef::Str(") for check "),
+                                check.text(),
+                                TextRef::Str(" failed, dated after the pass that would decide ("),
+                                TextRef::Str(candidates[i].commit),
+                                TextRef::Str(")"),
+                            ]
+                            .into_iter(),
+                        ),
+                        attempts: Some(attempts),
+                    });
                 }
                 walk.decided_by = Some(i);
                 return Ok((i, routing));

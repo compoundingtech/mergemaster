@@ -83,23 +83,32 @@ pub fn candidates(
     if degraded > 0 && groups.untrusted.is_empty() {
         return Err(failure(
             "degraded",
-            format!("only unsigned degraded records exist for check {}", q.check),
+            NormalizedText::around(
+                "only unsigned degraded records exist for check ",
+                q.check.text(),
+                "",
+            ),
             Some(degraded),
         ));
     }
     if !groups.untrusted.is_empty() && !had_trusted {
         return Err(failure(
             groups.untrusted[0].reason,
-            format!("no record for check {} is signed by a trusted key", q.check),
+            NormalizedText::around(
+                "no record for check ",
+                q.check.text(),
+                " is signed by a trusted key",
+            ),
             None,
         ));
     }
     if had_trusted {
         return Err(failure(
             "wrong_check",
-            format!(
-                "trusted records for this tree do not include check {}",
-                q.check
+            NormalizedText::around(
+                "trusted records for this tree do not include check ",
+                q.check.text(),
+                "",
             ),
             None,
         ));
@@ -108,13 +117,17 @@ pub fn candidates(
     Err(if stale {
         failure(
             "stale_tree",
-            format!("check {} has records only for other trees", q.check),
+            NormalizedText::around(
+                "check ",
+                q.check.text(),
+                " has records only for other trees",
+            ),
             None,
         )
     } else {
         failure(
             "no_record",
-            format!("no record for check {}", q.check),
+            NormalizedText::around("no record for check ", q.check.text(), ""),
             None,
         )
     })

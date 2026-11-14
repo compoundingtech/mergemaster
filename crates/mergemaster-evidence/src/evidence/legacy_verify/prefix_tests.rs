@@ -2,11 +2,15 @@ use super::*;
 #[test]
 fn joined_prefix_preserves_precedence_and_propagates_real_limits() {
     let script = r#"
-import ast,json,pathlib,runpy,subprocess,sys
+import ast,json,pathlib,runpy,subprocess,sys,types
 source=pathlib.Path(sys.argv[1]+'/scripts/evidence-verify'); o=runpy.run_path(str(source))
 f=next(n for n in ast.parse(source.read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='verified')
 f.name='prefix'; f.body=[n for n in f.body if n.lineno<=1008]+[ast.Return(ast.Name('with_check',ast.Load()))]
 exec(compile(ast.fix_missing_locations(ast.Module([f],[])),str(source),'exec'),o); cases=[]
+main=next(n for n in ast.parse(source.read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='main')
+def dump(kind,global_):
+ h=next(n for n in ast.walk(main) if isinstance(n,ast.ExceptHandler) and isinstance(n.type,ast.Name) and n.type.id==kind)
+ return compile(ast.Expression(h.body[0].body[0].value.args[0] if global_ else h.body[1].value.args[0]),'<h>','eval')
 for fmt in ['sha1','sha256']:
  root=pathlib.Path(sys.argv[2])/fmt; root.mkdir(); key=root/'key'
  subprocess.run(['ssh-keygen','-q','-t','ed25519','-N','','-f',str(key)],check=True)
@@ -57,11 +61,12 @@ for fmt in ['sha1','sha256']:
    for i in range(3): record('wide'+str(i),signed=False,layout='notes',wide=True)
    refusal='record-budget-exceeded'
   try: expected={'records':[c for c,s,p in o['prefix'](str(repo),current,check,str(keys),[])]}
-  except o['Failure'] as e: expected={'reason':e.reason,'detail':e.detail,'attempts':e.extra.get('attempts',0)}
+  except o['Failure'] as e:
+   env=dict(o,failure=e,args=types.SimpleNamespace(check=check))
+   expected={'reason':e.reason,'detail':list(map(ord,e.detail)),'attempts':e.extra.get('attempts',0),'single':eval(dump('Failure',False),env),'global_':eval(dump('Failure',True),env)}
   if check!='check':
    if name.startswith('trusted-'): assert len(expected['records'])==1,(name,expected)
    else: assert expected['reason']==('stale_tree' if name.startswith('stale-') else 'wrong_check' if name.startswith('wrong-') else 'no_record'),(name,expected)
-   expected.pop('detail',None) # Diagnostic spelling is not this name-identity contract.
    assert o['input_refs'](str(root/'absent'),check,'0'*len(current))==[]
   cases.append(dict(repo=str(repo),tree=current,none='0'*len(current),keys=str(keys),check=list(map(ord,check)),name=fmt+'-'+name,expected=expected,refusal=refusal))
 print(json.dumps(cases))
@@ -124,21 +129,32 @@ print(json.dumps(cases))
                 );
             }
         } else {
-            let mut actual = match result {
+            let actual = match result {
                 Ok(v) => {
                     serde_json::json!({"records":v.iter().map(|c| &c.candidate.commit).collect::<Vec<_>>()})
                 }
                 Err(e) => {
                     assert_eq!(e.attempts.is_some(), e.reason == "degraded");
-                    let mut value = serde_json::to_value(&e).unwrap();
-                    // Existing normalized oracle transport only, not CLI field presence.
-                    value["attempts"] = e.attempts.unwrap_or(0).into();
-                    value
+                    // Code-point transport, not serde: surrogate details refuse serde by design.
+                    let view = super::super::failure_json::WireError::from_failure(&e, None, None);
+                    let mut single = String::new();
+                    crate::evidence::legacy_output::write(&mut single, |w| {
+                        view.write_json(q.check, w)
+                    })
+                    .unwrap();
+                    let mut global = String::new();
+                    crate::evidence::legacy_output::write(&mut global, |w| view.write_global(w))
+                        .unwrap();
+                    serde_json::json!({
+                        "reason": e.reason,
+                        "detail": e.detail.borrowed().points().collect::<Vec<_>>(),
+                        // Existing normalized oracle transport only, not CLI field presence.
+                        "attempts": e.attempts.unwrap_or(0),
+                        "single": single,
+                        "global_": global,
+                    })
                 }
             };
-            if !q.check.text().equals("check") {
-                actual.as_object_mut().unwrap().remove("detail");
-            }
             assert_eq!(actual, f["expected"], "{}", f["name"]);
         }
     }

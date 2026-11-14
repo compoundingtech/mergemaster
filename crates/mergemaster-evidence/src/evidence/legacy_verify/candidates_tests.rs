@@ -163,6 +163,7 @@ print(json.dumps(cases))
         assert_eq!(single, case["single"]);
         let mut global = String::new();
         legacy_output::write(&mut global, |w| view.write_global(w)).unwrap();
+        assert_eq!(global, case["global_"]);
     }
 }
 
