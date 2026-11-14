@@ -7,9 +7,16 @@ use std::collections::HashSet;
 
 #[derive(Debug, Serialize)]
 pub struct ValueRules {
-    #[serde(serialize_with = "super::serialize_pairs")]
+    #[serde(serialize_with = "serialize_input_order")]
     pub input_order: Vec<(String, Vec<String>)>,
     pub shard_inputs: Option<ShardInputs>,
+}
+
+fn serialize_input_order<S: serde::Serializer>(
+    pairs: &[(String, Vec<String>)],
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.collect_map(pairs.iter().map(|(key, value)| (key, value)))
 }
 #[derive(Debug, Serialize)]
 pub struct ShardInputs {

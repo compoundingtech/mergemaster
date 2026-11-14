@@ -17,12 +17,19 @@ pub struct KindRule {
     pub inputs: CommandInputs,
     pub runner_prefix: Option<NormalizedText>,
     pub trust_levels: Option<Vec<String>>,
-    #[serde(serialize_with = "super::serialize_pairs")]
+    #[serde(serialize_with = "super::level_rules::serialize_level_pairs")]
     pub by_level: Vec<(String, LevelRule)>,
     #[serde(flatten)]
     pub values: ValueRules,
-    #[serde(serialize_with = "super::serialize_pairs")]
+    #[serde(serialize_with = "serialize_string_pairs")]
     pub base_inputs: Vec<(String, String)>,
+}
+
+fn serialize_string_pairs<S: serde::Serializer>(
+    pairs: &[(String, String)],
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.collect_map(pairs.iter().map(|(key, value)| (key, value)))
 }
 pub fn checked_kinds<'a>(
     kinds: Map<String, Value>,

@@ -166,6 +166,13 @@ pub(super) fn normalized(
     inputs
 }
 
+pub(super) fn serialize_level_pairs<S: serde::Serializer>(
+    pairs: &[(String, LevelRule)],
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.collect_map(pairs.iter().map(|(key, value)| (key, value)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

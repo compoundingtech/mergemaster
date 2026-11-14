@@ -190,7 +190,7 @@ pub struct CheckHeader {
 pub struct PolicyRules {
     #[serde(flatten)]
     pub header: CheckHeader,
-    #[serde(serialize_with = "serialize_pairs")]
+    #[serde(serialize_with = "serialize_kind_pairs")]
     pub kinds: Vec<(String, kind_rules::KindRule)>,
 }
 impl CheckHeader {
@@ -330,12 +330,18 @@ fn exception(class: &'static str, detail: impl Into<NormalizedText>) -> PolicyEr
 #[derive(Debug, Serialize)]
 pub struct CommandInputs {
     pub command: Vec<normalized_text::NormalizedText>,
-    pub required_inputs: Vec<String>,
+    pub required_inputs: Vec<normalized_text::NormalizedText>,
     #[serde(serialize_with = "serialize_pairs")]
-    pub bind_inputs: Vec<(String, String)>,
+    pub bind_inputs: Vec<(normalized_text::NormalizedText, String)>,
 }
 fn serialize_pairs<S: serde::Serializer, T: Serialize>(
-    pairs: &[(String, T)],
+    pairs: &[(normalized_text::NormalizedText, T)],
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.collect_map(pairs.iter().map(|(key, value)| (key, value)))
+}
+fn serialize_kind_pairs<S: serde::Serializer>(
+    pairs: &[(String, kind_rules::KindRule)],
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
     serializer.collect_map(pairs.iter().map(|(key, value)| (key, value)))
@@ -357,12 +363,18 @@ pub fn checked_command_inputs(
         rule.remove("required_inputs")
             .unwrap_or(Value::Array(Vec::new())),
     )
-    .ok_or_else(malformed)?;
+    .ok_or_else(malformed)?
+    .into_iter()
+    .map(normalized_text::NormalizedText::Scalar)
+    .collect();
     let bind_inputs = string_map(
         rule.remove("bind_inputs")
             .unwrap_or(Value::Object(Map::new())),
     )
-    .ok_or_else(malformed)?;
+    .ok_or_else(malformed)?
+    .into_iter()
+    .map(|(key, path)| (normalized_text::NormalizedText::Scalar(key), path))
+    .collect();
     Ok(CommandInputs {
         command: command
             .into_iter()

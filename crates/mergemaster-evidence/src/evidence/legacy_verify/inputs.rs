@@ -74,7 +74,7 @@ enum ExpectedCommand<'a> {
 }
 struct Guards<'a> {
     age: Option<AgeLimit>,
-    required: &'a [String],
+    required: &'a [crate::evidence::legacy_policy::normalized_text::NormalizedText],
     command: Option<ExpectedCommand<'a>>,
     values: Option<&'a crate::evidence::legacy_policy::kind_rules::KindRule>,
 }
@@ -287,7 +287,8 @@ fn check_inputs_source(
         }
     }
     for key in guards.required {
-        if inputs.get(key).is_none_or(|value| value.len() == 0) {
+        let key = key.borrowed();
+        if inputs.get_text(key).is_none_or(|value| value.len() == 0) {
             return Err(Failure {
                 origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                 reason: "missing_input",
