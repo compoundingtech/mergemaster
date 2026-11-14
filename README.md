@@ -686,6 +686,9 @@ source conversion still comes from the retained serde path for now.
 Header, command/base, kind, value-rule and level validation borrow a lossless
 statement document; the retained serde entry is re-encoded into it as a
 temporary bridge, removed by the step-5 PolicyDocument ingress cutover.
+Policy seconds have owned decimal payloads and a lossless integer writer;
+wide values refuse serde. Ingress still rejects max_age_s=2**64, an acceptance
+divergence closed only by the step-5 original-source cutover.
 Binding paths retain normalized text until the blob read, after earlier guards.
 The Git provider uses UTF-8 surrogateescape at the tree:path argument boundary;
 UnicodeEncodeError positions include the tree prefix, with exception provenance

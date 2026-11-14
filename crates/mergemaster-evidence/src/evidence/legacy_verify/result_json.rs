@@ -41,8 +41,8 @@ impl Satisfied<'_> {
             })?;
             o.field_text("attempts", |w| w.integer(self.attempts as i128))?;
             o.field_text("policy", |w| w.boolean(self.policy))?;
-            o.field_text("max_age_s", |w| match self.max_age_s {
-                Some(age) => w.integer(i128::from(age)),
+            o.field_text("max_age_s", |w| match self.max_age_s.as_deref() {
+                Some(age) => w.policy_seconds(age),
                 None => w.null(),
             })?;
             o.field_text("enforce", |w| w.boolean(self.enforce))?;

@@ -50,7 +50,7 @@ impl<'a> Source<'a> {
             .find(|(k, _)| key_is(k, key))
             .map(|(_, id)| self.at(*id))
     }
-    pub(super) fn array(self) -> Option<impl Iterator<Item = Self> + 'a> {
+    pub(super) fn array(self) -> Option<impl ExactSizeIterator<Item = Self> + 'a> {
         match self.node {
             Node::Array(items) => Some(items.iter().map(move |id| self.at(*id))),
             _ => None,

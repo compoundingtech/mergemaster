@@ -75,3 +75,47 @@ print(json.dumps(cases))
         assert_eq!(error.origin, ErrorOrigin::Failure);
     }
 }
+
+#[test]
+fn declared_source_paths_preserve_nested_surrogate_diagnostics() {
+    let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
+    let output = std::process::Command::new("python3").args(["-c", r#"
+import json,runpy,sys
+v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify')
+cases=[]
+for point in ['\ud800','\udfff','😀','\u0378']:
+ for item in [point,'!'+point,'x.json::'+point,point+'.yml::jobs.id']:
+  for selectors in [False,True]:
+   text=json.dumps([item])
+   try: result=v['declared_paths'](json.loads(text),'fixture',selectors)
+   except v['Failure'] as error:
+    cases.append(dict(text=text,selectors=selectors,reason=error.reason,detail=list(map(ord,error.detail))))
+   else: raise AssertionError('expected invalid literal')
+print(json.dumps(cases))
+"#, &root]).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(cases.len(), 32);
+    for case in cases {
+        let document = crate::evidence::legacy_verify::statement_document::Document::from_bytes(
+            case["text"].as_str().unwrap().as_bytes(),
+        )
+        .unwrap();
+        let error = declared_source_paths(
+            value_source::Source::root(&document),
+            &[TextRef::Str("fixture")],
+            case["selectors"].as_bool().unwrap(),
+        )
+        .unwrap_err();
+        assert_eq!(error.origin, ErrorOrigin::Failure);
+        assert_eq!(error.reason, case["reason"]);
+        assert_eq!(
+            serde_json::json!(error.detail.borrowed().points().collect::<Vec<_>>()),
+            case["detail"]
+        );
+    }
+}
