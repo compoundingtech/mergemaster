@@ -143,3 +143,35 @@ fn capture_deadline_handles_null_empty_and_expired_input() {
         );
     }
 }
+
+#[test]
+fn capture_sink_drains_without_retaining_stream_bytes() {
+    struct Counts([usize; 2]);
+    impl CaptureSink for Counts {
+        type Error = io::Error;
+        type Output = (ExitStatus, [usize; 2]);
+        fn push(&mut self, stream: Stream, bytes: &[u8]) -> io::Result<()> {
+            self.0[usize::from(stream == Stream::Stderr)] += bytes.len();
+            Ok(())
+        }
+        fn finish(self, status: ExitStatus) -> Self::Output {
+            (status, self.0)
+        }
+        fn context(self, error: io::Error) -> io::Error {
+            error
+        }
+    }
+    for status in [0, 7] {
+        let mut command = Command::new("python3");
+        command.args(["-c", "import sys;sys.stderr.buffer.write(b'e'*1048576);sys.stderr.buffer.flush();sys.stdout.buffer.write(b'o'*1048576);sys.stdout.buffer.flush();sys.stdout.buffer.write(sys.stdin.buffer.read());sys.exit(int(sys.argv[1]))", &status.to_string()]).stdin(Stdio::piped());
+        let (exit, counts) = GitChild::capture_with_sink(
+            &mut command,
+            Some(&vec![b'i'; 1_048_576]),
+            Duration::from_secs(60),
+            Counts([0; 2]),
+        )
+        .unwrap();
+        assert_eq!(exit.code(), Some(status));
+        assert_eq!(counts, [2_097_152, 1_048_576]);
+    }
+}
