@@ -58,14 +58,8 @@ print(json.dumps(cases))
                 }
         ));
         if case["exception"].is_string() {
-            assert!(matches!(
-                case["exception"].as_str(),
-                Some("KeyError") | Some("TypeError")
-            ));
-            let class = match case["exception"].as_str().unwrap() {
-                "KeyError" => "KeyError",
-                _ => "TypeError",
-            };
+            assert_eq!(case["exception"], "TypeError");
+            let class = "TypeError";
             assert_eq!(error.origin, ErrorOrigin::Exception { class });
         } else {
             assert_eq!(error.origin, ErrorOrigin::Failure);
@@ -83,5 +77,47 @@ print(json.dumps(cases))
         legacy_output::write(&mut global, |w| view.write_global(w)).unwrap();
         assert_eq!(global, case["global_"]);
     }
-    assert_eq!(exceptions + failure_count, cases.len());
+    assert_eq!((cases.len(), failure_count, exceptions), (198, 192, 6));
+}
+
+#[test]
+fn level_surrogate_and_wide_number_refusals_match_python() {
+    let output = std::process::Command::new("python3").args(["-c", r#"
+import json,runpy,sys
+v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify');cases=[]
+for check in ['\ud800','\udfff']:
+ for level in ['\ud800','\udfff']:
+  base=dict(command=['run'],events=['pull_request'])
+  overrides=[dict(base,command=[level,1]),dict(base,required_inputs=[level,1]),
+   dict(base,bind_inputs={level:None}),dict(base,events=[level]),dict(base,**{level:True}),
+   dict(base,lane=2**64),dict(base,lane=1e400),2**64,10**100,1e400]
+  for override in overrides:
+   text=json.dumps(dict(version=1,checks={check:dict(trust_levels=[level],kinds=dict(
+    wrapper=dict(command=['run'],by_level={level:override})))}))
+   try:v['policy_rules'](text,check,'org/repo')
+   except v['Failure'] as error:
+    cases.append(dict(text=text,check=list(map(ord,check)),reason=error.reason,detail=list(map(ord,error.detail))))
+   else:raise AssertionError('expected refusal')
+print(json.dumps(cases))
+"#, &std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle")]).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(cases.len(), 40);
+    for case in cases {
+        let check: Vec<u32> = serde_json::from_value(case["check"].clone()).unwrap();
+        let error = PolicyDocument::parse(case["text"].as_str().unwrap(), check.as_slice())
+            .unwrap()
+            .into_rules("org/repo")
+            .unwrap_err();
+        assert_eq!(error.origin, ErrorOrigin::Failure);
+        assert_eq!(error.reason, case["reason"]);
+        assert_eq!(
+            serde_json::json!(error.detail.borrowed().points().collect::<Vec<_>>()),
+            case["detail"]
+        );
+    }
 }
