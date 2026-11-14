@@ -24,6 +24,7 @@ pub mod judgment;
 pub mod lane_entry;
 pub mod lane_git;
 pub mod lanes;
+pub mod member_project;
 pub mod ordering;
 pub mod prefix;
 pub mod projection;
