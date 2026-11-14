@@ -1,6 +1,6 @@
 use super::{
     Failure,
-    collection::CandidateCollector,
+    collection::{CandidateCollector, CrateBinding},
     stale::other_trees_have,
     statement::field,
     statement_document::{Document, Node},
@@ -16,7 +16,7 @@ pub struct Request<'a> {
     pub check: CheckName<'a>,
     pub keys: &'a str,
     pub inputs: Option<&'a [NormalizedText]>,
-    pub crate_key: Option<(&'a str, &'a str)>,
+    pub crate_key: Option<CrateBinding<'a>>,
 }
 fn failure(
     reason: &'static str,

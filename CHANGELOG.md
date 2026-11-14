@@ -17,6 +17,7 @@
 - Propagate the per-crate no-lazy-fetch setting through legacy projection reads, selectors and index writes without mutating the process environment.
 - Compose verifier member keys with accepted-base inputs first, exact per-crate refusal provenance and no lazy fetching, accepting legacy treeish revisions.
 - Pin Python Unicode digit and decimal classification for legacy test-count conversion, with generated-table freshness and exhaustive codepoint parity.
+- Filter per-crate records by positive tests run when required, preserving Python Unicode decimal semantics, conversion exceptions and lazy crate/key mismatch behavior across both record indexes.
 
 ## [0.8.0] - 2026-11-13
 
