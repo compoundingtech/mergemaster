@@ -360,7 +360,10 @@ pub struct CommandInputs {
     pub command: Vec<normalized_text::NormalizedText>,
     pub required_inputs: Vec<normalized_text::NormalizedText>,
     #[serde(serialize_with = "serialize_pairs")]
-    pub bind_inputs: Vec<(normalized_text::NormalizedText, String)>,
+    pub bind_inputs: Vec<(
+        normalized_text::NormalizedText,
+        normalized_text::NormalizedText,
+    )>,
 }
 fn serialize_pairs<S: serde::Serializer, T: Serialize>(
     pairs: &[(normalized_text::NormalizedText, T)],
@@ -401,7 +404,7 @@ pub fn checked_command_inputs(
     )
     .ok_or_else(malformed)?
     .into_iter()
-    .map(|(key, path)| (normalized_text::NormalizedText::Scalar(key), path))
+    .map(|(key, path)| (key.into(), path.into()))
     .collect();
     Ok(CommandInputs {
         command: command

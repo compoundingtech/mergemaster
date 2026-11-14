@@ -10,6 +10,7 @@ use crate::evidence::legacy_policy::normalized_text::NormalizedText;
 use crate::evidence::legacy_policy::{PolicyError, PolicyRules, level_rules::LaneBinding};
 use std::collections::BTreeMap;
 use std::os::unix::ffi::OsStrExt;
+use std::{borrow::Cow, path::Path};
 pub struct LaneDefinition {
     pub sha256: String,
     pub changed: Vec<Vec<u8>>,
@@ -91,10 +92,12 @@ pub fn judge_unconfigured(
     check_lane(&record.input_source(), lane, None, attempts)?;
     check_bindings(
         record.input_source(),
-        options
-            .bindings
-            .iter()
-            .map(|(key, path)| (super::value_inputs::TextRef::Points(key), path.as_path())),
+        options.bindings.iter().map(|(key, path)| {
+            (
+                super::value_inputs::TextRef::Points(key),
+                Ok(Cow::Borrowed(path.as_path())),
+            )
+        }),
         provider,
         attempts,
     )
@@ -170,7 +173,7 @@ fn judge_source<'a>(
             .command_inputs
             .bind_inputs
             .iter()
-            .map(|(key, path)| (key.borrowed(), std::path::Path::new(path))),
+            .map(|(key, path)| (key.borrowed(), super::binding_path::native(path))),
         provider,
         attempts,
     )?;
@@ -238,7 +241,12 @@ fn check_lane(
 }
 fn check_bindings<'a>(
     inputs: InputSource<'_>,
-    bindings: impl Iterator<Item = (super::value_inputs::TextRef<'a>, &'a std::path::Path)>,
+    bindings: impl Iterator<
+        Item = (
+            super::value_inputs::TextRef<'a>,
+            Result<Cow<'a, Path>, PolicyError>,
+        ),
+    >,
     provider: &mut impl Provider,
     attempts: usize,
 ) -> Result<(), Failure> {
@@ -253,7 +261,8 @@ fn check_bindings<'a>(
         .then_some(attempts),
     };
     for (key, path) in bindings {
-        let actual = provider.blob_sha256(path).map_err(error)?;
+        let path = path.map_err(error)?;
+        let actual = provider.blob_sha256(&path).map_err(error)?;
         if actual.as_ref().is_none_or(|actual| {
             inputs
                 .get_text(key)

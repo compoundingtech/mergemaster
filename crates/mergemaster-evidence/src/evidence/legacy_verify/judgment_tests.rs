@@ -254,10 +254,17 @@ print(json.dumps(cases))
     assert_eq!(error.detail, "lane provider refused");
     for case in cases {
         let name: Vec<u32> = serde_json::from_value(case["name"].clone()).unwrap();
-        let rules = PolicyDocument::parse(case["policy"].as_str().unwrap(), name.as_slice())
+        let mut rules = PolicyDocument::parse(case["policy"].as_str().unwrap(), name.as_slice())
             .unwrap()
             .into_rules("org/repo")
             .unwrap();
+        // A non-encodable binding path must not preempt the lazy lane guard.
+        rules.kinds[0].1.by_level[0].1.inputs.bind_inputs.push((
+            "bound".into(),
+            crate::evidence::legacy_policy::normalized_text::NormalizedText::Codepoints(vec![
+                0xd800,
+            ]),
+        ));
         let doc = Document::from_bytes(case["statement"].as_str().unwrap().as_bytes()).unwrap();
         let facts = DocumentFacts::for_check(&doc, &name, "agent/key").unwrap();
         let error = judge_document(
