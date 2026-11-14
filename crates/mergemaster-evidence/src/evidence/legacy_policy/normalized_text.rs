@@ -38,7 +38,15 @@ impl NormalizedText {
     pub(crate) fn around(prefix: &str, text: TextRef<'_>, suffix: &str) -> Self {
         Self::concat([TextRef::Str(prefix), text, TextRef::Str(suffix)].into_iter())
     }
-    /// Replace an internal, nonempty ASCII placeholder, preserving Python code points.
+    /// Lossless owned text from code points; scalars stay scalar storage.
+    pub(crate) fn from_points(points: &[u32]) -> Self {
+        points
+            .iter()
+            .copied()
+            .map(char::from_u32)
+            .collect::<Option<String>>()
+            .map_or_else(|| Self::Codepoints(points.to_vec()), Self::Scalar)
+    }
     pub(crate) fn replace(self, needle: &str, replacement: TextRef<'_>) -> Self {
         assert!(!needle.is_empty() && needle.is_ascii());
         let matches = |window: &[u32]| window.iter().copied().eq(needle.bytes().map(u32::from));

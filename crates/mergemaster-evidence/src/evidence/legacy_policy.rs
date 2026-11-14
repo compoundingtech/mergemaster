@@ -4,6 +4,7 @@ pub mod kind_rules;
 pub mod level_rules;
 pub mod normalized_text;
 pub mod value_rules;
+mod value_source;
 use super::legacy_verify::{failure_json::TextRef, python_repr::Repr};
 use check_names::{CheckKey, CheckName, Selection};
 use normalized_text::NormalizedText;
@@ -214,9 +215,11 @@ impl CheckHeader {
                 " needs kinds and trust_levels, and nothing unknown",
             ))
         };
-        let Value::Object(mut entry) = entry else {
-            return Err(shape());
-        };
+        // Temporary bridge: the retained serde entry is re-encoded into a
+        // lossless Document and validated through the borrowed value facade;
+        // the step-5 PolicyDocument ingress cutover slice removes it.
+        let document = value_source::bridge(&entry)?;
+        let source = value_source::Source::root(&document);
         const KEYS: &[&str] = &[
             "kinds",
             "trust_levels",
@@ -227,21 +230,24 @@ impl CheckHeader {
             "require",
             "events",
         ];
-        if entry.keys().any(|k| !KEYS.contains(&k.as_str()))
-            || !entry.contains_key("kinds")
-            || !entry.contains_key("trust_levels")
+        if source.object().is_none_or(|entries| {
+            entries
+                .keys()
+                .any(|key| !KEYS.iter().any(|k| value_source::key_is(key, k)))
+        }) || source.get("kinds").is_none()
+            || source.get("trust_levels").is_none()
         {
             return Err(shape());
         }
-        let trust_levels = names(entry.remove("trust_levels").unwrap())
-            .ok_or_else(|| error("trust_levels must be a nonempty list of names"))?
-            .into_iter()
-            .map(NormalizedText::Scalar)
-            .collect();
-        let max_age_s = match entry.remove("max_age_s") {
-            None | Some(Value::Null) => None,
+        let trust_levels = source
+            .get("trust_levels")
+            .and_then(value_source::names)
+            .ok_or_else(|| error("trust_levels must be a nonempty list of names"))?;
+        let max_age_s = match source.get("max_age_s") {
+            None => None,
+            Some(value) if value.is_null() => None,
             Some(value) => Some(value.as_u64().filter(|v| *v > 0).ok_or_else(|| {
-                // Value has lost wide integer/float provenance; retain the existing bound.
+                // The bridge still loses wide numeric provenance until step 5.
                 let exceeds_u64 = value.as_f64().is_some_and(|v| v >= u64::MAX as f64);
                 error(if exceeds_u64 {
                     "max_age_s must be null or a positive integer within u64"
@@ -250,45 +256,64 @@ impl CheckHeader {
                 })
             })?),
         };
-        let enforce = entry
-            .remove("enforce")
-            .unwrap_or(Value::Bool(false))
-            .as_bool()
-            .ok_or_else(|| error("enforce must be true or false"))?;
-        let require = entry.remove("require");
-        let require = match require.as_ref().map_or(Some("off"), Value::as_str) {
-            Some("off") => RequireMode::Off,
-            Some("shadow") => RequireMode::Shadow,
-            Some("reject") => RequireMode::Reject,
-            _ => return Err(error("require must be one of off, shadow, reject")),
+        let enforce = source.get("enforce").map_or(Ok(false), |value| {
+            value
+                .as_bool()
+                .ok_or_else(|| error("enforce must be true or false"))
+        })?;
+        let require = match source.get("require") {
+            None => RequireMode::Off,
+            Some(value) if value.str_is("off") => RequireMode::Off,
+            Some(value) if value.str_is("shadow") => RequireMode::Shadow,
+            Some(value) if value.str_is("reject") => RequireMode::Reject,
+            Some(_) => return Err(error("require must be one of off, shadow, reject")),
         };
-        let inputs = match entry.remove("inputs") {
-            None | Some(Value::Null) => None,
+        let inputs = match source.get("inputs") {
+            None => None,
+            Some(value) if value.is_null() => None,
+            // The literal-path list keeps its shared Value validation for now.
             Some(value) => Some(declared_paths(
-                &value,
+                &value_source::to_value(value),
                 &[TextRef::Str("skip policy for "), check.text()],
                 true,
             )?),
         };
-        let sample_one_in = entry
-            .remove("sample_one_in")
-            .unwrap_or(Value::from(1))
-            .as_u64()
+        let sample_one_in = source
+            .get("sample_one_in")
+            .map_or(Some(1), |value| value.as_u64())
             .filter(|v| (1..=1000).contains(v))
             .ok_or_else(|| error("sample_one_in must be an integer from 1 to 1000"))?;
-        let kinds = match entry.remove("kinds") {
-            Some(Value::Object(kinds)) if !kinds.is_empty() => kinds,
+        let kinds = match source.get("kinds") {
+            Some(kinds) if kinds.object().is_some_and(|entries| !entries.is_empty()) => {
+                // Bridged back for the kind module until its facade slice.
+                let Value::Object(kinds) = value_source::to_value(kinds) else {
+                    return Err(error("kinds must name at least one kind"));
+                };
+                kinds
+            }
             _ => return Err(error("kinds must name at least one kind")),
         };
-        let events = match entry.remove("events") {
-            None | Some(Value::Null) => None,
+        let events = match source.get("events") {
+            None => None,
+            Some(value) if value.is_null() => None,
             Some(value) => Some(
-                names(value)
+                value_source::names(value)
                     .filter(|events| {
                         events
                             .iter()
-                            .all(|e| matches!(e.as_str(), "pull_request" | "merge_group"))
+                            .all(|event| *event == "pull_request" || *event == "merge_group")
                             && (events.len() == 1 || (events.len() == 2 && events[0] != events[1]))
+                    })
+                    // Membership is against ASCII literals; keep the String schema.
+                    .map(|events| {
+                        events
+                            .into_iter()
+                            .map(|event| {
+                                String::from_iter(event.borrowed().points().map(|p| {
+                                    char::from_u32(p).unwrap_or(char::REPLACEMENT_CHARACTER)
+                                }))
+                            })
+                            .collect()
                     })
                     .ok_or_else(|| {
                         error("events must be a nonempty list of pull_request, merge_group")
