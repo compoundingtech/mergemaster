@@ -278,9 +278,8 @@ impl CheckHeader {
         let inputs = match source.get("inputs") {
             None => None,
             Some(value) if value.is_null() => None,
-            // The literal-path list keeps its shared Value validation for now.
-            Some(value) => Some(declared_paths(
-                &value_source::to_value(value),
+            Some(value) => Some(declared_source_paths(
+                value,
                 &[TextRef::Str("skip policy for "), check.text()],
                 true,
             )?),
@@ -485,14 +484,39 @@ fn source_pairs(value: value_source::Source<'_>) -> Option<Vec<(NormalizedText, 
         })
         .collect()
 }
-fn short_path(path: &str) -> bool {
-    path.chars().nth(300).is_none()
-}
 
 /// Parse the legacy literal-path list, optionally allowing exclusions/selectors.
 /// Results are deduplicated and sorted; `where_` supplies diagnostic context.
 pub fn declared_paths(
     value: &Value,
+    where_: &[TextRef<'_>],
+    selectors: bool,
+) -> Result<Vec<String>, PolicyError> {
+    declared_path_items(
+        value
+            .as_array()
+            .map(|values| values.iter().map(|v| v.as_str().map(TextRef::Str))),
+        where_,
+        selectors,
+    )
+}
+
+fn declared_source_paths(
+    value: value_source::Source<'_>,
+    where_: &[TextRef<'_>],
+    selectors: bool,
+) -> Result<Vec<String>, PolicyError> {
+    declared_path_items(
+        value
+            .array()
+            .map(|values| values.map(|value| value.string_points().map(TextRef::Points))),
+        where_,
+        selectors,
+    )
+}
+
+fn declared_path_items<'a>(
+    values: Option<impl ExactSizeIterator<Item = Option<TextRef<'a>>>>,
     where_: &[TextRef<'_>],
     selectors: bool,
 ) -> Result<Vec<String>, PolicyError> {
@@ -506,21 +530,30 @@ pub fn declared_paths(
                 .chain([TextRef::Str(": "), TextRef::Str(&message)]),
         ),
     };
-    let values = value
-        .as_array()
-        .filter(|v| !v.is_empty() && v.len() <= 300)
+    let values = values
+        .filter(|v| v.len() > 0 && v.len() <= 300)
         .ok_or_else(|| error("inputs must be a nonempty list of at most 300 paths".into()))?;
     let mut paths = Vec::with_capacity(values.len());
     for value in values {
-        let item = value
-            .as_str()
-            .filter(|s| short_path(s))
+        let original = value
+            .filter(|text| text.points().nth(300).is_none())
             .ok_or_else(|| error("an input path is not a short string".into()))?;
+        let item = match original {
+            TextRef::Str(text) => std::borrow::Cow::Borrowed(text),
+            TextRef::Points(points) => std::borrow::Cow::Owned(
+                points
+                    .iter()
+                    .map(|p| char::from_u32(*p).unwrap_or(char::REPLACEMENT_CHARACTER))
+                    .collect::<String>(),
+            ),
+        };
+        // Literal path/selector syntax is ASCII-only. Non-scalars cannot pass;
+        // preserve the original points, not this validation view, in diagnostics.
         if selectors && item.starts_with('!') {
             if !literal_path(&item[1..]) {
                 return Err(error(format!(
                     "excluded path {} must be relative, literal and without . or .. parts",
-                    Repr(TextRef::Str(item))
+                    Repr(original)
                 )));
             }
         } else if selectors && let Some((path, selector)) = item.split_once("::") {
@@ -533,19 +566,19 @@ pub fn declared_paths(
             if !literal_path(path) || !selector_valid {
                 return Err(error(format!(
                     "input {} must be PATH::jobs.ID (a workflow) or PATH::KEY.KEY (a JSON file)",
-                    Repr(TextRef::Str(item))
+                    Repr(original)
                 )));
             }
             if workflow != selector.starts_with("jobs.") || !(workflow || path.ends_with(".json")) {
                 return Err(error(format!(
                     "input {}: a .yml selects jobs.ID, a .json selects KEY.KEY",
-                    Repr(TextRef::Str(item))
+                    Repr(original)
                 )));
             }
-        } else if item != "." && !literal_path(item) {
+        } else if item != "." && !literal_path(&item) {
             return Err(error(format!(
                 "input path {} must be relative, literal and without . or .. parts",
-                Repr(TextRef::Str(item))
+                Repr(original)
             )));
         }
         paths.push(item);
@@ -559,7 +592,7 @@ pub fn declared_paths(
                     && !p.contains("::")
                     && (*p == "."
                         || excluded
-                            .strip_prefix(*p)
+                            .strip_prefix(p.as_ref())
                             .is_some_and(|rest| rest.starts_with('/')))
             })
         {
@@ -569,7 +602,10 @@ pub fn declared_paths(
             )));
         }
     }
-    Ok(paths.into_iter().map(str::to_owned).collect())
+    Ok(paths
+        .into_iter()
+        .map(std::borrow::Cow::into_owned)
+        .collect())
 }
 
 fn literal_path(path: &str) -> bool {
