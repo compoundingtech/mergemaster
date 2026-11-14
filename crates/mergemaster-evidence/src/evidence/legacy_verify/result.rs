@@ -140,6 +140,15 @@ impl<'a> Satisfied<'a> {
     pub fn events(&self) -> Option<impl Iterator<Item = &str>> {
         narrowed_event_iter(self.check_events, self.level_events)
     }
+    pub(super) fn with_events<'b>(self, events: Option<&'b [String]>) -> Satisfied<'b>
+    where
+        'a: 'b,
+    {
+        let mut view: Satisfied<'b> = self;
+        view.check_events = events;
+        view.level_events = None;
+        view
+    }
 }
 
 /// Only selection metadata is owned separately; signed fields stay in the
@@ -185,6 +194,13 @@ impl Retained {
     pub fn record(&self) -> &super::trust::TrustedCandidate {
         &self.record
     }
+    pub(super) fn aggregation(&self) -> (usize, bool, Option<&[String]>) {
+        (
+            self.selection.attempts,
+            self.selection.r#match == "inputs",
+            self.selection.events.as_deref(),
+        )
+    }
     pub fn facts(&self, check: CheckName<'_>) -> Result<DocumentFacts<'_>, Failure> {
         DocumentFacts::for_check(
             &self.record.candidate.statement,
@@ -201,6 +217,14 @@ impl Retained {
         check: CheckName<'_>,
         emit: impl FnOnce(&Satisfied<'_>) -> T,
     ) -> Result<T, Failure> {
+        self.with_owned_view(tree, check, |view| emit(&view))
+    }
+    pub(super) fn with_owned_view<T>(
+        &self,
+        tree: &str,
+        check: CheckName<'_>,
+        emit: impl FnOnce(Satisfied<'_>) -> T,
+    ) -> Result<T, Failure> {
         let facts = self.facts(check)?;
         let doc = &*self.record.candidate.statement;
         let matched_tree = (|| {
@@ -210,7 +234,7 @@ impl Retained {
         })()
         .ok_or_else(super::invalid_statement_failure)?;
         let selection = &self.selection;
-        Ok(emit(&Satisfied {
+        Ok(emit(Satisfied {
             satisfied: true,
             tree,
             check,

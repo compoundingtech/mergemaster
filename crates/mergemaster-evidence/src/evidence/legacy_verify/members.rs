@@ -37,6 +37,9 @@ impl<T> Covered<T> {
             .map(|(name, key, note)| (name.as_str(), key.as_str(), note))
     }
 }
+#[path = "members_aggregate.rs"]
+mod aggregate;
+pub use aggregate::{Aggregate, View};
 /// Keys precede the standalone allowance; one judgment shares its LaneOnce across
 /// all members. There is deliberately no log_keys parameter on this no-log API.
 pub fn verified<P: Provider>(
@@ -45,7 +48,7 @@ pub fn verified<P: Provider>(
     settings: Settings<'_>,
     judgment: &mut CheckJudgment<'_, P>,
     prefer: Levels<'_>,
-) -> Result<Covered, Refusal> {
+) -> Result<Aggregate, Refusal> {
     let members = Members::read(q.repo, q.tree, policy_base).map_err(|e| {
         Refusal::Verification(Failure {
             reason: e.reason,
@@ -68,6 +71,15 @@ pub fn verified<P: Provider>(
             judgment,
             prefer,
         )
+    })
+    .and_then(|covered| {
+        let events = match settings {
+            Settings::Policy(rules) => rules.header.events.as_deref(),
+            Settings::Unconfigured(_) => None,
+        };
+        covered
+            .aggregate(q.check, events)
+            .map_err(Refusal::Verification)
     })
 }
 fn collect<T>(

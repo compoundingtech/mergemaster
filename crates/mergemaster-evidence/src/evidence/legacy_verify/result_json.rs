@@ -10,6 +10,13 @@ impl Satisfied<'_> {
         &self,
         writer: ValueWriter<'s, '_, impl Write>,
     ) -> Result<Written<'s>, fmt::Error> {
+        self.write_extended_json(writer, |_| Ok(()))
+    }
+    pub(super) fn write_extended_json<'s, W: Write>(
+        &self,
+        writer: ValueWriter<'s, '_, W>,
+        extra: impl FnOnce(&mut crate::evidence::legacy_output::Object<'_, W>) -> fmt::Result,
+    ) -> Result<Written<'s>, fmt::Error> {
         writer.object(|o| {
             o.field_text("satisfied", |w| w.boolean(self.satisfied))?;
             o.field_text("tree", |w| w.text(self.tree))?;
@@ -77,7 +84,7 @@ impl Satisfied<'_> {
                     })
                 })?;
             }
-            Ok(())
+            extra(o)
         })
     }
 }
