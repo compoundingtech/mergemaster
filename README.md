@@ -714,6 +714,11 @@ Shared `gate::git::git`, `git_bounded`, projection exchanges, bound-blob hashing
 and note discovery each use one 60-second child-lifetime deadline through final wait,
 with discarded stderr and nonblocking pipe I/O. Existing output bounds and strict
 projection OID/status validation remain unchanged; timeout is reason `error`.
+Linux final waits use `pidfd_open` plus blocking `poll` (Linux >= 5.3), retaining
+the same absolute deadline and direct-child kill/reap semantics. Interrupted polls
+recompute the remaining deadline; no sleep or periodic child-status polling is used.
+Unsupported pidfd syscalls propagate existing I/O errors without fallback. The hosted
+CI matrix covers Linux only; other platforms retain their existing wait behavior.
 `RawBatch` uses one deadline across every request and final EOF/status validation;
 neither a successful reply nor finish renews it. Expiration cancels the owned child.
 Note discovery likewise shares one budget across all requests, preserving order and

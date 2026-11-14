@@ -168,6 +168,26 @@ impl GitChild {
             deadline: self.deadline,
         })
     }
+    #[cfg(target_os = "linux")]
+    pub(crate) fn wait(&mut self) -> io::Result<ExitStatus> {
+        let result = (|| {
+            remaining(self.deadline)?;
+            if let Some(status) = self.child.try_wait()? {
+                return Ok(status);
+            }
+            wait_ready(self.child.id(), self.deadline)?;
+            self.child.wait()
+        })();
+        match &result {
+            Ok(_) => self.reaped = true,
+            Err(error) if error.kind() == io::ErrorKind::TimedOut => self.cancel(),
+            Err(_) => {}
+        }
+        result
+    }
+    // The hosted matrix is Linux-only; preserve other platforms until a tested
+    // readiness implementation is available rather than add untested kqueue code.
+    #[cfg(not(target_os = "linux"))]
     pub(crate) fn wait(&mut self) -> io::Result<ExitStatus> {
         loop {
             let remaining = match remaining(self.deadline) {
@@ -195,6 +215,45 @@ impl GitChild {
 impl Drop for GitChild {
     fn drop(&mut self) {
         self.cancel();
+    }
+}
+#[cfg(target_os = "linux")]
+fn wait_ready(pid: u32, deadline: Instant) -> io::Result<()> {
+    use std::os::fd::{FromRawFd, OwnedFd};
+    // SAFETY: pid is our live, unreaped child. Flags=0 is the pidfd_open ABI.
+    // Owning Child prevents PID reuse even if it exits before this syscall.
+    let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0) };
+    if raw < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: successful pidfd_open returns a new descriptor, now solely owned.
+    let fd = unsafe { OwnedFd::from_raw_fd(raw as libc::c_int) };
+    loop {
+        let timeout = remaining(deadline)?
+            .as_millis()
+            .saturating_add(1)
+            .min(i32::MAX as u128) as i32;
+        let mut event = libc::pollfd {
+            fd: fd.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: event is one live pollfd and fd remains owned across poll.
+        let ready = unsafe { libc::poll(&mut event, 1, timeout) };
+        if ready < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::Interrupted {
+                continue; // Recompute from the same absolute deadline.
+            }
+            return Err(error);
+        }
+        remaining(deadline)?;
+        if ready > 0 {
+            if event.revents & libc::POLLNVAL != 0 {
+                return Err(io::Error::from_raw_os_error(libc::EBADF));
+            }
+            return Ok(());
+        }
     }
 }
 fn retry_io(error: &io::Error) -> bool {
