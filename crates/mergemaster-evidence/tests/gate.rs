@@ -4272,7 +4272,10 @@ print(json.dumps(cases))
             if failure.is_some() {
                 assert_eq!(error.detail, "provider refused");
             }
-            json!({"reason":error.reason,"attempts":error.attempts})
+            // Existing normalized oracle transport only, not CLI field
+            // presence: the fixture reads attempts with an ambient default,
+            // while provider lane Failures carry no attempts metadata.
+            json!({"reason":error.reason,"attempts":error.attempts.unwrap_or(7)})
         });
         assert_eq!(actual, case["expected"], "{}", case["label"]);
         assert_eq!(

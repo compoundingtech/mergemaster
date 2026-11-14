@@ -111,15 +111,14 @@ fn judge_source<'a>(
         RecordView::Native(record, _) => record.check_name,
         RecordView::Document(record, _) => record.check_name.into(),
     };
-    let error = |e: PolicyError| Failure {
+    // lane_for raises its Failures without attempts metadata (:1320-:1338) and
+    // lane_once propagates them untouched (:1042-:1045); the handler at :1653
+    // emits only **extra, so provider lane Failures carry attempts=None.
+    let lane_error = |e: PolicyError| Failure {
         origin: e.origin,
         reason: e.reason,
         detail: e.detail,
-        attempts: matches!(
-            e.origin,
-            crate::evidence::legacy_policy::ErrorOrigin::Failure
-        )
-        .then_some(attempts),
+        attempts: None,
     };
     let routing = match &record {
         RecordView::Native(record, _) => route(policy, record, attempts),
@@ -130,7 +129,7 @@ fn judge_source<'a>(
         Some(
             provider
                 .level_lane()
-                .map_err(error)?
+                .map_err(lane_error)?
                 .ok_or_else(|| Failure {
                     origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                     reason: "no_lane",

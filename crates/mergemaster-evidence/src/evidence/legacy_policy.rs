@@ -177,7 +177,7 @@ pub enum RequireMode {
 pub struct CheckHeader {
     #[serde(skip_serializing)]
     kinds: Map<String, Value>,
-    pub trust_levels: Vec<String>,
+    pub trust_levels: Vec<NormalizedText>,
     pub max_age_s: Option<u64>,
     pub enforce: bool,
     pub inputs: Option<Vec<String>>,
@@ -234,7 +234,10 @@ impl CheckHeader {
             return Err(shape());
         }
         let trust_levels = names(entry.remove("trust_levels").unwrap())
-            .ok_or_else(|| error("trust_levels must be a nonempty list of names"))?;
+            .ok_or_else(|| error("trust_levels must be a nonempty list of names"))?
+            .into_iter()
+            .map(NormalizedText::Scalar)
+            .collect();
         let max_age_s = match entry.remove("max_age_s") {
             None | Some(Value::Null) => None,
             Some(value) => Some(value.as_u64().filter(|v| *v > 0).ok_or_else(|| {

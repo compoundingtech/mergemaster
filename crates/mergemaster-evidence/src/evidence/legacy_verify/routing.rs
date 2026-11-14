@@ -196,7 +196,7 @@ fn route_source<'a>(
             .as_deref()
             .unwrap_or(&policy.header.trust_levels)
             .iter()
-            .any(|accepted| accepted == level),
+            .any(|accepted| accepted.borrowed().equals(level)),
         (Rules::Unconfigured(rules), _) => rules.trust_levels.is_none_or(|levels| {
             levels
                 .iter()
@@ -220,7 +220,7 @@ fn route_source<'a>(
     let override_ = kind
         .by_level
         .iter()
-        .find(|(name, _)| name == level)
+        .find(|(name, _)| name.borrowed().equals(level))
         .map(|(_, rule)| rule);
     let command_inputs = override_.map_or(&kind.inputs, |rule| &rule.inputs);
     Ok(Some(Routing {

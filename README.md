@@ -676,12 +676,16 @@ Input guards spell check-failure exits without integer narrowing, retain borrowe
 check names in exit/command refusals, and include the exact seconds in age refusals.
 Duration overflow messages distinguish the bounded day-count and C-int overflow
 buckets exactly; current-plus-skew overflow retains Python's date-range message.
-Lane-provider Failures surface with the ambient attempts count; the pinned
-module's blob_sha256 catches git-level Failures itself, so provider exceptions
-still propagate while missing files read as absent.
+Lane-provider Failures surface without attempts metadata, as lane_for raises
+and lane_once propagates them; in-judge raises keep the ambient count. The
+pinned module's blob_sha256 catches git-level Failures itself, so provider
+exceptions still propagate while missing files read as absent.
 Value-rule, shard and base-input payload names ride the widened normalized text
 storage, so surrogate-escaped policy keys stay lossless end to end; their scalar
 source conversion still comes from the retained serde path for now.
+Trust-level names in headers, kinds and by_level keys, plus selection accepted-level
+views, ride the same normalized text storage; their scalar source conversion still
+comes from the retained serde path for now.
 Nested surrogate payload keys/values still require lossless source decoding before
 full CLI parity; scalar payload fixtures do not claim that separate domain is ported.
 Failure attempts distinguish `None` (absent) from `Some(0)` (explicit zero).
