@@ -23,7 +23,10 @@ impl<P: Provider> Provider for RequiredProvider<P> {
     fn level_lane(&mut self) -> Result<Option<&LaneDefinition>, PolicyError> {
         Ok(None)
     }
-    fn blob_sha256(&mut self, path: &Path) -> Result<Option<String>, PolicyError> {
+    fn blob_sha256(
+        &mut self,
+        path: super::judgment::BindingPath<'_>,
+    ) -> Result<Option<String>, PolicyError> {
         self.0.blob_sha256(path)
     }
 }
@@ -111,12 +114,16 @@ impl Provider for GitProvider<'_> {
     fn level_lane(&mut self) -> Result<Option<&LaneDefinition>, PolicyError> {
         Ok(None)
     }
-    fn blob_sha256(&mut self, path: &Path) -> Result<Option<String>, PolicyError> {
+    fn blob_sha256(
+        &mut self,
+        path: super::judgment::BindingPath<'_>,
+    ) -> Result<Option<String>, PolicyError> {
         // Python maps Git OSError/nonzero/60s timeout to None. Hash stdout without
         // buffering the blob; discarded stderr and one deadline cover its lifetime.
+        let path = path.native(Some(self.tree))?;
         let mut object = std::ffi::OsString::from(self.tree);
         object.push(":");
-        object.push(path);
+        object.push(path.as_ref());
         Ok(GitChild::spawn(
             crate::gate::git::command(self.repo)
                 .args(["cat-file", "blob"])

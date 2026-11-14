@@ -79,7 +79,11 @@ print(json.dumps(cases))
         fn level_lane(&mut self) -> Result<Option<&LaneDefinition>, PolicyError> {
             panic!("no policy-level lane lookup")
         }
-        fn blob_sha256(&mut self, path: &std::path::Path) -> Result<Option<String>, PolicyError> {
+        fn blob_sha256(
+            &mut self,
+            path: crate::evidence::legacy_verify::judgment::BindingPath<'_>,
+        ) -> Result<Option<String>, PolicyError> {
+            let path = path.native(None)?;
             let key = hex::encode(path.as_os_str().as_bytes());
             self.calls.push(key.clone());
             if self.case["error"] == true {
@@ -191,7 +195,10 @@ fn lazy_lane_absence_keeps_the_selected_name() {
         fn level_lane(&mut self) -> Result<Option<&LaneDefinition>, PolicyError> {
             Ok(None)
         }
-        fn blob_sha256(&mut self, _: &std::path::Path) -> Result<Option<String>, PolicyError> {
+        fn blob_sha256(
+            &mut self,
+            _: crate::evidence::legacy_verify::judgment::BindingPath<'_>,
+        ) -> Result<Option<String>, PolicyError> {
             panic!("no blob read after absent lane")
         }
     }
@@ -226,7 +233,10 @@ print(json.dumps(cases))
                 detail: "lane provider refused".into(),
             })
         }
-        fn blob_sha256(&mut self, _: &std::path::Path) -> Result<Option<String>, PolicyError> {
+        fn blob_sha256(
+            &mut self,
+            _: crate::evidence::legacy_verify::judgment::BindingPath<'_>,
+        ) -> Result<Option<String>, PolicyError> {
             panic!("lane failure precedes bindings")
         }
     }

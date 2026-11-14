@@ -111,7 +111,10 @@ print(json.dumps(cases))
             }
             Ok((self.name != "no-lane").then_some(&self.lane))
         }
-        fn blob_sha256(&mut self, _: &std::path::Path) -> Result<Option<String>, PolicyError> {
+        fn blob_sha256(
+            &mut self,
+            _: crate::evidence::legacy_verify::judgment::BindingPath<'_>,
+        ) -> Result<Option<String>, PolicyError> {
             self.calls.borrow_mut().push("blob");
             Ok((self.name != "blob").then(|| "hash".into()))
         }

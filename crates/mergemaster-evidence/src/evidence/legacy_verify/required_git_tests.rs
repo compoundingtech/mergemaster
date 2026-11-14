@@ -133,7 +133,13 @@ print(json.dumps(dict(cases=cases,blobs=blobs)))
         };
         let path = OsString::from_vec(hex::decode(blob["path"].as_str().unwrap()).unwrap());
         assert_eq!(
-            json!(provider.blob_sha256(Path::new(&path)).unwrap()),
+            json!(
+                provider
+                    .blob_sha256(super::super::judgment::BindingPath::Native(Path::new(
+                        &path
+                    )))
+                    .unwrap()
+            ),
             blob["expected"]
         );
     }

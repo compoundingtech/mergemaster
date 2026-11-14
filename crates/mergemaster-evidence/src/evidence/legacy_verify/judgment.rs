@@ -10,7 +10,12 @@ use crate::evidence::legacy_policy::normalized_text::NormalizedText;
 use crate::evidence::legacy_policy::{PolicyError, PolicyRules, level_rules::LaneBinding};
 use std::collections::BTreeMap;
 use std::os::unix::ffi::OsStrExt;
-use std::{borrow::Cow, path::Path};
+use std::path::Path;
+#[derive(Clone, Copy)]
+pub enum BindingPath<'a> {
+    Native(&'a Path),
+    Text(&'a NormalizedText),
+}
 pub struct LaneDefinition {
     pub sha256: String,
     pub changed: Vec<Vec<u8>>,
@@ -20,7 +25,7 @@ pub struct LaneDefinition {
 pub trait Provider {
     fn level_lane(&mut self) -> Result<Option<&LaneDefinition>, PolicyError>;
     /// Preserve native path bytes, including Unix surrogateescaped argv bytes; never use lossy text.
-    fn blob_sha256(&mut self, path: &std::path::Path) -> Result<Option<String>, PolicyError>;
+    fn blob_sha256(&mut self, path: BindingPath<'_>) -> Result<Option<String>, PolicyError>;
 }
 enum RecordView<'a> {
     Native(&'a RecordFacts<'a>, &'a Clock),
@@ -95,7 +100,7 @@ pub fn judge_unconfigured(
         options.bindings.iter().map(|(key, path)| {
             (
                 super::value_inputs::TextRef::Points(key),
-                Ok(Cow::Borrowed(path.as_path())),
+                BindingPath::Native(path.as_path()),
             )
         }),
         provider,
@@ -173,7 +178,7 @@ fn judge_source<'a>(
             .command_inputs
             .bind_inputs
             .iter()
-            .map(|(key, path)| (key.borrowed(), super::binding_path::native(path))),
+            .map(|(key, path)| (key.borrowed(), BindingPath::Text(path))),
         provider,
         attempts,
     )?;
@@ -241,12 +246,7 @@ fn check_lane(
 }
 fn check_bindings<'a>(
     inputs: InputSource<'_>,
-    bindings: impl Iterator<
-        Item = (
-            super::value_inputs::TextRef<'a>,
-            Result<Cow<'a, Path>, PolicyError>,
-        ),
-    >,
+    bindings: impl Iterator<Item = (super::value_inputs::TextRef<'a>, BindingPath<'a>)>,
     provider: &mut impl Provider,
     attempts: usize,
 ) -> Result<(), Failure> {
@@ -261,13 +261,13 @@ fn check_bindings<'a>(
         .then_some(attempts),
     };
     for (key, path) in bindings {
-        let path = path.map_err(error)?;
-        let actual = provider.blob_sha256(&path).map_err(error)?;
+        let actual = provider.blob_sha256(path).map_err(error)?;
         if actual.as_ref().is_none_or(|actual| {
             inputs
                 .get_text(key)
                 .is_none_or(|value| value.len() == 0 || !value.equals(actual))
         }) {
+            let path = path.native(None).map_err(error)?;
             return Err(Failure {
                 origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                 reason: "wrong_input",

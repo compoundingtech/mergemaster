@@ -3874,7 +3874,11 @@ fn legacy_lazy_lane_and_blob_composition_matches_signed_oracle() {
             }
             Ok(self.lane.as_ref())
         }
-        fn blob_sha256(&mut self, path: &Path) -> Result<Option<String>, PolicyError> {
+        fn blob_sha256(
+            &mut self,
+            path: mergemaster_evidence::evidence::legacy_verify::judgment::BindingPath<'_>,
+        ) -> Result<Option<String>, PolicyError> {
+            let path = path.native(None)?;
             self.blobs.push(path.to_str().unwrap().into());
             if self.failure == Some("blob") {
                 return Err(PolicyError {
@@ -3884,7 +3888,7 @@ fn legacy_lazy_lane_and_blob_composition_matches_signed_oracle() {
                 });
             }
             let mut object = std::ffi::OsString::from(format!("{}:", self.fixture.tree));
-            object.push(path);
+            object.push(path.as_os_str());
             let output = self
                 .fixture
                 .command("git")
@@ -5034,12 +5038,16 @@ fn legacy_provider_preserves_unix_binding_path_bytes() {
         fn level_lane(&mut self) -> Result<Option<&LaneDefinition>, PolicyError> {
             panic!("no lane lookup for a blob")
         }
-        fn blob_sha256(&mut self, path: &Path) -> Result<Option<String>, PolicyError> {
+        fn blob_sha256(
+            &mut self,
+            path: mergemaster_evidence::evidence::legacy_verify::judgment::BindingPath<'_>,
+        ) -> Result<Option<String>, PolicyError> {
+            let path = path.native(None)?;
             self.seen
                 .borrow_mut()
                 .push(path.as_os_str().as_bytes().to_vec());
             let mut object = OsString::from(format!("{}:", self.tree));
-            object.push(path);
+            object.push(path.as_os_str());
             let output = Command::new("git")
                 .arg("-C")
                 .arg(self.repo)
@@ -5108,6 +5116,8 @@ print(json.dumps(dict(path=os.fsencode(sys.argv[4]).hex(),
                 tree,
                 seen: &seen,
             };
+            let path =
+                mergemaster_evidence::evidence::legacy_verify::judgment::BindingPath::Native(path);
             let actual = source.blob_sha256(path).unwrap();
             assert_eq!(json!(actual), expected["sha256"]);
             assert_eq!(
