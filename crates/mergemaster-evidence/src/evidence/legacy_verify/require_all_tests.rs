@@ -14,7 +14,8 @@ for fmt in ['sha1','sha256']:
  root=pathlib.Path(sys.argv[2])/fmt; root.mkdir(); key=root/'key'
  subprocess.run(['ssh-keygen','-q','-t','ed25519','-N','','-f',str(key)],check=True)
  keys=root/'keys'; keys.write_text('agent/fixture '+key.with_suffix('.pub').read_text())
- for name in ['empty','off','off-bypass','invalid-off','satisfied','shadow','reject','mixed','no-lane','eager-good','eager-after','policy-after','verify-error','budget','clock-exception','age-overflow']:
+ for name in ['empty','off','off-bypass','invalid-off','satisfied','shadow','reject','mixed','no-lane','eager-good','eager-after','policy-after','verify-error','budget','clock-exception','age-overflow','wide-age-overflow','huge-age-overflow']:
+  overflow_ages={'age-overflow':86400000000000,'wide-age-overflow':2**64,'huge-age-overflow':10**100}
   repo=root/name; subprocess.run(['git','init','--bare','--object-format='+fmt,str(repo)],check=True,stdout=subprocess.DEVNULL)
   def git(*args,data=None): return subprocess.check_output(['git','-C',str(repo),*args],input=data)
   git('config','user.name','Fixture'); git('config','user.email','fixture@example.invalid')
@@ -28,10 +29,10 @@ for fmt in ['sha1','sha256']:
   if name=='invalid-off': checks['a']['unexpected']=True
   if name in ['shadow','reject']: checks={'b':entry(name)}
   if name=='mixed': checks={'z':entry(),'c':entry(),'b':entry('shadow'),'a':entry()}
-  if name in ['eager-after','policy-after','budget','clock-exception','age-overflow']: checks={'z':entry(),'b':entry(),'a':entry()}
+  if name in ['eager-after','policy-after','budget','clock-exception'] or name in overflow_ages: checks={'z':entry(),'b':entry(),'a':entry()}
   if name=='policy-after': checks['b']['unexpected']=True
   if name=='budget': checks['b']['inputs']=['input']
-  if name=='age-overflow': checks['b']['max_age_s']=86400000000000
+  if name in overflow_ages: checks['b']['max_age_s']=overflow_ages[name]
   if name in ['no-lane','eager-good','eager-after']:
    lanes={} if name=='no-lane' else {point:dict(argv=['true'],definition_paths=['def']) for point in checks}
    if name=='eager-after': lanes['b']['argv']=[]
@@ -48,7 +49,7 @@ for fmt in ['sha1','sha256']:
    note=tree({target:data}); commit=git('-c','gpg.format=ssh','-c','user.signingkey='+str(key),'commit-tree','-S',note,'-p',parent,data=label.encode()).decode().strip()
    ref='refs/tags/evidence/'+target if target==current else 'refs/tags/evidence/input/b/'+extra_inputs['source_inputs']
    git('update-ref',ref+'/'+commit,commit)
-  record('good',current,['a','z','\ud800','😀']+(['b'] if name in ['clock-exception','age-overflow'] else []),inputs)
+  record('good',current,['a','z','\ud800','😀']+(['b'] if name=='clock-exception' or name in overflow_ages else []),inputs)
   if name=='budget':
    other=tree(); projection=v['project'](str(repo),current,['input'])
    for i in range(3): record('wide'+str(i),other,['b'],{'source_inputs':projection},True)
@@ -73,13 +74,15 @@ for fmt in ['sha1','sha256']:
    except v['Failure'] as e: return dict(global_reason=e.reason)
    except OverflowError: return dict(global_reason='error',global_class='OverflowError')
    except ValueError as error: return dict(global_reason='error',global_class='ValueError',global_detail=list(map(ord,str(error))))
-  control=json.dumps(dict(version=1,checks={'a':entry()})) if name in ['eager-after','policy-after','budget','clock-exception','age-overflow'] else None
+  control=json.dumps(dict(version=1,checks={'a':entry()})) if name in ['eager-after','policy-after','budget','clock-exception'] or name in overflow_ages else None
   if control: assert verify(control)['satisfied'],name
   Sample.calls=0
   expected=verify(policy)
   if name=='clock-exception': assert Sample.calls==2,name
   namespace['datetime']=original
-  if name in ['invalid-off','eager-after','policy-after','clock-exception','age-overflow']: assert expected.get('global_reason')=='error',(name,expected)
+  if name in ['invalid-off','eager-after','policy-after','clock-exception'] or name in overflow_ages:
+   assert expected.get('global_reason')=='error',(name,expected)
+   if name in overflow_ages: assert expected['global_class']=='OverflowError',(name,expected)
   elif name in ['empty','off','off-bypass','satisfied','eager-good','budget']: assert expected['satisfied'],(name,expected)
   else:
    reason={'no-lane':'no_lane','verify-error':'error'}.get(name,'wrong_check')
@@ -111,7 +114,7 @@ print(json.dumps(cases))
         String::from_utf8_lossy(&output.stderr)
     );
     let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(cases.len(), 32);
+    assert_eq!(cases.len(), 36);
     struct Sampling(usize);
     impl CurrentTime for Sampling {
         fn epoch_micros(&mut self) -> Result<i64, ClockException> {

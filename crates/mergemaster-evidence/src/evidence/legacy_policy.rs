@@ -555,6 +555,63 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn root_shape_and_version_equality_match_python() {
+        let cases = [
+            "null",
+            "true",
+            "1",
+            "[]",
+            "{}",
+            r#"{"version":1,"checks":[]}"#,
+            r#"{"version":1,"checks":{},"extra":0}"#,
+            r#"{"version":true,"checks":{}}"#,
+            r#"{"version":1.0,"checks":{}}"#,
+            r#"{"version":1.00000000000000000000001,"checks":{}}"#,
+            r#"{"version":1e0,"checks":{}}"#,
+            r#"{"version":false,"checks":{}}"#,
+            r#"{"version":"1","checks":{}}"#,
+            r#"{"version":1e1000,"checks":{}}"#,
+            r#"{"version":18446744073709551616,"checks":{}}"#,
+            r#"{"version":0,"version":1,"checks":{}}"#,
+            r#"{"version":1,"checks":false,"checks":{}}"#,
+            r#"{"version":1,"checks":{},"\ud800":0}"#,
+        ];
+        let output = std::process::Command::new("python3")
+            .args([
+                "-c",
+                r#"
+import json,runpy,sys
+v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify'); out=[]
+for text in json.loads(sys.argv[2]):
+ try: v['policy_rules'](text,'unit','org/repo'); raise AssertionError('missing check')
+ except v['Failure'] as error: out.append(dict(reason=error.reason,detail=error.detail))
+print(json.dumps(out))
+"#,
+                &std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle"),
+                &serde_json::to_string(&cases).unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let expected: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(cases.len(), expected.len());
+        for (text, expected) in cases.iter().zip(expected) {
+            let error = PolicyDocument::parse(text, "unit")
+                .and_then(PolicyDocument::into_header)
+                .unwrap_err();
+            assert_eq!(
+                json!({"reason":error.reason,"detail":error.detail}),
+                expected,
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
     fn policy_header_diagnostics_match_pinned_handlers_losslessly() {
         use crate::evidence::{legacy_output, legacy_verify::failure_json::WireError};
         let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
