@@ -29,6 +29,14 @@ impl<'a> TextRef<'a> {
             }
         }
     }
+    pub(super) fn strip_prefix(self, prefix: &str) -> Option<Self> {
+        match self {
+            Self::Str(text) => text.strip_prefix(prefix).map(Self::Str),
+            Self::Points(points) => self
+                .starts_with(prefix)
+                .then(|| Self::Points(&points[prefix.chars().count()..])),
+        }
+    }
     pub(super) fn starts_with(self, prefix: &str) -> bool {
         match self {
             Self::Str(text) => text.starts_with(prefix),

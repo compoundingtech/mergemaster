@@ -4,6 +4,7 @@
 
 - Decode Rust legacy skip policies from their original JSON text with lossless codepoint identities and wide positive-integer age limits; retain lazy age-overflow errors and remove the serde-value conversion bridge.
 - Accept borrowed lossless JSON/workflow selector names in the Rust legacy projection library, preserving parse-before-lookup refusals and existing scalar callers.
+- Read selected legacy projection content with lossless filesystem paths and selector names, retaining lazy missing-path behavior and exact subprocess encoding refusals.
 
 ## [0.8.0] - 2026-11-13
 

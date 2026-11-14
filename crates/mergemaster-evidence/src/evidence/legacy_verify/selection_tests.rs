@@ -2,6 +2,89 @@ use super::*;
 use crate::gate::git::git;
 use serde_json::{Value, json};
 #[test]
+fn lossless_selected_content_matches_real_git_oracle() {
+    use crate::evidence::legacy_policy::{ErrorOrigin, normalized_text::NormalizedText};
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path();
+    git(repo, &["init"]).unwrap();
+    for name in [b"plain.json".as_slice(), b"raw-\xff.json"] {
+        std::fs::write(
+            repo.join(OsStr::from_bytes(name)),
+            br#"{"selected":1,"":2,"nested":{"":3}}"#,
+        )
+        .unwrap();
+    }
+    std::fs::write(
+        repo.join("workflow.yml"),
+        "jobs:\n  test:\n    runs-on: linux\n",
+    )
+    .unwrap();
+    git(repo, &["add", "."]).unwrap();
+    let tree = String::from_utf8(git(repo, &["write-tree"]).unwrap())
+        .unwrap()
+        .trim()
+        .to_owned();
+    let names = [
+        "plain.json::selected",
+        "plain.json::nested.",
+        "plain.json::\u{0}",
+        "plain.json::SURROGATE",
+        "raw-ESCAPE.json::selected",
+        "missing-ESCAPE.json::selected",
+        "bad-SURROGATE.json::selected",
+        "bad-\u{0}.json::selected",
+        "workflow.yml::jobs.test",
+        "workflow.yml::jobs.SURROGATE",
+        "missing.json::SURROGATE",
+    ];
+    let cases: Vec<Vec<u32>> = names
+        .iter()
+        .map(|name| {
+            NormalizedText::from(*name)
+                .replace("ESCAPE", TextRef::Points(&[0xdcff]))
+                .replace("SURROGATE", TextRef::Points(&[0xd800]))
+                .borrowed()
+                .points()
+                .collect()
+        })
+        .collect();
+    let output = std::process::Command::new("python3")
+        .args([
+            "-c",
+            r#"
+import json,runpy,sys
+v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify'); result=[]
+for points in json.loads(sys.argv[4]):
+ try:
+  value=v['selected_content'](sys.argv[2],sys.argv[3],''.join(map(chr,points)))
+  result.append(dict(hex=value.hex() if value is not None else None))
+ except Exception as e: result.append(dict(class_name=type(e).__name__,detail=str(e)))
+print(json.dumps(result))
+"#,
+            &std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap(),
+            repo.to_str().unwrap(),
+            &tree,
+            &serde_json::to_string(&cases).unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{:?}", output.stderr);
+    let expected: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(expected.len(), cases.len());
+    for (points, expected) in cases.into_iter().zip(expected) {
+        let actual = match selected_content(repo, &tree, TextRef::Points(&points)) {
+            Ok(bytes) => json!({"hex":bytes.as_ref().map(hex::encode)}),
+            Err(error) => {
+                let ErrorOrigin::Exception { class } = error.origin else {
+                    panic!("unexpected refusal: {error:?}");
+                };
+                json!({"class_name":class,"detail":error.detail.to_string()})
+            }
+        };
+        assert_eq!(actual, expected, "{points:?}");
+    }
+}
+#[test]
 fn content_and_layout_match_oracle_at_each_tree() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path();
