@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add the library-only paths project dictionary with lossless comma splitting, shared literal-path validation and escaped JSON output.
 - Preserve ordered legacy CLI preflight diagnostics in a library-only validator; production argument parsing and policy loading remain unwired.
 - Decode Rust legacy skip policies from their original JSON text with lossless codepoint identities and wide positive-integer age limits; retain lazy age-overflow errors and remove the serde-value conversion bridge.
 - Accept borrowed lossless JSON/workflow selector names in the Rust legacy projection library, preserving parse-before-lookup refusals and existing scalar callers.

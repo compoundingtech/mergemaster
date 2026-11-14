@@ -453,7 +453,7 @@ fn declared_source_paths(
     )
 }
 
-fn declared_path_items<'a>(
+pub(super) fn declared_path_items<'a>(
     values: Option<impl ExactSizeIterator<Item = Option<TextRef<'a>>>>,
     where_: &[TextRef<'_>],
     selectors: bool,
