@@ -623,8 +623,11 @@ their exact identity without using diagnostic Display as serialization.
 tree, preserving surrogate code points and ASCII escaping. It adds no final newline.
 `All::write_json` preserves require-all lane order and success/refusal field presence.
 `require_all::write_error` emits the global envelope with reason/detail verbatim,
-not exception classification or diagnostic normalization. Failure provenance and
-CLI wiring remain separate; discard partial output on error.
+not exception classification or diagnostic normalization. `failure_json::WireError`
+borrows lossless Failure text/optional selection extras or explicit Exception class/detail;
+it never infers provenance from a message or converts normalized core diagnostics.
+Source-provenance threading/diagnostic parity must land before CLI wiring. Members/log
+extras remain with those ports; discard partial output on error.
 `configured::required` joins trusted collection and existing configured selection
 for one required check, returning the selected owned trusted record. Each call owns
 a fresh collector budget; rules supply projection inputs, with no crate binding,

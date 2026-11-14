@@ -43,7 +43,14 @@ impl<'s, W: Write> ValueWriter<'s, '_, W> {
         Written(PhantomData)
     }
     pub fn string(self, points: &[u32]) -> Result<Written<'s>, fmt::Error> {
-        super::legacy_json::codepoints(points.iter().copied(), self.out)?;
+        self.codepoints(points.iter().copied())
+    }
+    /// Stream composed Python text without allocating a concatenated string.
+    pub fn codepoints(
+        self,
+        points: impl IntoIterator<Item = u32>,
+    ) -> Result<Written<'s>, fmt::Error> {
+        super::legacy_json::codepoints(points, self.out)?;
         Ok(self.done())
     }
     pub fn text(self, text: &str) -> Result<Written<'s>, fmt::Error> {
