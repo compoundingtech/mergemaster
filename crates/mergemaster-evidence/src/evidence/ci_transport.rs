@@ -301,7 +301,7 @@ pub fn observe_ci(run: u64, attempt: u64, artifact: u64, predecessors: &[String]
         for id in predecessors {
             let old = ci_reattest::prior(repo, &binding.repository, id)?;
             let Fact::Tests { runner, .. } = old.predicate.fact else {
-                unreachable!()
+                bail!("predecessor is not CI tests")
             };
             let (run, attempt, job) = ci_reattest::identity(&binding.repository, &runner)?;
             attempts

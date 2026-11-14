@@ -135,7 +135,7 @@ pub fn produce_ci_linked(
         .into_iter()
         .map(|mut statement| {
             let Fact::Tests { ref runner, .. } = statement.predicate.fact else {
-                unreachable!();
+                bail!("completed job changed after observation");
             };
             if matches!(signer, ObserverSigner::Full { .. }) {
                 statement.predicate.re_attests = links.for_runner(runner).cloned();

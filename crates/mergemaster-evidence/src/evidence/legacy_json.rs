@@ -313,7 +313,7 @@ pub(super) fn encode_integer(value: &Value, out: &mut String) {
         Value::Null => out.push_str("null"),
         Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
         Value::Number(n) => out.push_str(if n == "-0" { "0" } else { n }),
-        Value::String(s) => string(s, out).expect("infallible string sink"),
+        Value::String(s) => emit_string(s, |part| out.push_str(part)),
         Value::Array(a) => {
             out.push('[');
             for (i, value) in a.iter().enumerate() {
@@ -330,7 +330,7 @@ pub(super) fn encode_integer(value: &Value, out: &mut String) {
                 if i != 0 {
                     out.push(',');
                 }
-                string(key, out).expect("infallible string sink");
+                emit_string(key, |part| out.push_str(part));
                 out.push(':');
                 encode_integer(value, out);
             }
@@ -339,7 +339,61 @@ pub(super) fn encode_integer(value: &Value, out: &mut String) {
     }
 }
 pub(super) fn string(value: &str, out: &mut impl Write) -> fmt::Result {
-    codepoints(value.chars().map(u32::from), out)
+    scalar_string(value, |part| out.write_str(part))
+}
+
+/// Emit scalar strings to sinks that cannot refuse bytes.
+pub(super) fn emit_string(value: &str, mut emit: impl FnMut(&str)) {
+    let result: Result<(), std::convert::Infallible> = scalar_string(value, |part| {
+        emit(part);
+        Ok(())
+    });
+    match result {
+        Ok(()) => {}
+        Err(never) => match never {},
+    }
+}
+
+fn scalar_string<E>(value: &str, mut emit: impl FnMut(&str) -> Result<(), E>) -> Result<(), E> {
+    emit("\"")?;
+    for scalar in value.chars() {
+        escaped_scalar(scalar, &mut emit)?;
+    }
+    emit("\"")
+}
+
+fn escaped_scalar<E>(scalar: char, mut emit: impl FnMut(&str) -> Result<(), E>) -> Result<(), E> {
+    match scalar {
+        '"' => emit("\\\""),
+        '\\' => emit("\\\\"),
+        '\u{8}' => emit("\\b"),
+        '\u{c}' => emit("\\f"),
+        '\n' => emit("\\n"),
+        '\r' => emit("\\r"),
+        '\t' => emit("\\t"),
+        ' '..='~' => emit(scalar.encode_utf8(&mut [0; 4])),
+        _ => {
+            let point = u32::from(scalar);
+            if point <= 0xffff {
+                escaped_unit(point, emit)
+            } else {
+                let offset = point - 0x10000;
+                escaped_unit(0xd800 + (offset >> 10), &mut emit)?;
+                escaped_unit(0xdc00 + (offset & 0x3ff), emit)
+            }
+        }
+    }
+}
+
+fn escaped_unit<E>(unit: u32, mut emit: impl FnMut(&str) -> Result<(), E>) -> Result<(), E> {
+    const HEX: [&str; 16] = [
+        "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f",
+    ];
+    emit("\\u")?;
+    for shift in [12, 8, 4, 0] {
+        emit(HEX[((unit >> shift) & 0xf) as usize])?;
+    }
+    Ok(())
 }
 
 /// Python ensure_ascii escaping, including lone surrogates; no input decoding.
@@ -350,26 +404,11 @@ pub(super) fn codepoints(
 ) -> fmt::Result {
     out.write_char('"')?;
     for point in value {
-        match point {
-            0x22 => out.write_str("\\\"")?,
-            0x5c => out.write_str("\\\\")?,
-            8 => out.write_str("\\b")?,
-            12 => out.write_str("\\f")?,
-            10 => out.write_str("\\n")?,
-            13 => out.write_str("\\r")?,
-            9 => out.write_str("\\t")?,
-            0x20..=0x7e => out.write_char(char::from_u32(point).ok_or(fmt::Error)?)?,
-            0..=0xffff => write!(out, "\\u{point:04x}")?,
-            0x10000..=0x10ffff => {
-                let offset = point - 0x10000;
-                write!(
-                    out,
-                    "\\u{:04x}\\u{:04x}",
-                    0xd800 + (offset >> 10),
-                    0xdc00 + (offset & 0x3ff)
-                )?;
-            }
-            _ => return Err(fmt::Error),
+        if (0xd800..=0xdfff).contains(&point) {
+            escaped_unit(point, |part| out.write_str(part))?;
+        } else {
+            let scalar = char::from_u32(point).ok_or(fmt::Error)?;
+            escaped_scalar(scalar, |part| out.write_str(part))?;
         }
     }
     out.write_char('"')

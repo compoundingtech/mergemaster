@@ -829,6 +829,7 @@ pub fn verify(
             }
             let Fact::Review {
                 verdict,
+                tests,
                 files: reviewed,
                 ..
             } = &observation.fact
@@ -839,13 +840,10 @@ pub fn verify(
                 return None;
             }
             let time = chrono::DateTime::parse_from_rfc3339(&observation.observed_at).ok()?;
-            Some(((time, *verdict == Verdict::STOP, id), statement))
+            Some(((time, *verdict == Verdict::STOP, id), (verdict, tests)))
         })
         .max_by(|a, b| a.0.cmp(&b.0));
-    if let Some(((_, _, review_id), statement)) = latest {
-        let Fact::Review { verdict, tests, .. } = &statement.predicate.fact else {
-            unreachable!()
-        };
+    if let Some(((_, _, review_id), (verdict, tests))) = latest {
         ensure!(
             *verdict == Verdict::GO,
             "latest applicable trusted review is STOP"
