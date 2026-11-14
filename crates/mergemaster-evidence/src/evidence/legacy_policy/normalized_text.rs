@@ -112,6 +112,22 @@ impl serde::Serialize for NormalizedText {
 mod tests {
     use super::*;
     #[test]
+    fn codepoint_text_refuses_serde_serialization() {
+        // Code points without a UTF-8 form (lone surrogates) must refuse serde,
+        // never replace them with U+FFFD; wire output uses the lossless writer.
+        assert_eq!(
+            serde_json::to_string(&NormalizedText::Codepoints(vec![0xd800, 0x1f600]))
+                .unwrap_err()
+                .to_string(),
+            "code-point text requires the lossless JSON writer"
+        );
+        assert_eq!(
+            serde_json::to_string(&NormalizedText::Scalar("text".into())).unwrap(),
+            "\"text\""
+        );
+    }
+
+    #[test]
     fn normalized_policy_text_replacement_matches_python() {
         let script = r#"
 import json,runpy,sys
