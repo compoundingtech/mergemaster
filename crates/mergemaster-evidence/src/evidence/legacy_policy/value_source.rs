@@ -24,6 +24,16 @@ impl<'a> Source<'a> {
             node: self.document.node(id),
         }
     }
+    pub(super) fn node(self) -> &'a Node {
+        self.node
+    }
+    pub(super) fn entries(self) -> Option<impl Iterator<Item = (&'a [u32], Self)>> {
+        self.object().map(|entries| {
+            entries
+                .iter()
+                .map(move |(key, id)| (key.as_slice(), self.at(*id)))
+        })
+    }
     pub(super) fn is_null(self) -> bool {
         matches!(self.node, Node::Null)
     }
@@ -96,7 +106,7 @@ pub(super) fn names(source: Source) -> Option<Vec<NormalizedText>> {
     names.filter(|names| !names.is_empty())
 }
 /// Re-encode the retained serde entry into a lossless Document (the bridge).
-pub(super) fn bridge(entry: &serde_json::Value) -> Result<Document, PolicyError> {
+pub(super) fn bridge(entry: &(impl serde::Serialize + ?Sized)) -> Result<Document, PolicyError> {
     let text = serde_json::to_string(entry).map_err(|e| invalid(e.to_string()))?;
     Document::from_bytes(text.as_bytes()).map_err(|error| invalid(format!("{error:?}")))
 }

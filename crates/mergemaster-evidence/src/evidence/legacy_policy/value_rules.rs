@@ -1,10 +1,14 @@
 //! Legacy input-value ordering and shard declarations, not evidence judgments.
 use super::normalized_text::NormalizedText;
-use super::{PolicyError, exception, names, rule_error};
+use super::{
+    PolicyError, exception, rule_error,
+    value_source::{self, Source},
+};
 use crate::evidence::legacy_verify::failure_json::TextRef;
+use crate::evidence::legacy_verify::statement_document::Node;
 use serde::Serialize;
 use serde_json::{Map, Value};
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 #[derive(Debug, Serialize)]
 pub struct ValueRules {
@@ -35,28 +39,35 @@ pub fn checked_value_rules(
     rule: &mut Map<String, Value>,
     where_: &[TextRef<'_>],
 ) -> Result<ValueRules, PolicyError> {
+    // Temporary serde-to-Document bridge; removed by the step-5 ingress cutover.
+    let document = value_source::bridge(rule)?;
+    from_source(Source::root(&document), where_)
+}
+pub(super) fn from_source(
+    rule: Source<'_>,
+    where_: &[TextRef<'_>],
+) -> Result<ValueRules, PolicyError> {
     let order_error = || {
         rule_error(
             where_,
             "input_order maps an input to two or more distinct values, strongest first",
         )
     };
-    let Value::Object(order) = rule
-        .remove("input_order")
-        .unwrap_or(Value::Object(Map::new()))
-    else {
+    let mut input_order = Vec::new();
+    let order = rule.get("input_order");
+    if order.is_some_and(|value| value.object().is_none()) {
         return Err(order_error());
-    };
-    let mut input_order = Vec::with_capacity(order.len());
-    for (key, value) in order {
+    }
+    for (key, value) in order.and_then(Source::entries).into_iter().flatten() {
         // Python builds set(v) before checking that every member is a string.
         if !key.is_empty()
-            && let Some(values) = value.as_array().filter(|v| v.len() >= 2)
+            && let Node::Array(items) = value.node()
+            && items.len() >= 2
         {
-            for item in values {
-                let kind = match item {
-                    Value::Array(_) => Some("list"),
-                    Value::Object(_) => Some("dict"),
+            for item in value.array().into_iter().flatten() {
+                let kind = match item.node() {
+                    Node::Array(_) => Some("list"),
+                    Node::Object(_) => Some("dict"),
                     _ => None,
                 };
                 if let Some(kind) = kind {
@@ -67,18 +78,15 @@ pub fn checked_value_rules(
                 }
             }
         }
-        let values = names(value)
+        let values = value_source::names(value)
             .filter(|values| {
-                values.len() >= 2 && values.iter().collect::<HashSet<_>>().len() == values.len()
+                values.len() >= 2 && values.iter().collect::<BTreeSet<_>>().len() == values.len()
             })
             .ok_or_else(order_error)?;
         if key.is_empty() {
             return Err(order_error());
         }
-        input_order.push((
-            NormalizedText::Scalar(key),
-            values.into_iter().map(NormalizedText::Scalar).collect(),
-        ));
+        input_order.push((NormalizedText::from_points(key), values));
     }
     let shard_error = || {
         rule_error(
@@ -86,34 +94,34 @@ pub fn checked_value_rules(
             "shard_inputs needs count and results input names, an optional pull_request_count from 1 to 16 and an optional index input name",
         )
     };
-    let shard_inputs = match rule.remove("shard_inputs") {
-        None | Some(Value::Null) => None,
-        Some(value) => {
-            let Value::Object(mut fields) = value else {
-                return Err(shard_error());
-            };
-            if fields
-                .keys()
-                .any(|k| !["count", "results", "pull_request_count", "index"].contains(&k.as_str()))
-            {
+    let shard_inputs = match rule.get("shard_inputs") {
+        None => None,
+        Some(value) if value.is_null() => None,
+        Some(fields) => {
+            if fields.object().is_none_or(|entries| {
+                entries.keys().any(|key| {
+                    !["count", "results", "pull_request_count", "index"]
+                        .iter()
+                        .any(|name| value_source::key_is(key, name))
+                })
+            }) {
                 return Err(shard_error());
             }
-            let take_name = |value: Option<Value>| match value {
-                Some(Value::String(value)) if !value.is_empty() => {
-                    Some(NormalizedText::Scalar(value))
-                }
-                _ => None,
+            let take_name = |value: Option<Source<'_>>| {
+                value
+                    .and_then(Source::normalized)
+                    .filter(|name| name.borrowed().points().next().is_some())
             };
-            let count = take_name(fields.remove("count")).ok_or_else(shard_error)?;
-            let results = take_name(fields.remove("results")).ok_or_else(shard_error)?;
-            let index = if fields.contains_key("index") {
-                Some(take_name(fields.remove("index")).ok_or_else(shard_error)?)
+            let count = take_name(fields.get("count")).ok_or_else(shard_error)?;
+            let results = take_name(fields.get("results")).ok_or_else(shard_error)?;
+            let index = if fields.get("index").is_some() {
+                Some(take_name(fields.get("index")).ok_or_else(shard_error)?)
             } else {
                 None
             };
-            let pull_request_count = match fields.remove("pull_request_count") {
+            let pull_request_count = match fields.get("pull_request_count") {
                 None => None,
-                Some(Value::Null) => Some(None),
+                Some(value) if value.is_null() => Some(None),
                 Some(value) => Some(Some(
                     value
                         .as_u64()
