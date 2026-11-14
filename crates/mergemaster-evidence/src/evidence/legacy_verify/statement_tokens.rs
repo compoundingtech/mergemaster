@@ -33,6 +33,7 @@ pub enum SyntaxKind {
     InvalidEscape,
     InvalidUnicodeEscape,
     ExtraData,
+    UnexpectedUtf8Bom,
 }
 impl SyntaxKind {
     pub const fn message(self) -> &'static str {
@@ -48,6 +49,7 @@ impl SyntaxKind {
             Self::InvalidEscape => "Invalid \\escape",
             Self::InvalidUnicodeEscape => "Invalid \\uXXXX escape",
             Self::ExtraData => "Extra data",
+            Self::UnexpectedUtf8Bom => "Unexpected UTF-8 BOM (decode using utf-8-sig)",
         }
     }
 }

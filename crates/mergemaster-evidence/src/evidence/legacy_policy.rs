@@ -93,9 +93,13 @@ impl<'a> PolicyDocument<'a> {
 }
 /// Parse the complete policy before selection; duplicate keys use the last value.
 fn policy_document(text: &str) -> Result<Document, PolicyError> {
-    // Exact decoder diagnostics are supplied by the decoder-parity integration.
-    let document = Document::from_text_with_depth_limit(text, None)
-        .map_err(|error| invalid(format!("skip policy is not valid JSON: {error:?}")))?;
+    let document =
+        Document::from_text_with_depth_limit(text, None).map_err(|error| match error {
+            super::legacy_verify::statement_document::Error::Syntax(error) => {
+                invalid(format!("skip policy is not valid JSON: {error}"))
+            }
+            other => invalid(format!("skip policy is not valid JSON: {other:?}")),
+        })?;
     let root = Source::root(&document);
     let version_one = root.get("version").is_some_and(|value| match value.node() {
         Node::Bool(true) => true,

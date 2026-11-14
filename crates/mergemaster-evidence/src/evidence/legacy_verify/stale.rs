@@ -75,14 +75,7 @@ pub(super) fn bodies_have<'a>(
                     detail: "raw JSON exceeds 256 containers".into(),
                 });
             }
-            Ok(_)
-            | Err(
-                Error::Encoding
-                | Error::Invalid
-                | Error::Syntax(_)
-                | Error::IntegerLimit
-                | Error::ExtraData,
-            ) => {}
+            Ok(_) | Err(Error::Encoding | Error::Syntax(_) | Error::IntegerLimit) => {}
         }
     }
     batch.finish()?;

@@ -192,3 +192,75 @@ fn selected_payload_at_five_million_depth_is_stack_safe() {
         .unwrap_err();
     assert_eq!(error, expected);
 }
+
+#[test]
+fn policy_json_decode_errors_match_python_text_and_positions() {
+    let cases = [
+        "\u{feff}{}",
+        "",
+        " \n\t",
+        "{",
+        "[",
+        "[1,]",
+        "{\"a\":1,}",
+        "{\"a\" 1}",
+        "{\"a\":}",
+        "[1 2]",
+        "null false",
+        "\"unterminated",
+        "\"\\q\"",
+        "\"\\u12g4\"",
+        "[\"🌍\",\n?]",
+        "{\"é\":\"x\\q\"}",
+        "{\0}",
+        "\0{\0}\0",
+        "\u{feff}\"x\"",
+        " \u{feff}{}",
+    ];
+    let output = std::process::Command::new("python3")
+        .args([
+            "-c",
+            r#"
+import json,runpy,sys
+assert sys.version_info[:3]==(3,14,7)
+v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify');out=[]
+for text in json.loads(sys.argv[2]):
+ try:v['policy_rules'](text,'check','org/repo')
+ except v['Failure'] as error:
+  out.append(dict(reason=error.reason,detail=list(map(ord,error.detail))))
+ else:raise AssertionError('expected syntax refusal')
+print(json.dumps(out))
+"#,
+            &std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle"),
+            &serde_json::to_string(&cases).unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let expected: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(expected.len(), 20);
+    for (text, expected) in cases.iter().zip(expected) {
+        let error = PolicyDocument::parse(text, "check").unwrap_err();
+        assert_eq!(error.origin, ErrorOrigin::Failure);
+        assert_eq!(error.reason, expected["reason"]);
+        assert_eq!(
+            serde_json::json!(error.detail.borrowed().points().collect::<Vec<_>>()),
+            expected["detail"],
+            "{text:?}"
+        );
+    }
+    use crate::evidence::legacy_verify::statement_document::{Error, SyntaxError, SyntaxKind};
+    assert_eq!(
+        Document::from_text_with_depth_limit(cases[0], None).unwrap_err(),
+        Error::Syntax(SyntaxError {
+            kind: SyntaxKind::UnexpectedUtf8Bom,
+            pos: 0,
+            lineno: 1,
+            colno: 1,
+        })
+    );
+}
