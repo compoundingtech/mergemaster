@@ -6,6 +6,7 @@ use super::value_rules::{ValueRules, checked_value_rules};
 use super::{
     CommandInputs, PolicyError, checked_base_inputs, checked_command_inputs, invalid, names,
 };
+use crate::evidence::legacy_verify::failure_json::TextRef;
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -56,10 +57,11 @@ pub fn checked_kinds<'a>(
                     "base_inputs",
                 ]
                 .contains(&key.as_str())
-            }) {
+            }) || !rule.contains_key("command")
+            {
                 return Err(error());
             }
-            let where_ = format!("{check}/{kind}");
+            let where_ = [check.text(), TextRef::Str("/"), TextRef::Str(&kind)];
             let inputs = checked_command_inputs(&mut rule, &where_)?;
             let values = checked_value_rules(&mut rule, &where_)?;
             let base_inputs = checked_base_inputs(&mut rule, &where_)?;

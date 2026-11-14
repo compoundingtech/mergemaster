@@ -58,7 +58,9 @@ pub fn checked_levels<'a>(
                 "lane",
             ]
             .contains(&key.as_str())
-        }) {
+        }) || !fields.contains_key("command")
+            || !fields.contains_key("events")
+        {
             return Err(error());
         }
         let events = fields
@@ -71,7 +73,16 @@ pub fn checked_levels<'a>(
                     && (events.len() == 1 || (events.len() == 2 && events[0] != events[1]))
             })
             .ok_or_else(error)?;
-        let inputs = checked_command_inputs(&mut fields, &format!("{check}/{kind}/{level}"))?;
+        let inputs = checked_command_inputs(
+            &mut fields,
+            &[
+                check.text(),
+                TextRef::Str("/"),
+                TextRef::Str(kind),
+                TextRef::Str("/"),
+                TextRef::Str(&level),
+            ],
+        )?;
         let lane = match fields.remove("lane") {
             None | Some(Value::Bool(false)) => LaneBinding::None,
             Some(Value::Bool(true)) => LaneBinding::Base,

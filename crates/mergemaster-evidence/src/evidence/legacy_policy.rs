@@ -311,6 +311,21 @@ fn invalid(detail: impl Into<normalized_text::NormalizedText>) -> PolicyError {
         detail: detail.into(),
     }
 }
+fn rule_error(where_: &[TextRef<'_>], message: &str) -> PolicyError {
+    invalid(NormalizedText::concat(
+        [TextRef::Str("skip policy for ")]
+            .into_iter()
+            .chain(where_.iter().copied())
+            .chain([TextRef::Str(": "), TextRef::Str(message)]),
+    ))
+}
+fn exception(class: &'static str, detail: impl Into<NormalizedText>) -> PolicyError {
+    PolicyError {
+        reason: "error",
+        detail: detail.into(),
+        origin: ErrorOrigin::Exception { class },
+    }
+}
 
 #[derive(Debug, Serialize)]
 pub struct CommandInputs {
@@ -329,13 +344,14 @@ fn serialize_pairs<S: serde::Serializer, T: Serialize>(
 /// Required-input duplicates/order and placeholders remain unnormalized here.
 pub fn checked_command_inputs(
     rule: &mut Map<String, Value>,
-    where_: &str,
+    where_: &[TextRef<'_>],
 ) -> Result<CommandInputs, PolicyError> {
-    let error = |message: &str| invalid(format!("skip policy for {where_}: {message}"));
-    let command = rule
-        .remove("command")
-        .and_then(names)
-        .ok_or_else(|| error("command must be a nonempty list of strings"))?;
+    let error = |message: &str| rule_error(where_, message);
+    let command = names(
+        rule.remove("command")
+            .ok_or_else(|| exception("KeyError", "'command'"))?,
+    )
+    .ok_or_else(|| error("command must be a nonempty list of strings"))?;
     let malformed = || error("malformed required_inputs or bind_inputs");
     let required_inputs = string_list(
         rule.remove("required_inputs")
@@ -360,22 +376,26 @@ pub fn checked_command_inputs(
 /// Consume and validate accepted-base file bindings without reading any files.
 pub fn checked_base_inputs(
     rule: &mut Map<String, Value>,
-    where_: &str,
+    where_: &[TextRef<'_>],
 ) -> Result<Vec<(String, String)>, PolicyError> {
     let base = string_map(
         rule.remove("base_inputs")
             .unwrap_or(Value::Object(Map::new())),
     )
-    .ok_or_else(|| {
-        invalid(format!(
-            "skip policy for {where_}: base_inputs maps an input name to a path"
-        ))
-    })?;
+    .ok_or_else(|| rule_error(where_, "base_inputs maps an input name to a path"))?;
     for (_, path) in &base {
-        if !short_path(path) || !(path == "." || literal_path(path)) {
-            return Err(invalid(format!(
-                "skip policy for {where_}: base_inputs: invalid declared input {path:?}"
-            )));
+        let detail = if !short_path(path) {
+            Some("base_inputs: an input path is not a short string".into())
+        } else if path != "." && !literal_path(path) {
+            Some(format!(
+                "base_inputs: input path {} must be relative, literal and without . or .. parts",
+                Repr(TextRef::Str(path))
+            ))
+        } else {
+            None
+        };
+        if let Some(detail) = detail {
+            return Err(rule_error(where_, &detail));
         }
     }
     Ok(base)
@@ -504,6 +524,10 @@ fn literal_path(path: &str) -> bool {
                 .all(|b| b.is_ascii_alphanumeric() || b"._@+=,~#-".contains(&b))
     })
 }
+
+#[cfg(test)]
+#[path = "legacy_policy/helper_diagnostics_tests.rs"]
+mod helper_diagnostics_tests;
 
 #[cfg(test)]
 mod tests {
@@ -635,9 +659,9 @@ print(json.dumps(results))
         assert_eq!(expected.len(), cases.len());
         for (rule, expected) in cases.iter().zip(expected) {
             let mut fields = rule.as_object().unwrap().clone();
-            let actual = checked_command_inputs(&mut fields, "fixture")
+            let actual = checked_command_inputs(&mut fields, &[TextRef::Str("fixture")])
                 .and_then(|inputs| {
-                    let base = checked_base_inputs(&mut fields, "fixture")?;
+                    let base = checked_base_inputs(&mut fields, &[TextRef::Str("fixture")])?;
                     let mut value = serde_json::to_value(inputs).unwrap();
                     value["base_inputs"] = Value::Object(
                         base.into_iter()
@@ -648,10 +672,11 @@ print(json.dumps(results))
                 })
                 .unwrap_or_else(|error| {
                     assert!(
-                        error
-                            .detail
-                            .to_string()
-                            .starts_with("skip policy for fixture: ")
+                        matches!(error.origin, ErrorOrigin::Exception { class: "KeyError" })
+                            || error
+                                .detail
+                                .to_string()
+                                .starts_with("skip policy for fixture: ")
                     );
                     json!({"reason":error.reason})
                 });
@@ -676,7 +701,7 @@ print(json.dumps(results))
             .iter()
             .map(|rule| {
                 let mut fields = rule.as_object().unwrap().clone();
-                let base = checked_base_inputs(&mut fields, "fixture").unwrap();
+                let base = checked_base_inputs(&mut fields, &[TextRef::Str("fixture")]).unwrap();
                 Value::Object(
                     base.into_iter()
                         .map(|(key, value)| (key, Value::String(value)))
