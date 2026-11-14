@@ -24,6 +24,13 @@ pub fn selector_item<'a>(
     tree: &str,
     item: impl Into<TextRef<'a>>,
 ) -> Result<Option<NormalizedText>, PolicyError> {
+    selector_item_with(tree, item, |args, limit| read_git(repo, args, limit))
+}
+pub(super) fn selector_item_with<'a>(
+    tree: &str,
+    item: impl Into<TextRef<'a>>,
+    read: impl Fn(&[&OsStr], usize) -> Result<Vec<u8>, PolicyError>,
+) -> Result<Option<NormalizedText>, PolicyError> {
     let item = item.into();
     if let Some((path, selector)) = item.split_once("::")
         && (path.starts_with(".st/") || path.starts_with(".fractal/"))
@@ -33,8 +40,7 @@ pub fn selector_item<'a>(
         let preferred = replace_first(legacy.borrowed(), ".st/", ".fractal/");
         let preferred_bytes = encode(preferred.borrowed(), 0, true)?;
         let legacy_bytes = encode(legacy.borrowed(), 0, true)?;
-        let listing = read_git(
-            repo,
+        let listing = read(
             &[
                 OsStr::new("ls-tree"),
                 OsStr::new("-z"),
@@ -102,12 +108,21 @@ fn selected_content_limit<'a>(
     item: impl Into<TextRef<'a>>,
     max_bytes: usize,
 ) -> Result<Option<Vec<u8>>, PolicyError> {
+    selected_content_with(tree, item, max_bytes, |args, limit| {
+        read_git(repo, args, limit)
+    })
+}
+pub(super) fn selected_content_with<'a>(
+    tree: &str,
+    item: impl Into<TextRef<'a>>,
+    max_bytes: usize,
+    read: impl Fn(&[&OsStr], usize) -> Result<Vec<u8>, PolicyError>,
+) -> Result<Option<Vec<u8>>, PolicyError> {
     crate::evidence::oid(tree).map_err(error)?;
     let item = item.into();
     let (path, selector) = item.split_once("::").unwrap_or((item, TextRef::Str("")));
     let encoded = encode(path, 0, true)?;
-    if read_git(
-        repo,
+    if read(
         &[
             OsStr::new("ls-tree"),
             OsStr::new("--full-tree"),
@@ -122,8 +137,7 @@ fn selected_content_limit<'a>(
         return Ok(None);
     }
     let shown_path = [tree.as_bytes(), b":", &encoded].concat();
-    let shown = read_git(
-        repo,
+    let shown = read(
         &[
             OsStr::new("show"),
             OsStr::new("--end-of-options"),

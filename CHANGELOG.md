@@ -14,6 +14,7 @@
 - Resolve accepted-base Rust test tools and inputs before historical bootstrap, refusing missing judged-base artifacts and malformed selected configuration without candidate fallback.
 - Read the legacy verifier's standalone accepted-base no-tests allowance with exact missing, malformed and strict UTF-8 behavior, independently of the crate-inputs schema.
 - Replace Linux Git final-wait sleep polling with pidfd readiness under the unchanged absolute deadline and direct-child cleanup contract; Linux >= 5.3 is required.
+- Propagate the per-crate no-lazy-fetch setting through legacy projection reads, selectors and index writes without mutating the process environment.
 
 ## [0.8.0] - 2026-11-13
 

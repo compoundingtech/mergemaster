@@ -1,3 +1,4 @@
+use super::super::selection::{selected_content, selector_item};
 use super::*;
 use crate::gate::git::git;
 use serde_json::{Value, json};
@@ -96,11 +97,16 @@ fn projection_matches_oracle_for_raw_modes_layout_and_selectors() {
     ];
     let mut cases = Vec::new();
     let mut actual = Vec::new();
+    let mut no_lazy = Vec::new();
     for tree in [&tree, &unrelated, &both] {
         for paths in &paths {
             let paths: Vec<NormalizedText> = paths.iter().map(|p| (*p).into()).collect();
             cases.push(json!([tree, paths]));
             actual.push(match project(repo, tree, &paths) {
+                Ok(key) => json!({"key":key}),
+                Err(e) => json!({"reason":e.reason}),
+            });
+            no_lazy.push(match project_with_fetch(repo, tree, &paths, true) {
                 Ok(key) => json!({"key":key}),
                 Err(e) => json!({"reason":e.reason}),
             });
@@ -133,6 +139,7 @@ print(json.dumps(results))
         String::from_utf8_lossy(&output.stderr)
     );
     let expected: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(no_lazy, actual);
     assert_eq!(actual.len(), expected.len());
     for (i, (actual, expected)) in actual.iter().zip(expected).enumerate() {
         assert_eq!(*actual, expected, "{}", cases[i]);
@@ -570,5 +577,34 @@ print(json.dumps(dict(tree=tree,cases=out)))
             },
         };
         assert_eq!(actual, case["result"], "{paths:?}");
+    }
+}
+
+#[test]
+fn projection_fetch_overlay_is_child_local() {
+    let dir = tempfile::tempdir().unwrap();
+    git(dir.path(), &["init"]).unwrap();
+    let inherited = std::env::var_os("GIT_NO_LAZY_FETCH");
+    for disabled in [false, true, false] {
+        let bytes = input_git_with_fetch(
+            dir.path(),
+            &[
+                "-c",
+                "alias.fetch-env=!printf '%s' \"$GIT_NO_LAZY_FETCH\"",
+                "fetch-env",
+            ],
+            &[],
+            None,
+            ExpectedOutput::Bytes(1024),
+            disabled,
+        )
+        .unwrap();
+        let expected = if disabled {
+            b"1".as_slice()
+        } else {
+            inherited.as_deref().map_or(b"".as_slice(), OsStr::as_bytes)
+        };
+        assert_eq!(bytes, expected);
+        assert_eq!(std::env::var_os("GIT_NO_LAZY_FETCH"), inherited);
     }
 }

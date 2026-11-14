@@ -2,7 +2,7 @@
 use super::{
     lane_git::parse_entries,
     projection_capture::{self, ExpectedOutput},
-    selection::{selected_content, selector_item},
+    selection::{selected_content_with, selector_item_with},
 };
 use crate::evidence::{
     legacy_policy::{PolicyError, normalized_text::NormalizedText},
@@ -66,7 +66,20 @@ fn input_git(
     index: Option<&Path>,
     expected: ExpectedOutput,
 ) -> Result<Vec<u8>, PolicyError> {
+    input_git_with_fetch(repo, args, bytes, index, expected, false)
+}
+fn input_git_with_fetch(
+    repo: &Path,
+    args: &[impl AsRef<OsStr>],
+    bytes: &[u8],
+    index: Option<&Path>,
+    expected: ExpectedOutput,
+    no_lazy_fetch: bool,
+) -> Result<Vec<u8>, PolicyError> {
     let mut cmd = projection_command(repo, args)?;
+    if no_lazy_fetch {
+        cmd.env("GIT_NO_LAZY_FETCH", "1");
+    }
     if let Some(index) = index {
         cmd.env("GIT_INDEX_FILE", index);
     }
@@ -96,6 +109,24 @@ pub fn project(
     tree: &str,
     paths: &[NormalizedText],
 ) -> Result<Option<String>, PolicyError> {
+    project_with_fetch(repo, tree, paths, false)
+}
+pub(super) fn project_with_fetch(
+    repo: &Path,
+    tree: &str,
+    paths: &[NormalizedText],
+    no_lazy_fetch: bool,
+) -> Result<Option<String>, PolicyError> {
+    let read = |args: &[&OsStr], limit| {
+        input_git_with_fetch(
+            repo,
+            args,
+            &[],
+            None,
+            ExpectedOutput::Bytes(limit),
+            no_lazy_fetch,
+        )
+    };
     if oid(tree).is_err() {
         return Err(error("invalid tree object ID"));
     }
@@ -119,7 +150,7 @@ pub fn project(
         .iter()
         .filter(|p| p.borrowed().split_once("::").is_some())
     {
-        if let Some(item) = selector_item(repo, tree, path)? {
+        if let Some(item) = selector_item_with(tree, path, read)? {
             chosen.insert(item);
         }
     }
@@ -145,7 +176,7 @@ pub fn project(
             args.push(OsStr::new("--"));
             args.extend(encoded.iter().map(|p| OsStr::from_bytes(p)));
         }
-        parse_entries(&read_git(repo, &args, usize::MAX)?, &mut entries)?;
+        parse_entries(&read(&args, usize::MAX)?, &mut entries)?;
     }
     let mut index_bytes = Vec::new();
     for entry in entries {
@@ -164,13 +195,14 @@ pub fn project(
         index_bytes.push(0);
     }
     for item in chosen {
-        if let Some(bytes) = selected_content(repo, tree, &item)? {
-            let blob = String::from_utf8(input_git(
+        if let Some(bytes) = selected_content_with(tree, &item, 16 * 1024 * 1024, read)? {
+            let blob = String::from_utf8(input_git_with_fetch(
                 repo,
                 &["hash-object", "--stdin"],
                 &bytes,
                 None,
                 expected,
+                no_lazy_fetch,
             )?)
             .map_err(error)?;
             write!(index_bytes, "100644 {} 0\t", blob.trim()).map_err(error)?;
@@ -183,19 +215,21 @@ pub fn project(
     }
     let scratch = tempfile::tempdir().map_err(error)?;
     let index = scratch.path().join("index");
-    input_git(
+    input_git_with_fetch(
         repo,
         &["update-index", "-z", "--index-info"],
         &index_bytes,
         Some(&index),
         ExpectedOutput::Discard,
+        no_lazy_fetch,
     )?;
-    let output = input_git(
+    let output = input_git_with_fetch(
         repo,
         &["write-tree", "--missing-ok"],
         &[],
         Some(&index),
         expected,
+        no_lazy_fetch,
     )?;
     Ok(Some(
         String::from_utf8(output).map_err(error)?.trim().to_owned(),

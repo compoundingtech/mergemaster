@@ -2,7 +2,7 @@
 use super::{
     crate_input_document::Inputs,
     crate_inputs::{TreeSource, failure},
-    projection::project,
+    projection::project_with_fetch,
 };
 use crate::evidence::legacy_policy::{PolicyError, normalized_text::NormalizedText};
 use indexmap::IndexMap;
@@ -59,7 +59,7 @@ impl TreeSource<'_> {
             .into_iter()
             .filter(|(name, _)| only.is_empty() || only.contains(name))
             .map(|(name, paths)| {
-                let key = project(self.repo, &tree, &paths)?;
+                let key = project_with_fetch(self.repo, &tree, &paths, self.no_lazy_fetch)?;
                 Ok((name, CrateKey { key, paths }))
             })
             .collect()
