@@ -3,6 +3,7 @@ pub mod check_names;
 pub mod kind_rules;
 pub mod level_rules;
 pub mod normalized_text;
+pub mod seconds;
 pub mod value_rules;
 mod value_source;
 use super::legacy_verify::{failure_json::TextRef, python_repr::Repr};
@@ -179,7 +180,7 @@ pub struct CheckHeader {
     #[serde(skip_serializing)]
     kinds: Map<String, Value>,
     pub trust_levels: Vec<NormalizedText>,
-    pub max_age_s: Option<u64>,
+    pub max_age_s: Option<seconds::Seconds>,
     pub enforce: bool,
     pub inputs: Option<Vec<String>>,
     pub sample_one_in: u64,
@@ -246,15 +247,21 @@ impl CheckHeader {
         let max_age_s = match source.get("max_age_s") {
             None => None,
             Some(value) if value.is_null() => None,
-            Some(value) => Some(value.as_u64().filter(|v| *v > 0).ok_or_else(|| {
-                // The bridge still loses wide numeric provenance until step 5.
-                let exceeds_u64 = value.as_f64().is_some_and(|v| v >= u64::MAX as f64);
-                error(if exceeds_u64 {
-                    "max_age_s must be null or a positive integer within u64"
-                } else {
-                    "max_age_s must be null or a positive integer"
-                })
-            })?),
+            Some(value) => Some(
+                value
+                    .as_u64()
+                    .filter(|v| *v > 0)
+                    .ok_or_else(|| {
+                        // The bridge still loses wide numeric provenance until step 5.
+                        let exceeds_u64 = value.as_f64().is_some_and(|v| v >= u64::MAX as f64);
+                        error(if exceeds_u64 {
+                            "max_age_s must be null or a positive integer within u64"
+                        } else {
+                            "max_age_s must be null or a positive integer"
+                        })
+                    })?
+                    .into(),
+            ),
         };
         let enforce = source.get("enforce").map_or(Ok(false), |value| {
             value

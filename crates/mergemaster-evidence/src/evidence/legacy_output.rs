@@ -70,6 +70,13 @@ impl<'s, W: Write> ValueWriter<'s, '_, W> {
         write!(self.out, "{value}")?;
         Ok(self.done())
     }
+    pub fn policy_seconds(
+        self,
+        seconds: &super::legacy_policy::seconds::Seconds,
+    ) -> Result<Written<'s>, fmt::Error> {
+        seconds.write_json(self.out)?;
+        Ok(self.done())
+    }
     pub fn object(
         self,
         fields: impl FnOnce(&mut Object<'_, W>) -> fmt::Result,

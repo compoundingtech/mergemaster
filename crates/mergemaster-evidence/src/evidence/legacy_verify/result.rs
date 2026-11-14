@@ -10,6 +10,8 @@ use super::{
     value_inputs::TextRef,
 };
 use crate::evidence::legacy_policy::check_names::CheckName;
+use crate::evidence::legacy_policy::seconds::Seconds;
+use std::borrow::Cow;
 pub struct Satisfied<'a> {
     pub satisfied: bool,
     pub tree: &'a str,
@@ -22,7 +24,7 @@ pub struct Satisfied<'a> {
     pub observed_at: &'a [u32],
     pub attempts: usize,
     pub policy: bool,
-    pub max_age_s: Option<u64>,
+    pub max_age_s: Option<Cow<'a, Seconds>>,
     pub enforce: bool,
     pub r#match: &'static str,
     pub matched_tree: &'a [u32],
@@ -61,7 +63,7 @@ impl<'a> Satisfied<'a> {
                 let header = &policy.header;
                 (
                     true,
-                    header.max_age_s,
+                    header.max_age_s.as_ref().map(Cow::Borrowed),
                     header.enforce,
                     header.sample_one_in,
                     header.events.as_deref(),
@@ -70,7 +72,7 @@ impl<'a> Satisfied<'a> {
             Rules::Unconfigured(options) => (
                 false,
                 options.max_age.map(|age| match age {
-                    super::inputs::AgeLimit::Seconds(seconds) => seconds,
+                    super::inputs::AgeLimit::Seconds(seconds) => Cow::Owned(Seconds::from(seconds)),
                     super::inputs::AgeLimit::Overflow => {
                         unreachable!("successful judgment cannot overflow")
                     }

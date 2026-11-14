@@ -81,7 +81,11 @@ struct Guards<'a> {
 impl<'a> Guards<'a> {
     fn policy(policy: &PolicyRules, routing: &Routing<'a>) -> Self {
         Self {
-            age: policy.header.max_age_s.map(AgeLimit::Seconds),
+            age: policy
+                .header
+                .max_age_s
+                .as_ref()
+                .map(|age| age.bounded().map_or(AgeLimit::Overflow, AgeLimit::Seconds)),
             required: &routing.command_inputs.required_inputs,
             command: Some(ExpectedCommand::Text(&routing.command_inputs.command)),
             values: Some(routing.kind),
