@@ -41,10 +41,10 @@ impl CurrentTime for SystemClock {
         system_epoch_micros(std::time::SystemTime::now())
     }
 }
-pub(super) fn sample(clock: &mut dyn CurrentTime, attempts: usize) -> Result<i64, Failure> {
+pub(super) fn sample(clock: &mut dyn CurrentTime) -> Result<i64, Failure> {
     clock
         .epoch_micros()
-        .map_err(|error| Failure::exception(error.class, error.detail, attempts))
+        .map_err(|error| Failure::exception(error.class, error.detail))
 }
 /// Convert without chrono's panicking SystemTime conversion; Python datetime years are 1..9999.
 pub(super) fn system_epoch_micros(now: std::time::SystemTime) -> Result<i64, ClockException> {
@@ -233,13 +233,12 @@ fn check_inputs_source(
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason,
         detail: detail.into(),
-        attempts,
+        attempts: Some(attempts),
     };
     if clock.future().map_err(|()| {
         Failure::exception(
             "OverflowError",
             "current UTC clock exceeds the legacy datetime range",
-            attempts,
         )
     })? {
         return Err(fail(
@@ -252,7 +251,6 @@ fn check_inputs_source(
             return Err(Failure::exception(
                 "OverflowError",
                 "max_age_s exceeds the legacy duration range",
-                attempts,
             ));
         };
         // Python timedelta caps its day count; do not accept what its verifier aborts.
@@ -260,7 +258,6 @@ fn check_inputs_source(
             return Err(Failure::exception(
                 "OverflowError",
                 "max_age_s exceeds the legacy duration range",
-                attempts,
             ));
         }
         if clock.older_than(seconds) {
@@ -273,7 +270,7 @@ fn check_inputs_source(
                 origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                 reason: "missing_input",
                 detail: format!("record lacks required input {key}").into(),
-                attempts,
+                attempts: Some(attempts),
             });
         }
     }

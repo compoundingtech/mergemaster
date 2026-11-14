@@ -108,7 +108,11 @@ print(json.dumps(cases))
         }
         let result = candidates(&mut collector, &q);
         if let Some(reason) = f["refusal"].as_str() {
-            assert!(matches!(result,Err(e) if e.reason==reason), "{}", f["name"]);
+            assert!(
+                matches!(result,Err(e) if e.reason==reason && e.attempts.is_none()),
+                "{}",
+                f["name"]
+            );
             if reason == "record-budget-exceeded" {
                 let later = Request {
                     tree: f["none"].as_str().unwrap(),
@@ -124,7 +128,13 @@ print(json.dumps(cases))
                 Ok(v) => {
                     serde_json::json!({"records":v.iter().map(|c| &c.candidate.commit).collect::<Vec<_>>()})
                 }
-                Err(e) => serde_json::to_value(e).unwrap(),
+                Err(e) => {
+                    assert_eq!(e.attempts.is_some(), e.reason == "degraded");
+                    let mut value = serde_json::to_value(&e).unwrap();
+                    // Existing normalized oracle transport only, not CLI field presence.
+                    value["attempts"] = e.attempts.unwrap_or(0).into();
+                    value
+                }
             };
             if !q.check.text().equals("check") {
                 actual.as_object_mut().unwrap().remove("detail");
@@ -149,5 +159,5 @@ fn joined_git_errors_are_not_successful_misses() {
         .err()
         .expect("Git error, not candidates");
     assert_eq!(e.reason, "error");
-    assert_eq!(e.attempts, 0);
+    assert_eq!(e.attempts, None);
 }

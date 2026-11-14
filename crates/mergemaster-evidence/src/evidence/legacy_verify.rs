@@ -41,7 +41,7 @@ use value_inputs::{InputSource, TextRef};
 pub struct Failure {
     pub reason: &'static str,
     pub detail: NormalizedText,
-    pub attempts: usize,
+    pub attempts: Option<usize>,
     /// Explicit Python handler provenance; exceptions abort aggregates globally.
     #[serde(skip)]
     pub origin: ErrorOrigin,
@@ -53,15 +53,11 @@ impl std::fmt::Display for Failure {
 }
 impl std::error::Error for Failure {}
 impl Failure {
-    pub fn exception(
-        class: &'static str,
-        detail: impl Into<NormalizedText>,
-        attempts: usize,
-    ) -> Self {
+    pub fn exception(class: &'static str, detail: impl Into<NormalizedText>) -> Self {
         Self {
             reason: "error",
             detail: detail.into(),
-            attempts,
+            attempts: None,
             origin: ErrorOrigin::Exception { class },
         }
     }
@@ -103,7 +99,7 @@ fn value_checks_source(
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason,
         detail: format!("input {key} does not cover this run").into(),
-        attempts,
+        attempts: Some(attempts),
     };
     for (key, order) in &rule.values.input_order {
         let rank = |value: Option<TextRef<'_>>| {

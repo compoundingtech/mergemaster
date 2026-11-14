@@ -113,7 +113,7 @@ fn route_source<'a>(
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason,
         detail: format!("record from {} fails policy routing", record.runner).into(),
-        attempts,
+        attempts: Some(attempts),
     };
     let policy = match rules {
         Rules::Policy(policy) => Some(policy),
@@ -216,7 +216,7 @@ fn check_runner(
             origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
             reason: "wrong_runner",
             detail: "record is for a different repository or producer".into(),
-            attempts,
+            attempts: Some(attempts),
         });
     }
     Ok(())

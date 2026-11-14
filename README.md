@@ -633,6 +633,9 @@ Its Display is diagnostic-only; scalar-only serde refuses code-point storage.
 core error carriers. `CurrentTime` returns typed `ClockException`, preserving class
 and lossless detail through judgment and global aggregate aborts, never inferring
 the class from a message. The source-to-wire bridge remains separate.
+Failure attempts distinguish `None` (absent) from `Some(0)` (explicit zero).
+Exceptions and prefix misses retain absence; degraded records retain their explicit
+count. Zero normalization is confined to existing oracle-test transports, not wire output.
 Source-provenance threading/diagnostic parity must land before CLI wiring. Members/log
 extras remain with those ports; discard partial output on error.
 `configured::required` joins trusted collection and existing configured selection

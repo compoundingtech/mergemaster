@@ -72,7 +72,7 @@ impl<'a> Prepared<'a> {
                     "check {check} has only passing shard parts, no record for the whole run"
                 )
                 .into(),
-                attempts: before,
+                attempts: Some(before),
             });
         }
         let accepted = policy

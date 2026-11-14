@@ -107,7 +107,10 @@ print(json.dumps(dict(cases=cases,blobs=blobs)))
             Ok(RequiredLane::Missing(e)) => json!({"kind":"missing","reason":e.reason}),
             Ok(RequiredLane::Ready(lane)) => {
                 match required_git(&q, &rules, lane.as_ref(), &mut clock) {
-                    Err(e) => json!({"kind":"refusal","reason":e.reason,"attempts":e.attempts}),
+                    // Existing normalized oracle transport only, not CLI field presence.
+                    Err(e) => {
+                        json!({"kind":"refusal","reason":e.reason,"attempts":e.attempts.unwrap_or(0)})
+                    }
                     Ok(record) => {
                         let facts = DocumentFacts::for_check(
                             &record.candidate.statement,

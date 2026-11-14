@@ -89,7 +89,7 @@ impl<P: Provider> CheckJudgment<'_, P> {
                     return Err(Failure { origin: crate::evidence::legacy_policy::ErrorOrigin::Failure, reason: "check_failed", detail: format!("record {} ({}) for check {check} failed, dated after the pass that would decide ({})",
                     failure.commit,
                     failure.facts.level(),
-                    candidates[i].commit).into(), attempts, });
+                    candidates[i].commit).into(), attempts: Some(attempts),  });
                 }
                 walk.decided_by = Some(i);
                 return Ok((i, routing));
@@ -105,7 +105,7 @@ impl<P: Provider> CheckJudgment<'_, P> {
                     origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                     reason: "error",
                     detail: "empty candidate list".into(),
-                    attempts,
+                    attempts: Some(attempts),
                 })?;
             if !candidates[chosen].facts.failed() {
                 chosen = latest_failure_after(prepared, chosen)?.unwrap_or(chosen);
@@ -168,7 +168,6 @@ pub fn latest_failure_after(
         return Err(Failure::exception(
             "OverflowError",
             "datetime subtraction overflow",
-            prepared.attempts(),
         ));
     }
     Ok(failures

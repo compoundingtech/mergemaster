@@ -30,7 +30,7 @@ def add(label, observed='2026-01-01T00:00:00Z', now='2026-01-01T00:00:05Z', age=
         statement['predicate']['observed']['runner']=prepared['runner']
     try: expected = v['judge'](('record',statement,'agent/alice'))
     except v['Failure'] as failure: expected = dict(reason=failure.reason,attempts=failure.extra['attempts'])
-    except OverflowError: expected = dict(reason='error',attempts=7)
+    except OverflowError: expected = dict(reason='error',attempts=0) # absent metadata, normalized transport only
     if prepared: assert expected['reason']==prepared['reason'], (label,expected,prepared['reason'])
     delta = v['now'] - datetime(1970,1,1,tzinfo=timezone.utc)
     cases.append(dict(label=ascii(label),policy=policy,raw=json.dumps(statement),expected=expected,intended=None if prepared is None else prepared['reason'],exit_code=str(code),now=(delta.days*86400+delta.seconds)*1000000+delta.microseconds,prepared=None if prepared is None else dict(command=[list(map(ord,x)) for x in prepared['command']],prefix=list(map(ord,prepared['prefix'])))))
@@ -60,7 +60,7 @@ def loose(label, actual=['true'], expected=['true'], age=None, code=0, observed=
     v.update(rules=None,now=v['parse_time'](now),run_inputs={})
     try: verdict=v['judge'](('record',statement,'agent/alice'),command=expected,kinds=('wrapper',),max_age=age)
     except v['Failure'] as e: verdict=dict(reason=e.reason,attempts=e.extra['attempts'])
-    except OverflowError: verdict=dict(reason='error',attempts=7)
+    except OverflowError: verdict=dict(reason='error',attempts=0) # absent metadata, normalized transport only
     delta=v['now']-datetime(1970,1,1,tzinfo=timezone.utc)
     points=None if expected is None else [list(map(ord,arg)) for arg in expected]
     cases.append(dict(label=ascii(label),policy=None,raw=json.dumps(statement),expected=verdict,exit_code=str(code),now=(delta.days*86400+delta.seconds)*1000000+delta.microseconds,command=points,age=None if age is None else str(age)))
@@ -182,10 +182,21 @@ print(json.dumps(cases))
                 "{}",
                 case["label"]
             );
+            assert_eq!(
+                error.attempts,
+                if case["expected"]["reason"] == "error" {
+                    None
+                } else {
+                    Some(7)
+                }
+            );
         }
+        // Existing normalized oracle transport maps absent metadata to zero, not wire output.
         let actual = checked
             .map(|()| json!({"reason":"satisfied"}))
-            .unwrap_or_else(|failure| json!({"reason":failure.reason,"attempts":failure.attempts}));
+            .unwrap_or_else(
+                |failure| json!({"reason":failure.reason,"attempts":failure.attempts.unwrap_or(0)}),
+            );
         assert_eq!(actual, case["expected"], "{}", case["label"]);
         if !case["intended"].is_null() {
             assert_eq!(

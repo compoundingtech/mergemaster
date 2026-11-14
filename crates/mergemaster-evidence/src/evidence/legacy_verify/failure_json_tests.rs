@@ -51,7 +51,7 @@ print(json.dumps(cases))
         let failure = super::super::Failure {
             reason: "fixture",
             detail: NormalizedText::Codepoints(case.detail),
-            attempts: 0,
+            attempts: case.attempts,
             origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         };
         let policy = PolicyError {

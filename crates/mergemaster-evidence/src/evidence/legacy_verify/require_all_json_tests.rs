@@ -76,7 +76,7 @@ print(json.dumps(dict(cases=cases,errors=errors)))
                             detail: NormalizedText::Codepoints(
                                 serde_json::from_value(item["detail"].clone()).unwrap(),
                             ),
-                            attempts: 0,
+                            attempts: None,
                             origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                         })
                     };
