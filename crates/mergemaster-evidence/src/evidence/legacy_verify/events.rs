@@ -49,7 +49,7 @@ pub(super) fn shard_part_source(
         .and_then(|rules| rules.kinds.iter().find(|(name, _)| name == kind))
         .and_then(|(_, rule)| rule.values.shard_inputs.as_ref())
         .and_then(|shards| shards.index.as_ref())
-        .and_then(|index| inputs.get(index))
+        .and_then(|index| inputs.get_text(index.borrowed()))
         .is_some_and(|value| value.len() != 0)
 }
 

@@ -119,6 +119,7 @@ impl<P: Provider> CheckJudgment<'_, P> {
                         candidates[*i].facts.failed(),
                     ))
                 })
+                // Unreachable guard: ported callers always supply candidates.
                 .ok_or_else(|| Failure {
                     origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                     reason: "error",

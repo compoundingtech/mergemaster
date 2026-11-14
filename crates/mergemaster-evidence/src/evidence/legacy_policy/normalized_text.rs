@@ -1,7 +1,7 @@
 //! Owned Python policy/diagnostic text; scalar callers retain their String storage.
 use crate::evidence::legacy_verify::value_inputs::TextRef;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum NormalizedText {
     Scalar(String),
     Codepoints(Vec<u32>),
@@ -80,9 +80,19 @@ impl From<&str> for NormalizedText {
         Self::Scalar(text.into())
     }
 }
+impl PartialOrd for NormalizedText {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
 impl PartialEq for NormalizedText {
     fn eq(&self, other: &Self) -> bool {
         self.borrowed().points().eq(other.borrowed().points())
+    }
+}
+impl Ord for NormalizedText {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.borrowed().points().cmp(other.borrowed().points())
     }
 }
 impl Eq for NormalizedText {}

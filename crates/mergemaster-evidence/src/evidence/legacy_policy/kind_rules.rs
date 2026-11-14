@@ -17,12 +17,12 @@ pub struct KindRule {
     pub inputs: CommandInputs,
     pub runner_prefix: Option<NormalizedText>,
     pub trust_levels: Option<Vec<String>>,
-    #[serde(serialize_with = "super::serialize_pairs")]
+    #[serde(serialize_with = "super::level_rules::serialize_level_pairs")]
     pub by_level: Vec<(String, LevelRule)>,
     #[serde(flatten)]
     pub values: ValueRules,
     #[serde(serialize_with = "super::serialize_pairs")]
-    pub base_inputs: Vec<(String, String)>,
+    pub base_inputs: Vec<(NormalizedText, String)>,
 }
 pub fn checked_kinds<'a>(
     kinds: Map<String, Value>,

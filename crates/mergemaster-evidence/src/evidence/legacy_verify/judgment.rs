@@ -171,12 +171,7 @@ fn judge_source<'a>(
             .command_inputs
             .bind_inputs
             .iter()
-            .map(|(key, path)| {
-                (
-                    super::value_inputs::TextRef::Str(key),
-                    std::path::Path::new(path),
-                )
-            }),
+            .map(|(key, path)| (key.borrowed(), std::path::Path::new(path))),
         provider,
         attempts,
     )?;
