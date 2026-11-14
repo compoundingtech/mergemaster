@@ -795,6 +795,10 @@ these values using an iterative parser and iterative drop; a full-document fixtu
 parses 100,000 nested array/inline-table pairs. `MAX_KEY_PARTS=1000` remains exact.
 `crate_inputs_text` preserves Python's strict UTF-8 decode diagnostics and POSIX
 join/normpath semantics, including empty directories and exactly two leading slashes.
+`crate_inputs::TreeSource` reads committed manifests using Python's inherited Git
+environment; its member-verifier mode sets only `GIT_NO_LAZY_FETCH=1`.
+Configuration prefers `.fractal` over `.st`. TOML decode refusals retain their path;
+integer-limit and key-part-limit exceptions propagate without a path prefix.
 `records::read_statement` adds bounded Git capture and record layout/parent/subject
 checks (3f-3a), with `statement-too-large` distinct from malformed-record refusal.
 Missing subjects are allowed without lazy fetch. `records::RecordCache`
