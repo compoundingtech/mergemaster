@@ -94,14 +94,13 @@ impl<'a> PolicyDocument<'a> {
 /// Parse the complete policy before selection; duplicate keys use the last value.
 fn policy_document(text: &str) -> Result<Document, PolicyError> {
     let document =
-        Document::from_text_with_depth_limit(text, None).map_err(|error| match error {
-            super::legacy_verify::statement_document::Error::Syntax(error) => {
+        Document::from_text(text).map_err(|error| match error {
+            super::legacy_verify::statement_document::TextError::Syntax(error) => {
                 invalid(format!("skip policy is not valid JSON: {error}"))
             }
-            super::legacy_verify::statement_document::Error::IntegerLimit { digits } => {
+            super::legacy_verify::statement_document::TextError::IntegerLimit { digits } => {
                 invalid(format!("skip policy is not valid JSON: Exceeds the limit (4300 digits) for integer string conversion: value has {digits} digits; use sys.set_int_max_str_digits() to increase the limit"))
             }
-            other => invalid(format!("skip policy is not valid JSON: {other:?}")),
         })?;
     let root = Source::root(&document);
     let version_one = root.get("version").is_some_and(|value| match value.node() {
