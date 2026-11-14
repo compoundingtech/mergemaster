@@ -98,14 +98,10 @@ fn value_checks_source(
     run: &BTreeMap<String, String>,
     attempts: usize,
 ) -> Result<(), Failure> {
-    let fail = |reason, key: TextRef<'_>| Failure {
+    let metadata = |reason| Failure {
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason,
-        detail: crate::evidence::legacy_policy::normalized_text::NormalizedText::around(
-            "input ",
-            key,
-            " does not cover this run",
-        ),
+        detail: "".into(),
         attempts: Some(attempts),
     };
     let run_value = |key: TextRef<'_>| {
@@ -113,6 +109,14 @@ fn value_checks_source(
             .find(|(name, _)| TextRef::Str(name).points().eq(key.points()))
     };
     for (key, order) in &rule.values.input_order {
+        let choices = || {
+            NormalizedText::concat(order.iter().enumerate().flat_map(|(i, text)| {
+                [
+                    TextRef::Str(if i == 0 { "" } else { ", " }),
+                    text.borrowed(),
+                ]
+            }))
+        };
         let key = key.borrowed();
         let rank = |value: Option<TextRef<'_>>| {
             value.and_then(|value| {
@@ -121,10 +125,54 @@ fn value_checks_source(
                     .position(|entry| value.points().eq(entry.borrowed().points()))
             })
         };
-        let run_rank = rank(run_value(key).map(|(_, value)| TextRef::Str(value)))
-            .ok_or_else(|| fail("no_run_input", key))?;
-        if rank(inputs.get_text(key)).is_none_or(|note_rank| note_rank > run_rank) {
-            return Err(fail("wrong_input", key));
+        let run = run_value(key).map(|(_, value)| TextRef::Str(value));
+        let note = inputs.get_text(key);
+        let run_rank = rank(run).ok_or_else(|| Failure {
+            detail: NormalizedText::concat(
+                [
+                    TextRef::Str("this run did not say its "),
+                    key,
+                    TextRef::Str(" (one of "),
+                    choices().borrowed(),
+                    TextRef::Str("), so no record can cover it"),
+                ]
+                .into_iter(),
+            ),
+            ..metadata("no_run_input")
+        })?;
+        let note_rank = rank(note).ok_or_else(|| Failure {
+            detail: NormalizedText::concat(
+                [
+                    TextRef::Str("record input "),
+                    key,
+                    TextRef::Str(" is "),
+                    TextRef::Str(
+                        &note.map_or_else(|| "None".into(), |v| python_repr::Repr(v).to_string()),
+                    ),
+                    TextRef::Str(", not one of "),
+                    choices().borrowed(),
+                ]
+                .into_iter(),
+            ),
+            ..metadata("wrong_input")
+        })?;
+        if note_rank > run_rank {
+            return Err(Failure {
+                detail: NormalizedText::concat(
+                    [
+                        TextRef::Str("record input "),
+                        key,
+                        TextRef::Str("="),
+                        note.unwrap_or(TextRef::Str("None")),
+                        TextRef::Str(" does not cover this run's "),
+                        key,
+                        TextRef::Str("="),
+                        run.unwrap_or(TextRef::Str("None")),
+                    ]
+                    .into_iter(),
+                ),
+                ..metadata("wrong_input")
+            });
         }
     }
     for (key, _) in &rule.base_inputs {
@@ -132,34 +180,105 @@ fn value_checks_source(
         let expected = run_value(key)
             .map(|(_, value)| value)
             .filter(|value| !value.is_empty())
-            .ok_or_else(|| fail("no_run_input", key))?;
+            .ok_or_else(|| Failure {
+                detail: NormalizedText::around(
+                    "the accepted base's ",
+                    key,
+                    " is not known, so no record can cover it",
+                ),
+                ..metadata("no_run_input")
+            })?;
         if !inputs
             .get_text(key)
             .is_some_and(|value| value.points().eq(expected.chars().map(u32::from)))
         {
-            return Err(fail("wrong_input", key));
+            return Err(Failure {
+                detail: NormalizedText::concat(
+                    [
+                        TextRef::Str("record input "),
+                        key,
+                        TextRef::Str("="),
+                        inputs.get_text(key).unwrap_or(TextRef::Str("None")),
+                        TextRef::Str(" is not the accepted base's "),
+                        key,
+                        TextRef::Str("="),
+                        TextRef::Str(expected),
+                    ]
+                    .into_iter(),
+                ),
+                ..metadata("wrong_input")
+            });
         }
     }
     if let Some(shards) = &rule.values.shard_inputs {
         let count_key = shards.count.borrowed();
-        let count = inputs
-            .get_text(count_key)
-            .and_then(shard_count)
-            .ok_or_else(|| fail("wrong_input", count_key))?;
+        let raw_count = inputs.get_text(count_key);
+        let count = raw_count.and_then(shard_count).ok_or_else(|| Failure {
+            detail: NormalizedText::concat(
+                [
+                    TextRef::Str("record input "),
+                    count_key,
+                    TextRef::Str(" is "),
+                    TextRef::Str(
+                        &raw_count
+                            .map_or_else(|| "None".into(), |v| python_repr::Repr(v).to_string()),
+                    ),
+                    TextRef::Str(", not a shard count from 1 to 16"),
+                ]
+                .into_iter(),
+            ),
+            ..metadata("wrong_input")
+        })?;
         let results_key = shards.results.borrowed();
         let complete = inputs
             .get_text(results_key)
             .is_some_and(|value| value.complete_shards(count));
-        if !complete
-            || (inputs
-                .get_text(TextRef::Str("event_name"))
-                .is_some_and(|event| event.equals("pull_request"))
-                && shards
-                    .pull_request_count
-                    .flatten()
-                    .is_some_and(|expected| expected != u64::from(count)))
+        if !complete {
+            use std::fmt::Write;
+            let mut expected = String::new();
+            for index in 0..count {
+                if index != 0 {
+                    expected.push(',');
+                }
+                // Formatting into String is infallible.
+                let _ = write!(expected, "{index}=success");
+            }
+            return Err(Failure {
+                detail: NormalizedText::concat(
+                    [
+                        TextRef::Str("record input "),
+                        results_key,
+                        TextRef::Str(" must name every one of its "),
+                        raw_count.unwrap_or(TextRef::Str("None")),
+                        TextRef::Str(" shards as a success ("),
+                        TextRef::Str(&expected),
+                        TextRef::Str(")"),
+                    ]
+                    .into_iter(),
+                ),
+                ..metadata("wrong_input")
+            });
+        }
+        if inputs
+            .get_text(TextRef::Str("event_name"))
+            .is_some_and(|event| event.equals("pull_request"))
+            && let Some(expected) = shards
+                .pull_request_count
+                .flatten()
+                .filter(|expected| *expected != u64::from(count))
         {
-            return Err(fail("wrong_input", results_key));
+            return Err(Failure {
+                detail: NormalizedText::concat(
+                    [
+                        TextRef::Str(&format!(
+                            "a pull_request record must have {expected} shard(s), not "
+                        )),
+                        raw_count.unwrap_or(TextRef::Str("None")),
+                    ]
+                    .into_iter(),
+                ),
+                ..metadata("wrong_input")
+            });
         }
     }
     Ok(())

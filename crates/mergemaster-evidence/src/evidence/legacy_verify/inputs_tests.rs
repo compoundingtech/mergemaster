@@ -47,6 +47,8 @@ for now in ['9999-12-31T23:57:59.999999Z','9999-12-31T23:58:00Z','9999-12-31T23:
     add('UTC overflow '+now,observed='9999-12-31T23:57:59Z',now=now,changes={})
 for value in ['', '\ud800', '\ufffd', '🦀']: add('required '+repr(value),changes=dict(req=value))
 for key in ['x'*32,'x'*33,'x'*100,'🦀']: add('required key '+key,changes={key:'\ud800'},rule_changes=dict(required_inputs=[key]))
+for key in ['\ud800','required','🦀']:
+    add('missing codepoint key '+ascii(key),changes={key:''},rule_changes=dict(required_inputs=[key]))
 for value in ['\ud800','\ufffd','bad']: add('rank '+repr(value),changes=dict(rank=value))
 for value in ['\ud800','\ufffd','bad']: add('base '+repr(value),changes=dict(base=value))
 for code in [1,-1,10**100,-10**1000]: add('code '+str(code),code=code,changes={})
@@ -100,7 +102,7 @@ print(json.dumps(cases))
         String::from_utf8_lossy(&output.stderr)
     );
     let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(cases.len(), 180);
+    assert_eq!(cases.len(), 183);
     for case in cases {
         let doc = super::super::statement_document::Document::from_bytes(
             case["raw"].as_str().unwrap().as_bytes(),
@@ -136,6 +138,9 @@ print(json.dumps(cases))
                 .into_rules("owner/repo")
                 .unwrap();
             use crate::evidence::legacy_policy::normalized_text::NormalizedText;
+            for key in &mut rules.kinds[0].1.inputs.required_inputs {
+                *key = NormalizedText::Codepoints(key.borrowed().points().collect());
+            }
             if let Some(prepared) = case["prepared"].as_object() {
                 rules.kinds[0].1.inputs.command =
                     serde_json::from_value::<Vec<Vec<u32>>>(prepared["command"].clone())
