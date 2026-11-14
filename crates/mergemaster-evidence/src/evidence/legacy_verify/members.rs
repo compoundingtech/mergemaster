@@ -131,3 +131,7 @@ fn collect<T>(
 #[cfg(test)]
 #[path = "members_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "members_git_tests.rs"]
+mod git_tests;
