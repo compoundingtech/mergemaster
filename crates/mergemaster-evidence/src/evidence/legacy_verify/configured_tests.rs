@@ -178,7 +178,7 @@ print(json.dumps(cases))
                 "crate_wire",
             ),
         ] {
-            let joined = verified(
+            let joined = retained(
                 &Request {
                     crate_key: binding,
                     ..q
@@ -186,14 +186,17 @@ print(json.dumps(cases))
                 Settings::Policy(&rules),
                 &mut judgment,
                 Levels::Utf8(&[]),
-                |view, record| {
-                    assert_eq!(view.record, record.candidate.commit);
+            )
+            .and_then(|note| {
+                note.with_view(q.tree, q.check, |view| {
+                    assert_eq!(view.record, note.record.candidate.commit);
+                    assert_eq!(view.signer, note.record.principal);
                     let mut wire = String::new();
                     crate::evidence::legacy_output::write(&mut wire, |w| view.write_json(w))
                         .unwrap();
                     wire
-                },
-            );
+                })
+            });
             match joined {
                 Ok(wire) => assert_eq!(
                     wire,
