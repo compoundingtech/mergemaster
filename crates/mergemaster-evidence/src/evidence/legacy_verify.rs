@@ -7,6 +7,7 @@ pub mod crate_closure;
 pub mod crate_input_document;
 pub mod crate_inputs;
 pub mod crate_inputs_text;
+pub mod crate_keys;
 pub mod crate_layout;
 pub mod crate_manifest_ops;
 pub mod crate_paths;
