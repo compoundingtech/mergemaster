@@ -4,10 +4,7 @@ use super::{
     projection_capture::{self, ExpectedOutput},
     selection::{selected_content, selector_item},
 };
-use crate::{
-    evidence::{legacy_policy::PolicyError, oid},
-    gate::git::git,
-};
+use crate::evidence::{legacy_policy::PolicyError, oid};
 use std::{
     collections::BTreeSet,
     io::Write,
@@ -40,6 +37,12 @@ fn projection_command(repo: &Path, args: &[&str]) -> Command {
         .stdin(Stdio::piped());
     cmd
 }
+#[cfg(test)]
+thread_local! {
+    static EXCHANGE_TIMEOUT: std::cell::Cell<Duration> = const {
+        std::cell::Cell::new(Duration::from_secs(60))
+    };
+}
 fn input_git(
     repo: &Path,
     args: &[&str],
@@ -51,13 +54,20 @@ fn input_git(
     if let Some(index) = index {
         cmd.env("GIT_INDEX_FILE", index);
     }
+    #[cfg(not(test))]
+    let timeout = Duration::from_secs(60);
+    #[cfg(test)]
+    let timeout = EXCHANGE_TIMEOUT.get();
     projection_capture::exchange(
         &mut cmd,
         bytes,
         args.first().copied().unwrap_or(""),
         expected,
-        Duration::from_secs(60),
+        timeout,
     )
+}
+pub(super) fn read_git(repo: &Path, args: &[&str], limit: usize) -> Result<Vec<u8>, PolicyError> {
+    input_git(repo, args, &[], None, ExpectedOutput::Bytes(limit))
 }
 pub fn project(repo: &Path, tree: &str, paths: &[String]) -> Result<Option<String>, PolicyError> {
     if oid(tree).is_err() {
@@ -90,18 +100,12 @@ pub fn project(repo: &Path, tree: &str, paths: &[String]) -> Result<Option<Strin
     }
     let mut entries = BTreeSet::new();
     if !plain.is_empty() {
-        let mut args = vec![
-            "ls-tree",
-            "-r",
-            "-z",
-            "--full-tree",
-            "--end-of-options",
-            tree,
-        ];
+        let mut args = vec!["ls-tree", "-r", "-z", "--full-tree", tree];
         if !whole {
+            args.push("--");
             args.extend(plain);
         }
-        parse_entries(&git(repo, &args).map_err(error)?, &mut entries)?;
+        parse_entries(&read_git(repo, &args, usize::MAX)?, &mut entries)?;
     }
     let mut index_bytes = Vec::new();
     for entry in entries {

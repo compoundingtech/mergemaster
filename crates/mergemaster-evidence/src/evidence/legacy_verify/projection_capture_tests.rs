@@ -76,3 +76,26 @@ fn spawn_and_timeout_keep_python_operation_context() {
         assert_eq!(error.detail, expected);
     }
 }
+
+#[test]
+fn byte_capture_preserves_binary_and_drains_overflow() {
+    let bytes = vec![0xff; 200_000];
+    assert_eq!(
+        run(
+            &bytes,
+            ExpectedOutput::Bytes(bytes.len()),
+            "65",
+            1_048_577,
+            0
+        )
+        .unwrap(),
+        bytes
+    );
+    assert_eq!(
+        run(&bytes, ExpectedOutput::Bytes(17), "", 0, 0)
+            .unwrap_err()
+            .detail,
+        "Git output exceeds 17 bytes"
+    );
+    assert_eq!(run(b"", ExpectedOutput::Bytes(0), "", 0, 0).unwrap(), b"");
+}

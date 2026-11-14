@@ -1,9 +1,9 @@
 //! Resolve configuration layout and select content from the supplied Git tree only.
-use super::{lane_git::config_path, selection_json::select_json, workflow::workflow_job};
-use crate::{
-    evidence::legacy_policy::PolicyError,
-    gate::git::{git, git_bounded},
+use super::{
+    lane_git::config_path_with, projection::read_git, selection_json::select_json,
+    workflow::workflow_job,
 };
+use crate::evidence::legacy_policy::PolicyError;
 use std::path::Path;
 fn error(detail: impl ToString) -> PolicyError {
     PolicyError {
@@ -17,7 +17,22 @@ pub fn selector_item(repo: &Path, tree: &str, item: &str) -> Result<Option<Strin
         && (path.starts_with(".st/") || path.starts_with(".fractal/"))
     {
         let legacy = path.replacen(".fractal/", ".st/", 1);
-        return Ok(config_path(repo, tree, &legacy)?.map(|path| format!("{path}::{selector}")));
+        return Ok(config_path_with(tree, &legacy, |preferred, legacy| {
+            read_git(
+                repo,
+                &[
+                    "ls-tree",
+                    "-z",
+                    "--full-tree",
+                    tree,
+                    "--",
+                    preferred,
+                    legacy,
+                ],
+                usize::MAX,
+            )
+        })?
+        .map(|path| format!("{path}::{selector}")));
     }
     Ok(Some(item.to_owned()))
 }
@@ -43,28 +58,20 @@ fn selected_content_limit(
 ) -> Result<Option<Vec<u8>>, PolicyError> {
     crate::evidence::oid(tree).map_err(error)?;
     let (path, selector) = item.split_once("::").unwrap_or((item, ""));
-    if git(
+    if read_git(
         repo,
-        &[
-            "ls-tree",
-            "--full-tree",
-            "--end-of-options",
-            tree,
-            "--",
-            path,
-        ],
-    )
-    .map_err(error)?
+        &["ls-tree", "--full-tree", tree, "--", path],
+        usize::MAX,
+    )?
     .is_empty()
     {
         return Ok(None);
     }
-    let shown = git_bounded(
+    let shown = read_git(
         repo,
         &["show", "--end-of-options", &format!("{tree}:{path}")],
         max_bytes,
-    )
-    .map_err(error)?;
+    )?;
     let text = std::str::from_utf8(&shown).map_err(error)?;
     if let Some(job) = selector.strip_prefix("jobs.") {
         workflow_job(text, job)

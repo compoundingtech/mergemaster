@@ -16,12 +16,15 @@ pub enum ExpectedOutput {
     Sha1,
     Sha256,
     Discard,
+    Bytes(usize),
 }
 use super::projection_oid::{ObjectId, space};
 struct ProjectionCapture<'a> {
     operation: &'a str,
     expected: ExpectedOutput,
     stdout: ObjectId,
+    bytes: Vec<u8>,
+    stdout_overflow: bool,
     stderr: VecDeque<u8>,
     overflow: bool,
 }
@@ -36,11 +39,15 @@ impl CaptureSink for ProjectionCapture<'_> {
     type Output = Result<Vec<u8>, PolicyError>;
     fn push(&mut self, stream: Stream, bytes: &[u8]) -> Result<(), ProcessError> {
         match stream {
-            Stream::Stdout => {
-                if !matches!(self.expected, ExpectedOutput::Discard) {
-                    self.stdout.push(bytes);
+            Stream::Stdout => match self.expected {
+                ExpectedOutput::Bytes(limit) => {
+                    let retained = bytes.len().min(limit.saturating_sub(self.bytes.len()));
+                    self.stdout_overflow |= retained != bytes.len();
+                    self.bytes.extend_from_slice(&bytes[..retained]);
                 }
-            }
+                ExpectedOutput::Discard => {}
+                ExpectedOutput::Sha1 | ExpectedOutput::Sha256 => self.stdout.push(bytes),
+            },
             Stream::Stderr => {
                 let excess = self
                     .stderr
@@ -74,6 +81,13 @@ impl CaptureSink for ProjectionCapture<'_> {
             ExpectedOutput::Sha1 => 40,
             ExpectedOutput::Sha256 => 64,
             ExpectedOutput::Discard => return Ok(Vec::new()),
+            ExpectedOutput::Bytes(limit) => {
+                return if self.stdout_overflow {
+                    Err(failure(format!("Git output exceeds {limit} bytes")))
+                } else {
+                    Ok(self.bytes)
+                };
+            }
         };
         self.stdout.finish(width).ok_or_else(|| {
             failure(format!(
@@ -99,6 +113,8 @@ pub fn exchange(
         operation,
         expected,
         stdout: ObjectId::default(),
+        bytes: Vec::new(),
+        stdout_overflow: false,
         stderr: VecDeque::new(),
         overflow: false,
     };

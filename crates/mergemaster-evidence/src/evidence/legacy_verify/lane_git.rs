@@ -143,22 +143,31 @@ pub(super) fn config_path(
     commit: &str,
     legacy: &str,
 ) -> Result<Option<String>, PolicyError> {
+    config_path_with(commit, legacy, |preferred, legacy| {
+        git(
+            repo,
+            &[
+                "ls-tree",
+                "-z",
+                "--full-tree",
+                "--end-of-options",
+                commit,
+                "--",
+                preferred,
+                legacy,
+            ],
+        )
+        .map_err(error)
+    })
+}
+pub(super) fn config_path_with(
+    commit: &str,
+    legacy: &str,
+    read: impl FnOnce(&str, &str) -> Result<Vec<u8>, PolicyError>,
+) -> Result<Option<String>, PolicyError> {
     crate::evidence::oid(commit).map_err(error)?;
     let preferred = legacy.replacen(".st/", ".fractal/", 1);
-    let listing = git(
-        repo,
-        &[
-            "ls-tree",
-            "-z",
-            "--full-tree",
-            "--end-of-options",
-            commit,
-            "--",
-            &preferred,
-            legacy,
-        ],
-    )
-    .map_err(error)?;
+    let listing = read(&preferred, legacy)?;
     let mut entries = BTreeSet::new();
     parse_entries(&listing, &mut entries)?;
     Ok([preferred.as_str(), legacy]
