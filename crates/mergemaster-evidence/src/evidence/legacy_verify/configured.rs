@@ -104,6 +104,7 @@ fn record_position(records: &[TrustedCandidate], commit: &str) -> Result<usize, 
         .ok_or_else(super::invalid_statement_failure)
 }
 
+#[derive(Clone, Copy)]
 pub enum Settings<'a> {
     Policy(&'a PolicyRules),
     Unconfigured(&'a super::judgment::Unconfigured<'a>),
