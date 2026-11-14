@@ -53,8 +53,8 @@ pub fn route<'a>(
     record: &RecordFacts<'_>,
     attempts: usize,
 ) -> Result<Routing<'a>, Failure> {
-    route_source(
-        Rules::Policy(policy),
+    route_policy(
+        policy,
         RoutingFacts {
             tier: TextRef::Str(match record.tier {
                 TrustTier::Full => "full",
@@ -70,7 +70,6 @@ pub fn route<'a>(
         },
         attempts,
     )
-    .map(|routing| routing.expect("policy route supplies a rule"))
 }
 /// Route lossless validated facts; callers still independently verify signatures.
 pub fn route_document<'a>(
@@ -78,8 +77,8 @@ pub fn route_document<'a>(
     record: &DocumentFacts<'_>,
     attempts: usize,
 ) -> Result<Routing<'a>, Failure> {
-    route_source(
-        Rules::Policy(policy),
+    route_policy(
+        policy,
         RoutingFacts {
             tier: TextRef::Points(record.tier),
             check: record.check_name.into(),
@@ -91,7 +90,6 @@ pub fn route_document<'a>(
         },
         attempts,
     )
-    .map(|routing| routing.expect("policy route supplies a rule"))
 }
 /// Route validated facts without policy overrides or implicit shard/lane restrictions.
 /// Signatures must be verified independently; later input/lane/binding guards still apply.
@@ -100,53 +98,87 @@ pub fn route_unconfigured(
     record: &DocumentFacts<'_>,
     attempts: usize,
 ) -> Result<(), Failure> {
-    route_source(
-        Rules::Unconfigured(rules),
-        RoutingFacts {
-            tier: TextRef::Points(record.tier),
-            check: record.check_name.into(),
-            exit_code: ExitCode::Decimal(record.exit_code),
-            failed: record.failed(),
-            runner: TextRef::Points(record.runner),
-            principal: record.principal,
-            inputs: record.input_source(),
-        },
+    let record = RoutingFacts {
+        tier: TextRef::Points(record.tier),
+        check: record.check_name.into(),
+        exit_code: ExitCode::Decimal(record.exit_code),
+        failed: record.failed(),
+        runner: TextRef::Points(record.runner),
+        principal: record.principal,
+        inputs: record.input_source(),
+    };
+    let name = route_source(Rules::Unconfigured(rules), &record, attempts)?;
+    if !rules
+        .kinds
+        .iter()
+        .any(|kind| TextRef::Points(kind).equals(name))
+    {
+        return Err(unsupported_kind(
+            Rules::Unconfigured(rules),
+            record.runner,
+            attempts,
+        ));
+    }
+    let level = record.principal.split('/').next().unwrap_or("");
+    check_level(
+        rules.trust_levels.is_none_or(|levels| {
+            levels
+                .iter()
+                .any(|accepted| TextRef::Points(accepted).equals(level))
+        }),
+        level,
         attempts,
     )?;
     check_runner(
-        TextRef::Points(record.runner),
+        record.runner,
         rules.runner_prefix.map(TextRef::Points),
         attempts,
     )
 }
-fn route_source<'a>(
-    rules: Rules<'a>,
+fn route_policy<'a>(
+    policy: &'a PolicyRules,
     record: RoutingFacts<'_>,
     attempts: usize,
-) -> Result<Option<Routing<'a>>, Failure> {
+) -> Result<Routing<'a>, Failure> {
+    let name = route_source(Rules::Policy(policy), &record, attempts)?;
+    let kind = policy
+        .kinds
+        .iter()
+        .find(|(key, _)| key == name)
+        .map(|(_, rule)| rule)
+        .ok_or_else(|| unsupported_kind(Rules::Policy(policy), record.runner, attempts))?;
+    let level = record.principal.split('/').next().unwrap_or("");
+    check_level(
+        kind.trust_levels
+            .as_deref()
+            .unwrap_or(&policy.header.trust_levels)
+            .iter()
+            .any(|accepted| accepted.borrowed().equals(level)),
+        level,
+        attempts,
+    )?;
+    let override_ = kind
+        .by_level
+        .iter()
+        .find(|(name, _)| name.borrowed().equals(level))
+        .map(|(_, rule)| rule);
+    let command_inputs = override_.map_or(&kind.inputs, |rule| &rule.inputs);
+    Ok(Routing {
+        kind,
+        command_inputs,
+        level: override_,
+    })
+}
+fn route_source(
+    rules: Rules<'_>,
+    record: &RoutingFacts<'_>,
+    attempts: usize,
+) -> Result<&'static str, Failure> {
     let fail = |reason, detail| Failure {
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason,
         detail,
         attempts: Some(attempts),
-    };
-    let unsupported = || {
-        let prefix = format!("runner {} is not one of ", Repr(record.runner));
-        let kinds = match rules {
-            Rules::Policy(_) => &[][..],
-            Rules::Unconfigured(rules) => rules.kinds,
-        };
-        fail(
-            "unsupported_kind",
-            NormalizedText::concat(std::iter::once(TextRef::Str(prefix.as_str())).chain(
-                kinds.iter().enumerate().flat_map(|(i, name)| {
-                    (i > 0)
-                        .then_some(TextRef::Str(", "))
-                        .into_iter()
-                        .chain(std::iter::once(TextRef::Points(name)))
-                }),
-            )),
-        )
     };
     let policy = match rules {
         Rules::Policy(policy) => Some(policy),
@@ -168,66 +200,42 @@ fn route_source<'a>(
             NormalizedText::around("latest record has tier ", record.tier, ", not full"),
         ));
     }
-    let name = kind_of_text(record.runner).ok_or_else(unsupported)?;
-    let kind = match rules {
-        Rules::Policy(policy) => Some(
-            policy
-                .kinds
-                .iter()
-                .find(|(key, _)| key == name)
-                .map(|(_, rule)| rule)
-                .ok_or_else(unsupported)?,
-        ),
-        Rules::Unconfigured(rules) => {
-            if !rules
-                .kinds
-                .iter()
-                .any(|kind| TextRef::Points(kind).equals(name))
-            {
-                return Err(unsupported());
-            }
-            None
-        }
+    kind_of_text(record.runner).ok_or_else(|| unsupported_kind(rules, record.runner, attempts))
+}
+fn unsupported_kind(rules: Rules<'_>, runner: TextRef<'_>, attempts: usize) -> Failure {
+    let prefix = format!("runner {} is not one of ", Repr(runner));
+    let kinds = match rules {
+        Rules::Policy(_) => &[][..],
+        Rules::Unconfigured(rules) => rules.kinds,
     };
-    let level = record.principal.split('/').next().unwrap_or("");
-    let accepted = match (rules, kind) {
-        (Rules::Policy(policy), Some(kind)) => kind
-            .trust_levels
-            .as_deref()
-            .unwrap_or(&policy.header.trust_levels)
-            .iter()
-            .any(|accepted| accepted.borrowed().equals(level)),
-        (Rules::Unconfigured(rules), _) => rules.trust_levels.is_none_or(|levels| {
-            levels
-                .iter()
-                .any(|accepted| TextRef::Points(accepted).equals(level))
-        }),
-        _ => unreachable!("policy kind was resolved above"),
-    };
+    Failure {
+        origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
+        reason: "unsupported_kind",
+        detail: NormalizedText::concat(std::iter::once(TextRef::Str(prefix.as_str())).chain(
+            kinds.iter().enumerate().flat_map(|(i, name)| {
+                (i > 0)
+                    .then_some(TextRef::Str(", "))
+                    .into_iter()
+                    .chain(std::iter::once(TextRef::Points(name)))
+            }),
+        )),
+        attempts: Some(attempts),
+    }
+}
+fn check_level(accepted: bool, level: &str, attempts: usize) -> Result<(), Failure> {
     if !accepted {
-        return Err(fail(
-            "untrusted_level",
-            format!(
+        return Err(Failure {
+            origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
+            reason: "untrusted_level",
+            detail: format!(
                 "signer trust level {} is not accepted for this check",
                 Repr(TextRef::Str(level)),
             )
             .into(),
-        ));
+            attempts: Some(attempts),
+        });
     }
-    let Some(kind) = kind else {
-        return Ok(None);
-    };
-    let override_ = kind
-        .by_level
-        .iter()
-        .find(|(name, _)| name.borrowed().equals(level))
-        .map(|(_, rule)| rule);
-    let command_inputs = override_.map_or(&kind.inputs, |rule| &rule.inputs);
-    Ok(Some(Routing {
-        kind,
-        command_inputs,
-        level: override_,
-    }))
+    Ok(())
 }
 impl Routing<'_> {
     /// Call after any required lazy lane lookup, matching the oracle's reason order.
