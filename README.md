@@ -656,6 +656,9 @@ arithmetic; Rust's distinct bound diagnostic is not claimed as Python refusal pa
 Out-of-range floats share that inherited bound diagnostic because serde_json::Value
 has lost numeric provenance. The retained-source numeric slice fixes this before CLI parity.
 Nested kind/level and other judgment construction follow in separate module slices.
+Command/base/value helper contexts are borrowed lossless fragments. Direct missing
+command and unhashable input-order members preserve KeyError/TypeError provenance;
+outer kind/level missing-command guards remain ordinary policy failures.
 Failure attempts distinguish `None` (absent) from `Some(0)` (explicit zero).
 Exceptions and prefix misses retain absence; degraded records retain their explicit
 count. Zero normalization is confined to existing oracle-test transports, not wire output.

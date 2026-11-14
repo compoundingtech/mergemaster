@@ -1,5 +1,6 @@
 //! Legacy input-value ordering and shard declarations, not evidence judgments.
-use super::{PolicyError, invalid, names};
+use super::{PolicyError, exception, names, rule_error};
+use crate::evidence::legacy_verify::failure_json::TextRef;
 use serde::Serialize;
 use serde_json::{Map, Value};
 use std::collections::HashSet;
@@ -24,12 +25,13 @@ pub struct ShardInputs {
 /// Consume the two value-rule fields; outer kind key validation is separate.
 pub fn checked_value_rules(
     rule: &mut Map<String, Value>,
-    where_: &str,
+    where_: &[TextRef<'_>],
 ) -> Result<ValueRules, PolicyError> {
     let order_error = || {
-        invalid(format!(
-            "skip policy for {where_}: input_order maps an input to two or more distinct values, strongest first"
-        ))
+        rule_error(
+            where_,
+            "input_order maps an input to two or more distinct values, strongest first",
+        )
     };
     let Value::Object(order) = rule
         .remove("input_order")
@@ -39,6 +41,24 @@ pub fn checked_value_rules(
     };
     let mut input_order = Vec::with_capacity(order.len());
     for (key, value) in order {
+        // Python builds set(v) before checking that every member is a string.
+        if !key.is_empty()
+            && let Some(values) = value.as_array().filter(|v| v.len() >= 2)
+        {
+            for item in values {
+                let kind = match item {
+                    Value::Array(_) => Some("list"),
+                    Value::Object(_) => Some("dict"),
+                    _ => None,
+                };
+                if let Some(kind) = kind {
+                    return Err(exception(
+                        "TypeError",
+                        format!("cannot use '{kind}' as a set element (unhashable type: '{kind}')"),
+                    ));
+                }
+            }
+        }
         let values = names(value)
             .filter(|values| {
                 values.len() >= 2 && values.iter().collect::<HashSet<_>>().len() == values.len()
@@ -50,9 +70,10 @@ pub fn checked_value_rules(
         input_order.push((key, values));
     }
     let shard_error = || {
-        invalid(format!(
-            "skip policy for {where_}: shard_inputs needs count and results input names, an optional pull_request_count from 1 to 16 and an optional index input name"
-        ))
+        rule_error(
+            where_,
+            "shard_inputs needs count and results input names, an optional pull_request_count from 1 to 16 and an optional index input name",
+        )
     };
     let shard_inputs = match rule.remove("shard_inputs") {
         None | Some(Value::Null) => None,
@@ -174,11 +195,14 @@ print(json.dumps(results))
         assert_eq!(expected.len(), cases.len());
         for (rule, expected) in cases.iter().zip(expected) {
             let mut fields = rule.as_object().unwrap().clone();
-            let actual = checked_value_rules(&mut fields, "fixture")
+            let actual = checked_value_rules(&mut fields, &[TextRef::Str("fixture")])
                 .map(|rules| serde_json::to_value(rules).unwrap())
                 .unwrap_or_else(|error| {
                     assert!(
-                        error
+                        matches!(
+                            error.origin,
+                            super::super::ErrorOrigin::Exception { class: "TypeError" }
+                        ) || error
                             .detail
                             .to_string()
                             .starts_with("skip policy for fixture: ")
@@ -196,9 +220,11 @@ print(json.dumps(results))
           "base_inputs":{"z":"old.txt","a":"middle.txt","z":"last.txt"},
           "input_order":{"z":["old","weak"],"a":["middle","weak"],"z":["last","weak"]}}"#;
         let mut fields: Map<String, Value> = serde_json::from_str(text).unwrap();
-        let command = super::super::checked_command_inputs(&mut fields, "fixture").unwrap();
-        let base = super::super::checked_base_inputs(&mut fields, "fixture").unwrap();
-        let values = checked_value_rules(&mut fields, "fixture").unwrap();
+        let command =
+            super::super::checked_command_inputs(&mut fields, &[TextRef::Str("fixture")]).unwrap();
+        let base =
+            super::super::checked_base_inputs(&mut fields, &[TextRef::Str("fixture")]).unwrap();
+        let values = checked_value_rules(&mut fields, &[TextRef::Str("fixture")]).unwrap();
         let actual = json!([command.bind_inputs, base, values.input_order]);
         let root = std::env::var("MERGEMASTER_PYTHON_ORACLE")
             .expect("MERGEMASTER_PYTHON_ORACLE must point to the pinned Python oracle");
@@ -241,7 +267,10 @@ print(json.dumps([list(value.items()) for value in (binds, base, order)]))
             .iter()
             .map(|rule| {
                 let mut fields = rule.as_object().unwrap().clone();
-                serde_json::to_value(checked_value_rules(&mut fields, "fixture").unwrap()).unwrap()
+                serde_json::to_value(
+                    checked_value_rules(&mut fields, &[TextRef::Str("fixture")]).unwrap(),
+                )
+                .unwrap()
             })
             .collect();
         let root = std::env::var("MERGEMASTER_PYTHON_ORACLE")
