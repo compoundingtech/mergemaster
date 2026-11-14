@@ -1,9 +1,9 @@
 //! Resolve configuration layout and select content from the supplied Git tree only.
 use super::{
-    binding_path::encode, lane_git::config_path_with, projection::read_git,
+    binding_path::encode, crate_inputs_text::utf8, projection::read_git,
     selection_json::select_json, value_inputs::TextRef, workflow::workflow_job,
 };
-use crate::evidence::legacy_policy::PolicyError;
+use crate::evidence::legacy_policy::{ErrorOrigin, PolicyError, normalized_text::NormalizedText};
 use std::{ffi::OsStr, os::unix::ffi::OsStrExt, path::Path};
 fn error(detail: impl ToString) -> PolicyError {
     PolicyError {
@@ -12,31 +12,77 @@ fn error(detail: impl ToString) -> PolicyError {
         detail: detail.to_string().into(),
     }
 }
-pub fn selector_item(repo: &Path, tree: &str, item: &str) -> Result<Option<String>, PolicyError> {
+fn replace_first(text: TextRef<'_>, needle: &str, replacement: &str) -> NormalizedText {
+    if let Some((head, tail)) = text.split_once(needle) {
+        NormalizedText::concat([head, TextRef::Str(replacement), tail].into_iter())
+    } else {
+        NormalizedText::around("", text, "")
+    }
+}
+pub fn selector_item<'a>(
+    repo: &Path,
+    tree: &str,
+    item: impl Into<TextRef<'a>>,
+) -> Result<Option<NormalizedText>, PolicyError> {
+    let item = item.into();
     if let Some((path, selector)) = item.split_once("::")
         && (path.starts_with(".st/") || path.starts_with(".fractal/"))
     {
-        let legacy = path.replacen(".fractal/", ".st/", 1);
-        return Ok(config_path_with(tree, &legacy, |preferred, legacy| {
-            read_git(
-                repo,
-                &[
-                    "ls-tree",
-                    "-z",
-                    "--full-tree",
-                    tree,
-                    "--",
-                    preferred,
-                    legacy,
-                ],
-                usize::MAX,
-            )
-        })?
-        .map(|path| format!("{path}::{selector}")));
+        crate::evidence::oid(tree).map_err(error)?;
+        let legacy = replace_first(path, ".fractal/", ".st/");
+        let preferred = replace_first(legacy.borrowed(), ".st/", ".fractal/");
+        let preferred_bytes = encode(preferred.borrowed(), 0, true)?;
+        let legacy_bytes = encode(legacy.borrowed(), 0, true)?;
+        let listing = read_git(
+            repo,
+            &[
+                OsStr::new("ls-tree"),
+                OsStr::new("-z"),
+                OsStr::new("--full-tree"),
+                OsStr::new(tree),
+                OsStr::new("--"),
+                OsStr::from_bytes(&preferred_bytes),
+                OsStr::from_bytes(&legacy_bytes),
+            ],
+            usize::MAX,
+        )?;
+        let (mut has_preferred, mut has_legacy) = (false, false);
+        for row in listing
+            .split(|byte| *byte == 0)
+            .filter(|row| !row.is_empty())
+        {
+            let name = row
+                .iter()
+                .position(|byte| *byte == b'\t')
+                .map_or(&[][..], |tab| &row[tab + 1..]);
+            utf8(name).map_err(|detail| PolicyError {
+                origin: ErrorOrigin::Exception {
+                    class: "UnicodeDecodeError",
+                },
+                reason: "error",
+                detail: detail.into(),
+            })?;
+            has_preferred |= name == preferred_bytes.as_ref();
+            has_legacy |= name == legacy_bytes.as_ref();
+        }
+        let resolved = if has_preferred {
+            Some(&preferred)
+        } else if has_legacy {
+            Some(&legacy)
+        } else {
+            None
+        };
+        return Ok(resolved.map(|path| {
+            NormalizedText::concat([path.borrowed(), TextRef::Str("::"), selector].into_iter())
+        }));
     }
-    Ok(Some(item.to_owned()))
+    Ok(Some(NormalizedText::around("", item, "")))
 }
-pub fn selected(repo: &Path, tree: &str, item: &str) -> Result<Option<Vec<u8>>, PolicyError> {
+pub fn selected<'a>(
+    repo: &Path,
+    tree: &str,
+    item: impl Into<TextRef<'a>>,
+) -> Result<Option<Vec<u8>>, PolicyError> {
     match selector_item(repo, tree, item)? {
         Some(item) => selected_content(repo, tree, &item),
         None => Ok(None),
