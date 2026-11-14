@@ -20,6 +20,18 @@ fn error(detail: impl ToString) -> PolicyError {
         detail: detail.to_string().into(),
     }
 }
+fn validated_subject(doc: &Document) -> Result<String, PolicyError> {
+    let name = (|| {
+        let subjects = array(field(doc, doc.root(), "subject")?)?;
+        string(field(doc, doc.try_node(*subjects.first()?)?, "name")?)
+    })()
+    .ok_or_else(super::invalid_statement)?;
+    name.iter()
+        .copied()
+        .map(char::from_u32)
+        .collect::<Option<String>>()
+        .ok_or_else(super::invalid_statement)
+}
 /// Read one immutable record. Malformed records refuse; Git failures remain errors.
 pub fn read_statement(
     repo: &Path,
@@ -77,9 +89,7 @@ pub fn read_statement(
     let Some(doc) = statement_of(&blob, path)? else {
         return Ok(None);
     };
-    let subjects = array(field(&doc, doc.root(), "subject").expect("validated subject")).unwrap();
-    let name = string(field(&doc, doc.node(subjects[0]), "name").expect("validated name")).unwrap();
-    let subject: String = name.iter().map(|p| char::from_u32(*p).unwrap()).collect();
+    let subject = validated_subject(&doc)?;
     let raw = git_bounded(
         repo,
         &["cat-file", "commit", "--end-of-options", commit],

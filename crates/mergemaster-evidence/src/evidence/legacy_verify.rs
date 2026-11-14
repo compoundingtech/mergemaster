@@ -67,6 +67,23 @@ impl Failure {
     }
 }
 
+pub(super) fn invalid_statement() -> super::legacy_policy::PolicyError {
+    super::legacy_policy::PolicyError {
+        reason: "error",
+        origin: ErrorOrigin::Failure,
+        detail: "invalid validated statement".into(),
+    }
+}
+pub(super) fn invalid_statement_failure() -> Failure {
+    let error = invalid_statement();
+    Failure {
+        reason: error.reason,
+        origin: error.origin,
+        detail: error.detail,
+        attempts: None,
+    }
+}
+
 pub fn value_checks(
     rule: &KindRule,
     inputs: &BTreeMap<String, String>,

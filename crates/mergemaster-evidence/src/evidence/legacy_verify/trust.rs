@@ -36,25 +36,20 @@ pub fn partition(
     };
     for candidate in candidates {
         let doc = &candidate.statement;
-        let predicate = field(doc, doc.root(), "predicate").expect("validated predicate");
+        let predicate = field(doc, doc.root(), "predicate").ok_or_else(super::invalid_statement)?;
         let is = |node, expected: &str| {
             string(node).is_some_and(|s| s.iter().copied().eq(expected.chars().map(u32::from)))
         };
         if is(
-            field(doc, predicate, "tier").expect("validated tier"),
+            field(doc, predicate, "tier").ok_or_else(super::invalid_statement)?,
             "degraded",
         ) {
             groups.degraded.push(candidate);
             continue;
         }
+        let signer = field(doc, predicate, "signer").ok_or_else(super::invalid_statement)?;
         let (status, principal) = signature(repo, &candidate.commit, keys, revocations)?;
-        if status == "G"
-            && !principal.is_empty()
-            && is(
-                field(doc, predicate, "signer").expect("validated signer"),
-                &principal,
-            )
-        {
+        if status == "G" && !principal.is_empty() && is(signer, &principal) {
             groups.trusted.push(TrustedCandidate {
                 candidate,
                 principal,

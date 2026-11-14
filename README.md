@@ -784,6 +784,10 @@ empty arrays/objects. Byte-statement and record APIs return `statement-too-deep`
 above that depth. This is a deterministic, fail-closed guard before the owned
 cache port: Python's end-to-end deepcopy fails at interpreter-dependent depths.
 Depth does not bound arena node count; the 1 MiB statement-byte cap bounds nodes.
+Library-only invariant refusals have no Python counterpart: manually constructed
+malformed validated-record primitives return `error` / Failure with
+`invalid validated statement` (no attempts). These states are unreachable through
+statement ingress.
 `records::read_statement` adds bounded Git capture and record layout/parent/subject
 checks (3f-3a), with `statement-too-large` distinct from malformed-record refusal.
 Missing subjects are allowed without lazy fetch. `records::RecordCache`

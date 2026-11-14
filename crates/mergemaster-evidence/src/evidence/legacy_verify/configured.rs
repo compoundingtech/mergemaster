@@ -53,22 +53,7 @@ pub fn required(
         },
     )?;
     let check = q.check.codepoints();
-    let prepared = Prepared::new(
-        rules,
-        records
-            .iter()
-            .map(|record| Candidate {
-                commit: &record.candidate.commit,
-                facts: DocumentFacts::for_check(
-                    &record.candidate.statement,
-                    &check,
-                    &record.principal,
-                )
-                .expect("prefix supplied validated trusted check"),
-            })
-            .collect(),
-        q.check,
-    )?;
+    let prepared = prepare_records(&records, rules, &check)?;
     let decision = CheckJudgment {
         clock,
         run_inputs: &BTreeMap::new(),
@@ -79,11 +64,37 @@ pub fn required(
     let (index, _) = decision.result?;
     let commit = prepared.candidates[index].commit;
     // Prepared may remove shard parts: its index is not an index into records.
-    let original = records
+    let original = record_position(&records, commit)?;
+    Ok(records.swap_remove(original))
+}
+
+fn prepare_records<'a>(
+    records: &'a [TrustedCandidate],
+    rules: &'a PolicyRules,
+    check: &'a [u32],
+) -> Result<Prepared<'a>, Failure> {
+    let candidates = records
+        .iter()
+        .map(|record| {
+            Ok(Candidate {
+                commit: &record.candidate.commit,
+                facts: DocumentFacts::for_check(
+                    &record.candidate.statement,
+                    check,
+                    &record.principal,
+                )
+                .ok_or_else(super::invalid_statement_failure)?,
+            })
+        })
+        .collect::<Result<Vec<_>, Failure>>()?;
+    Prepared::new(rules, candidates, check)
+}
+
+fn record_position(records: &[TrustedCandidate], commit: &str) -> Result<usize, Failure> {
+    records
         .iter()
         .position(|record| record.candidate.commit == commit)
-        .expect("prepared candidate belongs to collected records");
-    Ok(records.swap_remove(original))
+        .ok_or_else(super::invalid_statement_failure)
 }
 
 /// Configured required-check selection with bound-file reads from the candidate tree.
