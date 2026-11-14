@@ -19,6 +19,7 @@ pub struct Candidate {
 pub struct Collected {
     pub records: Vec<Candidate>,
     pub legacy: Vec<String>,
+    pub input_key: Option<String>,
 }
 fn input_node<'a>(doc: &'a Document, key: &str) -> Option<&'a Node> {
     let predicate = field(doc, doc.root(), "predicate")?;
@@ -149,13 +150,13 @@ impl CandidateCollector {
         } else {
             None
         };
-        if let Some(key) = input_key {
-            for commit in discovery::input_refs(repo, check, &key)? {
+        if let Some(key) = input_key.as_deref() {
+            for commit in discovery::input_refs(repo, check, key)? {
                 if mine.contains_key(&commit) {
                     continue;
                 }
                 if let Some(statement) = self.cache.load(repo, &commit, None)?
-                    && equals(input(&statement, "source_inputs"), &key)
+                    && equals(input(&statement, "source_inputs"), key)
                     && match crate_key {
                         Some(binding) => signed_for_crate(&statement, binding)?,
                         None => true,
@@ -171,6 +172,7 @@ impl CandidateCollector {
                 .map(|(commit, statement)| Candidate { commit, statement })
                 .collect(),
             legacy,
+            input_key,
         })
     }
 }

@@ -208,6 +208,7 @@ print(json.dumps(cases))
                 let prepared = Prepared::unconfigured(
                     &options,
                     records
+                        .records
                         .iter()
                         .map(|record| Candidate {
                             commit: &record.candidate.commit,
@@ -242,5 +243,31 @@ print(json.dumps(cases))
             "{}",
             case["name"]
         );
+        calls.borrow_mut().clear();
+        let joined = super::super::configured::verified(
+            &Request {
+                repo,
+                tree,
+                check: "check".into(),
+                keys: case["keys"].as_str().unwrap(),
+                inputs: None,
+                crate_key: None,
+            },
+            super::super::configured::Settings::Unconfigured(&options),
+            &mut judgment,
+            Levels::Codepoints(&prefer),
+            |result, record| {
+                assert_eq!(result.record, record.candidate.commit);
+                json!({"satisfied":result.satisfied,"tree":result.tree,"check":result.check.to_string(),"record":result.record,"kind":result.kind,"signer":result.signer,"trust_level":result.trust_level,"tier":result.tier,"observed_at":result.observed_at,"command":result.command().collect::<Vec<_>>(),"inputs":result.inputs().collect::<Vec<_>>(),"attempts":result.attempts,"policy":result.policy,"max_age_s":result.max_age_s,"enforce":result.enforce,"match":result.r#match,"matched_tree":result.matched_tree,"source_inputs":result.source_inputs,"sample_one_in":result.sample_one_in,"events":result.events().map(|e| e.collect::<Vec<_>>()),"decided_by":result.decided_by,"skipped_newer":result.skipped_newer})
+            },
+        );
+        match joined {
+            Ok(value) => assert_eq!(value, case["expected"], "{}", case["name"]),
+            Err(error) => {
+                assert_eq!(error.reason, case["expected"]["reason"]);
+                assert_eq!(error.attempts.unwrap_or(0), case["expected"]["attempts"]);
+            }
+        }
+        assert_eq!(json!(calls.borrow().as_slice()), case["calls"]);
     }
 }

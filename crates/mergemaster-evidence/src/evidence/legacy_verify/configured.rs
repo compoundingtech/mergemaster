@@ -1,4 +1,4 @@
-//! The configured verification call used by require_all, not its lane/error aggregation.
+//! Joined legacy verification; require_all retains its deliberately narrower call.
 use super::{
     Failure,
     candidates::{Candidate, LaneOnce, Levels, Prepared},
@@ -51,7 +51,8 @@ pub fn required(
             crate_key: None,
             ..*q
         },
-    )?;
+    )?
+    .records;
     let check = q.check.codepoints();
     let prepared = prepare_records(&records, rules, &check)?;
     let decision = CheckJudgment {
@@ -73,7 +74,14 @@ fn prepare_records<'a>(
     rules: &'a PolicyRules,
     check: &'a [u32],
 ) -> Result<Prepared<'a>, Failure> {
-    let candidates = records
+    Prepared::new(rules, document_candidates(records, check)?, check)
+}
+
+fn document_candidates<'a>(
+    records: &'a [TrustedCandidate],
+    check: &'a [u32],
+) -> Result<Vec<Candidate<'a>>, Failure> {
+    records
         .iter()
         .map(|record| {
             Ok(Candidate {
@@ -86,8 +94,7 @@ fn prepare_records<'a>(
                 .ok_or_else(super::invalid_statement_failure)?,
             })
         })
-        .collect::<Result<Vec<_>, Failure>>()?;
-    Prepared::new(rules, candidates, check)
+        .collect()
 }
 
 fn record_position(records: &[TrustedCandidate], commit: &str) -> Result<usize, Failure> {
@@ -95,6 +102,55 @@ fn record_position(records: &[TrustedCandidate], commit: &str) -> Result<usize, 
         .iter()
         .position(|record| record.candidate.commit == commit)
         .ok_or_else(super::invalid_statement_failure)
+}
+
+pub enum Settings<'a> {
+    Policy(&'a PolicyRules),
+    Unconfigured(&'a super::judgment::Unconfigured<'a>),
+}
+
+/// The general verified() join, retaining crate/run-input/preferred-level behavior.
+/// Reuse `judgment` across members to memoize the accepted-base lane once.
+/// The callback borrows original documents and complete selection metadata; it
+/// may emit wire output or retain owned fields without a serialize/reparse bridge.
+/// Prefix uses Python's empty revocation file, not external revocation policy.
+pub fn verified<T, P: Provider>(
+    q: &Request<'_>,
+    settings: Settings<'_>,
+    judgment: &mut CheckJudgment<'_, P>,
+    prefer: Levels<'_>,
+    emit: impl FnOnce(&super::result::Satisfied<'_>, &TrustedCandidate) -> T,
+) -> Result<T, Failure> {
+    let inputs = match settings {
+        Settings::Policy(rules) => rules.header.inputs.as_deref(),
+        Settings::Unconfigured(_) => None,
+    };
+    let gathered = candidates(
+        &mut CandidateCollector::for_check(),
+        &Request { inputs, ..*q },
+    )?;
+    let check = q.check.codepoints();
+    let records = document_candidates(&gathered.records, &check)?;
+    let prepared = match settings {
+        Settings::Policy(rules) => Prepared::new(rules, records, &*check)?,
+        Settings::Unconfigured(options) => Prepared::unconfigured(options, records),
+    };
+    let decision = judgment.select(&prepared, q.check, prefer);
+    let selected = decision.result?;
+    let original = record_position(&gathered.records, prepared.candidates[selected.0].commit)?;
+    let decision = super::ordering::Decision {
+        result: Ok(selected),
+        walk: decision.walk,
+    };
+    let view = super::result::Satisfied::from_decision(
+        &prepared,
+        &decision,
+        q.tree,
+        q.check,
+        gathered.input_key.as_deref(),
+    )
+    .map_err(|_| super::invalid_statement_failure())?;
+    Ok(emit(&view, &gathered.records[original]))
 }
 
 /// Configured required-check selection with bound-file reads from the candidate tree.

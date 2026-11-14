@@ -21,6 +21,7 @@
 - Parse explicit legacy crate keys losslessly with exact first-separator, lowercase Git-id syntax and Python repr refusals; retain escaped-wire-only diagnostic delivery.
 - Construct member and explicit-crate test-count bindings from the accepted base's standalone no-tests allowance, preserving lazy unjudged handling and member-key-first failure order.
 - Prepare legacy member-project JSON with full lowercase tree-id validation before member-key reads, sorted crate keys, both input-index refspec namespaces and lossless escaped check names.
+- Join legacy prefix collection and general configured/unconfigured judgment with retained projection keys, crate bindings, caller run inputs, preferred levels and reusable lazy-lane state; expose successful original-document views without a JSON conversion bridge.
 
 ## [0.8.0] - 2026-11-13
 
