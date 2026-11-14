@@ -96,51 +96,68 @@ fn value_checks_source(
     run: &BTreeMap<String, String>,
     attempts: usize,
 ) -> Result<(), Failure> {
-    let fail = |reason, key: &str| Failure {
+    let fail = |reason, key: TextRef<'_>| Failure {
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason,
-        detail: format!("input {key} does not cover this run").into(),
+        detail: crate::evidence::legacy_policy::normalized_text::NormalizedText::around(
+            "input ",
+            key,
+            " does not cover this run",
+        ),
         attempts: Some(attempts),
     };
+    let run_value = |key: TextRef<'_>| {
+        run.iter()
+            .find(|(name, _)| TextRef::Str(name).points().eq(key.points()))
+    };
     for (key, order) in &rule.values.input_order {
+        let key = key.borrowed();
         let rank = |value: Option<TextRef<'_>>| {
-            order
-                .iter()
-                .position(|entry| value.is_some_and(|v| v.equals(entry)))
+            value.and_then(|value| {
+                order
+                    .iter()
+                    .position(|entry| value.points().eq(entry.borrowed().points()))
+            })
         };
-        let run_rank =
-            rank(run.get(key).map(|v| TextRef::Str(v))).ok_or_else(|| fail("no_run_input", key))?;
-        if rank(inputs.get(key)).is_none_or(|note_rank| note_rank > run_rank) {
+        let run_rank = rank(run_value(key).map(|(_, value)| TextRef::Str(value)))
+            .ok_or_else(|| fail("no_run_input", key))?;
+        if rank(inputs.get_text(key)).is_none_or(|note_rank| note_rank > run_rank) {
             return Err(fail("wrong_input", key));
         }
     }
     for (key, _) in &rule.base_inputs {
-        let expected = run
-            .get(key)
+        let key = key.borrowed();
+        let expected = run_value(key)
+            .map(|(_, value)| value)
             .filter(|value| !value.is_empty())
             .ok_or_else(|| fail("no_run_input", key))?;
-        if !inputs.get(key).is_some_and(|value| value.equals(expected)) {
+        if !inputs
+            .get_text(key)
+            .is_some_and(|value| value.points().eq(expected.chars().map(u32::from)))
+        {
             return Err(fail("wrong_input", key));
         }
     }
     if let Some(shards) = &rule.values.shard_inputs {
+        let count_key = shards.count.borrowed();
         let count = inputs
-            .get(&shards.count)
+            .get_text(count_key)
             .and_then(shard_count)
-            .ok_or_else(|| fail("wrong_input", &shards.count))?;
+            .ok_or_else(|| fail("wrong_input", count_key))?;
+        let results_key = shards.results.borrowed();
         let complete = inputs
-            .get(&shards.results)
+            .get_text(results_key)
             .is_some_and(|value| value.complete_shards(count));
         if !complete
             || (inputs
-                .get("event_name")
+                .get_text(TextRef::Str("event_name"))
                 .is_some_and(|event| event.equals("pull_request"))
                 && shards
                     .pull_request_count
                     .flatten()
                     .is_some_and(|expected| expected != u64::from(count)))
         {
-            return Err(fail("wrong_input", &shards.results));
+            return Err(fail("wrong_input", results_key));
         }
     }
     Ok(())

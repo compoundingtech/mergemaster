@@ -389,7 +389,7 @@ pub fn checked_command_inputs(
 pub fn checked_base_inputs(
     rule: &mut Map<String, Value>,
     where_: &[TextRef<'_>],
-) -> Result<Vec<(String, String)>, PolicyError> {
+) -> Result<Vec<(normalized_text::NormalizedText, String)>, PolicyError> {
     let base = string_map(
         rule.remove("base_inputs")
             .unwrap_or(Value::Object(Map::new())),
@@ -410,7 +410,10 @@ pub fn checked_base_inputs(
             return Err(rule_error(where_, &detail));
         }
     }
-    Ok(base)
+    Ok(base
+        .into_iter()
+        .map(|(key, path)| (normalized_text::NormalizedText::Scalar(key), path))
+        .collect())
 }
 
 fn string_map(value: Value) -> Option<Vec<(String, String)>> {
@@ -677,7 +680,7 @@ print(json.dumps(results))
                     let mut value = serde_json::to_value(inputs).unwrap();
                     value["base_inputs"] = Value::Object(
                         base.into_iter()
-                            .map(|(key, value)| (key, Value::String(value)))
+                            .map(|(key, value)| (key.borrowed().to_string(), Value::String(value)))
                             .collect(),
                     );
                     Ok(value)
@@ -716,7 +719,7 @@ print(json.dumps(results))
                 let base = checked_base_inputs(&mut fields, &[TextRef::Str("fixture")]).unwrap();
                 Value::Object(
                     base.into_iter()
-                        .map(|(key, value)| (key, Value::String(value)))
+                        .map(|(key, value)| (key.borrowed().to_string(), Value::String(value)))
                         .collect(),
                 )
             })

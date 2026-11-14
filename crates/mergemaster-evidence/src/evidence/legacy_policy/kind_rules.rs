@@ -21,15 +21,8 @@ pub struct KindRule {
     pub by_level: Vec<(String, LevelRule)>,
     #[serde(flatten)]
     pub values: ValueRules,
-    #[serde(serialize_with = "serialize_string_pairs")]
-    pub base_inputs: Vec<(String, String)>,
-}
-
-fn serialize_string_pairs<S: serde::Serializer>(
-    pairs: &[(String, String)],
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
-    serializer.collect_map(pairs.iter().map(|(key, value)| (key, value)))
+    #[serde(serialize_with = "super::serialize_pairs")]
+    pub base_inputs: Vec<(NormalizedText, String)>,
 }
 pub fn checked_kinds<'a>(
     kinds: Map<String, Value>,

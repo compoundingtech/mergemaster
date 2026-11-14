@@ -1,4 +1,5 @@
 //! Legacy input-value ordering and shard declarations, not evidence judgments.
+use super::normalized_text::NormalizedText;
 use super::{PolicyError, exception, names, rule_error};
 use crate::evidence::legacy_verify::failure_json::TextRef;
 use serde::Serialize;
@@ -8,25 +9,25 @@ use std::collections::HashSet;
 #[derive(Debug, Serialize)]
 pub struct ValueRules {
     #[serde(serialize_with = "serialize_input_order")]
-    pub input_order: Vec<(String, Vec<String>)>,
+    pub input_order: Vec<(NormalizedText, Vec<NormalizedText>)>,
     pub shard_inputs: Option<ShardInputs>,
 }
 
 fn serialize_input_order<S: serde::Serializer>(
-    pairs: &[(String, Vec<String>)],
+    pairs: &[(NormalizedText, Vec<NormalizedText>)],
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
     serializer.collect_map(pairs.iter().map(|(key, value)| (key, value)))
 }
 #[derive(Debug, Serialize)]
 pub struct ShardInputs {
-    pub count: String,
-    pub results: String,
+    pub count: NormalizedText,
+    pub results: NormalizedText,
     /// Preserve absent versus explicit null in the normalized legacy schema.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pull_request_count: Option<Option<u64>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub index: Option<String>,
+    pub index: Option<NormalizedText>,
 }
 
 /// Consume the two value-rule fields; outer kind key validation is separate.
@@ -74,7 +75,10 @@ pub fn checked_value_rules(
         if key.is_empty() {
             return Err(order_error());
         }
-        input_order.push((key, values));
+        input_order.push((
+            NormalizedText::Scalar(key),
+            values.into_iter().map(NormalizedText::Scalar).collect(),
+        ));
     }
     let shard_error = || {
         rule_error(
@@ -95,7 +99,9 @@ pub fn checked_value_rules(
                 return Err(shard_error());
             }
             let take_name = |value: Option<Value>| match value {
-                Some(Value::String(value)) if !value.is_empty() => Some(value),
+                Some(Value::String(value)) if !value.is_empty() => {
+                    Some(NormalizedText::Scalar(value))
+                }
                 _ => None,
             };
             let count = take_name(fields.remove("count")).ok_or_else(shard_error)?;
