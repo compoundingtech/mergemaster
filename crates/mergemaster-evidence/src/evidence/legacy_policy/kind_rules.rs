@@ -1,12 +1,13 @@
 //! Complete legacy kind/level declarations; no record evaluation.
 use super::check_names::CheckName;
-use super::level_rules::{LevelRule, checked_levels, fill, normalized};
+use super::level_rules::{LevelRule, fill, normalized};
 use super::normalized_text::NormalizedText;
-use super::value_rules::{ValueRules, checked_value_rules};
+use super::value_rules::ValueRules;
+use super::value_source::{self, Source};
 use super::{
-    CommandInputs, PolicyError, checked_base_inputs, checked_command_inputs, exception, invalid,
-    names, rule_error,
+    CommandInputs, PolicyError, base_source, command_source, exception, invalid, rule_error,
 };
+use crate::evidence::legacy_verify::statement_document::Node;
 use crate::evidence::legacy_verify::{failure_json::TextRef, python_repr::Repr};
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -30,62 +31,74 @@ pub fn checked_kinds<'a>(
     repository: &str,
     check: impl Into<CheckName<'a>>,
 ) -> Result<Vec<(String, KindRule)>, PolicyError> {
-    let check = check.into();
+    // Temporary bridge, removed by the step-5 PolicyDocument ingress cutover.
+    let document = value_source::bridge(&kinds)?;
+    from_source(Source::root(&document), levels, repository, check.into())
+}
+pub(super) fn from_source(
+    kinds: Source<'_>,
+    levels: &[NormalizedText],
+    repository: &str,
+    check: CheckName<'_>,
+) -> Result<Vec<(String, KindRule)>, PolicyError> {
     kinds
+        .entries()
         .into_iter()
-        .map(|(kind, raw)| {
+        .flatten()
+        .map(|(kind, rule)| {
             let error = || {
                 invalid(NormalizedText::around(
                     "skip policy for ",
                     check.text(),
-                    &format!(": kind {} is not valid", Repr(TextRef::Str(&kind))),
+                    &format!(": kind {} is not valid", Repr(TextRef::Points(kind))),
                 ))
             };
-            if !matches!(kind.as_str(), "nix" | "wrapper" | "sekrets" | "observed") {
-                return Err(error());
-            }
-            let Value::Object(mut rule) = raw else {
-                return Err(error());
-            };
-            if rule.keys().any(|key| {
-                ![
-                    "command",
-                    "runner_prefix",
-                    "required_inputs",
-                    "bind_inputs",
-                    "trust_levels",
-                    "by_level",
-                    "input_order",
-                    "shard_inputs",
-                    "base_inputs",
-                ]
-                .contains(&key.as_str())
-            }) || !rule.contains_key("command")
+            let kind = ["nix", "wrapper", "sekrets", "observed"]
+                .into_iter()
+                .find(|name| value_source::key_is(kind, name))
+                .ok_or_else(error)?;
+            if rule.object().is_none_or(|entries| {
+                entries.keys().any(|key| {
+                    ![
+                        "command",
+                        "runner_prefix",
+                        "required_inputs",
+                        "bind_inputs",
+                        "trust_levels",
+                        "by_level",
+                        "input_order",
+                        "shard_inputs",
+                        "base_inputs",
+                    ]
+                    .iter()
+                    .any(|name| value_source::key_is(key, name))
+                })
+            }) || rule.get("command").is_none()
             {
                 return Err(error());
             }
-            let where_ = [check.text(), TextRef::Str("/"), TextRef::Str(&kind)];
-            let inputs = checked_command_inputs(&mut rule, &where_)?;
-            let values = checked_value_rules(&mut rule, &where_)?;
-            let base_inputs = checked_base_inputs(&mut rule, &where_)?;
-            let trust_levels = match rule.remove("trust_levels") {
-                None | Some(Value::Null) => None,
-                Some(value) => Some(
-                    names(value)
-                        .ok_or_else(|| {
-                            rule_error(&where_, "trust_levels must be a nonempty list of names")
-                        })?
-                        .into_iter()
-                        .map(NormalizedText::Scalar)
-                        .collect(),
-                ),
+            let where_ = [check.text(), TextRef::Str("/"), TextRef::Str(kind)];
+            let inputs = command_source(rule, &where_)?;
+            let values = super::value_rules::from_source(rule, &where_)?;
+            let base_inputs = base_source(rule, &where_)?;
+            let trust_levels = match rule.get("trust_levels") {
+                None => None,
+                Some(value) if value.is_null() => None,
+                Some(value) => Some(value_source::names(value).ok_or_else(|| {
+                    rule_error(&where_, "trust_levels must be a nonempty list of names")
+                })?),
             };
-            let runner_prefix = match rule.remove("runner_prefix") {
-                None | Some(Value::Null) => None,
-                Some(Value::String(value)) if !value.is_empty() => {
-                    Some(fill(NormalizedText::Scalar(value), repository, check))
-                }
-                _ => return Err(rule_error(&where_, "malformed runner_prefix")),
+            let runner_prefix = match rule.get("runner_prefix") {
+                None => None,
+                Some(value) if value.is_null() => None,
+                Some(value) => Some(fill(
+                    value
+                        .normalized()
+                        .filter(|text| text.borrowed().points().next().is_some())
+                        .ok_or_else(|| rule_error(&where_, "malformed runner_prefix"))?,
+                    repository,
+                    check,
+                )),
             };
             let attribute = |kind| {
                 exception(
@@ -93,28 +106,34 @@ pub fn checked_kinds<'a>(
                     format!("'{kind}' object has no attribute 'items'"),
                 )
             };
-            let overrides = match rule.remove("by_level").unwrap_or(Value::Null) {
-                Value::Object(map) => map,
-                Value::Null | Value::Bool(false) => Map::new(),
-                Value::String(s) if s.is_empty() => Map::new(),
-                Value::Array(a) if a.is_empty() => Map::new(),
-                Value::Number(n) if n.as_f64() == Some(0.0) => Map::new(),
-                Value::Bool(true) => return Err(attribute("bool")),
-                Value::Number(n) => {
-                    return Err(attribute(if n.is_f64() { "float" } else { "int" }));
-                }
-                Value::String(_) => return Err(attribute("str")),
-                Value::Array(_) => return Err(attribute("list")),
+            let overrides = rule.get("by_level");
+            let overrides = match overrides {
+                None => None,
+                Some(value) => match value.node() {
+                    Node::Object(_) => Some(value),
+                    Node::Null | Node::Bool(false) => None,
+                    Node::String(text) if text.is_empty() => None,
+                    Node::Array(items) if items.is_empty() => None,
+                    Node::Integer(_) | Node::Float(_) if value.as_f64() == Some(0.0) => None,
+                    Node::Bool(true) => return Err(attribute("bool")),
+                    Node::Integer(_) => return Err(attribute("int")),
+                    Node::Float(_) => return Err(attribute("float")),
+                    Node::String(_) => return Err(attribute("str")),
+                    Node::Array(_) => return Err(attribute("list")),
+                },
             };
-            let by_level = checked_levels(
-                overrides,
-                trust_levels.as_deref().unwrap_or(levels),
-                repository,
-                check,
-                &kind,
-            )?;
+            let by_level = match overrides {
+                Some(overrides) => super::level_rules::from_source(
+                    overrides,
+                    trust_levels.as_deref().unwrap_or(levels),
+                    repository,
+                    check,
+                    kind,
+                )?,
+                None => Vec::new(),
+            };
             Ok((
-                kind,
+                kind.to_owned(),
                 KindRule {
                     inputs: normalized(inputs, repository, check),
                     runner_prefix,

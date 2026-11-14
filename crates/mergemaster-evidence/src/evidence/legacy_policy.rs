@@ -478,21 +478,6 @@ fn source_pairs(value: value_source::Source<'_>) -> Option<Vec<(NormalizedText, 
         })
         .collect()
 }
-fn names(value: Value) -> Option<Vec<String>> {
-    string_list(value).filter(|values| !values.is_empty())
-}
-fn string_list(value: Value) -> Option<Vec<String>> {
-    let Value::Array(values) = value else {
-        return None;
-    };
-    values
-        .into_iter()
-        .map(|v| match v {
-            Value::String(v) if !v.is_empty() => Some(v),
-            _ => None,
-        })
-        .collect()
-}
 fn short_path(path: &str) -> bool {
     path.chars().nth(300).is_none()
 }
