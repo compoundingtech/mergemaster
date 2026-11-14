@@ -80,6 +80,13 @@ impl Document {
         max_depth: Option<usize>,
     ) -> Result<Self, Error> {
         let tokens = Tokens::from_bytes(bytes).ok_or(Error::Encoding)?;
+        Self::from_tokens(tokens, max_depth)
+    }
+    /// JSON str input is already decoded; never strip BOM or detect UTF-16/32.
+    pub fn from_text_with_depth_limit(text: &str, max_depth: Option<usize>) -> Result<Self, Error> {
+        Self::from_tokens(Tokens::from_text(text), max_depth)
+    }
+    fn from_tokens(tokens: Tokens, max_depth: Option<usize>) -> Result<Self, Error> {
         let mut nodes = Vec::new();
         let mut stack: Vec<Frame> = Vec::new();
         let mut root = None;

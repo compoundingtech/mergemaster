@@ -145,3 +145,50 @@ fn policy_depth_parameter_preserves_the_statement_default() {
         assert!(Document::from_bytes_with_depth_limit(text.as_bytes(), None).is_ok());
     }
 }
+
+#[test]
+fn json_text_input_never_uses_bytes_encoding_detection() {
+    let output = std::process::Command::new("python3")
+        .args([
+            "-c",
+            r#"
+import json,sys
+assert sys.version_info[:3]==(3,14,7)
+cases=[]
+for base in ['{}','0','"x"']:
+ for encoding in ['utf-16-le','utf-16-be','utf-32-le','utf-32-be']:
+  blob=base.encode(encoding);cases.append((blob.decode('latin1'),blob))
+for text in ['{}','\ufeff{}','"\ufeff"',r'"\u0000"']:
+ cases.append((text,text.encode()))
+out=[]
+for text,blob in cases:
+ def accepts(value):
+  try: json.loads(value);return True
+  except ValueError:return False
+ out.append(dict(text=text,bytes=list(blob),str_ok=accepts(text),bytes_ok=accepts(blob)))
+print(json.dumps(out))
+"#,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let cases: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(cases.as_array().unwrap().len(), 16);
+    for case in cases.as_array().unwrap() {
+        let text = case["text"].as_str().unwrap();
+        let bytes: Vec<u8> = serde_json::from_value(case["bytes"].clone()).unwrap();
+        assert_eq!(
+            Document::from_text_with_depth_limit(text, None).is_ok(),
+            case["str_ok"].as_bool().unwrap(),
+            "{text:?}"
+        );
+        assert_eq!(
+            Document::from_bytes(&bytes).is_ok(),
+            case["bytes_ok"].as_bool().unwrap()
+        );
+    }
+}
