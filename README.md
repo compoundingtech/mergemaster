@@ -1017,6 +1017,12 @@ Malformed JSON (including integer digit-limit refusal) reports the unquoted
 resolved file path followed by ` is not JSON`; invalid UTF-8 reports ` is not text`.
 Selection/projection oracle failures compare complete diagnostic text, not just reason.
 Selected blobs above 16 MiB refuse with `error` before decoding or selection.
+Byte captures stop at limit + 1 and kill/reap the direct child rather than
+draining unbounded stdout; the existing `Git output exceeds {limit} bytes`
+diagnostic is unchanged. Boundary and endless-writer fixtures cover the 16 MiB
+selection limit and zero/small limits. Selected policy-value oracle fixtures
+compare top-level finite/infinite float bits and signed zero, with a dedicated
+NaN tag (NaN is not equality-comparable); only the original huge-float skip remains.
 `projection::project` computes legacy reduced Git-tree keys, retaining raw names,
 symlink/gitlink modes and canonical selector entries; empty projections have no key. Selected reads require full tree OIDs.
 Projection validates full tree OIDs before fast paths and ends Git option parsing.

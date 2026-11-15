@@ -197,6 +197,7 @@ mod tests {
             Node::Null => json!(["null"]),
             Node::Bool(value) => json!(["bool", value]),
             Node::Integer(decimal) => json!(["int", decimal]),
+            Node::Float(value) if value.is_nan() => json!(["nan"]),
             Node::Float(value) => json!(["float", value.to_bits()]),
             Node::String(points) => json!(["str", points]),
             Node::Array(_) => json!([
@@ -229,6 +230,8 @@ mod tests {
             r#"{"version":1,"checks":{"\ud800":1}} trailing"#,
             r#"{"version":1,"checks":{"a\\":1,"a\"b":2}}"#,
             r#"{"version":1,"checks":{"selected":{"\ud800":["\udfff","\ud83d\ude00",null,true,false,123456789012345678901234567890,-0.0,1.5],"\u0000":{"duplicate":1,"duplicate":2},"empty":{}}}}"#,
+            r#"{"version":1,"checks":{"negative_zero":-0.0,"zero":0.0,"finite":1.5,"rounded":0.1,"positive_infinity":Infinity,"negative_infinity":-Infinity}}"#,
+            r#"{"version":1,"checks":{"nan":NaN}}"#,
         ].into_iter().map(str::to_owned).collect();
         for point in 0..0x20 {
             cases.push(format!(
@@ -240,12 +243,13 @@ mod tests {
             ));
         }
         let script = r#"
-import json,runpy,struct,sys
+import json,math,runpy,struct,sys
 v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify')
 def lossless(value):
  if value is None: return ['null']
  if isinstance(value,bool): return ['bool',value]
  if isinstance(value,int): return ['int',str(value)]
+ if isinstance(value,float) and math.isnan(value): return ['nan']
  if isinstance(value,float): return ['float',struct.unpack('>Q',struct.pack('>d',value))[0]]
  if isinstance(value,str): return ['str',[ord(c) for c in value]]
  if isinstance(value,list): return ['list',[lossless(v) for v in value]]
@@ -260,8 +264,8 @@ for text in json.load(sys.stdin):
    assert v['require_all']('/not-a-repo','tree','/absent',text,'org/repo')=={'mode':'require-all','tree':'tree','satisfied':True,'decision':'ok','lanes':{}}
   for k in names:
    value=d['checks'][k]
-   # Unselected huge floats are syntax-checked only by the Rust parser.
-   values.append(None if isinstance(value,float) else lossless(value))
+   # Preserve only the original unselected huge-float syntax fixture's skip.
+   values.append(None if k=='ignored' and text.find('1e1000')!=-1 else lossless(value))
   out.append({'names':[[ord(c) for c in k] for k in names],'values':values})
  except ValueError: out.append(None)
 print(json.dumps(out))
