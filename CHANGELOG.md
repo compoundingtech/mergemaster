@@ -13,6 +13,8 @@
 - Compose per-crate legacy source-input keys from selected committed inputs, declared dependency paths and Git projection; preserve tree-first resolution and ordered unknown-crate refusals.
 - Retain exact Python UnicodeDecodeError diagnostics for legacy JSON byte decoding, without changing callers that treat invalid encoding as an absent statement.
 - Add lossless, uncapped JSON byte preflight with exact uncaught Python decode, JSON syntax and integer-limit exceptions for accepted-base source selection.
+- Preserve complete Python errno exception subclasses and lossless filename diagnostics at legacy source filesystem boundaries, sharing projection's errno formatter.
+- Map legacy source `ENOTCAPABLE` errors to Python's `PermissionError` on every platform defining it in pinned libc: FreeBSD, Apple platforms and WASI.
 
 ## [0.8.0] - 2026-11-13
 
