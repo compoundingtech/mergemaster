@@ -67,6 +67,29 @@ print(json.dumps(cases))
         String::from_utf8_lossy(&child.stderr)
     );
     assert_eq!(std::fs::read_dir(&scratch).unwrap().count(), 0);
+    let file = TemporaryFile::new(".keys").unwrap();
+    let path = file.path().to_owned();
+    std::fs::remove_file(&path).unwrap();
+    let expected = crate::pinned_python::command()
+        .args([
+            "-c",
+            "import os,sys;print(str(FileNotFoundError(2,os.strerror(2),sys.argv[1])))",
+        ])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(expected.status.success());
+    let error = file.close().unwrap_err();
+    assert_eq!(
+        error.origin,
+        crate::evidence::legacy_policy::ErrorOrigin::Exception {
+            class: "FileNotFoundError"
+        }
+    );
+    assert_eq!(
+        error.detail.to_string(),
+        std::str::from_utf8(&expected.stdout).unwrap().trim_end()
+    );
 }
 #[test]
 fn preparation_driver() {
