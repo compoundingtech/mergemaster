@@ -820,7 +820,8 @@ validates root/global/crates/no_tests shapes and never downgrades malformed new 
 Approved resource-dependent divergence: CPython `json.loads` can raise
 `RecursionError` on nested `rust-test-inputs.json`, depending on stack/caller depth;
 Rust uses no fixed bound or emulation. A 100,000-depth ignored-metadata fixture
-accepts in Rust and pins Python's `RecursionError`.
+accepts in Rust; CPython may raise `RecursionError` depending on stack size, or
+successfully parse the same nested-list shape.
 `records::read_statement` adds bounded Git capture and record layout/parent/subject
 checks (3f-3a), with `statement-too-large` distinct from malformed-record refusal.
 Missing subjects are allowed without lazy fetch. `records::RecordCache`
