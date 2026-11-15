@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Decode Rust legacy skip policies from their original JSON text with lossless codepoint identities and wide positive-integer age limits; retain lazy age-overflow errors and remove the serde-value conversion bridge.
+- Derive the Nix package version from the Rust crate's Cargo manifest and check the packaged CLI's version against it, preventing release metadata drift.
 
 ## [0.8.0] - 2026-11-13
 
