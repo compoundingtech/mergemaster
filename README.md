@@ -894,8 +894,13 @@ per-table dependency evaluation preserve the pinned Python walk's ordering.
 validates root/global/crates/no_tests shapes and never downgrades malformed new config.
 Approved resource-dependent divergence: CPython `json.loads` can raise
 `RecursionError` on nested `rust-test-inputs.json`, depending on stack/caller depth;
-Rust uses no fixed bound or emulation. A 100,000-depth ignored-metadata fixture
-accepts in Rust and pins Python's `RecursionError`.
+Rust imposes no depth cap or stack-boundary emulation. A 100,000-depth ignored
+metadata fixture accepts in Rust without assuming a CPython stack boundary.
+Approved fail-closed resource divergence: crate inputs share the policy parser's
+pre-allocation node charge (root, containers, scalars and overwritten duplicates),
+limited to 262144 nodes with typed Failure/error
+`crate inputs JSON node count exceeds 262144`. Limit/+1 shallow oracle cases
+and Rust-only deep boundary cases cover this independently of CPython recursion.
 `crate_paths` assembles globals, all member manifests, patches, dependency closures
 and per-crate extras without encoding lossless paths. Unreviewed crates declare `.`.
 Approved diagnostic divergence: mixed non-string path elements that Python refuses

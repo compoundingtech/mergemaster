@@ -138,9 +138,8 @@ impl Document {
             Self::text_tokens(text)?,
             |_| Ok(()),
             |point, depth, nodes| {
-                let resource = if nodes >= 262_144 {
-                    Some(PolicyResource::Nodes)
-                } else if matches!(point, Some(91 | 123)) && depth >= 256 {
+                Self::charge_node(nodes)?;
+                let resource = if matches!(point, Some(91 | 123)) && depth >= 256 {
                     Some(PolicyResource::ContainerDepth)
                 } else {
                     None
@@ -148,6 +147,21 @@ impl Document {
                 resource.map_or(Ok(()), |r| Err(PolicyTextError::Resource(r)))
             },
         )
+    }
+    /// Crate inputs share the policy node charge, but have no container-depth cap.
+    pub fn from_crate_inputs_text(text: &str) -> Result<Self, PolicyTextError> {
+        Self::from_tokens(
+            Self::text_tokens(text)?,
+            |_| Ok(()),
+            |_, _, nodes| Self::charge_node(nodes),
+        )
+    }
+    fn charge_node(nodes: usize) -> Result<(), PolicyTextError> {
+        if nodes >= 262_144 {
+            Err(PolicyTextError::Resource(PolicyResource::Nodes))
+        } else {
+            Ok(())
+        }
     }
     /// Uncapped JSON str parsing cannot fail decoding or exceed a depth budget.
     pub fn from_text(text: &str) -> Result<Self, TextError> {

@@ -96,10 +96,63 @@ fn ignored_input_metadata_has_approved_unbounded_depth() {
     );
     let inputs = Inputs::parse_bytes(text.as_bytes()).unwrap();
     assert_eq!(inputs.no_tests().count(), 0);
-    let out=std::process::Command::new("python3").args(["-c","import json\ns='{\"ignored\":'+('['*100000)+'0'+(']'*100000)+'}'\ntry: json.loads(s)\nexcept RecursionError: pass\nelse: raise AssertionError('expected RecursionError')"]).output().unwrap();
+}
+
+#[test]
+fn input_node_boundaries_share_parser_charging_without_depth_limits() {
+    let script = r#"
+import json,sys
+assert sys.version_info[:3]==(3,14,7)
+rows=[]
+for shape in ['array','duplicates','containers']:
+ for nodes in [262144,262145]:
+  if shape=='array':text='{"ignored":['+','.join('0' for _ in range(nodes-2))+']}'
+  elif shape=='duplicates':text='{'+','.join('"x":0' for _ in range(nodes-1))+'}'
+  else:text='{"ignored":['+','.join('[]' for _ in range(nodes-2))+']}'
+  decoded=json.loads(text);assert isinstance(decoded,dict)
+  rows.append(dict(text=text,nodes=nodes,shape=shape))
+print(json.dumps(rows))
+"#;
+    let output = std::process::Command::new("python3")
+        .args(["-c", script])
+        .output()
+        .unwrap();
     assert!(
-        out.status.success(),
+        output.status.success(),
         "{}",
-        String::from_utf8_lossy(&out.stderr)
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let rows: Vec<Json> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(rows.len(), 6);
+    for row in rows {
+        let result = Inputs::parse_bytes(row["text"].as_str().unwrap().as_bytes());
+        if row["nodes"] == 262144 {
+            assert!(result.is_ok(), "{}", row["shape"]);
+        } else {
+            let error = result.err().unwrap();
+            assert_eq!(error.resource, Some(SourceResource::CrateInputsNodes));
+            assert_eq!(error.detail, "crate inputs JSON node count exceeds 262144");
+            assert_eq!(error.reason, "error");
+            assert_eq!(
+                error.origin,
+                crate::evidence::legacy_policy::ErrorOrigin::Failure
+            );
+        }
+    }
+    // Rust's iterative depth acceptance is intentional, never a CPython stack-depth assertion.
+    let deep = format!(
+        "{{\"ignored\":{}0{}}}",
+        "[".repeat(262142),
+        "]".repeat(262142)
+    );
+    assert!(Inputs::parse_bytes(deep.as_bytes()).is_ok());
+    let over = format!(
+        "{{\"ignored\":{}0{}}}",
+        "[".repeat(262143),
+        "]".repeat(262143)
+    );
+    assert_eq!(
+        Inputs::parse_bytes(over.as_bytes()).err().unwrap().resource,
+        Some(SourceResource::CrateInputsNodes)
     );
 }
