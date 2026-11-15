@@ -164,6 +164,9 @@ mod containers;
 #[path = "toml_containers_tests.rs"]
 mod containers_tests;
 #[cfg(test)]
+#[path = "toml_corpus_tests.rs"]
+mod corpus_tests;
+#[cfg(test)]
 #[path = "toml_document_tests.rs"]
 mod document_tests;
 #[path = "toml_keys.rs"]

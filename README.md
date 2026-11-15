@@ -793,6 +793,8 @@ CPython 3.14.7 tomllib raises `RecursionError` for nested arrays and inline tabl
 at about depth 495, depending on interpreter stack and caller depth. Rust accepts
 these values using an iterative parser and iterative drop; a full-document fixture
 parses 100,000 nested array/inline-table pairs. `MAX_KEY_PARTS=1000` remains exact.
+`crate_inputs_text` preserves Python's strict UTF-8 decode diagnostics and POSIX
+join/normpath semantics, including empty directories and exactly two leading slashes.
 `records::read_statement` adds bounded Git capture and record layout/parent/subject
 checks (3f-3a), with `statement-too-large` distinct from malformed-record refusal.
 Missing subjects are allowed without lazy fetch. `records::RecordCache`
