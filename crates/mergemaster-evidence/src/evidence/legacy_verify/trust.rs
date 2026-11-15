@@ -29,6 +29,25 @@ pub fn partition(
     keys: &str,
     revocations: &str,
 ) -> Result<TrustGroups, PolicyError> {
+    partition_with(candidates, |commit| {
+        signature(repo, commit, keys, revocations)
+    })
+}
+/// Oracle transport with raw filesystem key paths; native partition stays unchanged.
+pub fn partition_cli(
+    repo: &Path,
+    candidates: Vec<Candidate>,
+    keys: &Path,
+    revocations: &Path,
+) -> Result<TrustGroups, PolicyError> {
+    partition_with(candidates, |commit| {
+        super::cli_signature::signature(repo, commit.into(), keys, revocations)
+    })
+}
+fn partition_with(
+    candidates: Vec<Candidate>,
+    mut signature: impl FnMut(&str) -> Result<(String, String), PolicyError>,
+) -> Result<TrustGroups, PolicyError> {
     let mut groups = TrustGroups {
         trusted: Vec::new(),
         untrusted: Vec::new(),
@@ -48,7 +67,7 @@ pub fn partition(
             continue;
         }
         let signer = field(doc, predicate, "signer").ok_or_else(super::invalid_statement)?;
-        let (status, principal) = signature(repo, &candidate.commit, keys, revocations)?;
+        let (status, principal) = signature(&candidate.commit)?;
         if status == "G" && !principal.is_empty() && is(signer, &principal) {
             groups.trusted.push(TrustedCandidate {
                 candidate,

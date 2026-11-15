@@ -143,7 +143,7 @@ print(json.dumps(dict(records=cases,cache=cached)))
         let bad = case["bad"].as_str().unwrap();
         let tree = case["tree"].as_str().unwrap();
         let missing = case["missing"].as_str().unwrap();
-        budget_boundaries(repo, good, bad);
+        budget_boundaries(repo, good, bad, new_cache);
         let mut cache = new_cache();
         let first = cache.load(repo, good, None).unwrap().unwrap();
         let second = cache.load(repo, good, None).unwrap().unwrap();
@@ -244,7 +244,7 @@ print(json.dumps(dict(records=cases,cache=cached)))
     );
 }
 
-fn budget_boundaries(repo: &Path, good: &str, bad: &str) {
+fn budget_boundaries(repo: &Path, good: &str, bad: &str, new_cache: impl Fn() -> RecordCache) {
     let document = read_statement(repo, good, None).unwrap().unwrap();
     let key = Key {
         repo: repo.as_os_str(),
@@ -252,7 +252,7 @@ fn budget_boundaries(repo: &Path, good: &str, bad: &str) {
         tree: None,
     };
     let cost = document.ownership_units() + 2 * RecordCache::key_units(&key);
-    let mut cache = RecordCache::for_check();
+    let mut cache = new_cache();
     cache.remaining_units = cost;
     assert!(cache.load(repo, good, None).unwrap().is_some());
     assert_eq!(cache.remaining_units, 0); // Exact budget accepted.
@@ -264,14 +264,14 @@ fn budget_boundaries(repo: &Path, good: &str, bad: &str) {
         cache.load(repo, good, None).unwrap_err().reason,
         "record-budget-exceeded"
     );
-    let mut over = RecordCache::for_check();
+    let mut over = new_cache();
     over.remaining_units = cost - 1;
     assert_eq!(
         over.load(repo, good, None).unwrap_err().reason,
         "record-budget-exceeded"
     );
     assert!(over.values.is_empty() && over.documents.is_empty());
-    let mut negative = RecordCache::for_check();
+    let mut negative = new_cache();
     negative.remaining_units = RecordCache::key_units(&Key {
         repo: repo.as_os_str(),
         commit: bad,

@@ -975,6 +975,7 @@ Approved fail-closed divergence: subject output above 128 bytes aborts with `Git
 Ordinary Git Failure means absent; successful invalid UTF-8 raises Python's UnicodeDecodeError.
 `RecordCache::for_cli_check` fixes the transport for its entire ownership lifetime;
 the original cache/ownership matrix runs in both modes without mixing entries.
+The exact-unit, one-unit-over and negative-entry budget boundaries also run in both cache modes.
 `cli_discovery` uses the same bounded-record streaming ref sink with insertion
 order; existing log callers retain their BTreeSet sorting. Listings stay uncapped
 as streams, without whole-output retention; prefix order and first-seen IDs survive.
@@ -1010,6 +1011,9 @@ exhaustion remains latched even for later calls with no matching records.
 `trust::partition` preserves ordered trusted/untrusted/degraded groups (982-995):
 only G with a nonempty principal equal to the statement signer is trusted; B/N
 is bad_signature, other mismatches untrusted_signer, and degraded skips signatures.
+`trust::partition_cli` shares that partition logic but injects the oracle signature
+transport and raw filesystem key/revocation paths; the signed SHA-1/SHA-256
+partition matrix compares both modes against the original Python grouping.
 Policy/Git errors abort without returning partial groups. Check selection and
 miss precedence use `prefix::candidates` (996-1008), not final check authorization.
 It owns an EMPTY revocation file like Python957, not caller revocations; never use
