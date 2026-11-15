@@ -569,6 +569,10 @@ preserving optional-field truthiness without reading Git or authorizing evidence
 `cli_lane_git::definition_entries` separately uses inherited oracle Git and the
 approved 64MiB TreeListing capture, retaining original revision codepoints in
 resource refusals; native lane transport and OID validation remain unchanged.
+`cli_lane_definition` streams lossless argv into definition digests, preserving
+accepted-base existence/absence checks before candidate reads and exact missing
+path diagnostics. Invalid caller-constructed argv codepoints have a library-only
+invariant guard; parsed CLI rules cannot reach it.
 The CLI-only `cli_lanes::LaneRules` uses the flat lossless Document instead:
 lane names and argv retain lone surrogates, and optional noniterable falsey
 values raise the oracle TypeError after CI-input validation. Native APIs stay
