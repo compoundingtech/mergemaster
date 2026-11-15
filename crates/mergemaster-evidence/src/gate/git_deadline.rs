@@ -109,10 +109,26 @@ impl GitChild {
                     return Err(error.into());
                 }
                 remaining(child.deadline)?;
-                if fds[0].revents != 0 && capture_read(&mut stdout, &mut sink, Stream::Stdout)? {
+                if fds[0].revents != 0
+                    && capture_read(
+                        &mut stdout,
+                        &mut sink,
+                        Stream::Stdout,
+                        #[cfg(test)]
+                        &mut child.deadline,
+                    )?
+                {
                     fds[0].fd = -1;
                 }
-                if fds[1].revents != 0 && capture_read(&mut stderr, &mut sink, Stream::Stderr)? {
+                if fds[1].revents != 0
+                    && capture_read(
+                        &mut stderr,
+                        &mut sink,
+                        Stream::Stderr,
+                        #[cfg(test)]
+                        &mut child.deadline,
+                    )?
+                {
                     fds[1].fd = -1;
                 }
                 if fds[2].revents != 0
@@ -207,12 +223,19 @@ fn capture_read<S: CaptureSink>(
     reader: &mut impl Read,
     sink: &mut S,
     stream: Stream,
+    #[cfg(test)] deadline: &mut Instant,
 ) -> Result<bool, S::Error> {
     let mut buffer = [0; 64 * 1024];
     match reader.read(&mut buffer) {
         Ok(0) => Ok(true),
         Ok(n) => {
             sink.push(stream, &buffer[..n])?;
+            #[cfg(test)]
+            if stream == Stream::Stderr
+                && tests::EXPIRE_AFTER_STDERR.with(|flag| flag.replace(false))
+            {
+                *deadline = Instant::now();
+            }
             Ok(false)
         }
         Err(error) if retry_io(&error) => Ok(false),
