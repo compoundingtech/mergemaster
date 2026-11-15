@@ -219,3 +219,53 @@ print(json.dumps(out))
         );
     }
 }
+
+#[test]
+fn uncapped_text_api_has_only_reachable_errors_and_identical_results() {
+    let mut cases: Vec<String> = [
+        "",
+        "{}",
+        "[]",
+        "null",
+        "-0",
+        "-0.0",
+        "1e999",
+        "NaN",
+        "{\"é🦀\": [1, \"\\ud800\", false]}",
+        "{\"a\":1,\"a\":2}",
+        "\u{feff}{}",
+        "[1,]",
+        "{\"a\":}",
+        "\"\\q\"",
+        "\"\\u123",
+        "\0{\0}",
+        "{\"a\" 1}",
+        "1 2",
+        "\"a\nb\"",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect();
+    cases.push("9".repeat(4301));
+    cases.push(format!("{}0{}", "[".repeat(100_000), "]".repeat(100_000)));
+    assert_eq!(cases.len(), 21);
+    for text in cases {
+        let narrow: Result<Document, TextError> = Document::from_text(&text);
+        let legacy = Document::from_text_with_depth_limit(&text, None);
+        match (narrow, legacy) {
+            (Ok(a), Ok(b)) => {
+                assert_eq!(a.root, b.root);
+                assert_eq!(format!("{:?}", a.nodes), format!("{:?}", b.nodes));
+            }
+            (Err(a), Err(b)) => {
+                // Exhaustive: decoding and depth-limit errors cannot be represented.
+                let equivalent = match a {
+                    TextError::Syntax(error) => Error::Syntax(error),
+                    TextError::IntegerLimit { digits } => Error::IntegerLimit { digits },
+                };
+                assert_eq!(equivalent, b);
+            }
+            other => panic!("text entrypoints differ: {other:?}"),
+        }
+    }
+}
