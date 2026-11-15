@@ -50,10 +50,11 @@ impl CaptureSink for ProjectionCapture<'_> {
                     self.bytes.extend_from_slice(&bytes[..retained]);
                 }
                 ExpectedOutput::Source(resource) => {
-                    let bound = super::source_resource::SOURCE_BYTES + 1;
+                    let limit = resource.byte_limit();
+                    let bound = limit + 1;
                     let retained = bytes.len().min(bound.saturating_sub(self.bytes.len()));
                     self.bytes.extend_from_slice(&bytes[..retained]);
-                    if self.bytes.len() > super::source_resource::SOURCE_BYTES {
+                    if self.bytes.len() > limit {
                         return Err(ProcessError::Resource(resource.clone()));
                     }
                 }

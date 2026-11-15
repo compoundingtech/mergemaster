@@ -985,6 +985,14 @@ Nonzero overflow refuses with `Git projection stderr exceeds 1048576 bytes`;
 otherwise Python's stderr diagnostic and operation-prefixed process errors survive.
 This is an approved resource divergence: Python has no byte caps at oracle :75.
 The exchange's 60-second deadline matches that same line; update-index stdout is discarded.
+Whole project listings, selector configuration listings and selected-content
+existence listings have a separate approved 64 MiB whole-collection cap.
+The shared collector stops at limit + 1, cancels/reaps, and returns typed
+Failure/error `{exact tree} exceeds 67108864 bytes`; Python has no listing cap.
+The larger budget accommodates measured real listings (dotfiles origin/main
+`c2a85650da041b292a2bbc5c36eafb139cee046f`: 1,825,987 bytes).
+`projection::listing_capture_tests` compares all three paths with the pinned
+oracle at 67,108,864 and 67,108,865 bytes; only Rust rejects the latter.
 The shared nonblocking collector also has an explicit no-timeout entry for
 rust-test-keys source reads. Source overflow cancels/reaps the direct child
 without waiting for EOF from descendants holding inherited pipe descriptors.
