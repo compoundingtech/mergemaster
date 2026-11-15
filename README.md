@@ -1006,6 +1006,9 @@ timeouts. Its fixtures exercise missing executables and expired deadlines.
 `projection_oid` supplies an incremental decoder for the replacement transport:
 Python whitespace is stripped with at most 65 retained OID bytes, including
 100k padding and byte-split Unicode whitespace. Bare OIDs need no final newline.
+The31 oracle fixtures retain all25 strip cases plus uppercase, embedded NUL and
+CRLF at both OID widths. Tests exhaust short-input split points and sample64
+deterministic chunk partitions per fixture, including the200k padding inputs.
 The approved trusted-Git fail-closed guard rejects malformed keys Python accepts;
 evidence: `tmp/projection-stderr-oracle/stdout-parsing.json`. Python has no cap at :75.
 `projection_capture` drives project's reads and writes, including a real noisy-fsmonitor oracle fixture.
