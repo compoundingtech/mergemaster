@@ -54,15 +54,25 @@ pub fn candidates(
     q: &Request<'_>,
 ) -> Result<Candidates, Failure> {
     let (groups, legacy, input_key) = {
-        let file =
-            tempfile::NamedTempFile::new().map_err(|e| failure("error", e.to_string(), None))?;
-        let path = file
-            .path()
-            .canonicalize()
-            .map_err(|e| failure("error", e.to_string(), None))?;
-        let revocations = path
-            .to_str()
-            .ok_or_else(|| failure("error", "temporary revocation path is not UTF-8", None))?;
+        let cli_file;
+        let native_file;
+        let path = if collector.is_cli() {
+            cli_file = super::cli_tempfile::TemporaryFile::new("").map_err(phase_error)?;
+            cli_file.path().to_owned()
+        } else {
+            native_file = tempfile::NamedTempFile::new()
+                .map_err(|e| failure("error", e.to_string(), None))?;
+            native_file
+                .path()
+                .canonicalize()
+                .map_err(|e| failure("error", e.to_string(), None))?
+        };
+        let revocations = if collector.is_cli() {
+            ""
+        } else {
+            path.to_str()
+                .ok_or_else(|| failure("error", "temporary revocation path is not UTF-8", None))?
+        };
         let collected = collector
             .collect(q.repo, q.tree, q.check, q.inputs, q.crate_key)
             .map_err(phase_error)?;
