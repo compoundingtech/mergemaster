@@ -64,7 +64,7 @@ for fixture in fixtures:
 print(json.dumps(fixtures))
 "#;
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script, &root])
         .output()
         .unwrap();

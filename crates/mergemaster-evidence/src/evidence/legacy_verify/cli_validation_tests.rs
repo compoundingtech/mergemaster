@@ -32,7 +32,7 @@ for change in cases:
  results.append(dict(fields=fields,code=code,stderr=err.getvalue()))
 print(json.dumps(results))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .arg(std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap())
         .output()

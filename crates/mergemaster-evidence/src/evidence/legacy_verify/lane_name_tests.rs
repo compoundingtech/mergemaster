@@ -25,7 +25,7 @@ for control in ['\n','\0']:
  name='bad'+control+'key'; emit('{"lanes":{"'+name+'":1}}',name,raw_control=True)
 print(json.dumps(cases))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args([
             "-c",
             script,

@@ -23,7 +23,7 @@ for now,then in [(-(1<<63),(1<<63)-1),((1<<63)-1,-(1<<63)),(-(1<<63),-(1<<63)),(
 assert int(td(microseconds=34359738368999997).total_seconds())==34359738369
 print(json.dumps(rows))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .arg(std::env::var("MERGEMASTER_PYTHON_PARITY_ORACLE").unwrap())
         .output()

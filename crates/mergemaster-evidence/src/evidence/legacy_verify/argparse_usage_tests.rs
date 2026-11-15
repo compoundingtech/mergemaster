@@ -16,7 +16,7 @@ def capture(self,argv):
 argparse.ArgumentParser.parse_args=capture
 v['main']([])
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .arg(std::env::var("MERGEMASTER_PYTHON_PARITY_ORACLE").unwrap())
         .output()

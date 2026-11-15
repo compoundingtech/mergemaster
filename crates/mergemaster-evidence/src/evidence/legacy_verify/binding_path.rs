@@ -85,7 +85,7 @@ mod tests {
             vec![0x1f600],
             vec![97, 0xdc80, 0xd800, 0xdcff, 98],
         ];
-        let output = std::process::Command::new("python3")
+        let output = crate::pinned_python::command()
             .args([
                 "-c",
                 r#"
@@ -129,7 +129,7 @@ print(json.dumps(out))
             ("🦀tree", vec![0x1f600, 0xd800]),
             ("", vec![0xdc80, 0xd800, 0xdcff]),
         ];
-        let output = std::process::Command::new("python3").args(["-c", r#"
+        let output = crate::pinned_python::command().args(["-c", r#"
 import json, subprocess, sys
 out=[]
 for tree, points in json.loads(sys.argv[1]):
@@ -168,7 +168,7 @@ print(json.dumps(out))
             vec![0xdfff],
             vec![0x1f600],
         ];
-        let output = std::process::Command::new("python3")
+        let output = crate::pinned_python::command()
             .args([
                 "-c",
                 r#"

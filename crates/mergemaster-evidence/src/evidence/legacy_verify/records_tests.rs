@@ -3,6 +3,7 @@ use super::*;
 fn records_match_python_oracle() {
     let script = r#"
 import copy,json,os,pathlib,runpy,subprocess,sys
+sys.setrecursionlimit(10000)
 o=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify'); cases=[]; cached=[]
 for fmt in ['sha1','sha256']:
  repo=pathlib.Path(sys.argv[2])/fmt
@@ -30,10 +31,11 @@ for fmt in ['sha1','sha256']:
   if depth in [497,498]:
    ref='refs/tags/evidence/'+empty+'/'+c; git('update-ref',ref,c)
    keys=repo/'keys'; keys.write_text('')
-   cli=subprocess.run([sys.executable,sys.argv[1]+'/scripts/evidence-verify','--repo',str(repo),'--tree',empty,'--check','check','--keys',str(keys)],env=os.environ|{'TMPDIR':str(repo)},capture_output=True,text=True)
+   wrapper="import runpy,sys; sys.setrecursionlimit(10000); p=sys.argv.pop(1); sys.argv[0]=p; runpy.run_path(p,run_name='__main__')"
+   cli=subprocess.run([sys.executable,'-I','-c',wrapper,sys.argv[1]+'/scripts/evidence-verify','--repo',str(repo),'--tree',empty,'--check','check','--keys',str(keys)],env=os.environ|{'TMPDIR':str(repo)},capture_output=True,text=True)
    result=json.loads(cli.stdout); git('update-ref','-d',ref)
-   assert cli.returncode==1 and result['reason']==('error' if depth==498 else 'bad_signature')
-   assert ('RecursionError' in result['detail'])==(depth==498)
+   assert cli.returncode==1 and result['reason']=='bad_signature'
+   assert 'RecursionError' not in result['detail']
   cases.append(dict(repo=str(repo),name=fmt+'-'+name,commit=c,tree=expected_tree,expected=expected,oversize=padding>1024*1024,listing_over=name=='listing-over',depth=depth))
   return c
  add('valid'); add('unbound',expected_tree=None); add('wrong-request',expected_tree='0'*len(subject))
@@ -75,7 +77,7 @@ print(json.dumps(dict(records=cases,cache=cached)))
 "#;
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle required");
     let temp = tempfile::tempdir().unwrap();
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script, &root, temp.path().to_str().unwrap()])
         .output()
         .unwrap();

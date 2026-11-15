@@ -23,7 +23,7 @@ for argv in samples:
  rows.append(dict(argv=[list(map(ord,s)) for s in argv],**expected))
 print(json.dumps(rows))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .arg(std::env::var("MERGEMASTER_PYTHON_PARITY_ORACLE").unwrap())
         .output()

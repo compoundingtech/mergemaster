@@ -59,7 +59,7 @@ for name,blob in cases:
  results.append(dict(name=name,bytes=list(blob),points=points,statement=statement))
 print(json.dumps(results))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script, &root])
         .output()
         .unwrap();
@@ -119,7 +119,7 @@ for blob in samples:
  cases.append([list(blob),expected])
 print(json.dumps(cases))
 "#;
-    let out = std::process::Command::new("python3")
+    let out = crate::pinned_python::command()
         .args(["-c", script])
         .output()
         .unwrap();

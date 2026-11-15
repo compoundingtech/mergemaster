@@ -41,7 +41,7 @@ for fmt in ['sha1','sha256']:
   saved=repo/'allowed'; saved.write_bytes(keys.read_bytes()); rows[-1]['keys']=str(saved)
 print(json.dumps(rows))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .arg(std::env::var("MERGEMASTER_PYTHON_PARITY_ORACLE").unwrap())
         .arg(root.path())
@@ -98,7 +98,7 @@ for check in ['check','a\udcff','a\ud800','a\0','😀\ud800\ud801','a\0\ud800']:
   rows.append(dict(repo=target,check=list(map(ord,check)),mode=mode,expected=expected))
 print(json.dumps(dict(rows=rows,tree=tree,head=head,keys=str(keys),key=ik)))
 "#;
-    let out = std::process::Command::new("python3")
+    let out = crate::pinned_python::command()
         .args(["-c", script])
         .arg(std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap())
         .arg(root.path())

@@ -29,7 +29,7 @@ for fmt in ['sha1','sha256']:
 print(json.dumps(cases))
 "#;
     let repo = tempfile::tempdir().unwrap();
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .arg(std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap())
         .arg(repo.path())

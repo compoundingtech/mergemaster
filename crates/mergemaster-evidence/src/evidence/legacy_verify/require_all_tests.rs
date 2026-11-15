@@ -94,7 +94,7 @@ for fmt in ['sha1','sha256']:
 print(json.dumps(cases))
 "#;
     let root = tempfile::tempdir().unwrap();
-    let mut command = std::process::Command::new("python3");
+    let mut command = crate::pinned_python::command();
     crate::gate::git::sanitize(&mut command);
     let output = command
         .env("HOME", root.path())

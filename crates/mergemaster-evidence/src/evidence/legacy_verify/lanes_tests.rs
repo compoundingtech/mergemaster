@@ -3,7 +3,7 @@ use serde_json::json;
 fn oracle(script: &str, cases: &str) -> Value {
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE")
         .expect("MERGEMASTER_PYTHON_ORACLE must point to the pinned Python oracle");
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script, &root, cases])
         .output()
         .unwrap();

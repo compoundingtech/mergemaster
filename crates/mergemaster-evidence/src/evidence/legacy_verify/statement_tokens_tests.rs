@@ -36,7 +36,7 @@ for name,blob in cases:
 print(json.dumps(results))
 "#;
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle required");
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script, &root])
         .output()
         .unwrap();
@@ -113,7 +113,7 @@ for text in texts:
  results.append(dict(bytes=list(text.encode('utf-8','surrogatepass')),result=result))
 print(json.dumps(results))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .output()
         .unwrap();

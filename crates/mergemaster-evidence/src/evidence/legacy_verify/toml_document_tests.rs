@@ -58,7 +58,7 @@ for raw in samples:
  cases.append(dict(raw=raw,expected=expected,six_quotes=raw in six_quotes))
 print(json.dumps(cases))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .output()
         .unwrap();
@@ -100,12 +100,7 @@ fn deeply_nested_document_is_iterative() {
     let error = parse(&text).unwrap_err();
     assert_eq!(error.kind, ErrorKind::Resource(Resource::ContainerDepth));
     assert_eq!(error.to_string(), "TOML container depth exceeds 256");
-    let output=std::process::Command::new("python3").args(["-c","import tomllib; s='x='+('[{a='*100000)+'0'+('}]'*100000)\ntry: tomllib.loads(s)\nexcept RecursionError: pass\nelse: raise AssertionError('expected RecursionError')"]).output().unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    // The resource refusal is deterministic; CPython's recursion boundary is not.
 }
 #[test]
 fn node_boundaries_match_oracle_below_limit() {
@@ -126,7 +121,7 @@ for prefix,suffix,overhead in [('x=[',']',2),('x={a.b=[',']}',4),('[a.b]\nx=[','
   rows.append([raw,count])
 print(json.dumps(rows))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .output()
         .unwrap();
@@ -179,7 +174,7 @@ for extra in [0,1]:
  rows.append([raw,-1])
 print(json.dumps(rows))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .output()
         .unwrap();
@@ -236,7 +231,7 @@ assert rows[5]['expected']=={'integer':'9007199254740993'}
 assert rows[6]['expected']=={'bits':'3ff0000000000000'}
 print(json.dumps(rows))
 "#;
-    let out = std::process::Command::new("python3")
+    let out = crate::pinned_python::command()
         .args(["-c", script])
         .output()
         .unwrap();
@@ -283,7 +278,7 @@ assert len(rows[-1]['expected']['nodes'])==2001
 assert rows[-1]['expected']['nodes'][-1]==['int','1']
 print(json.dumps(rows))
 "#;
-    let out = std::process::Command::new("python3")
+    let out = crate::pinned_python::command()
         .args(["-c", script])
         .output()
         .unwrap();

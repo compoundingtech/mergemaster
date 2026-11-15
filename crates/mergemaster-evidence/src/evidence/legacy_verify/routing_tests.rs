@@ -62,7 +62,7 @@ for principal in ['host/alice','agent','']:
   loose('wrapper','full',0,all_kinds,levels,None,principal)
 print(json.dumps(cases))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script, &root])
         .output()
         .unwrap();

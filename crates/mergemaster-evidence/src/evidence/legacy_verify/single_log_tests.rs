@@ -48,7 +48,7 @@ for fmt in ['sha1','sha256']:
 print(json.dumps(rows))
 "#;
     let root = tempfile::tempdir().unwrap();
-    let out = std::process::Command::new("python3")
+    let out = crate::pinned_python::command()
         .args(["-c", script])
         .arg(std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap())
         .arg(root.path())

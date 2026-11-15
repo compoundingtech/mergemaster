@@ -43,7 +43,7 @@ add({'shard_inputs':{'count':'\ud800','results':'\udfff'}},{})
 print(json.dumps(cases))
 "#;
     let oracle = std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap();
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script, &oracle])
         .output()
         .unwrap();

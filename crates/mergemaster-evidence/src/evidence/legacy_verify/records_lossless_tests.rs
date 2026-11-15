@@ -63,7 +63,7 @@ print(json.dumps(cases))
 "#;
     let oracle = std::env::var_os("MERGEMASTER_PYTHON_ORACLE").unwrap();
     let temp = tempfile::tempdir().unwrap();
-    let out = std::process::Command::new("python3")
+    let out = crate::pinned_python::command()
         .args(["-c", script])
         .arg(oracle)
         .arg(temp.path())

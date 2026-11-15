@@ -22,7 +22,7 @@ write('a/src/lib.rs','pub fn a() { /* candidate */ }')
 git('add','.'); tree=git('write-tree'); cases=[]
 for revision,inputs,names in [(tree,None,[]),(tree,base,[]),(tree,base,['z']),(tree,base,['a','z','a']),(tree,base,['missing','z','other','missing']),('missing-tree','missing-inputs',[]),(tree,'missing-inputs',['unknown'])]:
  for paths in [False,True]:
-  args=[sys.executable,str(tool),'--repo',str(repo),'--tree',revision,'--verifier',str(verifier),'--json']
+  args=[sys.executable,'-I',str(tool),'--repo',str(repo),'--tree',revision,'--verifier',str(verifier),'--json']
   if inputs is not None: args+=['--inputs-from',inputs]
   for name in names: args+=['--crate',name]
   if paths: args+=['--paths']
@@ -33,7 +33,7 @@ print(json.dumps(cases))
     let repo = tempfile::tempdir().unwrap();
     let tool = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures/fractal/scripts/rust-test-keys");
-    let out = std::process::Command::new("python3")
+    let out = crate::pinned_python::command()
         .args(["-c", script])
         .arg(tool)
         .arg(repo.path())
@@ -154,7 +154,7 @@ for inherited in [None,'0','1']:
 print(json.dumps(cases))
 "#;
     let repo = tempfile::tempdir().unwrap();
-    let out = std::process::Command::new("python3")
+    let out = crate::pinned_python::command()
         .args(["-c", script])
         .arg(std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap())
         .arg(repo.path())

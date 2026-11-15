@@ -86,7 +86,7 @@ for case in cases:
 print(json.dumps(actual))
 "#;
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned Python oracle");
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args([
             "-c",
             script,
@@ -113,7 +113,7 @@ fn shard_part_no_record_detail_matches_pinned_handlers_losslessly() {
         legacy_output, legacy_policy::ErrorOrigin, legacy_verify::failure_json::WireError,
     };
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
-    let output = std::process::Command::new("python3").args(["-c", r#"
+    let output = crate::pinned_python::command().args(["-c", r#"
 import ast,json,runpy,sys,types
 path=sys.argv[1]+'/scripts/evidence-verify';v=runpy.run_path(path)
 module=ast.parse(open(path).read())
@@ -261,7 +261,7 @@ for levels in [None,[],['agent'],['agent','agent','host'],['\ud800'],['\ud800','
                           accepted=ns['accepted'] is None or query in ns['accepted'],preferred=eval(prefer,ns)))
 print(json.dumps(cases))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script, &oracle])
         .output()
         .unwrap();

@@ -71,7 +71,7 @@ fn legacy_statement_shapes_match_oracle() {
         );
     }
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned Python oracle required");
-    let output=std::process::Command::new("python3").args(["-c",r#"
+    let output=crate::pinned_python::command().args(["-c",r#"
 import json,runpy,sys
 o=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify')
 print(json.dumps([o['statement_of'](s.encode(),sys.argv[2]) is not None for s in json.loads(sys.argv[3])]))
@@ -148,7 +148,7 @@ assert out[6][1]==out[7][1] and out[14][1] is not None
 print(json.dumps(out))
 "#;
     let oracle = std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap();
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script, &oracle])
         .output()
         .unwrap();
