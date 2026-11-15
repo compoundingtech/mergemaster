@@ -43,24 +43,7 @@ impl View {
 pub(super) fn refs(repo: &Path, prefixes: &[String]) -> Result<BTreeSet<String>, PolicyError> {
     let mut found = BTreeSet::new();
     for prefix in prefixes {
-        let out = projection::read_git(
-            repo,
-            &[
-                "for-each-ref",
-                "--format=%(objectname) %(refname)",
-                prefix.trim_end_matches('/'),
-            ],
-            usize::MAX,
-        )?;
-        let text = utf8(&out).map_err(|e| exception("UnicodeDecodeError", e))?;
-        for line in text.lines() {
-            if let Some((id, name)) = line.split_once(' ')
-                && log_lines::oid(id)
-                && name.strip_prefix(prefix.as_str()) == Some(id)
-            {
-                found.insert(id.to_owned());
-            }
-        }
+        found.extend(projection::read_ref_ids(repo, prefix)?);
     }
     Ok(found)
 }
@@ -220,6 +203,9 @@ pub(super) fn key_path(check: TextRef<'_>, key: &str) -> Vec<u32> {
         .collect()
 }
 
+#[cfg(test)]
+#[path = "ref_capture_tests.rs"]
+mod ref_capture_tests;
 #[cfg(test)]
 #[path = "log_view_tests.rs"]
 mod tests;
