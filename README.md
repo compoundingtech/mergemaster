@@ -522,7 +522,7 @@ replace values without moving their first position, and nonzero reads mean `abse
 Raw blob capture retains the approved 1MiB fail-closed resource divergence.
 `legacy_verify::argparse_options` exposes the pinned verifier's complete ordered
 option metadata: aliases, destinations, actions, defaults, metavars, nargs,
-requiredness and exclusive groups. It is not production CLI dispatch or a loader.
+requiredness and exclusive groups, consumed by the hidden legacy entry.
 `argparse_int` preserves unbounded decimal conversion and Python's 4300-digit
 limit. Conversion errors retain the exact unbounded argparse argument-repr
 diagnostic, including whitespace, controls, quotes and lone surrogates.
@@ -542,7 +542,7 @@ Non-TTY and NO_COLOR output, streams and exit codes remain exact. No CLI is wire
 namespaces without reparsing, and routes parser exits through the safe sink.
 It resolves formatter width from positive Python-integer COLUMNS, original stdout
 terminal columns, then 80. Its fixed program name is `evidence-verify`: an approved
-divergence only when Python's argv[0] basename differs. No binary entry is wired.
+divergence only when Python's argv[0] basename differs.
 `ParsedArguments::preflight` applies main's ordered validation directly to that
 namespace before any I/O. Kinds and level-list validation retain lossless strings;
 presence, truthiness, repeated stores/appends and unbounded integer positivity
@@ -551,9 +551,12 @@ are not narrowed through serde or a second parser.
 its error writer preserves single-check versus require-all envelopes and exits.
 Revision capture uses the shared collector with the existing 1MiB RawBlob
 metadata divergence, original expression identity and owned 60-second deadline.
-These staged composition functions install no binary intercept. They never call
-`AcceptedSource` or `json_bytes::parse`; those outstanding prerequisites remain
-excluded, not silently satisfied.
+`mergemaster legacy-evidence-verify` intercepts raw argv before clap and composes
+these complete paths, preserving stdout/stderr, exit status and final JSON LF.
+It never calls `AcceptedSource` or `json_bytes::parse`; their outstanding #280
+resource/security prerequisites remain open but unreachable, not silently satisfied.
+The unported `ci_inputs_unchanged`/`unresolved_ci_inputs` helpers have no callable
+CLI route; helper-name options and positional requests fail closed as unknown arguments.
 `cli_dispatch::project` composes complete member, policy-backed and plain project
 early returns before key/lane/run/log preparation. Policy default paths and
 base-input names stay borrowed through output; explicit paths replace defaults.
@@ -573,7 +576,7 @@ freshness phase; explicit fixed-clock reader APIs retain their existing behavior
 `cli_ordinary::verify` composes policy, lanes, run/base inputs, log keys, crate
 bindings, eager/lazy lanes and complete single/member verification in main order.
 It explicitly selects CLI transports and retains base-hash/log owners through
-the output callback, within signer finally ownership. No binary intercept exists.
+the output callback, within signer finally ownership.
 Approved security divergence: option-shaped `--policy-from` is refused before I/O
 in every CLI mode; the oracle passes it to Git as an option. Native APIs are unchanged.
 Approved terminal/log output divergence (#245): `terminal_sink::value` applies
@@ -617,7 +620,7 @@ retains surrogate names/values and nonfinite metadata; native narrowing stays.
 CLI `cli_lane_for::lane_for` composes those surfaces in oracle order: inherited
 config/rev-parse/definition reads, no_lazy only for merge-base and branch-point
 show. Scalar capture is RawBlob1MiB; branch-point lane text is LaneJson1MiB.
-Original revision/check codepoints survive; no CLI dispatch is wired.
+Original revision/check codepoints survive through the hidden CLI dispatch.
 The CLI-only `cli_lanes::LaneRules` uses the flat lossless Document instead:
 lane names and argv retain lone surrogates, and optional noniterable falsey
 values raise the oracle TypeError after CI-input validation. Native APIs stay
@@ -1011,7 +1014,7 @@ It accepts raw key/revocation paths without native prevalidation. Signature
 stdout uses the approved RawBlob 1 MiB cap with original commit identity:
 `{commit} exceeds 1048576 bytes`, typed Failure/error, early abort and kill/reap.
 Strict UTF-8 failures retain the Python exception class/text. Native signature
-hardening is unchanged; this primitive does not wire CLI dispatch.
+hardening is unchanged; hidden dispatch selects this explicit CLI primitive.
 `records::read_statement` adds bounded Git capture and record layout/parent/subject
 checks (3f-3a), with `statement-too-large` distinct from malformed-record refusal.
 Missing subjects are allowed without lazy fetch. `records::RecordCache`

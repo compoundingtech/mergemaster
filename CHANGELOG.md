@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add the hidden `legacy-evidence-verify` entry before clap, composing complete project, require-all and ordinary verification with lossless argv, exact wire exits and real-binary pinned-oracle comparisons; unported ci_inputs helper requests fail closed.
 - Skip the Linux search-only working-directory regression when the effective UID is root, which bypasses the permission restriction needed to exercise O_PATH.
 - Reuse borrowed check codepoints across member aggregation and stream uncovered summaries without temporary per-member formatted strings or joined buffers.
 - Aggregate legacy member successes from original records: oldest metadata, weakest trust, maximum attempts, any input match, narrowed events and combined sampling key, with escaped sorted crate output.
@@ -10,7 +11,7 @@
 - Compute the legacy combined member key with streaming SHA-1 for oracle parity only, not for security.
 - Retain original selected legacy records and typed selection metadata for member aggregation without a JSON conversion bridge.
 - Add the library-only paths project dictionary with lossless comma splitting, shared literal-path validation and escaped JSON output.
-- Preserve ordered legacy CLI preflight diagnostics in a library-only validator; production argument parsing and policy loading remain unwired.
+- Preserve ordered legacy CLI preflight diagnostics before policy loading and other I/O.
 - Decode Rust legacy skip policies from their original JSON text with lossless codepoint identities and wide positive-integer age limits; retain lazy age-overflow errors and remove the serde-value conversion bridge.
 - Use the pinned Python interpreter for the noisy fsmonitor projection test so its hook executes inside Nix check sandboxes without `/usr/bin/env`.
 - Derive the Nix package version from the Rust crate's Cargo manifest and check the packaged CLI's version against it, preventing release metadata drift.

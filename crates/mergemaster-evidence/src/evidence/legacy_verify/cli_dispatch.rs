@@ -1,4 +1,4 @@
-//! Original-main composition boundaries, not a binary entry or partial dispatcher.
+//! Complete original-main composition for the hidden legacy binary entry.
 //! Uses compiled member APIs only: never AcceptedSource or json_bytes::parse.
 use super::{
     argparse_parse::ParsedArguments, binding_path::encode, cli_adapter::Exit,
@@ -201,6 +201,79 @@ pub fn required<T>(
         )
         .map(emit)
     })?
+}
+
+fn json_exit(mut stdout: String, code: u8) -> Exit {
+    stdout.push('\n');
+    Exit {
+        stdout,
+        stderr: String::new(),
+        code,
+    }
+}
+/// Original namespaces and owners remain alive through the final wire callback.
+fn execute(args: &ParsedArguments<'_>) -> Result<anyhow::Result<Exit>, PolicyError> {
+    let repo = path(args.value("--repo").unwrap_or(TextRef::Str(".")))?;
+    let tree = resolve_tree(&repo, args)?;
+    if args.value("--project").is_some() {
+        return project(&repo, &tree, args, |project| {
+            let mut stdout = String::new();
+            legacy_output::write(&mut stdout, |w| project.write_json(w))?;
+            Ok(json_exit(stdout, 0))
+        });
+    }
+    if args.value("--require-all").is_some() {
+        return required(&repo, &tree, args, |result| {
+            let code = u8::from(result.decision == super::require_all::Decision::Reject);
+            let mut stdout = String::new();
+            legacy_output::write(&mut stdout, |w| result.write_json(w))?;
+            Ok(json_exit(stdout, code))
+        });
+    }
+    let options = match super::cli_options::Options::read(args) {
+        Ok(options) => options,
+        Err(message) => {
+            return Ok(Ok(Exit {
+                stdout: String::new(),
+                stderr: format!("{message}\n"),
+                code: 2,
+            }));
+        }
+    };
+    super::cli_ordinary::verify(&repo, &tree, args, options, |outcome| {
+        let mut stdout = String::new();
+        let written = outcome
+            .write(&tree, check(args), &mut stdout)
+            .map_err(super::cli_ordinary::policy_error)?;
+        Ok(written
+            .map(|()| json_exit(stdout, u8::from(!outcome.satisfied())))
+            .map_err(Into::into))
+    })?
+}
+/// Raw POSIX argv is decoded once; parser/preflight errors never perform I/O.
+pub fn run(argv: impl IntoIterator<Item = OsString>) -> anyhow::Result<Exit> {
+    let owned: Vec<_> = argv
+        .into_iter()
+        .map(|v| super::cli_adapter::decode(&v))
+        .collect();
+    let argv: Vec<_> = owned.iter().map(|v| v.borrowed()).collect();
+    let parsed = match super::cli_adapter::prepare(&argv, super::cli_adapter::width())
+        .map_err(|e| anyhow::anyhow!("legacy argument rendering: {e:?}"))?
+    {
+        Ok(parsed) => parsed,
+        Err(exit) => return Ok(exit),
+    };
+    if let Err(message) = parsed.preflight() {
+        return Ok(Exit {
+            stdout: String::new(),
+            stderr: format!("{message}\n"),
+            code: 2,
+        });
+    }
+    match execute(&parsed) {
+        Ok(exit) => exit,
+        Err(error) => Ok(refusal(&parsed, &error)?),
+    }
 }
 
 #[cfg(test)]
