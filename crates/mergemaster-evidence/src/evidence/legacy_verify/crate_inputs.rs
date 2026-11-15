@@ -30,10 +30,12 @@ impl TreeSource<'_> {
         }
         command
     }
-    pub(super) fn git(&self, args: &[&str]) -> Result<Output, PolicyError> {
-        self.command(args)
-            .output()
-            .map_err(|error| super::source_io::error(std::ffi::OsStr::new("git"), &error))
+    pub(super) fn git(&self, args: &[&str], stderr: bool) -> Result<Output, PolicyError> {
+        super::manifest_capture::metadata(
+            &mut self.command(args),
+            SourceResource::RawBlob(self.tree.into()),
+            stderr,
+        )
     }
     pub fn resolve(&self) -> Result<String, PolicyError> {
         let expression = format!("{}^{{tree}}", self.tree);
@@ -52,15 +54,18 @@ impl TreeSource<'_> {
     }
     pub fn config_path(&self, legacy: &str) -> Result<Option<String>, PolicyError> {
         let preferred = legacy.replacen(".st/", ".fractal/", 1);
-        let out = self.git(&[
-            "ls-tree",
-            "-z",
-            "--full-tree",
-            self.tree,
-            "--",
-            &preferred,
-            legacy,
-        ])?;
+        let out = self.git(
+            &[
+                "ls-tree",
+                "-z",
+                "--full-tree",
+                self.tree,
+                "--",
+                &preferred,
+                legacy,
+            ],
+            true,
+        )?;
         if !out.status.success() {
             return Err(failure(format!(
                 "cannot resolve configuration at {}: {}",
@@ -121,6 +126,9 @@ impl TreeSource<'_> {
 #[cfg(test)]
 #[path = "manifest_capture_tests.rs"]
 mod capture_tests;
+#[cfg(test)]
+#[path = "metadata_capture_tests.rs"]
+mod metadata_capture_tests;
 #[cfg(test)]
 #[path = "crate_inputs_tests.rs"]
 mod tests;
