@@ -79,7 +79,8 @@ fn raw_config_metadata_and_allowance_blobs_are_bounded() {
         for result in [
             path(Path::new("."), "HEAD~1".into(), ".st/rust-test-inputs.json")
                 .map(|p| assert!(p.is_none())),
-            zero_test_crates(Path::new("."), "HEAD~1").map(|names| assert!(names.is_empty())),
+            zero_test_crates(Path::new("."), "HEAD~1".into())
+                .map(|names| assert!(names.is_empty())),
         ] {
             if size == SOURCE_BYTES {
                 result.unwrap();
@@ -136,7 +137,7 @@ print(json.dumps(dict(rows=rows,shim=str(shim))))
     assert_eq!(cases["rows"].as_array().unwrap().len(), 8);
     for row in cases["rows"].as_array().unwrap() {
         let tree = row["tree"].as_str().unwrap();
-        let result = zero_test_crates(Path::new(row["repo"].as_str().unwrap()), tree);
+        let result = zero_test_crates(Path::new(row["repo"].as_str().unwrap()), tree.into());
         if row["size"] == SOURCE_BYTES {
             assert_eq!(
                 result.unwrap(),

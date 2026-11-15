@@ -62,6 +62,11 @@ pub fn require_all<'a>(
     )
 }
 
+#[derive(Clone, Copy)]
+enum Lanes<'a> {
+    Native(Option<(&'a str, &'a str)>),
+    Cli(Option<(&'a str, super::value_inputs::TextRef<'a>)>),
+}
 /// CLI transport composition, without changing native lane or record defaults.
 pub fn require_all_cli<'a>(
     repo: &Path,
@@ -69,7 +74,7 @@ pub fn require_all_cli<'a>(
     keys: &Path,
     policy_text: &str,
     repository: &str,
-    lane_file: Option<(&str, &str)>,
+    lane_file: Option<(&str, super::value_inputs::TextRef<'_>)>,
     lane_base: Option<&str>,
 ) -> Result<All<'a>, PolicyError> {
     with_transport(
@@ -78,10 +83,9 @@ pub fn require_all_cli<'a>(
         keys,
         policy_text,
         repository,
-        lane_file,
+        Lanes::Cli(lane_file),
         lane_base,
         &mut SystemClock,
-        configured::Transport::Cli,
     )
 }
 // The private seam preserves Python's seven inputs plus a deterministic clock capability.
@@ -102,10 +106,9 @@ fn with_clock<'a>(
         Path::new(keys),
         policy_text,
         repository,
-        lane_file,
+        Lanes::Native(lane_file),
         lane_base,
         clock,
-        configured::Transport::Native,
     )
 }
 
@@ -116,10 +119,9 @@ fn with_transport<'a>(
     keys: &Path,
     policy_text: &str,
     repository: &str,
-    lane_file: Option<(&str, &str)>,
+    lanes: Lanes<'_>,
     lane_base: Option<&str>,
     clock: &mut dyn CurrentTime,
-    transport: configured::Transport,
 ) -> Result<All<'a>, PolicyError> {
     let mut all = All {
         tree,
@@ -132,14 +134,14 @@ fn with_transport<'a>(
         if rules.header.require == RequireMode::Off {
             continue;
         }
-        let eager = match transport {
-            configured::Transport::Native => {
+        let eager = match lanes {
+            Lanes::Native(lane_file) => {
                 lane_git::required_lane(repo, tree, lane_file, check.as_slice(), lane_base)?
             }
-            configured::Transport::Cli => match super::cli_lane_for::lane_for(
+            Lanes::Cli(lane_file) => match super::cli_lane_for::lane_for(
                 repo,
                 super::value_inputs::TextRef::Str(tree),
-                lane_file.map(|(text, base)| (text, super::value_inputs::TextRef::Str(base))),
+                lane_file,
                 super::value_inputs::TextRef::Points(&check),
                 lane_base.map(super::value_inputs::TextRef::Str),
             ) {
@@ -155,9 +157,9 @@ fn with_transport<'a>(
                 attempts: None,
                 origin: error.origin,
             }),
-            lane_git::RequiredLane::Ready(lane) => (match transport {
-                configured::Transport::Native => configured::required_git,
-                configured::Transport::Cli => configured::required_git_cli,
+            lane_git::RequiredLane::Ready(lane) => (match lanes {
+                Lanes::Native(_) => configured::required_git,
+                Lanes::Cli(_) => configured::required_git_cli,
             })(
                 &Request {
                     repo,

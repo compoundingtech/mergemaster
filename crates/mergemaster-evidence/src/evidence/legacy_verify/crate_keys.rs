@@ -3,6 +3,7 @@ use super::{
     crate_input_document::Inputs,
     crate_inputs::{TreeSource, failure},
     projection::project_with_fetch,
+    value_inputs::TextRef,
 };
 use crate::evidence::legacy_policy::{PolicyError, normalized_text::NormalizedText};
 use indexmap::IndexMap;
@@ -92,18 +93,13 @@ fn project_keys(
 pub fn member_keys(
     repo: &std::path::Path,
     tree: &str,
-    policy_base: Option<&str>,
+    policy_base: Option<TextRef<'_>>,
 ) -> Result<IndexMap<String, Option<String>>, PolicyError> {
-    let base = policy_base.filter(|base| !base.is_empty()).ok_or_else(|| {
+    let base = policy_base.filter(|base| !base.equals("")).ok_or_else(|| {
         failure("--members needs --policy-from: the keys are defined by the accepted base")
     })?;
     let load = || {
-        let inputs = TreeSource {
-            repo,
-            tree: base,
-            no_lazy_fetch: true,
-        }
-        .read_inputs()?;
+        let inputs = Inputs::read_from(repo, base, true)?;
         TreeSource {
             repo,
             tree,

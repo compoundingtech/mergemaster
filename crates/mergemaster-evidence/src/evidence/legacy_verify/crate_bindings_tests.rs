@@ -21,8 +21,12 @@ for i,inputs in enumerate([b'{}',b'{"no_tests":["a"]}',b'{"no_tests":["z","\\ud8
  if inputs is not None: write(prefix+'.st/rust-test-inputs.json',inputs)
 git('add','.'); outer=git('write-tree')
 for i in range(7): trees.append(git('rev-parse',outer+':'+str(i)))
+raw='refs/tags/accepted-'+chr(0xdcff)
+adjacent='refs/tags/accepted-'+chr(0xdcc3)+chr(0xdca9)
+missing='refs/tags/missing-'+chr(0xdcff)
+for ref,tree in [(raw,trees[1]),(adjacent,trees[1]),(missing,trees[6])]: git('update-ref',ref,tree)
 cases=[]
-for base in [None,'',*trees,'unknown-base']:
+for base in [None,'',*trees,'unknown-base',raw,adjacent,missing,'bad'+chr(0xd800),'bad\0','bad\0'+chr(0xd800)]:
  for mode in ['explicit','members']:
   for name in (['a','z','\ud800','\x00'] if mode=='explicit' else ['a']):
    try:
@@ -33,7 +37,18 @@ for base in [None,'',*trees,'unknown-base']:
     expected={'ok':result}
    except v['Failure'] as e: expected={'class':'Failure','reason':e.reason,'detail':str(e)}
    except Exception as e: expected={'class':type(e).__name__,'detail':str(e)}
-   cases.append(dict(mode=mode,base=base,name=list(map(ord,name)),tree=trees[0],expected=expected))
+   if 'detail' in expected: expected['detail']=list(map(ord,expected['detail']))
+   if base in [raw,adjacent]: assert 'ok' in expected,(base,mode,expected)
+   cases.append(dict(mode=mode,base=list(map(ord,base)) if base is not None else None,name=list(map(ord,name)),tree=trees[0],expected=expected))
+for mode in ['explicit','members']:
+ base=chr(0xd800)
+ try:
+  if mode=='explicit': v['zero_test_crates'](str(repo)+'/\0',base)
+  else: v['member_keys'](str(repo)+'/\0',trees[0],base)
+  raise AssertionError('expected repository NUL refusal')
+ except ValueError as e: expected=dict(class_='ValueError',detail=list(map(ord,str(e))))
+ expected['class']=expected.pop('class_')
+ cases.append(dict(mode=mode,base=[0xd800],name=[97],tree=trees[0],nul_repo=True,expected=expected))
 print(json.dumps(cases))
 "#;
     let repo = tempfile::tempdir().unwrap();
@@ -54,7 +69,13 @@ print(json.dumps(cases))
     );
     let cases: Vec<Value> = serde_json::from_slice(&out.stdout).unwrap();
     for case in &cases {
-        let base = case["base"].as_str();
+        let repo_path = if case["nul_repo"] == true {
+            repo.path().join("\0")
+        } else {
+            repo.path().to_path_buf()
+        };
+        let base_points: Option<Vec<u32>> = serde_json::from_value(case["base"].clone()).unwrap();
+        let base = base_points.as_deref().map(TextRef::Points);
         let name: Vec<u32> = serde_json::from_value(case["name"].clone()).unwrap();
         let parsed = ParsedCrateKey {
             name: TextRef::Points(&name),
@@ -62,10 +83,10 @@ print(json.dumps(cases))
         };
         let actual = if case["mode"] == "explicit" {
             parsed
-                .binding(repo.path(), base)
+                .binding(&repo_path, base)
                 .map(|b| json!([[b.name.points().collect::<Vec<_>>(), b.key, b.needs_tests]]))
         } else {
-            Members::read(repo.path(), case["tree"].as_str().unwrap(), base).map(|members| {
+            Members::read(&repo_path, case["tree"].as_str().unwrap(), base).map(|members| {
                 json!(
                     members
                         .iter()
@@ -81,14 +102,14 @@ print(json.dumps(cases))
             Ok(bindings) => json!({"ok":bindings}),
             Err(e) => match e.origin {
                 crate::evidence::legacy_policy::ErrorOrigin::Failure => {
-                    json!({"class":"Failure","reason":e.reason,"detail":e.detail.to_string()})
+                    json!({"class":"Failure","reason":e.reason,"detail":e.detail.borrowed().points().collect::<Vec<_>>()})
                 }
                 crate::evidence::legacy_policy::ErrorOrigin::Exception { class } => {
-                    json!({"class":class,"detail":e.detail.to_string()})
+                    json!({"class":class,"detail":e.detail.borrowed().points().collect::<Vec<_>>()})
                 }
             },
         };
         assert_eq!(actual, case["expected"], "{case}");
     }
-    assert_eq!(cases.len(), 50);
+    assert_eq!(cases.len(), 82);
 }

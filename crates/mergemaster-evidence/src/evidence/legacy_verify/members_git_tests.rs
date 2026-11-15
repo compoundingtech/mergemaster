@@ -193,7 +193,7 @@ print(json.dumps(cases))
         };
         let actual = match verified_with_transport(
             &q,
-            case["base"].as_str(),
+            case["base"].as_str().map(Into::into),
             settings,
             &mut judgment,
             Levels::Unrestricted,

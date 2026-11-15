@@ -140,18 +140,23 @@ print(json.dumps(cases))
             let mut system = SystemClock;
             let injected = case["name"].as_str().unwrap().ends_with("/clock-exception");
             let clock: &mut dyn CurrentTime = if injected { &mut sampling } else { &mut system };
+            let lane_file = case["lane"]
+                .as_str()
+                .map(|text| (text, case["base"].as_str().unwrap()));
             let result = with_transport(
                 Path::new(case["repo"].as_str().unwrap()),
                 case["tree"].as_str().unwrap(),
                 Path::new(case["keys"].as_str().unwrap()),
                 policy,
                 "fixture",
-                case["lane"]
-                    .as_str()
-                    .map(|text| (text, case["base"].as_str().unwrap())),
+                match transport {
+                    configured::Transport::Native => Lanes::Native(lane_file),
+                    configured::Transport::Cli => {
+                        Lanes::Cli(lane_file.map(|(text, base)| (text, base.into())))
+                    }
+                },
                 None,
                 clock,
-                transport,
             );
             if injected {
                 assert_eq!(

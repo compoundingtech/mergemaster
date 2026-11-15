@@ -45,7 +45,7 @@ pub use aggregate::{Aggregate, View};
 /// Keys precede the standalone allowance; one judgment shares its LaneOnce across members.
 pub fn verified<P: Provider>(
     q: &Request<'_>,
-    policy_base: Option<&str>,
+    policy_base: Option<TextRef<'_>>,
     settings: Settings<'_>,
     judgment: &mut CheckJudgment<'_, P>,
     prefer: Levels<'_>,
@@ -64,7 +64,7 @@ pub fn verified<P: Provider>(
 
 pub fn verified_with_transport<P: Provider>(
     q: &Request<'_>,
-    policy_base: Option<&str>,
+    policy_base: Option<TextRef<'_>>,
     settings: Settings<'_>,
     judgment: &mut CheckJudgment<'_, P>,
     prefer: Levels<'_>,

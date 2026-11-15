@@ -14,7 +14,11 @@ pub struct Members {
     no_tests: BTreeSet<Vec<u32>>,
 }
 impl Members {
-    pub fn read(repo: &Path, tree: &str, policy_base: Option<&str>) -> Result<Self, PolicyError> {
+    pub fn read(
+        repo: &Path,
+        tree: &str,
+        policy_base: Option<TextRef<'_>>,
+    ) -> Result<Self, PolicyError> {
         let keys = member_keys(repo, tree, policy_base)?;
         let no_tests = match policy_base {
             Some(base) => zero_test_crates(repo, base)?,
@@ -64,9 +68,9 @@ impl ParsedCrateKey<'_> {
     pub fn binding(
         &self,
         repo: &Path,
-        policy_base: Option<&str>,
+        policy_base: Option<TextRef<'_>>,
     ) -> Result<CrateBinding<'_>, PolicyError> {
-        let needs_tests = if let Some(base) = policy_base.filter(|base| !base.is_empty()) {
+        let needs_tests = if let Some(base) = policy_base.filter(|base| !base.equals("")) {
             !listed(&zero_test_crates(repo, base)?, self.name)
         } else {
             false

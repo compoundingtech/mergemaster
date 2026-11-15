@@ -66,22 +66,7 @@ impl TreeSource<'_> {
             ],
             true,
         )?;
-        if !out.status.success() {
-            return Err(failure(format!(
-                "cannot resolve configuration at {}: {}",
-                self.tree,
-                String::from_utf8_lossy(&out.stderr).trim()
-            )));
-        }
-        let mut old = false;
-        for row in out.stdout.split(|b| *b == 0).filter(|row| !row.is_empty()) {
-            let name = row.splitn(2, |b| *b == b'\t').nth(1).unwrap_or_default();
-            if name == preferred.as_bytes() {
-                return Ok(Some(preferred));
-            }
-            old |= name == legacy.as_bytes();
-        }
-        Ok(old.then(|| legacy.into()))
+        configuration(out, self.tree.into(), legacy)
     }
     pub fn manifest(&self, directory: &str) -> Result<Table, PolicyError> {
         let path = joined(directory, "Cargo.toml");
@@ -122,6 +107,34 @@ impl TreeSource<'_> {
             }
         })
     }
+}
+
+pub(super) fn configuration(
+    out: Output,
+    tree: super::value_inputs::TextRef<'_>,
+    legacy: &str,
+) -> Result<Option<String>, PolicyError> {
+    if !out.status.success() {
+        return Err(failure(NormalizedText::concat(
+            [
+                "cannot resolve configuration at ".into(),
+                tree,
+                ": ".into(),
+                String::from_utf8_lossy(&out.stderr).trim().into(),
+            ]
+            .into_iter(),
+        )));
+    }
+    let preferred = legacy.replacen(".st/", ".fractal/", 1);
+    let mut old = false;
+    for row in out.stdout.split(|b| *b == 0).filter(|row| !row.is_empty()) {
+        let name = row.splitn(2, |b| *b == b'\t').nth(1).unwrap_or_default();
+        if name == preferred.as_bytes() {
+            return Ok(Some(preferred));
+        }
+        old |= name == legacy.as_bytes();
+    }
+    Ok(old.then(|| legacy.into()))
 }
 #[cfg(test)]
 #[path = "manifest_capture_tests.rs"]

@@ -59,7 +59,13 @@ print(json.dumps(cases))
                 keys: IndexMap::from([("a".into(), Some("a".repeat(40))), ("z".into(), None)]),
             }
         } else {
-            MemberProject::read(repo.path(), tree, check.as_slice().into(), Some(tree)).unwrap()
+            MemberProject::read(
+                repo.path(),
+                tree,
+                check.as_slice().into(),
+                Some(tree.into()),
+            )
+            .unwrap()
         };
         let mut actual = String::new();
         crate::evidence::legacy_output::write(&mut actual, |w| project.write_json(w)).unwrap();
@@ -123,7 +129,7 @@ print(json.dumps(cases))
             Path::new(case["repo"].as_str().unwrap()),
             case["tree"].as_str().unwrap(),
             "rust-tests".into(),
-            case["base"].as_str(),
+            case["base"].as_str().map(Into::into),
         ) {
             Ok(project) => {
                 let mut wire = String::new();
