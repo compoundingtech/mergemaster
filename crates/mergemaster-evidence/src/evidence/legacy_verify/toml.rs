@@ -162,6 +162,8 @@ mod strings;
 #[path = "toml_value.rs"]
 mod value;
 pub use value::{Date, Table, Time, Value};
+#[path = "toml_nested.rs"]
+pub mod nested;
 #[path = "toml_numbers.rs"]
 mod numbers;
 #[path = "toml_tables.rs"]
