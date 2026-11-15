@@ -37,6 +37,33 @@ pub fn input_refs<'a>(
 ) -> Result<Vec<String>, PolicyError> {
     super::discovery::input_refs_with(repo, check.into(), key, records_under)
 }
+/// One oracle batch-check; only complete lowercase OIDs may enter its echo rows.
+pub fn with_note_for<'a>(
+    repo: &Path,
+    commits: &'a [String],
+    tree: &str,
+) -> Result<Vec<&'a str>, PolicyError> {
+    if commits.is_empty() {
+        return Ok(Vec::new());
+    }
+    for value in std::iter::once(tree).chain(commits.iter().map(String::as_str)) {
+        crate::evidence::oid(value).map_err(|e| super::crate_inputs::failure(e.to_string()))?;
+    }
+    let mut input = Vec::with_capacity(commits.len() * (tree.len() + 66));
+    for commit in commits {
+        input.extend_from_slice(commit.as_bytes());
+        input.push(b':');
+        input.extend_from_slice(tree.as_bytes());
+        input.push(b'\n');
+    }
+    let mut command = super::projection::projection_command(repo, &["cat-file", "--batch-check"])?;
+    let present = super::projection_capture::note_presence(&mut command, &input, commits.len())?;
+    Ok(commits
+        .iter()
+        .zip(present)
+        .filter_map(|(c, found)| found.then_some(c.as_str()))
+        .collect())
+}
 
 #[cfg(test)]
 mod tests {

@@ -44,6 +44,7 @@ enum ProcessError {
     Io(io::Error, bool),
     Resource(super::source_resource::SourceResource),
     Bytes(usize),
+    Policy(Box<PolicyError>),
 }
 impl From<io::Error> for ProcessError {
     fn from(error: io::Error) -> Self {
@@ -159,6 +160,7 @@ fn process_error(
     error: ProcessError,
 ) -> PolicyError {
     match error {
+        ProcessError::Policy(error) => *error,
         ProcessError::Resource(resource) => resource.into_error(),
         ProcessError::Bytes(limit) => failure(format!("Git output exceeds {limit} bytes")),
         ProcessError::Io(error, spawned) => failure(format!(
@@ -196,6 +198,9 @@ pub(super) fn record_subject(command: &mut Command) -> Result<Option<Vec<u8>>, P
 #[path = "projection_refs.rs"]
 mod refs;
 pub(super) use refs::read as reference_ids;
+#[path = "projection_notes.rs"]
+mod notes;
+pub(super) use notes::read as note_presence;
 #[cfg(test)]
 #[path = "projection_capture_tests.rs"]
 mod tests;

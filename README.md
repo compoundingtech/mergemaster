@@ -979,6 +979,11 @@ The exact-unit, one-unit-over and negative-entry budget boundaries also run in b
 `cli_discovery` uses the same bounded-record streaming ref sink with insertion
 order; existing log callers retain their BTreeSet sorting. Listings stay uncapped
 as streams, without whole-output retention; prefix order and first-seen IDs survive.
+CLI note presence uses one inherited `cat-file --batch-check` and incremental strict
+UTF-8 rows with no whole-output cap. Approved fail-closed divergence: headers over
+138 bytes including LF return `note Git header exceeds 138 bytes` (Failure/error).
+Only full lowercase OIDs enter this API: the largest missing echo is 64+1+64+8+1=138
+bytes; normal headers are at most 93 bytes. Native note discovery is unchanged.
 Immutable `Arc` documents are interned per repo/commit; member hits are free and errors uncached.
 Observed records already flow through the lossless `Document`, cached `Arc<Document>`
 and borrowed `DocumentFacts`; no serde-value conversion intervenes. Real SHA-1/SHA-256
