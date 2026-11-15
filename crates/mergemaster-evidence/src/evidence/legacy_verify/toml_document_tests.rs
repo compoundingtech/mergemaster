@@ -97,24 +97,74 @@ fn deeply_nested_document_is_iterative() {
     for _ in 0..depth {
         text.push_str("}]");
     }
-    let table = parse(&text).unwrap();
-    let mut value = &table["selected"];
-    for _ in 0..depth {
-        let Value::Array(items) = value else {
-            panic!("array expected")
-        };
-        let Value::Table(map) = &items[0] else {
-            panic!("table expected")
-        };
-        value = &map["a"];
-    }
-    assert!(matches!(value,Value::Integer(i) if i=="0"));
+    let error = parse(&text).unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Resource(Resource::ContainerDepth));
+    assert_eq!(error.to_string(), "TOML container depth exceeds 256");
     let output=std::process::Command::new("python3").args(["-c","import tomllib; s='x='+('[{a='*100000)+'0'+('}]'*100000)\ntry: tomllib.loads(s)\nexcept RecursionError: pass\nelse: raise AssertionError('expected RecursionError')"]).output().unwrap();
     assert!(
         output.status.success(),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+#[test]
+fn source_and_container_limits_match_oracle_below_bounds() {
+    let script = r#"
+import json,sys,tomllib
+assert sys.version_info[:3]==(3,14,7)
+rows=[]
+for depth in [0,1,255,256,257]:
+ for opening,closing in [('[',']'),('{a=','}'),('[{a=','}]')]:
+  count=depth if opening!='[{a=' else depth//2
+  raw='x='+opening*count+'0'+closing*count
+  value=tomllib.loads(raw)['x']; seen=0
+  while isinstance(value,(list,dict)):
+   seen+=1; value=value[0] if isinstance(value,list) else value['a']
+  assert seen==(count if opening!='[{a=' else count*2) and value==0
+  rows.append([raw,seen])
+for extra in [0,1]:
+ raw='x=0\n#'+'é'*((1048576-5)//2)+' '*(extra+1)
+ assert len(raw.encode())==1048576+extra and tomllib.loads(raw)=={'x':0}
+ rows.append([raw,-1])
+print(json.dumps(rows))
+"#;
+    let output = std::process::Command::new("python3")
+        .args(["-c", script])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let rows: Vec<(String, i64)> = serde_json::from_slice(&output.stdout).unwrap();
+    for (raw, depth) in rows {
+        let expected = if raw.len() > 1_048_576 {
+            Some(Resource::SourceBytes)
+        } else if depth > 256 {
+            Some(Resource::ContainerDepth)
+        } else {
+            None
+        };
+        match (parse(&raw), expected) {
+            (Err(error), Some(resource)) => {
+                assert_eq!(error.kind, ErrorKind::Resource(resource));
+                assert_eq!(error.to_string(), resource.error().to_string());
+            }
+            (Ok(table), None) => {
+                let mut value = &table["x"];
+                for _ in 0..depth.max(0) {
+                    value = match value {
+                        Value::Array(items) => &items[0],
+                        Value::Table(items) => &items["a"],
+                        _ => panic!("container expected"),
+                    };
+                }
+                assert!(matches!(value, Value::Integer(i) if i=="0"));
+            }
+            (actual, expected) => panic!("unexpected resource outcome {actual:?} {expected:?}"),
+        }
+    }
 }
 #[test]
 fn full_document_numeric_rounding_matches_tomllib_bits() {

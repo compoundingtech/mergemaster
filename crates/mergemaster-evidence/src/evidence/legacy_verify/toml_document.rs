@@ -6,8 +6,11 @@ use super::{
     whitespace,
 };
 
-/// CPython tomllib grammar with iterative, resource-bounded-by-memory values.
+/// CPython tomllib grammar with iterative values and approved fail-closed limits.
 pub fn parse(text: &str) -> Result<Table, Error> {
+    if text.len() > 1_048_576 {
+        return Err(super::Resource::SourceBytes.error());
+    }
     let source = Source::new(text);
     let mut out = NestedDict::default();
     let mut flags = Flags::default();

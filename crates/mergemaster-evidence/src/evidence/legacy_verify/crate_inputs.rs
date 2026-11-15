@@ -76,7 +76,10 @@ impl TreeSource<'_> {
             .ok_or_else(|| failure(format!("{}:{path} is not readable", self.tree)))?;
         let text = utf8(&bytes).map_err(|e| failure(format!("{path}: {e}")))?;
         toml::parse(text).map_err(|e| {
-            if e.kind == toml::ErrorKind::Decode {
+            if matches!(
+                e.kind,
+                toml::ErrorKind::Decode | toml::ErrorKind::Resource(_)
+            ) {
                 failure(format!("{path}: {e}"))
             } else {
                 PolicyError {
