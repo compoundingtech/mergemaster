@@ -788,6 +788,11 @@ Library-only invariant refusals have no Python counterpart: manually constructed
 malformed validated-record primitives return `error` / Failure with
 `invalid validated statement` (no attempts). These states are unreachable through
 statement ingress.
+The TOML manifest parser has an approved resource-dependent divergence:
+CPython 3.14.7 tomllib raises `RecursionError` for nested arrays and inline tables
+at about depth 495, depending on interpreter stack and caller depth. Rust accepts
+these values using an iterative parser and iterative drop; a full-document fixture
+parses 100,000 nested array/inline-table pairs. `MAX_KEY_PARTS=1000` remains exact.
 `records::read_statement` adds bounded Git capture and record layout/parent/subject
 checks (3f-3a), with `statement-too-large` distinct from malformed-record refusal.
 Missing subjects are allowed without lazy fetch. `records::RecordCache`

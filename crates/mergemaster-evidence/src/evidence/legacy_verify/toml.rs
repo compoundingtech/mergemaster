@@ -155,11 +155,17 @@ fn repr(c: char) -> String {
     Repr(TextRef::Points(&[u32::from(c)])).to_string()
 }
 
+#[path = "toml_document.rs"]
+mod document;
+pub use document::parse;
 #[path = "toml_containers.rs"]
 mod containers;
 #[cfg(test)]
 #[path = "toml_containers_tests.rs"]
 mod containers_tests;
+#[cfg(test)]
+#[path = "toml_document_tests.rs"]
+mod document_tests;
 #[path = "toml_keys.rs"]
 mod keys;
 #[path = "toml_strings.rs"]
