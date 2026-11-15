@@ -1043,6 +1043,9 @@ single-check selection/log overlays and member aggregation; native wrappers keep
 their defaults. `required_git_cli` also selects the CLI hash provider, and
 `require_all_cli` uses CLI lane resolution and required-check collection.
 These library joins do not install a binary dispatch or prepare CLI tempfiles.
+Pinned selector stress coverage includes empty keys and dotted empty selectors,
+64/96 repeated declarations, and preferred/legacy aliases resolving to one
+selected identity, comparing complete selected bytes and projection keys.
 Lane discovery uses the gate's sanitized Git command and rejects malformed or
 unterminated ls-tree rows; shared subprocess timeout/output bounds remain open.
 `workflow::workflow_job` selects exact generated-workflow text and transitive
