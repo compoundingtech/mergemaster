@@ -895,6 +895,10 @@ Projection validates full tree OIDs before fast paths and ends Git option parsin
 Its reads and write plumbing inherit the environment with the verifier's fixed Git
 defaults and use the shared draining collector; the native sanitizer is unchanged.
 An alternate-object fixture covers listing, preferred config resolution and selected blobs.
+Projection rejects embedded NUL only when reaching subprocess argv, with Python's
+`ValueError: embedded null byte`; whole-tree fast paths still skip unused plain names.
+The shared binding-path encoder supports strict UTF-8 and filesystem surrogateescape
+without copying scalar storage, preserving exact UnicodeEncodeError runs and offsets.
 The stdout/OID guard is an approved fail-closed resource divergence: pinned
 `scripts/evidence-verify:75` captures stdout without a byte cap. Git is a trusted
 environment binary; compliant write plumbing emits one OID, not arbitrary keys.

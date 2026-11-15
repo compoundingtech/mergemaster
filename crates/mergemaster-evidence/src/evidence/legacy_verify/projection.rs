@@ -7,7 +7,9 @@ use super::{
 use crate::evidence::{legacy_policy::PolicyError, oid};
 use std::{
     collections::BTreeSet,
+    ffi::OsStr,
     io::Write,
+    os::unix::ffi::OsStrExt,
     path::Path,
     process::{Command, Stdio},
     time::Duration,
@@ -19,7 +21,18 @@ fn error(detail: impl ToString) -> PolicyError {
         detail: detail.to_string().into(),
     }
 }
-fn projection_command(repo: &Path, args: &[&str]) -> Command {
+fn projection_command(repo: &Path, args: &[impl AsRef<OsStr>]) -> Result<Command, PolicyError> {
+    if repo.as_os_str().as_bytes().contains(&0)
+        || args.iter().any(|arg| arg.as_ref().as_bytes().contains(&0))
+    {
+        return Err(PolicyError {
+            origin: crate::evidence::legacy_policy::ErrorOrigin::Exception {
+                class: "ValueError",
+            },
+            reason: "error",
+            detail: "embedded null byte".into(),
+        });
+    }
     let mut cmd = Command::new("git");
     cmd.arg("-C")
         .arg(repo)
@@ -35,7 +48,7 @@ fn projection_command(repo: &Path, args: &[&str]) -> Command {
         .env("GIT_NO_REPLACE_OBJECTS", "1")
         .env("LC_ALL", "C")
         .stdin(Stdio::piped());
-    cmd
+    Ok(cmd)
 }
 #[cfg(test)]
 thread_local! {
@@ -45,12 +58,12 @@ thread_local! {
 }
 fn input_git(
     repo: &Path,
-    args: &[&str],
+    args: &[impl AsRef<OsStr>],
     bytes: &[u8],
     index: Option<&Path>,
     expected: ExpectedOutput,
 ) -> Result<Vec<u8>, PolicyError> {
-    let mut cmd = projection_command(repo, args);
+    let mut cmd = projection_command(repo, args)?;
     if let Some(index) = index {
         cmd.env("GIT_INDEX_FILE", index);
     }
@@ -61,12 +74,18 @@ fn input_git(
     projection_capture::exchange(
         &mut cmd,
         bytes,
-        args.first().copied().unwrap_or(""),
+        args.first()
+            .and_then(|arg| arg.as_ref().to_str())
+            .unwrap_or(""),
         expected,
         timeout,
     )
 }
-pub(super) fn read_git(repo: &Path, args: &[&str], limit: usize) -> Result<Vec<u8>, PolicyError> {
+pub(super) fn read_git(
+    repo: &Path,
+    args: &[impl AsRef<OsStr>],
+    limit: usize,
+) -> Result<Vec<u8>, PolicyError> {
     input_git(repo, args, &[], None, ExpectedOutput::Bytes(limit))
 }
 pub fn project(repo: &Path, tree: &str, paths: &[String]) -> Result<Option<String>, PolicyError> {
