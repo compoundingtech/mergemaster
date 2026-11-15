@@ -4,11 +4,12 @@ use super::{
     source_io,
 };
 use crate::evidence::legacy_policy::PolicyError;
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use std::{fs::OpenOptions, os::unix::fs::OpenOptionsExt};
 use std::{
-    fs::OpenOptions,
     os::{
         fd::AsRawFd,
-        unix::{ffi::OsStrExt, fs::OpenOptionsExt, process::CommandExt},
+        unix::{ffi::OsStrExt, process::CommandExt},
     },
     path::Path,
     process::Command,
@@ -38,26 +39,92 @@ impl AcceptedSource<'_> {
         // Attribute directory resolution errors to cwd, never to the executable.
         // O_PATH avoids requiring read permission on Linux directories.
         #[cfg(any(target_os = "linux", target_os = "android"))]
-        let access = libc::O_PATH;
-        #[cfg(not(any(target_os = "linux", target_os = "android")))]
-        let access = 0;
-        let directory = OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_DIRECTORY | access)
-            .open(self.repo)
-            .map_err(|error| source_io::error(self.repo.as_os_str(), &error))?;
+        let access = Some(libc::O_PATH);
+        #[cfg(any(
+            target_vendor = "apple",
+            target_os = "aix",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "cygwin",
+            target_os = "emscripten",
+            target_os = "solaris",
+            target_os = "illumos"
+        ))]
+        let access = Some(libc::O_SEARCH);
+        #[cfg(any(target_os = "hurd", target_os = "nto"))]
+        let access = Some(libc::O_EXEC);
+        #[cfg(not(any(
+            target_os = "linux",
+            target_os = "android",
+            target_vendor = "apple",
+            target_os = "aix",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "cygwin",
+            target_os = "emscripten",
+            target_os = "solaris",
+            target_os = "illumos",
+            target_os = "hurd",
+            target_os = "nto"
+        )))]
+        let access: Option<i32> = None;
+        let directory = access
+            .map(|access| {
+                #[cfg(any(target_os = "linux", target_os = "android"))]
+                {
+                    OpenOptions::new()
+                        .read(true)
+                        .custom_flags(libc::O_DIRECTORY | access)
+                        .open(self.repo)
+                }
+                #[cfg(not(any(target_os = "linux", target_os = "android")))]
+                {
+                    use std::os::fd::FromRawFd;
+                    let path = std::ffi::CString::new(self.repo.as_os_str().as_bytes()).map_err(
+                        |error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error),
+                    )?;
+                    // OpenOptions masks O_ACCMODE, which includes O_SEARCH on
+                    // some targets. Preserve the search-only access mode.
+                    // SAFETY: path is NUL-terminated; no creation mode is used.
+                    let fd = unsafe {
+                        libc::open(path.as_ptr(), access | libc::O_DIRECTORY | libc::O_CLOEXEC)
+                    };
+                    if fd == -1 {
+                        Err(std::io::Error::last_os_error())
+                    } else {
+                        // SAFETY: open returned a new, uniquely owned descriptor.
+                        Ok(unsafe { std::fs::File::from_raw_fd(fd) })
+                    }
+                }
+            })
+            .transpose()
+            .or_else(|error| {
+                // Never require directory read permission just to enter cwd.
+                if !cfg!(any(target_os = "linux", target_os = "android"))
+                    && error.raw_os_error() == Some(libc::EACCES)
+                {
+                    return Ok(None);
+                }
+                Err(source_io::error(self.repo.as_os_str(), &error))
+            })?;
         let mut command = Command::new("git");
         command.args(args);
-        // SAFETY: the captured file owns the descriptor until after spawn.
-        // fchdir and errno inspection are async-signal-safe; no allocation or
-        // locks occur in the child. The parent's cwd is never changed.
-        unsafe {
-            command.pre_exec(move || {
-                if libc::fchdir(directory.as_raw_fd()) == -1 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
-            });
+        if let Some(directory) = directory {
+            // SAFETY: the captured file owns the descriptor until after spawn.
+            // fchdir and errno inspection are async-signal-safe; no allocation or
+            // locks occur in the child. The parent's cwd is never changed.
+            unsafe {
+                command.pre_exec(move || {
+                    if libc::fchdir(directory.as_raw_fd()) == -1 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
+        } else {
+            // No search-only open flag, or non-Linux open denied permission:
+            // retain legacy chdir semantics rather than requiring readable cwd.
+            command.current_dir(self.repo);
         }
         // A late fchdir search-permission failure is indistinguishable from an
         // exec failure here; unlike Python it carries 'git' (see commit body).

@@ -158,3 +158,44 @@ print(json.dumps(cases))
         assert_eq!(actual, expected);
     }
 }
+
+fn assert_search_only_cwd_matches_python() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path().join("search-only");
+    std::fs::create_dir(&repo).unwrap();
+    std::fs::set_permissions(&repo, std::fs::Permissions::from_mode(0o111)).unwrap();
+    let source = AcceptedSource {
+        repo: &repo,
+        base: "unused",
+    };
+    let actual = source.git(&["--version"]);
+    let oracle = Command::new("python3")
+        .args([
+            "-I",
+            "-c",
+            "import subprocess,sys; assert sys.version_info[:3]==(3,14,7); assert sys.flags.optimize==0; sys.stdout.buffer.write(subprocess.check_output(['git','--version'],cwd=sys.argv[1]))",
+        ])
+        .arg(&repo)
+        .output();
+    std::fs::set_permissions(&repo, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let oracle = oracle.unwrap();
+    assert!(
+        oracle.status.success(),
+        "{}",
+        String::from_utf8_lossy(&oracle.stderr)
+    );
+    assert_eq!(actual.unwrap(), oracle.stdout);
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+#[test]
+fn non_linux_git_search_only_cwd_matches_python() {
+    assert_search_only_cwd_matches_python();
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+#[test]
+fn linux_git_search_only_cwd_uses_o_path() {
+    assert_search_only_cwd_matches_python();
+}
