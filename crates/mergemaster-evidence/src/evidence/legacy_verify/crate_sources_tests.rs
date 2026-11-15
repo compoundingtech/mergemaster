@@ -114,3 +114,47 @@ print(json.dumps([[list(b),'git show failed: '+b.decode(errors='replace').strip(
         assert_eq!(git_failure("show", &bytes).detail.to_string(), expected);
     }
 }
+
+#[test]
+fn git_cwd_errors_match_pinned_subprocess_exactly() {
+    let root = tempfile::tempdir().unwrap();
+    let missing = root.path().join("missing '\"repo");
+    let file = root.path().join("file '\"repo");
+    std::fs::write(&file, b"not a directory").unwrap();
+    let script = r#"
+import json,subprocess,sys
+assert sys.version_info[:3]==(3,14,7)
+assert sys.flags.isolated and sys.flags.optimize==0
+cases=[]
+for path in sys.argv[1:]:
+ try: subprocess.run(['git','ls-tree','--full-tree','-z','base','--','scripts/rust-test-keys'],cwd=path,capture_output=True)
+ except OSError as error: cases.append({'class':type(error).__name__,'detail':str(error)})
+ else: raise AssertionError('invalid cwd accepted')
+print(json.dumps(cases))
+"#;
+    let out = Command::new("python3")
+        .args(["-I", "-c", script])
+        .args([&missing, &file])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let cases: Vec<Value> = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(cases.len(), 2);
+    for (repo, expected) in [&missing, &file].into_iter().zip(cases) {
+        let source = AcceptedSource { repo, base: "base" };
+        let error = source
+            .resolve(root.path(), "candidate", || panic!("cwd must fail first"))
+            .err()
+            .unwrap();
+        let crate::evidence::legacy_policy::ErrorOrigin::Exception { class } = error.origin else {
+            panic!("expected an OS exception")
+        };
+        let actual = json!({"class":class,"detail":error.detail.to_string()});
+        println!("CWD_PARITY actual={actual} oracle={expected}");
+        assert_eq!(actual, expected);
+    }
+}

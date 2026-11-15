@@ -4,7 +4,15 @@ use super::{
     source_io,
 };
 use crate::evidence::legacy_policy::PolicyError;
-use std::{os::unix::ffi::OsStrExt, path::Path, process::Command};
+use std::{
+    fs::OpenOptions,
+    os::{
+        fd::AsRawFd,
+        unix::{ffi::OsStrExt, fs::OpenOptionsExt, process::CommandExt},
+    },
+    path::Path,
+    process::Command,
+};
 const TOOL: &str = "scripts/rust-test-keys";
 const VERIFIER: &str = "scripts/evidence-verify";
 pub struct SelectedSources {
@@ -27,10 +35,33 @@ impl AcceptedSource<'_> {
         if self.repo.as_os_str().as_bytes().contains(&0) || args.iter().any(|s| s.contains('\0')) {
             return Err(exception("ValueError", "embedded null byte"));
         }
-        // st-test's helper inherits the environment and uses cwd, not git -C.
-        let out = Command::new("git")
-            .args(args)
-            .current_dir(self.repo)
+        // Attribute directory resolution errors to cwd, never to the executable.
+        // O_PATH avoids requiring read permission on Linux directories.
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        let access = libc::O_PATH;
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        let access = 0;
+        let directory = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | access)
+            .open(self.repo)
+            .map_err(|error| source_io::error(self.repo.as_os_str(), &error))?;
+        let mut command = Command::new("git");
+        command.args(args);
+        // SAFETY: the captured file owns the descriptor until after spawn.
+        // fchdir and errno inspection are async-signal-safe; no allocation or
+        // locks occur in the child. The parent's cwd is never changed.
+        unsafe {
+            command.pre_exec(move || {
+                if libc::fchdir(directory.as_raw_fd()) == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        // A late fchdir search-permission failure is indistinguishable from an
+        // exec failure here; unlike Python it carries 'git' (see commit body).
+        let out = command
             .output()
             .map_err(|error| source_io::error(std::ffi::OsStr::new("git"), &error))?;
         if !out.status.success() {
