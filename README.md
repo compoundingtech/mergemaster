@@ -901,6 +901,11 @@ environment binary; compliant write plumbing emits one OID, not arbitrary keys.
 `projection_process_error` supplies Python subprocess exception formatting for
 the replacement transport: errno/filename text and full lossless argv repr for
 timeouts. Its fixtures exercise missing executables and expired deadlines.
+`projection_oid` supplies an incremental decoder for the replacement transport:
+Python whitespace is stripped with at most 65 retained OID bytes, including
+100k padding and byte-split Unicode whitespace. Bare OIDs need no final newline.
+The approved trusted-Git fail-closed guard rejects malformed keys Python accepts;
+evidence: `tmp/projection-stderr-oracle/stdout-parsing.json`. Python has no cap at :75.
 
 ### Main-push tree-equality evidence
 
