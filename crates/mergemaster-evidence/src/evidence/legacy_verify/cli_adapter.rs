@@ -2,8 +2,9 @@
 pub use super::projection_process_error::decode;
 use super::{
     argparse_diagnostic, argparse_int,
+    argparse_options::OPTIONS,
     argparse_parse::{self, ParseOutcome, ParsedArguments},
-    terminal_sink,
+    cli_validation, terminal_sink,
     value_inputs::TextRef,
 };
 
@@ -16,6 +17,48 @@ pub struct Exit {
 pub enum Error {
     Option(argparse_diagnostic::InvalidOption),
     Sink(terminal_sink::Error),
+}
+impl<'a> ParsedArguments<'a> {
+    pub fn value(&self, name: &str) -> Option<TextRef<'a>> {
+        OPTIONS
+            .iter()
+            .position(|s| s.name == name)
+            .and_then(|i| self.values.get(i)?.last().copied())
+    }
+    pub fn appended(&self, name: &str) -> &[TextRef<'a>] {
+        OPTIONS
+            .iter()
+            .position(|s| s.name == name)
+            .and_then(|i| self.values.get(i))
+            .map_or(&[], Vec::as_slice)
+    }
+    /// Main's ordered validation before any Git, filesystem or policy reads.
+    pub fn preflight(&self) -> Result<(), &'static str> {
+        let v = |name| self.value(name);
+        cli_validation::validate(&cli_validation::Arguments {
+            require_all: v("--require-all").is_some(),
+            project: v("--project").is_some(),
+            members: v("--members").is_some(),
+            check: v("--check"),
+            command: v("--command"),
+            kinds: v("--kinds"),
+            runner_prefix: v("--runner-prefix"),
+            trust_levels: v("--trust-levels"),
+            max_age_positive: self
+                .max_age
+                .as_ref()
+                .map(argparse_int::Integer::is_positive),
+            paths: v("--paths"),
+            bind_input: self.appended("--bind-input"),
+            policy_from: v("--policy-from"),
+            repository: v("--repository"),
+            keys: v("--keys"),
+            keys_from: v("--keys-from"),
+            lane_base: v("--lane-base"),
+            lanes_from: v("--lanes-from"),
+            prefer_levels: v("--prefer-levels"),
+        })
+    }
 }
 pub fn prepare<'a>(
     argv: &[TextRef<'a>],

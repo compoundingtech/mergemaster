@@ -12,9 +12,9 @@ pub struct Arguments<'a> {
     pub members: bool,
     pub check: Option<TextRef<'a>>,
     pub command: Option<TextRef<'a>>,
-    pub kinds: Option<&'a str>,
+    pub kinds: Option<TextRef<'a>>,
     pub runner_prefix: Option<TextRef<'a>>,
-    pub trust_levels: Option<&'a str>,
+    pub trust_levels: Option<TextRef<'a>>,
     /// Presence and positivity of argparse's unbounded integer, without narrowing.
     pub max_age_positive: Option<bool>,
     pub paths: Option<TextRef<'a>>,
@@ -25,7 +25,7 @@ pub struct Arguments<'a> {
     pub keys_from: Option<TextRef<'a>>,
     pub lane_base: Option<TextRef<'a>>,
     pub lanes_from: Option<TextRef<'a>>,
-    pub prefer_levels: Option<&'a str>,
+    pub prefer_levels: Option<TextRef<'a>>,
 }
 
 /// A preflight stderr diagnostic has exit status 2, not a verifier Failure.
@@ -68,11 +68,27 @@ pub fn validate(args: &Arguments<'_>) -> Result<(), &'static str> {
             return Err("--command must be a JSON array of strings");
         }
     }
-    if let Some(kinds) = args.kinds {
-        let mut kinds = kinds.split(',').filter(|s| !s.is_empty()).peekable();
-        if kinds.peek().is_none()
-            || kinds.any(|k| !["nix", "wrapper", "sekrets", "observed"].contains(&k))
-        {
+    if let Some(mut kinds) = args.kinds {
+        let mut any = false;
+        loop {
+            let (kind, rest) = kinds
+                .split_once(",")
+                .map_or((kinds, None), |(k, r)| (k, Some(r)));
+            if kind.points().next().is_some() {
+                if !["nix", "wrapper", "sekrets", "observed"]
+                    .iter()
+                    .any(|s| kind.equals(s))
+                {
+                    return Err(
+                        "--kinds must be a comma-separated subset of nix,wrapper,sekrets,observed",
+                    );
+                }
+                any = true;
+            }
+            let Some(rest) = rest else { break };
+            kinds = rest;
+        }
+        if !any {
             return Err("--kinds must be a comma-separated subset of nix,wrapper,sekrets,observed");
         }
     }
@@ -91,7 +107,7 @@ pub fn validate(args: &Arguments<'_>) -> Result<(), &'static str> {
     if args.max_age_positive == Some(false) {
         return Err("--max-age must be a positive number of seconds");
     }
-    let empty_levels = |s: &str| !s.split(',').any(|s| !s.is_empty());
+    let empty_levels = |s: TextRef<'_>| s.points().all(|p| p == 44);
     if args
         .prefer_levels
         .is_some_and(|s| empty_levels(s) || args.members || args.require_all)
