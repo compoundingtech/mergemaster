@@ -1,14 +1,25 @@
 use super::*;
 use serde_json::json;
 fn snapshot(v: &Value) -> serde_json::Value {
-    match v {
-        Value::String(s) => json!(s),
-        Value::Bool(b) => json!(b),
-        Value::Integer(i) => json!(i.parse::<i64>().unwrap()),
-        Value::Array(a) => a.iter().map(snapshot).collect(),
-        Value::Table(t) => t.iter().map(|(k, v)| (k.clone(), snapshot(v))).collect(),
-        other => panic!("unexpected fixture value {other:?}"),
+    let mut pending = vec![v];
+    let mut nodes = Vec::new();
+    while let Some(value) = pending.pop() {
+        match value {
+            Value::String(s) => nodes.push(json!(["string", s])),
+            Value::Bool(b) => nodes.push(json!(["bool", b])),
+            Value::Integer(i) => nodes.push(json!(["int", i])),
+            Value::Array(items) => {
+                nodes.push(json!(["array", items.len()]));
+                pending.extend(items.iter().rev());
+            }
+            Value::Table(table) => {
+                nodes.push(json!(["table", table.keys().collect::<Vec<_>>()]));
+                pending.extend(table.values().rev());
+            }
+            other => panic!("unexpected fixture value {other:?}"),
+        }
     }
+    json!(nodes)
 }
 #[test]
 fn documents_match_pinned_tomllib() {
@@ -25,8 +36,22 @@ quote_cases=[('a='+quote*3+'text'+quote*count+tail,count) for quote in ['"',"'"]
 samples += [raw for raw,count in quote_cases]
 six_quotes={raw for raw,count in quote_cases if count==6}
 cases=[]
+def snapshot(root):
+ pending=[root]; nodes=[]
+ while pending:
+  value=pending.pop()
+  if isinstance(value,dict):
+   nodes.append(['table',list(value)]); pending.extend(reversed(list(value.values())))
+  elif isinstance(value,list):
+   nodes.append(['array',len(value)]); pending.extend(reversed(value))
+  elif type(value) is bool: nodes.append(['bool',value])
+  elif type(value) is int: nodes.append(['int',str(value)])
+  else:
+   assert type(value) is str
+   nodes.append(['string',value])
+ return nodes
 for raw in samples:
- try: expected=dict(value=tomllib.loads(raw))
+ try: expected=dict(value=snapshot(tomllib.loads(raw)))
  except Exception as e: expected=dict(error=str(e),kind=type(e).__name__)
  if raw in six_quotes:
   assert expected==dict(error='Expected newline or end of document after a statement (at line 1, column 15)',kind='TOMLDecodeError')
