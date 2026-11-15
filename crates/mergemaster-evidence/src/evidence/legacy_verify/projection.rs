@@ -33,6 +33,13 @@ fn embedded_null() -> PolicyError {
         detail: "embedded null byte".into(),
     }
 }
+pub(super) fn check_repo_argument(repo: &Path) -> Result<(), PolicyError> {
+    // Unix Path already carries filesystem-encoded bytes, including surrogateescape.
+    if repo.as_os_str().as_bytes().contains(&0) {
+        return Err(embedded_null());
+    }
+    Ok(())
+}
 fn projection_command(repo: &Path, args: &[impl AsRef<OsStr>]) -> Result<Command, PolicyError> {
     if repo.as_os_str().as_bytes().contains(&0)
         || args.iter().any(|arg| arg.as_ref().as_bytes().contains(&0))
@@ -132,6 +139,7 @@ pub fn project(
     }
     let mut entries = BTreeSet::new();
     if !plain.is_empty() {
+        check_repo_argument(repo)?;
         let encoded = if whole {
             Vec::new()
         } else {

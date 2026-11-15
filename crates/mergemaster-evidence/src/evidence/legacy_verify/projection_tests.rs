@@ -573,3 +573,83 @@ print(json.dumps(dict(tree=tree,cases=out)))
         assert_eq!(actual, case["result"], "{paths:?}");
     }
 }
+
+fn compare_repository_argument_order(operation: &str) {
+    let script = r#"
+import json,os,runpy,sys
+v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify'); tree='a'*40; out=[]
+for operation in [sys.argv[2]]:
+ for repo,path in [('nul\0repo','\ud800'),('raw\udcff','\ud800'),
+                   ('raw\udcff','nul\0path')]:
+  item=('.st/'+path+'::x') if operation=='selector_item' else path
+  try: v[operation](repo,tree,[item] if operation=='project' else item)
+  except Exception as e:
+   out.append(dict(operation=operation,repo=list(os.fsencode(repo)),
+                   item=list(map(ord,item)),exception=type(e).__name__,message=str(e)))
+# Strict exclusion encoding happens before any subprocess argv conversion.
+try: v['project']('nul\0repo',tree,['\ud800','!\ud800'])
+except Exception as e:
+ out.append(dict(operation='excluded',repo=list(b'nul\0repo'),
+                 item=[0xd800],exception=type(e).__name__,message=str(e)))
+print(json.dumps(out))
+"#;
+    let output = Command::new("python3")
+        .args([
+            "-c",
+            script,
+            &std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap(),
+            operation,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(cases.len(), 4);
+    for case in cases {
+        let repo = std::path::PathBuf::from(std::ffi::OsString::from_vec(
+            serde_json::from_value(case["repo"].clone()).unwrap(),
+        ));
+        let item =
+            NormalizedText::Codepoints(serde_json::from_value(case["item"].clone()).unwrap());
+        let tree = "a".repeat(40);
+        let error = match case["operation"].as_str().unwrap() {
+            "project" => project(&repo, &tree, &[item]).unwrap_err(),
+            "selected_content" => selected_content(&repo, &tree, &item).unwrap_err(),
+            "selector_item" => selector_item(&repo, &tree, &item).unwrap_err(),
+            "excluded" => project(
+                &repo,
+                &tree,
+                &[
+                    item.clone(),
+                    NormalizedText::around("!", item.borrowed(), ""),
+                ],
+            )
+            .unwrap_err(),
+            other => panic!("unexpected oracle operation: {other}"),
+        };
+        let crate::evidence::legacy_policy::ErrorOrigin::Exception { class } = error.origin else {
+            panic!("expected exception: {error:?}");
+        };
+        assert_eq!(class, case["exception"], "{case}");
+        assert_eq!(error.detail.to_string(), case["message"], "{case}");
+    }
+}
+
+#[test]
+fn project_repository_argument_precedes_path_conversion() {
+    compare_repository_argument_order("project");
+}
+
+#[test]
+fn selected_content_repository_argument_precedes_path_conversion() {
+    compare_repository_argument_order("selected_content");
+}
+
+#[test]
+fn selector_item_repository_argument_precedes_path_conversion() {
+    compare_repository_argument_order("selector_item");
+}
