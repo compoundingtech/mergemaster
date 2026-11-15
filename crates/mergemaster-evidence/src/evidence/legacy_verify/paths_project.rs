@@ -7,6 +7,7 @@ use crate::evidence::{
     },
 };
 use std::{
+    borrow::Cow,
     fmt::{self, Write},
     path::Path,
 };
@@ -14,7 +15,7 @@ use std::{
 pub struct PathsProject<'a> {
     pub tree: &'a str,
     pub check: CheckName<'a>,
-    pub paths: Option<Vec<NormalizedText>>,
+    pub paths: Option<Cow<'a, [NormalizedText]>>,
     pub source_inputs: Option<String>,
 }
 pub(super) fn validate_tree(tree: &str) -> Result<(), PolicyError> {
@@ -37,6 +38,16 @@ impl<'a> PathsProject<'a> {
         tree: &'a str,
         check: CheckName<'a>,
         argument: Option<TextRef<'_>>,
+    ) -> Result<Self, PolicyError> {
+        Self::read_with_inputs(repo, tree, check, argument, None)
+    }
+    /// Policy defaults stay borrowed; an explicit --paths replaces them.
+    pub fn read_with_inputs(
+        repo: &Path,
+        tree: &'a str,
+        check: CheckName<'a>,
+        argument: Option<TextRef<'_>>,
+        inputs: Option<&'a [NormalizedText]>,
     ) -> Result<Self, PolicyError> {
         validate_tree(tree)?;
         let paths = argument
@@ -65,7 +76,9 @@ impl<'a> PathsProject<'a> {
                         .collect::<Vec<_>>()
                 })
             })
-            .transpose()?;
+            .transpose()?
+            .map(Cow::Owned)
+            .or_else(|| inputs.filter(|p| !p.is_empty()).map(Cow::Borrowed));
         let source_inputs = paths
             .as_deref()
             .map(|paths| projection::project(repo, tree, paths))
@@ -84,6 +97,13 @@ impl<'a> PathsProject<'a> {
         &self,
         writer: ValueWriter<'s, '_, impl Write>,
     ) -> Result<Written<'s>, fmt::Error> {
+        self.write_json_with_base(&[], writer)
+    }
+    pub fn write_json_with_base<'s>(
+        &self,
+        base: &[(TextRef<'_>, String)],
+        writer: ValueWriter<'s, '_, impl Write>,
+    ) -> Result<Written<'s>, fmt::Error> {
         writer.object(|o| {
             o.field_text("source_inputs", |w| match &self.source_inputs {
                 Some(key) => w.text(key),
@@ -91,7 +111,7 @@ impl<'a> PathsProject<'a> {
             })?;
             o.field_text("paths", |w| match &self.paths {
                 Some(paths) => w.array(|a| {
-                    for path in paths {
+                    for path in paths.iter() {
                         a.item(|w| w.codepoints(path.borrowed().points()))?;
                     }
                     Ok(())
@@ -100,7 +120,17 @@ impl<'a> PathsProject<'a> {
             })?;
             o.field_text("tree", |w| w.text(self.tree))?;
             o.field_text("check", |w| w.codepoints(self.check.text().points()))?;
-            o.field_text("base_inputs", |w| w.object(|_| Ok(())))?;
+            o.field_text("base_inputs", |w| {
+                w.object(|o| {
+                    for (name, value) in base {
+                        match name {
+                            TextRef::Str(s) => o.field_text(s, |w| w.text(value))?,
+                            TextRef::Points(p) => o.field(p, |w| w.text(value))?,
+                        }
+                    }
+                    Ok(())
+                })
+            })?;
             Ok(())
         })
     }

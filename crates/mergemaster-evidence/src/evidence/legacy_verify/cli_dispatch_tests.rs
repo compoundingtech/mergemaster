@@ -73,3 +73,55 @@ print(json.dumps(rows))
     assert_eq!(rows.len(), 28);
     compare(rows, "MM_TREE_ONLY");
 }
+
+#[test]
+fn complete_project_paths_match_original_subprocess() {
+    let script = r#"
+import json,os,pathlib,shutil,subprocess,sys
+parent=pathlib.Path(sys.argv[1]); rows=[]
+oracle=parent/'oracle';oracle.mkdir();p=oracle/'evidence-verify'
+shutil.copyfile(pathlib.Path(os.environ['MERGEMASTER_PYTHON_ORACLE'])/'scripts/evidence-verify',p)
+shutil.copyfile(sys.argv[2],oracle/'rust-test-keys')
+for fmt in ['sha1','sha256']:
+ for layout in ['.st','.fractal']:
+  repo=parent/(fmt+layout);repo.mkdir()
+  def git(*args):return subprocess.check_output(['git','-C',str(repo),*args],stderr=subprocess.PIPE).decode().strip()
+  git('init','--object-format='+fmt);(repo/layout).mkdir()
+  (repo/'Cargo.toml').write_text('[workspace]\nmembers=["z","a"]')
+  for name in ['z','a']:
+   (repo/name).mkdir();(repo/name/'Cargo.toml').write_text('[package]\nname="'+name+'"')
+  (repo/layout/'rust-test-inputs.json').write_text('{}')
+  policy=dict(version=1,checks={'x':dict(trust_levels=['agent'],inputs=['a/Cargo.toml'],kinds=dict(wrapper=dict(command=['{repository}'],base_inputs={'base':'a/Cargo.toml','missing':'absent'})))})
+  (repo/layout/'evidence-skip-policy.json').write_text(json.dumps(policy))
+  git('add','.');git('-c','user.name=Fixture','-c','user.email=fixture@example.org','commit','-m','fixture');tree=git('rev-parse','HEAD^{tree}')
+  plain=['--repo',str(repo),'--revision','HEAD','--check','x','--project']
+  policy_args=['--policy-from','HEAD','--repository','org/'+chr(0xdcff)]
+  variants=[[],['--paths','z/Cargo.toml,a/Cargo.toml,z/Cargo.toml'],['--paths','..'],['--paths',''],policy_args,policy_args+['--paths','z/Cargo.toml'],policy_args+['--paths','.'],policy_args+['--members'],['--members'],['--members','--policy-from','','--repository','org'],['--keys-from','missing','--log-keys-from','missing','--run-input','bad','--lanes-from','missing','--crate-key','bad'],policy_args+['--check','absent'],['--check','raw'+chr(0xdcff)]]
+  for extra in variants:
+   argv=plain+extra;env=dict(os.environ,NO_COLOR='1',COLUMNS='80');env.pop('FORCE_COLOR',None)
+   done=subprocess.run([sys.executable,'-I',str(p),*argv],capture_output=True,env=env)
+   result=json.loads(done.stdout);assert done.returncode in [0,1] and not done.stderr
+   if extra==policy_args:assert result['base_inputs']['missing']=='absent' and result['source_inputs']
+   if extra==policy_args+['--members']:assert list(result['crates'])==['a','z']
+   rows.append([[list(os.fsencode(s)) for s in argv],list(done.stdout),list(done.stderr),done.returncode])
+print(json.dumps(rows))
+"#;
+    let root = tempfile::tempdir().unwrap();
+    let output = crate::pinned_python::command()
+        .args(["-c", script])
+        .arg(root.path())
+        .arg(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/fixtures/fractal/scripts/rust-test-keys"),
+        )
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let rows: Vec<Row> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(rows.len(), 52);
+    compare(rows, "MM_PROJECT_ONLY");
+}

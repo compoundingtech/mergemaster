@@ -554,6 +554,10 @@ metadata divergence, original expression identity and owned 60-second deadline.
 These staged composition functions install no binary intercept. They never call
 `AcceptedSource` or `json_bytes::parse`; those outstanding prerequisites remain
 excluded, not silently satisfied.
+`cli_dispatch::project` composes complete member, policy-backed and plain project
+early returns before key/lane/run/log preparation. Policy default paths and
+base-input names stay borrowed through output; explicit paths replace defaults.
+The member branch deliberately precedes policy loading, matching original main.
 Approved terminal/log output divergence (#245): `terminal_sink::value` applies
 unbounded Python-repr-style escaping to C0, DEL, C1, lone surrogates and every
 backslash, without repr quotes. `RenderedHelp::write_terminal` escapes only
