@@ -51,7 +51,7 @@ for invalid in [b'\xff',b'\xed\xa0\x80']:
  cases.append(dict(policy_bytes=list(raw),reason=reason))
 print(json.dumps(cases))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args([
             "-c",
             script,
@@ -109,7 +109,7 @@ print(json.dumps(cases))
 
 #[test]
 fn nested_policy_text_keeps_python_point_identity() {
-    let output = std::process::Command::new("python3").args(["-c", r#"
+    let output = crate::pinned_python::command().args(["-c", r#"
 import json,runpy,sys
 v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify'); cases=[]
 p=lambda s:list(map(ord,s))

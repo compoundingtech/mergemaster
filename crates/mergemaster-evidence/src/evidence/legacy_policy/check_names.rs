@@ -266,7 +266,7 @@ for text in json.load(sys.stdin):
  except ValueError: out.append(None)
 print(json.dumps(out))
 "#;
-        let mut child = std::process::Command::new("python3")
+        let mut child = crate::pinned_python::command()
             .args([
                 "-c",
                 script,

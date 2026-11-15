@@ -7,7 +7,7 @@ use serde_json::Value;
 #[test]
 fn outer_kind_diagnostics_match_pinned_handlers_losslessly() {
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
-    let output = std::process::Command::new("python3").args(["-c", r#"
+    let output = crate::pinned_python::command().args(["-c", r#"
 import ast,json,runpy,sys,types
 path=sys.argv[1]+'/scripts/evidence-verify';v=runpy.run_path(path)
 main=next(n for n in ast.parse(open(path).read()).body if isinstance(n,ast.FunctionDef) and n.name=='main')
@@ -75,7 +75,7 @@ print(json.dumps(cases))
 #[test]
 fn integer_and_float_zero_overrides_stay_falsy_like_python() {
     use crate::evidence::legacy_verify::statement_document::{Document, Node};
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args([
             "-c",
             r#"

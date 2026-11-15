@@ -600,7 +600,7 @@ mod tests {
             r#"{"version":1,"checks":false,"checks":{}}"#,
             r#"{"version":1,"checks":{},"\ud800":0}"#,
         ];
-        let output = std::process::Command::new("python3")
+        let output = crate::pinned_python::command()
             .args([
                 "-c",
                 r#"
@@ -639,7 +639,7 @@ print(json.dumps(out))
     fn policy_header_diagnostics_match_pinned_handlers_losslessly() {
         use crate::evidence::{legacy_output, legacy_verify::failure_json::WireError};
         let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
-        let output = std::process::Command::new("python3").args(["-c", r#"
+        let output = crate::pinned_python::command().args(["-c", r#"
 import ast,json,runpy,sys,types
 path=sys.argv[1]+'/scripts/evidence-verify';v=runpy.run_path(path)
 main=next(n for n in ast.parse(open(path).read()).body if isinstance(n,ast.FunctionDef) and n.name=='main')
@@ -746,7 +746,7 @@ for rule in json.loads(sys.argv[2]):
         results.append({'reason': 'error'})
 print(json.dumps(results))
 "#;
-        let output = std::process::Command::new("python3")
+        let output = crate::pinned_python::command()
             .args(["-c", script, &root, &serde_json::to_string(&cases).unwrap()])
             .output()
             .unwrap();
@@ -825,7 +825,7 @@ for original, parsed in zip(json.loads(sys.argv[2]), json.loads(sys.argv[3])):
             reasons.append(failure.reason)
 print(json.dumps(reasons))
 "#;
-        let output = std::process::Command::new("python3")
+        let output = crate::pinned_python::command()
             .args([
                 "-c",
                 script,
@@ -943,7 +943,7 @@ for text in json.loads(sys.argv[2]):
         results.append({'reason': failure.reason})
 print(json.dumps(results))
 "#;
-        let output = std::process::Command::new("python3")
+        let output = crate::pinned_python::command()
             .args(["-c", script, &root, &serde_json::to_string(&cases).unwrap()])
             .output()
             .unwrap();
@@ -1020,7 +1020,7 @@ print(json.dumps(results))
             .collect();
         let root = std::env::var("MERGEMASTER_PYTHON_ORACLE")
             .expect("MERGEMASTER_PYTHON_ORACLE must point to the pinned Python oracle");
-        let output = std::process::Command::new("python3")
+        let output = crate::pinned_python::command()
             .args([
                 "-c",
                 r#"

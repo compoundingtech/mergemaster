@@ -3,7 +3,7 @@ use crate::evidence::{legacy_output, legacy_verify::failure_json::WireError};
 #[test]
 fn rule_helper_diagnostics_match_pinned_handlers_losslessly() {
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
-    let output = std::process::Command::new("python3").args(["-c", r#"
+    let output = crate::pinned_python::command().args(["-c", r#"
 import ast,json,runpy,sys,types
 path=sys.argv[1]+'/scripts/evidence-verify';v=runpy.run_path(path)
 main=next(n for n in ast.parse(open(path).read()).body if isinstance(n,ast.FunctionDef) and n.name=='main')
@@ -80,7 +80,7 @@ print(json.dumps(cases))
 #[test]
 fn declared_source_paths_preserve_nested_surrogate_diagnostics() {
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
-    let output = std::process::Command::new("python3").args(["-c", r#"
+    let output = crate::pinned_python::command().args(["-c", r#"
 import json,runpy,sys
 v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify')
 cases=[]
@@ -228,7 +228,7 @@ fn policy_json_decode_errors_match_python_text_and_positions() {
         "\u{feff}\"x\"",
         " \u{feff}{}",
     ];
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args([
             "-c",
             r#"
@@ -278,7 +278,7 @@ print(json.dumps(out))
 
 #[test]
 fn policy_integer_limit_preserves_digit_count_and_python_value_error() {
-    let output = std::process::Command::new("python3").args(["-c", r#"
+    let output = crate::pinned_python::command().args(["-c", r#"
 import json,runpy,sys
 assert sys.version_info[:3]==(3,14,7)
 v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify');cases=[]

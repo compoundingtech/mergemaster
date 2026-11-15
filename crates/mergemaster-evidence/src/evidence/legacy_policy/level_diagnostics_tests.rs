@@ -7,7 +7,7 @@ use serde_json::Value;
 #[test]
 fn level_override_diagnostics_match_pinned_handlers_losslessly() {
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
-    let output = std::process::Command::new("python3").args(["-c", r#"
+    let output = crate::pinned_python::command().args(["-c", r#"
 import ast,json,runpy,sys,types
 path=sys.argv[1]+'/scripts/evidence-verify';v=runpy.run_path(path)
 main=next(n for n in ast.parse(open(path).read()).body if isinstance(n,ast.FunctionDef) and n.name=='main')
@@ -82,7 +82,7 @@ print(json.dumps(cases))
 
 #[test]
 fn level_surrogate_and_wide_number_refusals_match_python() {
-    let output = std::process::Command::new("python3").args(["-c", r#"
+    let output = crate::pinned_python::command().args(["-c", r#"
 import json,runpy,sys
 v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify');cases=[]
 for check in ['\ud800','\udfff']:

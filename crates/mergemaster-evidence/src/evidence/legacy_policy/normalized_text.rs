@@ -158,7 +158,7 @@ for check in ['check','\ud800','🦀']:
    cases.append(dict(value=value,repo=repo,check=list(map(ord,check)),expected=list(map(ord,kind['command'][0])),prefix=list(map(ord,kind['runner_prefix']))))
 print(json.dumps(cases))
 "#;
-        let output = std::process::Command::new("python3")
+        let output = crate::pinned_python::command()
             .args([
                 "-c",
                 script,
