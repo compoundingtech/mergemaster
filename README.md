@@ -734,6 +734,8 @@ The native evidence Git helper polls stdin/stdout/stderr together under one expl
 deadline, preserving binary stdout and nonzero-status diagnostics without threads.
 Observation blob/tree/commit creation uses 300 seconds; verifier and native-only
 metadata/publication calls use 60. Timeout errors include stderr captured so far.
+The shared capture engine accepts a retention sink while keeping one child/deadline;
+the default native sink retains the original byte-for-byte stdout/stderr behaviour.
 Generic wrapper output storage and origin publication use 600 seconds per Git
 spawn, matching evidence-wrap. Timeout propagates as an error without publication
 success or a stored-output identifier; lane execution itself is unchanged.
@@ -893,6 +895,12 @@ Projection validates full tree OIDs before fast paths and ends Git option parsin
 Its write plumbing discards stderr and permits at most 65 stdout bytes, requiring
 exactly one repository-format hex OID plus LF (or empty update-index output).
 Overflow refuses with `projection-output-too-large`; malformed output refuses with `error`.
+The stdout/OID guard is an approved fail-closed resource divergence: pinned
+`scripts/evidence-verify:75` captures stdout without a byte cap. Git is a trusted
+environment binary; compliant write plumbing emits one OID, not arbitrary keys.
+`projection_process_error` supplies Python subprocess exception formatting for
+the replacement transport: errno/filename text and full lossless argv repr for
+timeouts. Its fixtures exercise missing executables and expired deadlines.
 
 ### Main-push tree-equality evidence
 

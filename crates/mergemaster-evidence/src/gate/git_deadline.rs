@@ -5,6 +5,10 @@ use std::{
     process::{Child, ChildStdin, ChildStdout, Command, ExitStatus, Stdio},
     time::{Duration, Instant},
 };
+#[path = "git_capture.rs"]
+mod capture;
+use capture::RawCapture;
+pub(crate) use capture::{CaptureSink, Stream};
 
 pub(crate) struct GitChild {
     child: Child,
@@ -47,6 +51,14 @@ impl GitChild {
         input: Option<&[u8]>,
         timeout: Duration,
     ) -> io::Result<std::process::Output> {
+        Self::capture_with_sink(command, input, timeout, RawCapture::default())
+    }
+    pub(crate) fn capture_with_sink<S: CaptureSink>(
+        command: &mut Command,
+        input: Option<&[u8]>,
+        timeout: Duration,
+        mut sink: S,
+    ) -> Result<S::Output, S::Error> {
         let mut child = Self::with_stdio(command, timeout, Stdio::piped(), Stdio::piped())?;
         let mut stdin = input.map(|_| child.stdin()).transpose()?;
         let stdout = child.stdout()?;
@@ -58,9 +70,7 @@ impl GitChild {
         let mut stdout = stdout.inner;
         let mut stderr = child.pipe(stderr)?.inner;
         let mut bytes = input.unwrap_or_default();
-        let mut out = Vec::new();
-        let mut err = Vec::new();
-        let result = (|| {
+        let result = (|| -> Result<ExitStatus, S::Error> {
             let mut fds = [
                 libc::pollfd {
                     fd: stdout.as_raw_fd(),
@@ -96,45 +106,52 @@ impl GitChild {
                     if error.kind() == io::ErrorKind::Interrupted {
                         continue;
                     }
-                    return Err(error);
+                    return Err(error.into());
                 }
                 remaining(child.deadline)?;
-                if fds[0].revents != 0 && capture_read(&mut stdout, &mut out)? {
+                if fds[0].revents != 0
+                    && capture_read(
+                        &mut stdout,
+                        &mut sink,
+                        Stream::Stdout,
+                        #[cfg(test)]
+                        &mut child.deadline,
+                    )?
+                {
                     fds[0].fd = -1;
                 }
-                if fds[1].revents != 0 && capture_read(&mut stderr, &mut err)? {
+                if fds[1].revents != 0
+                    && capture_read(
+                        &mut stderr,
+                        &mut sink,
+                        Stream::Stderr,
+                        #[cfg(test)]
+                        &mut child.deadline,
+                    )?
+                {
                     fds[1].fd = -1;
-                }
-                #[cfg(test)]
-                if !err.is_empty() && tests::EXPIRE_AFTER_STDERR.with(|flag| flag.replace(false)) {
-                    child.expire_for_test();
                 }
                 if fds[2].revents != 0
                     && let Some(pipe) = &mut stdin
                 {
                     match pipe.inner.write(bytes) {
                         Ok(0) => {
-                            return Err(io::Error::new(io::ErrorKind::WriteZero, "Git stdin"));
+                            return Err(
+                                io::Error::new(io::ErrorKind::WriteZero, "Git stdin").into()
+                            );
                         }
                         Ok(n) => bytes = &bytes[n..],
                         Err(e) if retry_io(&e) => {}
-                        Err(e) => return Err(e),
+                        Err(e) => return Err(e.into()),
                     }
                 }
             }
-            child.wait()
+            Ok(child.wait()?)
         })();
-        let status = result.map_err(|e| {
-            io::Error::new(
-                e.kind(),
-                format!("{e}: {}", String::from_utf8_lossy(&err).trim()),
-            )
-        })?;
-        Ok(std::process::Output {
-            status,
-            stdout: out,
-            stderr: err,
-        })
+        match result {
+            Ok(status) => Ok(sink.finish(status)),
+            Err(error) => Err(sink.context(error)),
+        }
     }
     pub(crate) fn stdin(&mut self) -> io::Result<Pipe<ChildStdin>> {
         let stdin = self
@@ -202,16 +219,27 @@ fn retry_io(error: &io::Error) -> bool {
         io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
     )
 }
-fn capture_read(reader: &mut impl Read, output: &mut Vec<u8>) -> io::Result<bool> {
+fn capture_read<S: CaptureSink>(
+    reader: &mut impl Read,
+    sink: &mut S,
+    stream: Stream,
+    #[cfg(test)] deadline: &mut Instant,
+) -> Result<bool, S::Error> {
     let mut buffer = [0; 64 * 1024];
     match reader.read(&mut buffer) {
         Ok(0) => Ok(true),
         Ok(n) => {
-            output.extend_from_slice(&buffer[..n]);
+            sink.push(stream, &buffer[..n])?;
+            #[cfg(test)]
+            if stream == Stream::Stderr
+                && tests::EXPIRE_AFTER_STDERR.with(|flag| flag.replace(false))
+            {
+                *deadline = Instant::now();
+            }
             Ok(false)
         }
         Err(error) if retry_io(&error) => Ok(false),
-        Err(error) => Err(error),
+        Err(error) => Err(error.into()),
     }
 }
 fn remaining(deadline: Instant) -> io::Result<Duration> {
