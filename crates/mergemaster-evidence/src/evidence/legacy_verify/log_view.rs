@@ -1,7 +1,7 @@
 //! Advisory signed-log metadata; never changes a verification decision.
 use super::{
     crate_inputs_text::utf8, crate_manifest_ops::exception, log_lines, log_transport, projection,
-    projection_oid::space, statement::zoned_time_micros,
+    projection_oid::space, statement::zoned_time_micros, value_inputs::TextRef,
 };
 use crate::evidence::legacy_policy::PolicyError;
 use std::{collections::BTreeSet, ffi::OsStr, path::Path};
@@ -41,19 +41,20 @@ pub(super) fn refs(repo: &Path, prefixes: &[String]) -> Result<BTreeSet<String>,
 
 pub(super) fn input_refs(
     repo: &Path,
-    check: &str,
+    check: TextRef<'_>,
     key: &str,
 ) -> Result<BTreeSet<String>, PolicyError> {
+    let mut points = check.points();
     if !log_lines::oid(key)
-        || check.is_empty()
         || check.len() > 100
-        || !check.as_bytes()[0].is_ascii_alphanumeric()
-        || !check
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+        || !points
+            .next()
+            .is_some_and(|p| matches!(p, 48..=57 | 65..=90 | 97..=122))
+        || !points.all(|p| matches!(p, 48..=57 | 65..=90 | 97..=122 | 46 | 95 | 45))
     {
         return Ok(BTreeSet::new());
     }
+    let check: String = check.points().filter_map(char::from_u32).collect();
     refs(
         repo,
         &[
@@ -65,16 +66,17 @@ pub(super) fn input_refs(
 
 // Keep the oracle's independent decision inputs and explicit deterministic clock.
 #[allow(clippy::too_many_arguments)]
-pub fn read(
+pub fn read<'a>(
     repo: &Path,
     keys: &Path,
     tree: &str,
-    check: &str,
+    check: impl Into<TextRef<'a>>,
     input_key: Option<&str>,
     chosen: Option<&str>,
     now_micros: i64,
     max_age: i64,
 ) -> Result<View, PolicyError> {
+    let check = check.into();
     let mut view = View {
         log: "absent",
         log_head: None,
@@ -160,7 +162,7 @@ pub fn read(
         logged.extend(log_lines::read(
             repo,
             head,
-            &format!("keys/{check}/{}/{key}", key.get(..2).unwrap_or(key)),
+            TextRef::Points(&key_path(check, key)),
             check,
         )?);
         here.extend(input_refs(repo, check, key)?);
@@ -175,6 +177,19 @@ pub fn read(
         "ok"
     };
     Ok(view)
+}
+
+pub(super) fn key_path(check: TextRef<'_>, key: &str) -> Vec<u32> {
+    "keys/"
+        .chars()
+        .map(u32::from)
+        .chain(check.points())
+        .chain(
+            format!("/{}/{key}", key.get(..2).unwrap_or(key))
+                .chars()
+                .map(u32::from),
+        )
+        .collect()
 }
 
 #[cfg(test)]

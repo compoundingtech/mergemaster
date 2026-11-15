@@ -959,6 +959,9 @@ and input-key indexes. `members_log_view::read` adds sorted per-member key reads
 deduplicated missing counts, first-five unlogged summaries and oldest readable
 time. Invalid times clear the summary before mixed naive/aware times can raise
 Python's exact TypeError. Success/failure overlays and CLI wiring remain separate.
+Log readers preserve lossless check names through comparisons and filesystem
+surrogateescape argv encoding; invalid surrogates and NUL retain exact Python
+exception class, text and evaluation order.
 
 ### Main-push tree-equality evidence
 
