@@ -38,6 +38,7 @@ pub mod log_view;
 pub mod member_digest;
 pub mod member_project;
 pub mod members;
+pub mod members_log_view;
 pub mod ordering;
 pub mod paths_project;
 pub mod prefix;
