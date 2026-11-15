@@ -31,6 +31,7 @@ pub fn selector_item<'a>(
         crate::evidence::oid(tree).map_err(error)?;
         let legacy = replace_first(path, ".fractal/", ".st/");
         let preferred = replace_first(legacy.borrowed(), ".st/", ".fractal/");
+        super::projection::check_repo_argument(repo)?;
         let preferred_bytes = encode(preferred.borrowed(), 0, true)?;
         let legacy_bytes = encode(legacy.borrowed(), 0, true)?;
         let listing = read_git(
@@ -105,6 +106,7 @@ fn selected_content_limit<'a>(
     crate::evidence::oid(tree).map_err(error)?;
     let item = item.into();
     let (path, selector) = item.split_once("::").unwrap_or((item, TextRef::Str("")));
+    super::projection::check_repo_argument(repo)?;
     let encoded = encode(path, 0, true)?;
     if read_git(
         repo,
