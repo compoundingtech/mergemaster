@@ -6,6 +6,11 @@ use super::{
 use crate::evidence::legacy_policy::PolicyError;
 use std::{collections::BTreeSet, ffi::OsStr, path::Path};
 
+#[derive(Clone, Copy)]
+pub struct Request<'a> {
+    pub keys: &'a Path,
+    pub now_micros: i64,
+}
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct View {
     pub log: &'static str,

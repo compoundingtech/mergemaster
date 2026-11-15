@@ -9,12 +9,16 @@ use crate::evidence::{
 use serde_json::{Value, json};
 
 #[test]
-fn signed_member_aggregation_matches_the_complete_no_log_oracle() {
+fn signed_member_log_overlays_match_the_complete_oracle() {
     let script = r#"
 import json,pathlib,runpy,subprocess,sys,types
 from datetime import datetime,timezone
 v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify')
 rtk=types.SimpleNamespace(**runpy.run_path(sys.argv[3])); v['member_keys'].__globals__['sibling']=lambda name:rtk
+class Clock(datetime):
+ @classmethod
+ def now(cls,tz=None): return datetime(2026,1,1,0,5,tzinfo=timezone.utc)
+v['members_log_view'].__globals__['datetime']=Clock
 cases=[]
 for fmt in ['sha1','sha256']:
  root=pathlib.Path(sys.argv[2])/fmt; root.mkdir(); keys=root/'keys'; lines=[]
@@ -22,7 +26,8 @@ for fmt in ['sha1','sha256']:
   key=root/level; subprocess.run(['ssh-keygen','-q','-t','ed25519','-N','','-f',str(key)],check=True)
   lines.append(level+'/fixture '+key.with_suffix('.pub').read_text())
  keys.write_text(''.join(lines))
- for mode in ['plain','tie','cross','events','empty-events','attempts','allowance','zero','exception','missing','lane','other','duplicates']:
+ log_keys=root/'log-keys'; log_keys.write_text('log/fixture '+(root/'host.pub').read_text())
+ for mode in ['plain','tie','cross','events','empty-events','attempts','allowance','zero','exception','missing','lane','other','duplicates','log-absent','log-covered','log-unlogged','log-missing','log-failure','log-exception','empty-log','log-surrogate','log-mixed-surrogate']:
   repo=root/('repo-'+mode); repo.mkdir()
   def git(*a,data=None): return subprocess.check_output(['git','-C',str(repo),*a],input=data,stderr=subprocess.PIPE).decode().strip()
   git('init','--object-format='+fmt); git('config','user.name','Fixture'); git('config','user.email','fixture@example.invalid')
@@ -51,12 +56,13 @@ for fmt in ['sha1','sha256']:
    rules['kinds']['wrapper']['by_level']['agent']['events']=['merge_group','pull_request','merge_group']
   written={}
   def record(name,minute,serial=0):
-   if mode=='missing' and name=='a': return
+   if mode in ['missing','log-failure'] and name=='a': return
    target=base if mode=='cross' and name=='a' else tree
    parent=git('commit-tree',target,data=b'subject')
-   ran='0' if name=='b' and mode in ['allowance','zero'] else '²' if name=='b' and mode=='exception' else '1'
+   ran='0' if name=='b' and mode in ['allowance','zero'] else '²' if name=='b' and mode in ['exception','log-exception'] else '1'
    inp=dict(crate=name,source_inputs=members[name],tests_run=ran,echo='\ud800\n😀')
-   statement=dict(_type=v['STATEMENT_TYPE'],predicateType=v['PREDICATE_TYPE'],subject=[dict(name=parent,digest=dict(gitTree=target))],predicate=dict(schema_version=1,tier='full',change_id=name,signer=levels[name]+'/fixture',observed_at=f'2026-01-01T00:0{minute}:00Z',observed=dict(kind='tests',runner='wrapper',inputs=inp,checks=dict(check=dict(command=command,exit_code=0,output_sha256='0'*64)))))
+   sep='\ud800' if mode=='log-surrogate' or (mode=='log-mixed-surrogate' and name=='b') else 'T'
+   statement=dict(_type=v['STATEMENT_TYPE'],predicateType=v['PREDICATE_TYPE'],subject=[dict(name=parent,digest=dict(gitTree=target))],predicate=dict(schema_version=1,tier='full',change_id=name,signer=levels[name]+'/fixture',observed_at=f'2026-01-01{sep}00:0{minute}:00Z',observed=dict(kind='tests',runner='wrapper',inputs=inp,checks=dict(check=dict(command=command,exit_code=0,output_sha256='0'*64)))))
    blob=git('hash-object','-w','--stdin',data=json.dumps(statement).encode()); note=git('mktree',data=f'100644 blob {blob}\t{target}\n'.encode())
    commit=git('-c','gpg.format=ssh','-c','user.signingkey='+str(root/levels[name]),'commit-tree','-S',note,'-p',parent,data=f'{name}-{serial}'.encode())
    if serial==0: written[name]=commit
@@ -64,14 +70,24 @@ for fmt in ['sha1','sha256']:
    if target!=tree: git('update-ref',f'refs/tags/evidence/input/check/{members[name]}/{commit}',commit)
   for name,minute in [('z',3),('b',1),('a',4)]: record(name,2 if mode=='tie' else minute)
   if mode=='attempts': record('z',0,1); record('z',1,2)
+  if mode.startswith('log-') and mode!='log-absent':
+   listed=list(written.values()) if mode=='log-covered' else []
+   if mode in ['log-missing','log-failure']:
+    listed.append(git('commit-tree',tree,data=b'not locally indexed'))
+   path='keys/check/'+members['z'][:2]+'/'+members['z'] if mode=='log-failure' else 'trees/'+tree[:2]+'/'+tree
+   write(path,''.join('record '+c+' check x y z\n' for c in listed))
+   git('add','.'); logtree=git('write-tree')
+   loghead=git('-c','gpg.format=ssh','-c','user.signingkey='+str(root/'host'),'commit-tree','-S',logtree,data=b'as_of=2026-01-01T00:05:00Z')
+   git('update-ref',v['LOG_REF'],loghead)
+  shadow=str(log_keys)+('\0' if mode=='log-exception' else '') if mode.startswith('log-') else '' if mode=='empty-log' else None
   calls=[]
   def lane(): calls.append(1); return None
   try:
-   result=v['verify_members'](str(repo),tree,'check',str(keys),None,v['KINDS'],[],None,None,None,rules,None,lane if mode=='lane' else None,{},base)
+   result=v['verify_members'](str(repo),tree,'check',str(keys),None,v['KINDS'],[],None,None,None,rules,None,lane if mode=='lane' else None,{},base,shadow)
    expected=dict(wire=json.dumps(result,indent=2))
   except v['Failure'] as e: expected=dict(reason=e.reason,detail=e.detail,**e.extra)
   except Exception as e: expected=dict(exception=type(e).__name__,detail=str(e))
-  assert ('wire' in expected)==(mode not in ['zero','exception','missing','lane']),(mode,expected)
+  assert ('wire' in expected)==(mode not in ['zero','exception','missing','lane','log-failure','log-exception']),(mode,expected)
   if 'wire' in expected:
    assert list(result['crates'])==['a','b','z']
    if mode=='tie': assert result['record']==written['a']
@@ -80,7 +96,7 @@ for fmt in ['sha1','sha256']:
    if mode=='attempts': assert result['attempts']==3
    if mode=='duplicates': assert result['events']==['merge_group','pull_request','merge_group']
    if mode=='empty-events': assert result['events']==[]
-  cases.append(dict(repo=str(repo),tree=tree,base=base,keys=str(keys),policy=policy,mode=mode,expected=expected,calls=len(calls)))
+  cases.append(dict(repo=str(repo),tree=tree,base=base,keys=str(keys),log_keys=shadow,policy=policy,mode=mode,expected=expected,calls=len(calls)))
 print(json.dumps(cases))
 "#;
     let root = tempfile::tempdir().unwrap();
@@ -179,6 +195,12 @@ print(json.dumps(cases))
             settings,
             &mut judgment,
             Levels::Unrestricted,
+            case["log_keys"]
+                .as_str()
+                .map(|keys| super::super::log_view::Request {
+                    keys: std::path::Path::new(keys),
+                    now_micros: 1_767_225_900_000_000,
+                }),
         ) {
             Ok(aggregate) => {
                 let wire = aggregate
@@ -192,7 +214,18 @@ print(json.dumps(cases))
                 json!({"wire":wire})
             }
             Err(Refusal::Uncovered(e)) => {
-                json!({"reason":e.failure.reason,"detail":e.failure.detail.to_string(),"missing":e.missing,"members":e.members})
+                assert_eq!(e.keys.len(), e.members);
+                let mut value = json!({"reason":e.failure.reason,"detail":e.failure.detail.to_string(),"missing":e.missing,"members":e.members});
+                if let Some(log) = e.log {
+                    value.as_object_mut().unwrap().extend(
+                        serde_json::to_value(log)
+                            .unwrap()
+                            .as_object()
+                            .unwrap()
+                            .clone(),
+                    );
+                }
+                value
             }
             Err(Refusal::Verification(e)) => match e.origin {
                 ErrorOrigin::Exception { class } => {
@@ -204,5 +237,5 @@ print(json.dumps(cases))
         assert_eq!(actual, case["expected"], "{}", case["mode"]);
         assert_eq!(calls.get(), case["calls"].as_u64().unwrap() as usize);
     }
-    assert_eq!(cases.len(), 26);
+    assert_eq!(cases.len(), 44);
 }

@@ -14,6 +14,7 @@ pub struct Aggregate {
     inputs_match: bool,
     combined: String,
     events: Option<Vec<String>>,
+    pub log: Option<super::super::members_log_view::View>,
 }
 pub struct View<'a, 'b> {
     oldest: &'a super::super::result::Satisfied<'b>,
@@ -91,10 +92,48 @@ impl Covered {
             inputs_match,
             combined,
             events,
+            log: None,
         })
     }
 }
 impl Aggregate {
+    pub(super) fn shadow(
+        &mut self,
+        q: &super::Request<'_>,
+        log: super::super::log_view::Request<'_>,
+    ) -> Result<(), Failure> {
+        let check = q.check.codepoints();
+        let members = self
+            .covered
+            .entries
+            .iter()
+            .map(|(name, key, note)| {
+                Ok((
+                    name.clone(),
+                    super::super::members_log_view::Member {
+                        key: Some(key),
+                        chosen: Some(&note.record().candidate.commit),
+                        observed: Some(super::TextRef::Points(
+                            note.facts_points(&check)?.observed_at,
+                        )),
+                    },
+                ))
+            })
+            .collect::<Result<_, Failure>>()?;
+        self.log = Some(
+            super::super::members_log_view::read(
+                q.repo,
+                log.keys,
+                q.tree,
+                q.check.text(),
+                &members,
+                log.now_micros,
+                600,
+            )
+            .map_err(super::policy_failure)?,
+        );
+        Ok(())
+    }
     /// Reconstruct the oldest dictionary and overlay only oracle aggregate fields.
     pub fn with_view<T>(
         &self,
@@ -134,7 +173,11 @@ impl View<'_, '_> {
                     Ok(())
                 })
             })?;
-            o.field_text("missing", |w| w.object(|_| Ok(())))
+            o.field_text("missing", |w| w.object(|_| Ok(())))?;
+            if let Some(log) = &self.aggregate.log {
+                log.write_fields(o)?;
+            }
+            Ok(())
         })
     }
 }
