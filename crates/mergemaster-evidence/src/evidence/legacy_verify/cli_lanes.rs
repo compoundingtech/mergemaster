@@ -180,5 +180,8 @@ impl LaneRules {
     }
 }
 #[cfg(test)]
+#[path = "cli_lanes_boundary_tests.rs"]
+mod boundary_tests;
+#[cfg(test)]
 #[path = "cli_lanes_tests.rs"]
 mod tests;
