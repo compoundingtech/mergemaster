@@ -993,6 +993,12 @@ The larger budget accommodates measured real listings (dotfiles origin/main
 `c2a85650da041b292a2bbc5c36eafb139cee046f`: 1,825,987 bytes).
 `projection::listing_capture_tests` compares all three paths with the pinned
 oracle at 67,108,864 and 67,108,865 bytes; only Rust rejects the latter.
+`utf8_stream::Utf8` supplies strict incremental decoding with at most four
+pending bytes, retaining the first Python decode error and its whole-stream
+byte offset. Its split-boundary matrix compares 10,773 pinned-interpreter
+samples, including truncated sequences and malformed bytes after earlier rows.
+This is the decoder prerequisite for stream-only ref enumeration; it does not
+by itself change the ref reader's capture.
 The shared nonblocking collector also has an explicit no-timeout entry for
 rust-test-keys source reads. Source overflow cancels/reaps the direct child
 without waiting for EOF from descendants holding inherited pipe descriptors.
