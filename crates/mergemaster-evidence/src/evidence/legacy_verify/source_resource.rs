@@ -9,6 +9,8 @@ pub enum SourceResource {
     PolicyJson(PolicyResource),
     LaneJson(PolicyResource),
     CrateInputsNodes,
+    PathDependencyDepth,
+    PathDependencyCrates,
     RawBlob(NormalizedText),
     TreeListing(NormalizedText),
 }
@@ -24,6 +26,8 @@ impl SourceResource {
             Self::Toml(resource) => resource.error().message.into(),
             Self::PolicyJson(resource) => resource.message().into(),
             Self::CrateInputsNodes => "crate inputs JSON node count exceeds 262144".into(),
+            Self::PathDependencyDepth => "path dependency depth exceeds 256".into(),
+            Self::PathDependencyCrates => "path dependency crate count exceeds 1024".into(),
             Self::LaneJson(resource) => match resource {
                 PolicyResource::SourceBytes => "lane JSON source exceeds 1048576 bytes",
                 PolicyResource::ContainerDepth => "lane JSON container depth exceeds 256",

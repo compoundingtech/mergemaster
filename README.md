@@ -890,6 +890,14 @@ claim. Oracle evidence: `tmp/crate-shape-oracle/key-identity.json`.
 `crate_closure` walks normal/dev/build and target-specific path dependencies with
 an explicit stack. Its memoized cycle unions, eager target lookup and lazy
 per-table dependency evaluation preserve the pinned Python walk's ordering.
+Approved fail-closed closure resources (separate from TOML container depth):
+at most256 uncached active manifests, counting the starting manifest, and1024
+distinct uncached manifests per shared operation cache, charged before reading.
+Cache/cycle hits neither descend nor charge. Typed Failure/error texts are
+`path dependency depth exceeds 256` and `path dependency crate count exceeds 1024`.
+The count bounds memoized reachability to about1M set entries (roughly64–128MiB
+for short paths, plus path-length/allocator variation), not an absolute byte cap;
+4096 crates would permit about16M entries.
 `crate_input_document::Inputs` retains the accepted-base input JSON losslessly,
 validates root/global/crates/no_tests shapes and never downgrades malformed new config.
 Approved resource-dependent divergence: CPython `json.loads` can raise
