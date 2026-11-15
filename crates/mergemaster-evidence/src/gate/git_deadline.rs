@@ -12,7 +12,7 @@ pub(crate) use capture::{CaptureSink, Stream};
 
 pub(crate) struct GitChild {
     child: Child,
-    deadline: Instant,
+    deadline: Option<Instant>,
     reaped: bool,
 }
 impl GitChild {
@@ -22,7 +22,7 @@ impl GitChild {
     }
     #[cfg(test)]
     pub(crate) fn expire_for_test(&mut self) {
-        self.deadline = Instant::now();
+        self.deadline = Some(Instant::now());
     }
     pub(crate) fn spawn(command: &mut Command) -> io::Result<Self> {
         Self::with_timeout(command, Duration::from_secs(60))
@@ -36,9 +36,21 @@ impl GitChild {
         stdout: Stdio,
         stderr: Stdio,
     ) -> io::Result<Self> {
-        let deadline = Instant::now()
-            .checked_add(timeout)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Git deadline overflow"))?;
+        Self::with_optional_timeout(command, Some(timeout), stdout, stderr)
+    }
+    fn with_optional_timeout(
+        command: &mut Command,
+        timeout: Option<Duration>,
+        stdout: Stdio,
+        stderr: Stdio,
+    ) -> io::Result<Self> {
+        let deadline = timeout
+            .map(|timeout| {
+                Instant::now().checked_add(timeout).ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "Git deadline overflow")
+                })
+            })
+            .transpose()?;
         Ok(Self {
             child: command.stdout(stdout).stderr(stderr).spawn()?,
             deadline,
@@ -57,9 +69,26 @@ impl GitChild {
         command: &mut Command,
         input: Option<&[u8]>,
         timeout: Duration,
+        sink: S,
+    ) -> Result<S::Output, S::Error> {
+        Self::capture_optional_timeout(command, input, Some(timeout), sink)
+    }
+    /// The same cancellable nonblocking collector, without an operation deadline.
+    pub(crate) fn capture_without_timeout<S: CaptureSink>(
+        command: &mut Command,
+        input: Option<&[u8]>,
+        sink: S,
+    ) -> Result<S::Output, S::Error> {
+        Self::capture_optional_timeout(command, input, None, sink)
+    }
+    fn capture_optional_timeout<S: CaptureSink>(
+        command: &mut Command,
+        input: Option<&[u8]>,
+        timeout: Option<Duration>,
         mut sink: S,
     ) -> Result<S::Output, S::Error> {
-        let mut child = Self::with_stdio(command, timeout, Stdio::piped(), Stdio::piped())?;
+        let mut child =
+            Self::with_optional_timeout(command, timeout, Stdio::piped(), Stdio::piped())?;
         let mut stdin = input.map(|_| child.stdin()).transpose()?;
         let stdout = child.stdout()?;
         let stderr = child
@@ -189,6 +218,11 @@ impl GitChild {
     // readiness implementation is available rather than add untested kqueue code.
     #[cfg(not(target_os = "linux"))]
     pub(crate) fn wait(&mut self) -> io::Result<ExitStatus> {
+        if self.deadline.is_none() {
+            let status = self.child.wait()?;
+            self.reaped = true;
+            return Ok(status);
+        }
         loop {
             let remaining = match remaining(self.deadline) {
                 Ok(remaining) => remaining,
@@ -218,7 +252,7 @@ impl Drop for GitChild {
     }
 }
 #[cfg(target_os = "linux")]
-fn wait_ready(pid: u32, deadline: Instant) -> io::Result<()> {
+fn wait_ready(pid: u32, deadline: Option<Instant>) -> io::Result<()> {
     use std::os::fd::{FromRawFd, OwnedFd};
     // SAFETY: pid is our live, unreaped child. Flags=0 is the pidfd_open ABI.
     // Owning Child prevents PID reuse even if it exits before this syscall.
@@ -278,7 +312,10 @@ fn capture_read<S: CaptureSink>(
         Err(error) => Err(error.into()),
     }
 }
-fn remaining(deadline: Instant) -> io::Result<Duration> {
+fn remaining(deadline: Option<Instant>) -> io::Result<Duration> {
+    let Some(deadline) = deadline else {
+        return Ok(Duration::MAX);
+    };
     deadline
         .checked_duration_since(Instant::now())
         .filter(|time| !time.is_zero())
@@ -286,7 +323,7 @@ fn remaining(deadline: Instant) -> io::Result<Duration> {
 }
 pub(crate) struct Pipe<T> {
     inner: T,
-    deadline: Instant,
+    deadline: Option<Instant>,
 }
 impl<T: AsRawFd> Pipe<T> {
     fn ready(&self, events: libc::c_short) -> io::Result<()> {

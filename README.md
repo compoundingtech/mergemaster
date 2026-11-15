@@ -985,6 +985,9 @@ Nonzero overflow refuses with `Git projection stderr exceeds 1048576 bytes`;
 otherwise Python's stderr diagnostic and operation-prefixed process errors survive.
 This is an approved resource divergence: Python has no byte caps at oracle :75.
 The exchange's 60-second deadline matches that same line; update-index stdout is discarded.
+The shared nonblocking collector also has an explicit no-timeout entry for
+rust-test-keys source reads. Source overflow cancels/reaps the direct child
+without waiting for EOF from descendants holding inherited pipe descriptors.
 `log_transport::read` separately ports shadow-log `no_lazy`: inherited environment,
 fixed SSH Git settings, no lazy fetch/replacements, LC_ALL=C and a 60-second deadline.
 Nonzero Git status is data; stdout is uncapped and stderr is drained/discarded.
