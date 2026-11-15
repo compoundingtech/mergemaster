@@ -516,6 +516,8 @@ limit. Conversion errors retain the exact unbounded argparse argument-repr
 diagnostic, including whitespace, controls, quotes and lone surrogates.
 `argparse_usage` renders the pinned usage layout at an explicit formatter width,
 retaining lossless program text and interpolation provenance for future safe sinks.
+`argparse_help` adds the complete uncolored help text, preserving Python textwrap
+hyphen breaks and help indentation across explicit formatter widths.
 `value_checks_document` applies that same guard body to a validated input object,
 preserving Python code points (including lone surrogates) in keys and values.
 Private borrowed views avoid converting statements into native String maps.
