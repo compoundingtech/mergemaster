@@ -1015,6 +1015,11 @@ These rust-test-keys reads retain inherited Git settings and no timeout.
 CLI configuration lookup and standalone no-test allowance reads also use the
 approved 1 MiB RawBlob capture: exact revision for lookup metadata, exact
 `base:path` for allowance bytes, with their existing verifier Git transport.
+Generic configuration blob resource identity concatenates the original lossless
+revision and resolved layout path, never decoding re-encoded subprocess argv.
+Real-Git SHA1/SHA256 boundary fixtures preserve adjacent DCC3/DCA9 surrogate
+code points in the complete typed source/detail, although those argv bytes
+resolve the same Git ref as scalar U+00E9.
 `log_transport::read` separately ports shadow-log `no_lazy`: inherited environment,
 fixed SSH Git settings, no lazy fetch/replacements, LC_ALL=C and a 60-second deadline.
 Nonzero Git status is data except source overflow; stdout has the approved 1 MiB

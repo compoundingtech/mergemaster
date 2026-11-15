@@ -63,9 +63,12 @@ pub(super) fn document_blob(
     let path = path(repo, revision, legacy)?;
     let mut object = OsString::from_vec(encode(revision, 0, true)?.into_owned());
     object.push(":");
-    object.push(path.as_deref().unwrap_or(legacy));
+    let resolved = path.as_deref().unwrap_or(legacy);
+    object.push(resolved);
     let resource = resource.unwrap_or_else(|| {
-        SourceResource::RawBlob(super::projection_process_error::decode(&object))
+        SourceResource::RawBlob(NormalizedText::concat(
+            [revision, TextRef::Str(":"), TextRef::Str(resolved)].into_iter(),
+        ))
     });
     read_git_source(
         repo,
@@ -114,6 +117,9 @@ pub fn lanes(repo: &Path, revision: TextRef<'_>) -> Result<String, PolicyError> 
 #[cfg(test)]
 #[path = "config_capture_tests.rs"]
 mod capture_tests;
+#[cfg(test)]
+#[path = "config_identity_tests.rs"]
+mod identity_tests;
 #[cfg(test)]
 #[path = "cli_config_tests.rs"]
 mod tests;
