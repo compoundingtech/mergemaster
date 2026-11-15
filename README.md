@@ -853,6 +853,11 @@ while escaped controls remain valid. Enumeration does not evaluate policy.
 validation and placeholder normalization, without narrowing names to a regex or UTF-8.
 Normalized policy commands/runner prefixes now own scalar or lossless code-point text
 and borrow the same input/runner guards. Placeholder replacement preserves code points.
+The logical CLI repository name also stays borrowed lossless text through
+kind/level replacement and `require_all_cli`; native string callers still work.
+Dispatch must use compiled member APIs, never `crate_sources::AcceptedSource`
+or `json_bytes::parse`: their outstanding capture/byte/depth prerequisites
+remain binding before any production caller becomes reachable.
 `legacy_verify::policy_loader` reads policy bytes from the supplied Git revision,
 strictly decodes UTF-8, then invokes `PolicyDocument`. This is the first production
 caller; the C1 loader precedes any CLI/dispatch wiring. Inherited `.fractal` preference

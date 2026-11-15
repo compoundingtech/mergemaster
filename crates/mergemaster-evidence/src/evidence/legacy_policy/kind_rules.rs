@@ -24,18 +24,18 @@ pub struct KindRule {
     #[serde(serialize_with = "super::serialize_pairs")]
     pub base_inputs: Vec<(NormalizedText, String)>,
 }
-pub fn checked_kinds<'a>(
+pub fn checked_kinds<'a, 'r>(
     kinds: Source<'_>,
     levels: &[NormalizedText],
-    repository: &str,
+    repository: impl Into<TextRef<'r>>,
     check: impl Into<CheckName<'a>>,
 ) -> Result<Vec<(String, KindRule)>, PolicyError> {
-    from_source(kinds, levels, repository, check.into())
+    from_source(kinds, levels, repository.into(), check.into())
 }
 pub(super) fn from_source(
     kinds: Source<'_>,
     levels: &[NormalizedText],
-    repository: &str,
+    repository: TextRef<'_>,
     check: CheckName<'_>,
 ) -> Result<Vec<(String, KindRule)>, PolicyError> {
     kinds

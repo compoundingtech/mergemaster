@@ -148,7 +148,7 @@ print(json.dumps(cases))
                 case["tree"].as_str().unwrap(),
                 Path::new(case["keys"].as_str().unwrap()),
                 policy,
-                "fixture",
+                "fixture".into(),
                 match transport {
                     configured::Transport::Native => Lanes::Native(lane_file, None),
                     configured::Transport::Cli => {

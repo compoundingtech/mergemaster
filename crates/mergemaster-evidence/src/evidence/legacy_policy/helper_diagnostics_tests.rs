@@ -187,7 +187,7 @@ fn selected_payload_preserves_explicit_unbounded_document_api() {
     let error = kind_rules::from_source(
         selected.get("kinds").unwrap(),
         &["agent".into()],
-        "org/repo",
+        "org/repo".into(),
         "check".into(),
     )
     .unwrap_err();

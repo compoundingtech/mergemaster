@@ -29,19 +29,25 @@ impl Serialize for LaneBinding {
         }
     }
 }
-pub fn checked_levels<'a>(
+pub fn checked_levels<'a, 'r>(
     overrides: Source<'_>,
     accepted_levels: &[NormalizedText],
-    repository: &str,
+    repository: impl Into<TextRef<'r>>,
     check: impl Into<CheckName<'a>>,
     kind: &str,
 ) -> Result<Vec<(NormalizedText, LevelRule)>, PolicyError> {
-    from_source(overrides, accepted_levels, repository, check.into(), kind)
+    from_source(
+        overrides,
+        accepted_levels,
+        repository.into(),
+        check.into(),
+        kind,
+    )
 }
 pub(super) fn from_source(
     overrides: Source<'_>,
     accepted_levels: &[NormalizedText],
-    repository: &str,
+    repository: TextRef<'_>,
     check: CheckName<'_>,
     kind: &str,
 ) -> Result<Vec<(NormalizedText, LevelRule)>, PolicyError> {
@@ -148,18 +154,18 @@ pub(super) fn from_source(
     }
     Ok(by_level)
 }
-pub(super) fn fill(
+pub(super) fn fill<'r>(
     value: NormalizedText,
-    repository: &str,
+    repository: impl Into<TextRef<'r>>,
     check: CheckName<'_>,
 ) -> NormalizedText {
     value
-        .replace("{repository}", TextRef::Str(repository))
+        .replace("{repository}", repository.into())
         .replace("{check}", check.text())
 }
 pub(super) fn normalized(
     mut inputs: CommandInputs,
-    repository: &str,
+    repository: TextRef<'_>,
     check: CheckName<'_>,
 ) -> CommandInputs {
     inputs.command = inputs

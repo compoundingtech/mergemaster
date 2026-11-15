@@ -77,7 +77,10 @@ impl<'a> PolicyDocument<'a> {
         Ok(Source::root(&self.document).at(entry))
     }
     /// Validate and normalize every selected kind before evidence evaluation.
-    pub fn into_rules(self, repository: &str) -> Result<PolicyRules, PolicyError> {
+    pub fn into_rules<'r>(
+        self,
+        repository: impl Into<TextRef<'r>>,
+    ) -> Result<PolicyRules, PolicyError> {
         let source = self.source()?;
         let header = CheckHeader::parse(source, self.check)?;
         let kinds = match source.get("kinds") {
@@ -1063,3 +1066,7 @@ print(json.dumps(results))
         }
     }
 }
+
+#[cfg(test)]
+#[path = "legacy_policy/repository_tests.rs"]
+mod repository_tests;
