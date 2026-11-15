@@ -794,6 +794,13 @@ while escaped controls remain valid. Enumeration does not evaluate policy.
 validation and placeholder normalization, without narrowing names to a regex or UTF-8.
 Normalized policy commands/runner prefixes now own scalar or lossless code-point text
 and borrow the same input/runner guards. Placeholder replacement preserves code points.
+`legacy_verify::policy_loader` reads policy bytes from the supplied Git revision,
+strictly decodes UTF-8, then invokes `PolicyDocument`. This is the first production
+caller; the C1 loader precedes any CLI/dispatch wiring. Inherited `.fractal` preference
+and exact Git argv are retained for unresolved revisions as well as full OIDs.
+Invalid bytes/config-read Failures map to `no_policy`; a UTF-8 BOM decodes and is
+refused by JSON instead. Real-Git SHA1/SHA256 oracle cases bind invalid bytes, BOM,
+NaN, negative zero, overflowing floats and Infinity acceptance/refusal text.
 The current serde view still serializes scalar text only; lossless JSON output
 remains separate from typed require-all orchestration. Other raw policy fields retain
 their existing serde-value domain; this name-boundary port does not widen those fields.
