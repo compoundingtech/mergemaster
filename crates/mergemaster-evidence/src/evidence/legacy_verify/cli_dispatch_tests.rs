@@ -4,6 +4,8 @@ pub(super) fn compare(rows: Vec<Row>, phase: &str) {
     for (argv, stdout, stderr, code) in rows {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(root.path().join("argv"), serde_json::to_vec(&argv).unwrap()).unwrap();
+        let temporary = root.path().join("temporary");
+        std::fs::create_dir(&temporary).unwrap();
         let done = Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
@@ -14,6 +16,7 @@ pub(super) fn compare(rows: Vec<Row>, phase: &str) {
             .env(phase, "1")
             .env("NO_COLOR", "1")
             .env("COLUMNS", "80")
+            .env("TMPDIR", &temporary)
             .output()
             .unwrap();
         assert_eq!(done.status.code(), Some(code), "{argv:?}");
@@ -25,6 +28,11 @@ pub(super) fn compare(rows: Vec<Row>, phase: &str) {
         assert_eq!(
             std::fs::read(root.path().join("stderr")).unwrap(),
             stderr,
+            "{argv:?}"
+        );
+        assert_eq!(
+            std::fs::read_dir(&temporary).unwrap().count(),
+            0,
             "{argv:?}"
         );
     }
@@ -124,4 +132,62 @@ print(json.dumps(rows))
     let rows: Vec<Row> = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(rows.len(), 52);
     compare(rows, "MM_PROJECT_ONLY");
+}
+
+#[test]
+fn complete_required_path_and_signer_cleanup_match_original_subprocess() {
+    let script = r#"
+import json,os,pathlib,runpy,subprocess,sys
+parent=pathlib.Path(sys.argv[1]);rows=[];temporary=parent/'temporary';temporary.mkdir()
+p=pathlib.Path(os.environ['MERGEMASTER_PYTHON_ORACLE'])/'scripts/evidence-verify';v=runpy.run_path(str(p))
+key=parent/'signer';subprocess.run(['ssh-keygen','-q','-t','ed25519','-N','','-f',str(key)],check=True)
+keys=parent/('allowed-'+chr(0xdcff));keys.write_text('agent/fixture '+key.with_suffix('.pub').read_text())
+for fmt in ['sha1','sha256']:
+ for layout in ['.st','.fractal']:
+  repo=parent/(fmt+layout);repo.mkdir()
+  def git(*args,data=None):return subprocess.check_output(['git','-C',str(repo),*args],input=data,stderr=subprocess.PIPE).decode().strip()
+  git('init','--object-format='+fmt);git('config','user.name','Fixture');git('config','user.email','fixture@example.invalid')
+  (repo/layout).mkdir();(repo/'def').write_text('definition')
+  (repo/layout/'evidence-keys').write_bytes(keys.read_bytes())
+  lanes=dict(version=1,lanes={'x':dict(argv=['true'],definition_paths=['def'])})
+  (repo/layout/'required-lanes.json').write_text(json.dumps(lanes))
+  def policy(mode='reject',check='x'):return json.dumps(dict(version=1,checks={check:dict(require=mode,trust_levels=['agent'],kinds={'wrapper':dict(command=['true'])})}))
+  policy_file=repo/layout/'evidence-skip-policy.json';policy_file.write_text(policy())
+  git('add','.');git('commit','-m','base');base=git('rev-parse','HEAD');tree=git('rev-parse','HEAD^{tree}')
+  inputs={'lane_definition_sha256':v['lane_for'](str(repo),tree,(json.dumps(lanes),base),'x')['sha256']}
+  statement=dict(_type=v['STATEMENT_TYPE'],predicateType=v['PREDICATE_TYPE'],subject=[dict(name=base,digest=dict(gitTree=tree))],predicate=dict(schema_version=1,tier='full',change_id='fixture',signer='agent/fixture',observed_at='2026-01-01T00:00:00Z',observed=dict(kind='tests',runner='wrapper',inputs=inputs,checks={'x':dict(command=['true'],exit_code=0,output_sha256='0'*64)})))
+  blob=git('hash-object','-w','--stdin',data=json.dumps(statement).encode())
+  note=git('mktree',data=('100644 blob '+blob+'\t'+tree+'\n').encode())
+  commit=git('-c','gpg.format=ssh','-c','user.signingkey='+str(key),'commit-tree','-S',note,'-p',base,data=b'fixture')
+  git('update-ref','refs/tags/evidence/'+tree+'/'+commit,commit)
+  variants=[(policy(),[], 'ok'),(policy(),['--lanes-from','HEAD'],'ok'),(policy(),['--keys-from','HEAD'],'ok'),(policy(),['--run-input','bad','--log-keys-from','missing','--crate-key','bad'],'ok'),(policy('off'),[],'ok'),(policy('reject','y'),[],'reject'),(policy('shadow','y'),[],'would-reject'),(policy(),['--lanes-from','missing'],'error'),(policy(),['--lanes-from','HEAD','--lane-base','raw'+chr(0xdcff)],'error'),('not JSON',[],'error'),('\ufeff'+policy(),[],'error'),(policy(),['--keys',str(parent/'missing')],'error'),(policy(),['--keys-from','missing'],'error')]
+  variants += [('not JSON',['--keys-from','HEAD'],'error'),(policy(),['--keys-from','HEAD','--lanes-from','missing'],'error')]
+  for index,(text,extra,decision) in enumerate(variants):
+   policy_file.write_text(text);git('add','.');git('commit','--allow-empty','-m',str(index))
+   accepted=git('rev-parse','HEAD');extra=[accepted if s=='HEAD' else s for s in extra]
+   key_args=[] if '--keys' in extra or '--keys-from' in extra else ['--keys',str(keys)]
+   argv=['--repo',str(repo),'--tree',tree,'--require-all','--policy-from',accepted,'--repository','org/'+chr(0xdcff),*key_args,*extra]
+   env=dict(os.environ,NO_COLOR='1',COLUMNS='80',TMPDIR=str(temporary));env.pop('FORCE_COLOR',None)
+   done=subprocess.run([sys.executable,'-I',str(p),*argv],capture_output=True,env=env)
+   result=json.loads(done.stdout);assert result['decision']==decision,(argv,result)
+   assert done.returncode==({'reject':1,'error':2}.get(decision,0)) and not done.stderr
+   if decision=='ok' and index<4:assert result['lanes']['x']['record']==commit
+   assert not list(temporary.iterdir())
+   rows.append([[list(os.fsencode(s)) for s in argv],list(done.stdout),list(done.stderr),done.returncode])
+print(json.dumps(rows))
+"#;
+    let root = tempfile::tempdir().unwrap();
+    let output = crate::pinned_python::command()
+        .args(["-c", script])
+        .arg(root.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let rows: Vec<Row> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(rows.len(), 60);
+    compare(rows, "MM_REQUIRED_ONLY");
 }

@@ -558,6 +558,11 @@ excluded, not silently satisfied.
 early returns before key/lane/run/log preparation. Policy default paths and
 base-input names stay borrowed through output; explicit paths replace defaults.
 The member branch deliberately precedes policy loading, matching original main.
+`cli_dispatch::required` prepares signers, then explicit lanes, then policy,
+and selects `require_all_cli` before ordinary run/log/crate preparation.
+`with_signers` captures the operation result and explicitly closes its owner;
+close errors override that result, as in original main's finally clause.
+No binary intercept or ordinary-verification dispatcher is installed yet.
 Approved terminal/log output divergence (#245): `terminal_sink::value` applies
 unbounded Python-repr-style escaping to C0, DEL, C1, lone surrogates and every
 backslash, without repr quotes. `RenderedHelp::write_terminal` escapes only
