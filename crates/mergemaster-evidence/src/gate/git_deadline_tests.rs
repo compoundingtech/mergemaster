@@ -176,6 +176,62 @@ fn capture_sink_drains_without_retaining_stream_bytes() {
     }
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn pidfd_final_wait_expires_after_pipe_eof_and_reaps() {
+    let mut command = Command::new("python3");
+    command.args(["-c", "import os,signal; os.close(1); signal.pause()"]);
+    let mut child = GitChild::spawn(&mut command).unwrap();
+    let pid = child.child.id();
+    assert_eq!(child.stdout().unwrap().read(&mut [0]).unwrap(), 0);
+    child.deadline = Instant::now() + Duration::from_millis(20);
+    assert_eq!(child.wait().unwrap_err().kind(), io::ErrorKind::TimedOut);
+    assert_reaped(pid);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn pidfd_readiness_waits_for_real_exit_and_preserves_nonzero_status() {
+    let mut command = Command::new("python3");
+    command
+        .args([
+            "-c",
+            "import os,sys; os.write(1,b'R'); os.read(0,1); sys.exit(7)",
+        ])
+        .stdin(Stdio::piped());
+    let mut child = GitChild::spawn(&mut command).unwrap();
+    let pid = child.child.id();
+    let mut ready = [0];
+    child.stdout().unwrap().read_exact(&mut ready).unwrap();
+    assert_eq!(ready, *b"R");
+    assert!(child.child.try_wait().unwrap().is_none());
+    let mut input = child.stdin().unwrap();
+    std::thread::scope(|scope| {
+        scope.spawn(move || input.write_all(b"exit").unwrap());
+        // Exercise pidfd readiness even if the child wins the release race.
+        wait_ready(pid, child.deadline).unwrap();
+        assert_eq!(child.wait().unwrap().code(), Some(7));
+    });
+    assert_eq!(child.wait().unwrap().code(), Some(7));
+    assert_reaped(pid);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn pidfd_readiness_timeout_leaves_cancellation_to_the_owner() {
+    let mut child = paused();
+    let pid = child.child.id();
+    assert_eq!(
+        wait_ready(pid, Instant::now() + Duration::from_millis(20))
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::TimedOut
+    );
+    assert!(child.child.try_wait().unwrap().is_none());
+    drop(child);
+    assert_reaped(pid);
+}
+
 thread_local! {
     pub(super) static EXPIRE_AFTER_STDERR: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }

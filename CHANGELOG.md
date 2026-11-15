@@ -17,6 +17,7 @@
 - Map legacy source `ENOTCAPABLE` errors to Python's `PermissionError` on every platform defining it in pinned libc: FreeBSD, Apple platforms and WASI.
 - Resolve accepted-base Rust test tools and inputs before historical bootstrap, refusing missing judged-base artifacts and malformed selected configuration without candidate fallback.
 - Read the legacy verifier's standalone accepted-base no-tests allowance with exact missing, malformed and strict UTF-8 behavior, independently of the crate-inputs schema.
+- Replace Linux Git final-wait sleep polling with pidfd readiness under the unchanged absolute deadline and direct-child cleanup contract; Linux >= 5.3 is required.
 
 ## [0.8.0] - 2026-11-13
 

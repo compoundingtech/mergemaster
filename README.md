@@ -722,6 +722,11 @@ Shared `gate::git::git`, `git_bounded`, projection exchanges, bound-blob hashing
 and note discovery each use one 60-second child-lifetime deadline through final wait,
 with discarded stderr and nonblocking pipe I/O. Existing output bounds and strict
 projection OID/status validation remain unchanged; timeout is reason `error`.
+Linux final waits use `pidfd_open` plus blocking `poll` (Linux >= 5.3), retaining
+the same absolute deadline and direct-child kill/reap semantics. Interrupted polls
+recompute the remaining deadline; no sleep or periodic child-status polling is used.
+Unsupported pidfd syscalls propagate existing I/O errors without fallback. The hosted
+CI matrix covers Linux only; other platforms retain their existing wait behavior.
 `RawBatch` uses one deadline across every request and final EOF/status validation;
 neither a successful reply nor finish renews it. Expiration cancels the owned child.
 Note discovery likewise shares one budget across all requests, preserving order and
@@ -851,6 +856,10 @@ checks (3f-3a), with `statement-too-large` distinct from malformed-record refusa
 Missing subjects are allowed without lazy fetch. `records::RecordCache`
 is constructed per candidate/check with `for_check`, with exact repo/commit/optional-tree keys.
 Immutable `Arc` documents are interned per repo/commit; member hits are free and errors uncached.
+Observed records already flow through the lossless `Document`, cached `Arc<Document>`
+and borrowed `DocumentFacts`; no serde-value conversion intervenes. Real SHA-1/SHA-256
+records in UTF-8/16/32 compare complete tagged values and selected input/command
+codepoints against Python, including lone surrogates, wide integers and float bits.
 Limits: 4,194,304 units and 8,192 entries; `record-budget-exceeded` latches and aborts the check.
 Units charge two/node, four/object entry, two/cache entry, one/text point,
 integer digit, array index or key byte: a conservative 128 B/unit retained-allocation

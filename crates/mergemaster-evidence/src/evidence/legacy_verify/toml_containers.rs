@@ -1,3 +1,8 @@
+//! Array and inline-table nesting is iterative and unbounded (subject to memory).
+//! Approved, labelled resource-dependent divergence: CPython 3.14.7 tomllib raises
+//! RecursionError at nesting depths that depend on the interpreter stack; Rust
+//! does not emulate a fixed recursion boundary. MAX_KEY_PARTS=1000 remains exact
+//! (see toml_keys.rs) and is not part of this divergence.
 use super::{
     Error, Repr, Source, TextRef, Value,
     nested::NestedDict,

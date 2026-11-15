@@ -253,5 +253,8 @@ impl RecordCache {
     }
 }
 #[cfg(test)]
+#[path = "records_lossless_tests.rs"]
+mod lossless_tests;
+#[cfg(test)]
 #[path = "records_tests.rs"]
 mod tests;
