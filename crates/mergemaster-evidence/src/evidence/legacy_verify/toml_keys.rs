@@ -3,7 +3,7 @@ use super::{Error, ErrorKind, Source, bare_key, illegal_multiline, repr, whitesp
 /// CPython 3.14.7's default sys.getrecursionlimit(), captured by tomllib at import.
 pub const MAX_KEY_PARTS: usize = 1000;
 impl Source {
-    fn starts(&self, position: usize, text: &str) -> bool {
+    pub(super) fn starts(&self, position: usize, text: &str) -> bool {
         self.chars.get(position..).is_some_and(|tail| {
             let mut chars = tail.iter();
             text.chars().all(|c| chars.next() == Some(&c))
