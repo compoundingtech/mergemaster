@@ -108,8 +108,15 @@ pub fn streams(
     prog: TextRef<'_>,
     width: usize,
 ) -> Result<Option<Streams>, InvalidOption> {
+    render(parse(argv), prog, width)
+}
+pub(super) fn render(
+    outcome: Result<ParseOutcome<'_>, ParseError<'_>>,
+    prog: TextRef<'_>,
+    width: usize,
+) -> Result<Option<Streams>, InvalidOption> {
     let empty = || Message::default().finish();
-    let outcome = match parse(argv) {
+    let outcome = match outcome {
         Ok(ParseOutcome::Parsed(_)) => None,
         Ok(ParseOutcome::Help) => Some(Streams {
             stdout: argparse_help::help(prog, width),

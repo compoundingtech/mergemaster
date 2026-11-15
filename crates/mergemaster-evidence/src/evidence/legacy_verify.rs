@@ -7,6 +7,7 @@ pub mod argparse_parse;
 pub mod argparse_usage;
 mod binding_path;
 pub mod candidates;
+pub mod cli_adapter;
 pub mod cli_validation;
 pub mod collection;
 pub mod configured;
