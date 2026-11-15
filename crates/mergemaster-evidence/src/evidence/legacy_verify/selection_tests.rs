@@ -2,6 +2,113 @@ use super::*;
 use crate::gate::git::git;
 use serde_json::{Value, json};
 #[test]
+fn lossless_config_resolution_matches_oracle_decode_boundaries() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path();
+    git(repo, &["init"]).unwrap();
+    for name in [
+        b".st/legacy.json".as_slice(),
+        b".st/both.json",
+        b".fractal/both.json",
+        b".st/\xff.json",
+        b".fractal/\xfe.json",
+        b".st/\xfc.json",
+        b".fractal/\xfc.json",
+        b".st/.st/input.json",
+        b".fractal/.st/input.json",
+        b".st/.fractal/only-wrong.json",
+        b".fractal/.fractal/only-wrong.json",
+        b".st/.st/.fractal/input.json",
+        b".st/.st/\xff.json",
+    ] {
+        let path = repo.join(OsStr::from_bytes(name));
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, b"{}").unwrap();
+    }
+    git(repo, &["add", "."]).unwrap();
+    let tree = String::from_utf8(git(repo, &["write-tree"]).unwrap())
+        .unwrap()
+        .trim()
+        .to_owned();
+    let cases: Vec<Vec<u32>> = [
+        ".st/legacy.json::key",
+        ".fractal/legacy.json::key",
+        ".st/both.json::key",
+        ".fractal/both.json::key",
+        ".st/missing.json::key",
+        ".st/legacy.json::SURROGATE",
+        ".st/ESCAPE.json::key",
+        ".fractal/ESCAPE.json::key",
+        ".st/ABSENT.json::key",
+        ".st/PREFERRED.json::key",
+        ".st/BOTH_RAW.json::key",
+        ".st/SURROGATE.json::key",
+        ".st/\0.json::key",
+        "plain.json::SURROGATE",
+        ".st/.fractal/input.json::key",
+        ".fractal/.st/input.json::key",
+        ".st/.fractal/only-wrong.json::key",
+        ".st/.fractal/.fractal/input.json::key",
+        ".st/.fractal/ESCAPE.json::key",
+    ]
+    .into_iter()
+    .map(|name| {
+        NormalizedText::from(name)
+            .replace("ESCAPE", TextRef::Points(&[0xdcff]))
+            .replace("ABSENT", TextRef::Points(&[0xdcfd]))
+            .replace("PREFERRED", TextRef::Points(&[0xdcfe]))
+            .replace("BOTH_RAW", TextRef::Points(&[0xdcfc]))
+            .replace("SURROGATE", TextRef::Points(&[0xd800]))
+            .borrowed()
+            .points()
+            .collect()
+    })
+    .collect();
+    let output = std::process::Command::new("python3")
+        .args([
+            "-c",
+            r#"
+import json,runpy,sys
+v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify'); result=[]
+for points in json.loads(sys.argv[4]):
+ try:
+  path=v['selector_item'](sys.argv[2],sys.argv[3],''.join(map(chr,points)))
+  result.append(dict(path=list(map(ord,path)) if path is not None else None))
+ except Exception as e: result.append(dict(class_name=type(e).__name__,detail=str(e)))
+print(json.dumps(result))
+"#,
+            &std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap(),
+            repo.to_str().unwrap(),
+            &tree,
+            &serde_json::to_string(&cases).unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{:?}", output.stderr);
+    let expected: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(expected.len(), cases.len());
+    let evaluate = |item: TextRef<'_>| match selector_item(repo, &tree, item) {
+        Ok(path) => json!({"path":path.map(|p| p.borrowed().points().collect::<Vec<_>>())}),
+        Err(error) => {
+            let ErrorOrigin::Exception { class } = error.origin else {
+                panic!("unexpected refusal: {error:?}");
+            };
+            json!({"class_name":class,"detail":error.detail.to_string()})
+        }
+    };
+    for (points, expected) in cases.into_iter().zip(expected) {
+        assert_eq!(evaluate(TextRef::Points(&points)), expected, "{points:?}");
+        if let Some(scalar) = points
+            .iter()
+            .copied()
+            .map(char::from_u32)
+            .collect::<Option<String>>()
+        {
+            assert_eq!(evaluate(TextRef::Str(&scalar)), expected, "{points:?}");
+        }
+    }
+}
+#[test]
 fn lossless_selected_content_matches_real_git_oracle() {
     use crate::evidence::legacy_policy::{ErrorOrigin, normalized_text::NormalizedText};
     let dir = tempfile::tempdir().unwrap();

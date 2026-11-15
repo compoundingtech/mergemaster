@@ -152,7 +152,9 @@ pub fn project(repo: &Path, tree: &str, paths: &[String]) -> Result<Option<Strin
                 expected,
             )?)
             .map_err(error)?;
-            write!(index_bytes, "100644 {} 0\t{item}\0", blob.trim()).map_err(error)?;
+            write!(index_bytes, "100644 {} 0\t", blob.trim()).map_err(error)?;
+            index_bytes.extend_from_slice(&super::binding_path::encode(item.borrowed(), 0, false)?);
+            index_bytes.push(0);
         }
     }
     if index_bytes.is_empty() {
