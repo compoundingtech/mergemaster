@@ -8,6 +8,8 @@
 - Accept borrowed lossless JSON/workflow selector names in the Rust legacy projection library, preserving parse-before-lookup refusals and existing scalar callers.
 - Read selected legacy projection content with lossless filesystem paths and selector names, retaining lazy missing-path behavior and exact subprocess encoding refusals.
 - Resolve lossless legacy configuration selector identities with strict returned-name decoding and unchanged preferred-layout ordering.
+- Carry lossless declared paths through legacy projection, collection and prefix requests, preserving strict exclusions, selected index names and lazy whole-tree filesystem encoding.
+- Preserve per-argument filesystem encoding and embedded-NUL refusal order in legacy projection, including repository arguments before projection, selected-content and configuration-selector paths.
 
 ## [0.8.0] - 2026-11-13
 

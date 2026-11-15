@@ -98,7 +98,7 @@ fn projection_matches_oracle_for_raw_modes_layout_and_selectors() {
     let mut actual = Vec::new();
     for tree in [&tree, &unrelated, &both] {
         for paths in &paths {
-            let paths: Vec<String> = paths.iter().map(|p| (*p).into()).collect();
+            let paths: Vec<NormalizedText> = paths.iter().map(|p| (*p).into()).collect();
             cases.push(json!([tree, paths]));
             actual.push(match project(repo, tree, &paths) {
                 Ok(key) => json!({"key":key}),
@@ -491,7 +491,7 @@ print(json.dumps(out))
     assert!(output.status.success());
     let expected: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
     for (paths, expected) in cases.into_iter().zip(expected) {
-        let paths: Vec<String> = paths.into_iter().map(str::to_owned).collect();
+        let paths: Vec<NormalizedText> = paths.into_iter().map(Into::into).collect();
         match project(Path::new("."), &tree, &paths) {
             Ok(key) => assert_eq!(json!({"key":key}), expected),
             Err(error) => {
@@ -508,4 +508,162 @@ print(json.dumps(out))
             }
         }
     }
+}
+
+#[test]
+fn lossless_project_paths_match_full_oracle_results() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path();
+    let script = r#"
+import json,os,pathlib,runpy,subprocess,sys
+v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify'); repo=sys.argv[2]
+def git(*args):
+ return subprocess.check_output(['git','-C',repo,*args]).decode().strip()
+git('init')
+for name,body in [('raw\udcff.json',b'{"x":1}'),('astral🦀.json',b'{"x":2}'),
+                  ('scalar.json',b'{"x":3}'),('bad.json',b'{'),('raw\udc80',b'raw')]:
+ with open(os.path.join(repo,name),'wb') as f: f.write(body)
+git('add','.'); tree=git('write-tree')
+cases=[
+ ['raw\udcff.json'],['raw\udc80'],['astral🦀.json'],['scalar.json'],
+ ['raw\udcff.json::x'],['raw\udcff.json::missing'],['absent\udcff.json::x'],
+ ['scalar.json::\udcff'],['scalar.json::\ud800'],['astral🦀.json::x'],
+ ['.','raw\udcff.json::missing'],['.','absent\udcff.json::x'],
+ ['.','\ud800'],['.','\udcff'],['.','nul\0path'],
+ ['.','\ud800','!scalar.json'],['.','nul\0path','!scalar.json'],
+ ['.','!raw\udcff.json'],['!🦀\ud800'],['!\udc80','bad.json::x'],
+ ['bad.json::x','!\ud800'],['!raw\0name'],['raw\0name'],
+ ['raw\0name::x'],['scalar.json::x\0'],['\ud800'],['\udc7f'],
+ ['nul\0path','\ud800'],['\ud800','nul\0path'],
+ ['\udfff'],['.','!astral🦀.json'],['scalar.json','!scalar.json'],
+ ['.','raw\udcff.json::x'],['scalar.json::x','raw\udcff.json::x'],
+ ['scalar.json::x','scalar.json::x'],['.','!scalar.json::x'],
+]
+out=[]
+for paths in cases:
+ try: result=dict(key=v['project'](repo,tree,paths))
+ except v['Failure'] as e: result=dict(failure=e.reason,message=e.detail)
+ except Exception as e: result=dict(exception=type(e).__name__,message=str(e))
+ out.append(dict(paths=[list(map(ord,p)) for p in paths],result=result))
+print(json.dumps(dict(tree=tree,cases=out)))
+"#;
+    let output = Command::new("python3")
+        .args([
+            "-c",
+            script,
+            &std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap(),
+            repo.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let fixture: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let cases = fixture["cases"].as_array().unwrap();
+    assert_eq!(cases.len(), 36);
+    for case in cases {
+        let paths: Vec<NormalizedText> = case["paths"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|points| {
+                NormalizedText::Codepoints(serde_json::from_value(points.clone()).unwrap())
+            })
+            .collect();
+        let actual = match project(repo, fixture["tree"].as_str().unwrap(), &paths) {
+            Ok(key) => json!({"key":key}),
+            Err(error) => match error.origin {
+                crate::evidence::legacy_policy::ErrorOrigin::Exception { class } => {
+                    json!({"exception":class,"message":error.detail.to_string()})
+                }
+                crate::evidence::legacy_policy::ErrorOrigin::Failure => {
+                    json!({"failure":error.reason,"message":error.detail.to_string()})
+                }
+            },
+        };
+        assert_eq!(actual, case["result"], "{paths:?}");
+    }
+}
+
+fn compare_repository_argument_order(operation: &str) {
+    let script = r#"
+import json,os,runpy,sys
+v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify'); tree='a'*40; out=[]
+for operation in [sys.argv[2]]:
+ for repo,path in [('nul\0repo','\ud800'),('raw\udcff','\ud800'),
+                   ('raw\udcff','nul\0path')]:
+  item=('.st/'+path+'::x') if operation=='selector_item' else path
+  try: v[operation](repo,tree,[item] if operation=='project' else item)
+  except Exception as e:
+   out.append(dict(operation=operation,repo=list(os.fsencode(repo)),
+                   item=list(map(ord,item)),exception=type(e).__name__,message=str(e)))
+# Strict exclusion encoding happens before any subprocess argv conversion.
+try: v['project']('nul\0repo',tree,['\ud800','!\ud800'])
+except Exception as e:
+ out.append(dict(operation='excluded',repo=list(b'nul\0repo'),
+                 item=[0xd800],exception=type(e).__name__,message=str(e)))
+print(json.dumps(out))
+"#;
+    let output = Command::new("python3")
+        .args([
+            "-c",
+            script,
+            &std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap(),
+            operation,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(cases.len(), 4);
+    for case in cases {
+        let repo = std::path::PathBuf::from(std::ffi::OsString::from_vec(
+            serde_json::from_value(case["repo"].clone()).unwrap(),
+        ));
+        let item =
+            NormalizedText::Codepoints(serde_json::from_value(case["item"].clone()).unwrap());
+        let tree = "a".repeat(40);
+        let error = match case["operation"].as_str().unwrap() {
+            "project" => project(&repo, &tree, &[item]).unwrap_err(),
+            "selected_content" => selected_content(&repo, &tree, &item).unwrap_err(),
+            "selector_item" => selector_item(&repo, &tree, &item).unwrap_err(),
+            "excluded" => project(
+                &repo,
+                &tree,
+                &[
+                    item.clone(),
+                    NormalizedText::around("!", item.borrowed(), ""),
+                ],
+            )
+            .unwrap_err(),
+            other => panic!("unexpected oracle operation: {other}"),
+        };
+        let crate::evidence::legacy_policy::ErrorOrigin::Exception { class } = error.origin else {
+            panic!("expected exception: {error:?}");
+        };
+        assert_eq!(class, case["exception"], "{case}");
+        assert_eq!(error.detail.to_string(), case["message"], "{case}");
+    }
+}
+
+#[test]
+fn project_repository_argument_precedes_path_conversion() {
+    compare_repository_argument_order("project");
+}
+
+#[test]
+fn selected_content_repository_argument_precedes_path_conversion() {
+    compare_repository_argument_order("selected_content");
+}
+
+#[test]
+fn selector_item_repository_argument_precedes_path_conversion() {
+    compare_repository_argument_order("selector_item");
 }

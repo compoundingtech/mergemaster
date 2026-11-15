@@ -4,7 +4,10 @@ use super::{
     projection_capture::{self, ExpectedOutput},
     selection::{selected_content, selector_item},
 };
-use crate::evidence::{legacy_policy::PolicyError, oid};
+use crate::evidence::{
+    legacy_policy::{PolicyError, normalized_text::NormalizedText},
+    oid,
+};
 use std::{
     collections::BTreeSet,
     ffi::OsStr,
@@ -21,17 +24,27 @@ fn error(detail: impl ToString) -> PolicyError {
         detail: detail.to_string().into(),
     }
 }
+fn embedded_null() -> PolicyError {
+    PolicyError {
+        origin: crate::evidence::legacy_policy::ErrorOrigin::Exception {
+            class: "ValueError",
+        },
+        reason: "error",
+        detail: "embedded null byte".into(),
+    }
+}
+pub(super) fn check_repo_argument(repo: &Path) -> Result<(), PolicyError> {
+    // Unix Path already carries filesystem-encoded bytes, including surrogateescape.
+    if repo.as_os_str().as_bytes().contains(&0) {
+        return Err(embedded_null());
+    }
+    Ok(())
+}
 fn projection_command(repo: &Path, args: &[impl AsRef<OsStr>]) -> Result<Command, PolicyError> {
     if repo.as_os_str().as_bytes().contains(&0)
         || args.iter().any(|arg| arg.as_ref().as_bytes().contains(&0))
     {
-        return Err(PolicyError {
-            origin: crate::evidence::legacy_policy::ErrorOrigin::Exception {
-                class: "ValueError",
-            },
-            reason: "error",
-            detail: "embedded null byte".into(),
-        });
+        return Err(embedded_null());
     }
     let mut cmd = Command::new("git");
     cmd.arg("-C")
@@ -88,7 +101,11 @@ pub(super) fn read_git(
 ) -> Result<Vec<u8>, PolicyError> {
     input_git(repo, args, &[], None, ExpectedOutput::Bytes(limit))
 }
-pub fn project(repo: &Path, tree: &str, paths: &[String]) -> Result<Option<String>, PolicyError> {
+pub fn project(
+    repo: &Path,
+    tree: &str,
+    paths: &[NormalizedText],
+) -> Result<Option<String>, PolicyError> {
     if oid(tree).is_err() {
         return Err(error("invalid tree object ID"));
     }
@@ -99,30 +116,51 @@ pub fn project(repo: &Path, tree: &str, paths: &[String]) -> Result<Option<Strin
     };
     let plain: Vec<_> = paths
         .iter()
-        .filter(|p| !p.starts_with('!') && !p.contains("::"))
-        .map(String::as_str)
+        .map(NormalizedText::borrowed)
+        .filter(|p| !p.starts_with("!") && p.split_once("::").is_none())
         .collect();
     let excluded: Vec<_> = paths
         .iter()
-        .filter_map(|p| p.strip_prefix('!'))
-        .map(str::as_bytes)
-        .collect();
+        .filter_map(|p| p.borrowed().strip_prefix("!"))
+        .map(|p| super::binding_path::encode(p, 0, false))
+        .collect::<Result<_, _>>()?;
     let mut chosen = BTreeSet::new();
-    for path in paths.iter().filter(|p| p.contains("::")) {
+    for path in paths
+        .iter()
+        .filter(|p| p.borrowed().split_once("::").is_some())
+    {
         if let Some(item) = selector_item(repo, tree, path)? {
             chosen.insert(item);
         }
     }
-    let whole = plain.contains(&".");
+    let whole = plain.iter().any(|p| p.equals("."));
     if whole && excluded.is_empty() && chosen.is_empty() {
         return Ok(Some(tree.into()));
     }
     let mut entries = BTreeSet::new();
     if !plain.is_empty() {
-        let mut args = vec!["ls-tree", "-r", "-z", "--full-tree", tree];
+        check_repo_argument(repo)?;
+        let encoded = if whole {
+            Vec::new()
+        } else {
+            plain
+                .iter()
+                .map(|p| {
+                    let encoded = super::binding_path::encode(*p, 0, true)?;
+                    if encoded.contains(&0) {
+                        return Err(embedded_null());
+                    }
+                    Ok(encoded)
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        let mut args: Vec<&OsStr> = ["ls-tree", "-r", "-z", "--full-tree", tree]
+            .into_iter()
+            .map(OsStr::new)
+            .collect();
         if !whole {
-            args.push("--");
-            args.extend(plain);
+            args.push(OsStr::new("--"));
+            args.extend(encoded.iter().map(|p| OsStr::from_bytes(p)));
         }
         parse_entries(&read_git(repo, &args, usize::MAX)?, &mut entries)?;
     }
@@ -130,7 +168,7 @@ pub fn project(repo: &Path, tree: &str, paths: &[String]) -> Result<Option<Strin
     for entry in entries {
         if excluded.iter().any(|out| {
             let end = out.iter().rposition(|b| *b != b'/').map_or(0, |i| i + 1);
-            entry.path == *out
+            entry.path == out.as_ref()
                 || entry
                     .path
                     .strip_prefix(&out[..end])
