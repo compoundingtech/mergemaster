@@ -1017,6 +1017,9 @@ Nonzero overflow refuses with `Git projection stderr exceeds 1048576 bytes`;
 otherwise Python's stderr diagnostic and operation-prefixed process errors survive.
 This is an approved resource divergence: Python has no byte caps at oracle :75.
 The exchange's 60-second deadline matches that same line; update-index stdout is discarded.
+Linux collector fixtures cover signal death, stdout/stderr EOF before delayed exit,
+and broken-pipe cancellation, checking that each direct child is reaped.
+An early-drop fixture checks the same collector-owned `GitChild` boundary.
 Whole project listings, selector configuration listings and selected-content
 existence listings have a separate approved 64 MiB whole-collection cap.
 The shared collector stops at limit + 1, cancels/reaps, and returns typed

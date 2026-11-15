@@ -149,3 +149,105 @@ fn source_capture_aborts_at_boundary_and_reaps_child() {
         "capture must kill and reap the direct child"
     );
 }
+
+#[cfg(target_os = "linux")]
+fn assert_reaped(pid: u32) {
+    let mut status = 0;
+    // SAFETY: status is writable, and WNOHANG only queries this former direct child.
+    assert_eq!(
+        unsafe { libc::waitpid(pid as i32, &mut status, libc::WNOHANG) },
+        -1
+    );
+    assert_eq!(
+        std::io::Error::last_os_error().raw_os_error(),
+        Some(libc::ECHILD)
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn signal_and_eof_before_exit_refuse_and_reap() {
+    for (script, timeout, detail) in [
+        (
+            "import os,signal,sys;open(sys.argv[1],'w').write(str(os.getpid()));os.write(1,b'a'*40);os.write(2,b'fatal\\n');os.kill(os.getpid(),signal.SIGTERM)",
+            Duration::from_secs(60),
+            "git write-tree: fatal",
+        ),
+        (
+            "import os,signal,sys;os.write(1,b'a'*40);os.close(1);os.close(2);open(sys.argv[1],'w').write(str(os.getpid()));signal.alarm(30);signal.pause()",
+            Duration::from_secs(2),
+            "timed out after 2 seconds",
+        ),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let pid_path = directory.path().join("pid");
+        let mut command = crate::pinned_python::command();
+        command
+            .args(["-c", script])
+            .arg(&pid_path)
+            .stdin(Stdio::piped());
+        let error = exchange(
+            &mut command,
+            b"",
+            "write-tree",
+            ExpectedOutput::Sha1,
+            timeout,
+        )
+        .unwrap_err();
+        assert_eq!(error.reason, "error");
+        assert_eq!(error.resource, None);
+        assert_eq!(
+            error.origin,
+            crate::evidence::legacy_policy::ErrorOrigin::Failure
+        );
+        if timeout == Duration::from_secs(60) {
+            assert_eq!(error.detail, detail);
+        } else {
+            assert!(error.detail.to_string().starts_with("git write-tree: "));
+            assert!(error.detail.to_string().ends_with(detail));
+        }
+        let pid = std::fs::read_to_string(pid_path).unwrap().parse().unwrap();
+        assert_reaped(pid);
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn io_error_and_early_drop_kill_and_reap() {
+    use std::io::Read;
+    let directory = tempfile::tempdir().unwrap();
+    let pid_path = directory.path().join("pid");
+    let mut command = crate::pinned_python::command();
+    command.args(["-c", "import os,signal,sys;open(sys.argv[1],'w').write(str(os.getpid()));os.close(0);signal.alarm(30);signal.pause()"]).arg(&pid_path).stdin(Stdio::piped());
+    let error = exchange(
+        &mut command,
+        &vec![b'x'; 1_048_576],
+        "hash-object",
+        ExpectedOutput::Discard,
+        Duration::from_secs(60),
+    )
+    .unwrap_err();
+    assert_eq!(error.detail, "git hash-object: [Errno 32] Broken pipe");
+    assert_eq!(error.reason, "error");
+    assert_eq!(error.resource, None);
+    assert_eq!(
+        error.origin,
+        crate::evidence::legacy_policy::ErrorOrigin::Failure
+    );
+    assert_reaped(std::fs::read_to_string(pid_path).unwrap().parse().unwrap());
+
+    // The synchronous collector owns this same GitChild; dropping its owner
+    // must cancel a live child even before EOF or a completed exchange.
+    let mut command = crate::pinned_python::command();
+    command.args([
+        "-c",
+        "import os,signal;os.write(1,b'x');signal.alarm(30);signal.pause()",
+    ]);
+    let mut child = GitChild::spawn(&mut command).unwrap();
+    let pid = child.id();
+    let mut ready = [0];
+    child.stdout().unwrap().read_exact(&mut ready).unwrap();
+    assert_eq!(ready, [b'x']);
+    drop(child);
+    assert_reaped(pid);
+}
