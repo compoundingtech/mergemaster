@@ -570,7 +570,12 @@ timedelta-overflow judgment rather than narrowing argparse's accepted integers.
 dictionaries, including selection, missing-member and shadow-log overlays.
 Log requests may defer the system-clock sample until the readable signed head's
 freshness phase; explicit fixed-clock reader APIs retain their existing behavior.
-No binary intercept or ordinary-verification dispatcher is installed yet.
+`cli_ordinary::verify` composes policy, lanes, run/base inputs, log keys, crate
+bindings, eager/lazy lanes and complete single/member verification in main order.
+It explicitly selects CLI transports and retains base-hash/log owners through
+the output callback, within signer finally ownership. No binary intercept exists.
+Approved security divergence: option-shaped `--policy-from` is refused before I/O
+in every CLI mode; the oracle passes it to Git as an option. Native APIs are unchanged.
 Approved terminal/log output divergence (#245): `terminal_sink::value` applies
 unbounded Python-repr-style escaping to C0, DEL, C1, lone surrogates and every
 backslash, without repr quotes. `RenderedHelp::write_terminal` escapes only
