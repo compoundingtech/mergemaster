@@ -3,8 +3,23 @@
 use super::{python_repr::Repr, value_inputs::TextRef};
 use std::fmt;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorKind {
+    Decode,
+    Recursion,
+}
+impl ErrorKind {
+    pub fn class(self) -> &'static str {
+        match self {
+            Self::Decode => "TOMLDecodeError",
+            Self::Recursion => "RecursionError",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Error {
+    pub kind: ErrorKind,
     pub message: String,
     pub position: usize,
     pub line: usize,
@@ -13,6 +28,9 @@ pub struct Error {
 }
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.kind != ErrorKind::Decode {
+            return f.write_str(&self.message);
+        }
         if self.at_end {
             write!(f, "{} (at end of document)", self.message)
         } else {
@@ -48,6 +66,7 @@ impl Source {
     pub fn error(&self, message: impl Into<String>, position: usize) -> Error {
         let prefix = &self.chars[..position.min(self.chars.len())];
         Error {
+            kind: ErrorKind::Decode,
             message: message.into(),
             position,
             line: prefix.iter().filter(|c| **c == '\n').count() + 1,
@@ -134,6 +153,8 @@ fn repr(c: char) -> String {
     Repr(TextRef::Points(&[u32::from(c)])).to_string()
 }
 
+#[path = "toml_keys.rs"]
+mod keys;
 #[path = "toml_strings.rs"]
 mod strings;
 
