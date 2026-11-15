@@ -1,21 +1,20 @@
 //! Legacy input tree projection, preserving raw Git names and modes.
 use super::{
     lane_git::parse_entries,
+    projection_capture::{self, ExpectedOutput},
     selection::{selected_content, selector_item},
 };
 use crate::{
     evidence::{legacy_policy::PolicyError, oid},
-    gate::git::{command, deadline::GitChild, git, git_bounded},
+    gate::git::git,
 };
 use std::{
     collections::BTreeSet,
-    io::{Read, Write},
+    io::Write,
     path::Path,
-    process::Stdio,
+    process::{Command, Stdio},
+    time::Duration,
 };
-// hash-object/write-tree emit one full SHA-1/SHA-256 OID and newline;
-// update-index emits nothing. Read one extra byte to distinguish overflow.
-const MAX_PROJECTION_OUTPUT: usize = 65;
 fn error(detail: impl ToString) -> PolicyError {
     PolicyError {
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
@@ -23,71 +22,52 @@ fn error(detail: impl ToString) -> PolicyError {
         detail: detail.to_string().into(),
     }
 }
-fn valid_output(output: &[u8], width: usize) -> bool {
-    output.len() == width + 1
-        && output.last() == Some(&b'\n')
-        && output[..width].iter().all(u8::is_ascii_hexdigit)
+fn projection_command(repo: &Path, args: &[&str]) -> Command {
+    let mut cmd = Command::new("git");
+    cmd.arg("-C")
+        .arg(repo)
+        .args([
+            "-c",
+            "gpg.format=ssh",
+            "-c",
+            "gpg.ssh.program=ssh-keygen",
+            "-c",
+            "commit.gpgSign=false",
+        ])
+        .args(args)
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
+        .env("LC_ALL", "C")
+        .stdin(Stdio::piped());
+    cmd
 }
-fn exchange(mut child: GitChild, bytes: &[u8]) -> Result<Vec<u8>, PolicyError> {
-    child
-        .stdin()
-        .map_err(error)?
-        .write_all(bytes)
-        .map_err(error)?;
-    let mut output = Vec::new();
-    child
-        .stdout()
-        .map_err(error)?
-        .take((MAX_PROJECTION_OUTPUT + 1) as u64)
-        .read_to_end(&mut output)
-        .map_err(error)?;
-    if output.len() > MAX_PROJECTION_OUTPUT {
-        return Err(PolicyError {
-            origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
-            reason: "projection-output-too-large",
-            detail: "Git projection output exceeds 65 bytes".into(),
-        });
-    }
-    if !child.wait().map_err(error)?.success() {
-        return Err(error("Git projection plumbing failed"));
-    }
-    Ok(output)
-}
-// Bounded stdout and suppressed stderr avoid pipe deadlock; reap on stdin failure.
 fn input_git(
     repo: &Path,
     args: &[&str],
     bytes: &[u8],
     index: Option<&Path>,
+    expected: ExpectedOutput,
 ) -> Result<Vec<u8>, PolicyError> {
-    let mut cmd = command(repo);
-    cmd.args(args).stdin(Stdio::piped());
+    let mut cmd = projection_command(repo, args);
     if let Some(index) = index {
         cmd.env("GIT_INDEX_FILE", index);
     }
-    let output = exchange(GitChild::spawn(&mut cmd).map_err(error)?, bytes)?;
-    match args.first().copied() {
-        Some("hash-object" | "write-tree") => {
-            let format =
-                git_bounded(repo, &["rev-parse", "--show-object-format"], 7).map_err(error)?;
-            let width = match format.as_slice() {
-                b"sha1\n" => 40,
-                b"sha256\n" => 64,
-                _ => return Err(error("invalid Git object format")),
-            };
-            if !valid_output(&output, width) {
-                return Err(error("invalid Git projection object ID output"));
-            }
-        }
-        Some("update-index") if output.is_empty() => {}
-        _ => return Err(error("unexpected Git projection output")),
-    }
-    Ok(output)
+    projection_capture::exchange(
+        &mut cmd,
+        bytes,
+        args.first().copied().unwrap_or(""),
+        expected,
+        Duration::from_secs(60),
+    )
 }
 pub fn project(repo: &Path, tree: &str, paths: &[String]) -> Result<Option<String>, PolicyError> {
     if oid(tree).is_err() {
         return Err(error("invalid tree object ID"));
     }
+    let expected = if tree.len() == 40 {
+        ExpectedOutput::Sha1
+    } else {
+        ExpectedOutput::Sha256
+    };
     let plain: Vec<_> = paths
         .iter()
         .filter(|p| !p.starts_with('!') && !p.contains("::"))
@@ -141,9 +121,14 @@ pub fn project(repo: &Path, tree: &str, paths: &[String]) -> Result<Option<Strin
     }
     for item in chosen {
         if let Some(bytes) = selected_content(repo, tree, &item)? {
-            let blob =
-                String::from_utf8(input_git(repo, &["hash-object", "--stdin"], &bytes, None)?)
-                    .map_err(error)?;
+            let blob = String::from_utf8(input_git(
+                repo,
+                &["hash-object", "--stdin"],
+                &bytes,
+                None,
+                expected,
+            )?)
+            .map_err(error)?;
             write!(index_bytes, "100644 {} 0\t{item}\0", blob.trim()).map_err(error)?;
         }
     }
@@ -157,8 +142,15 @@ pub fn project(repo: &Path, tree: &str, paths: &[String]) -> Result<Option<Strin
         &["update-index", "-z", "--index-info"],
         &index_bytes,
         Some(&index),
+        ExpectedOutput::Discard,
     )?;
-    let output = input_git(repo, &["write-tree", "--missing-ok"], &[], Some(&index))?;
+    let output = input_git(
+        repo,
+        &["write-tree", "--missing-ok"],
+        &[],
+        Some(&index),
+        expected,
+    )?;
     Ok(Some(
         String::from_utf8(output).map_err(error)?.trim().to_owned(),
     ))

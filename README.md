@@ -892,9 +892,8 @@ Selected blobs above 16 MiB refuse with `error` before decoding or selection.
 `projection::project` computes legacy reduced Git-tree keys, retaining raw names,
 symlink/gitlink modes and canonical selector entries; empty projections have no key. Selected reads require full tree OIDs.
 Projection validates full tree OIDs before fast paths and ends Git option parsing.
-Its write plumbing discards stderr and permits at most 65 stdout bytes, requiring
-exactly one repository-format hex OID plus LF (or empty update-index output).
-Overflow refuses with `projection-output-too-large`; malformed output refuses with `error`.
+Its write plumbing inherits the environment with the verifier's fixed Git defaults,
+and uses the draining collector below. Selection/listing transport migration is separate.
 The stdout/OID guard is an approved fail-closed resource divergence: pinned
 `scripts/evidence-verify:75` captures stdout without a byte cap. Git is a trusted
 environment binary; compliant write plumbing emits one OID, not arbitrary keys.
@@ -906,7 +905,7 @@ Python whitespace is stripped with at most 65 retained OID bytes, including
 100k padding and byte-split Unicode whitespace. Bare OIDs need no final newline.
 The approved trusted-Git fail-closed guard rejects malformed keys Python accepts;
 evidence: `tmp/projection-stderr-oracle/stdout-parsing.json`. Python has no cap at :75.
-`projection_capture` supplies the replacement collector API; project integration is separate.
+`projection_capture` drives project's write plumbing, including a real noisy-fsmonitor oracle fixture.
 It drains stderr while retaining 1 MiB: success stays accepted at any stderr volume.
 Nonzero overflow refuses with `Git projection stderr exceeds 1048576 bytes`;
 otherwise Python's stderr diagnostic and operation-prefixed process errors survive.

@@ -161,48 +161,47 @@ fn projection_plumbing_output_is_bounded_and_never_truncated() {
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path();
         git(repo, &["init", &format!("--object-format={format}")]).unwrap();
-        let blob = input_git(repo, &["hash-object", "--stdin"], b"fixture", None).unwrap();
-        assert_eq!(blob.len(), if format == "sha1" { 41 } else { 65 });
+        let expected = if format == "sha1" {
+            ExpectedOutput::Sha1
+        } else {
+            ExpectedOutput::Sha256
+        };
+        let blob = input_git(
+            repo,
+            &["hash-object", "--stdin"],
+            b"fixture",
+            None,
+            expected,
+        )
+        .unwrap();
+        assert_eq!(blob.len(), if format == "sha1" { 40 } else { 64 });
         for bytes in [0, 64, 65, 32 * 1024] {
             git(repo, &["config", "projection.fixture", &"x".repeat(bytes)]).unwrap();
-            let result = input_git(repo, &["config", "--get", "projection.fixture"], b"", None);
-            if bytes < MAX_PROJECTION_OUTPUT {
-                assert_eq!(
-                    result.unwrap_err().detail,
-                    "unexpected Git projection output"
-                );
-            } else {
-                let failure = result.unwrap_err();
-                assert_eq!(failure.reason, "projection-output-too-large");
-            }
+            let failure = input_git(
+                repo,
+                &["config", "--get", "projection.fixture"],
+                b"",
+                None,
+                expected,
+            )
+            .unwrap_err();
+            assert_eq!(failure.reason, "error");
+            assert_eq!(failure.detail, "Git config returned a malformed object id");
         }
         assert_eq!(
-            input_git(repo, &["update-index", "-z", "--index-info"], b"", None).unwrap(),
+            input_git(
+                repo,
+                &["update-index", "-z", "--index-info"],
+                b"",
+                None,
+                ExpectedOutput::Discard
+            )
+            .unwrap(),
             b""
         );
-        let tree = input_git(repo, &["write-tree"], b"", None).unwrap();
+        let tree = input_git(repo, &["write-tree"], b"", None, expected).unwrap();
         assert_eq!(tree.len(), blob.len());
-        assert!(input_git(repo, &["not-a-git-command"], b"", None).is_err());
-    }
-}
-
-#[test]
-fn projection_object_output_is_exactly_one_oid_and_newline() {
-    for width in [40, 64] {
-        let oid = "a".repeat(width);
-        assert!(valid_output(format!("{oid}\n").as_bytes(), width));
-        for bad in [
-            oid.clone(),
-            format!("{oid}\n\n"),
-            format!("{oid}\0"),
-            format!("{}\n", "g".repeat(width)),
-        ] {
-            assert!(!valid_output(bad.as_bytes(), width));
-        }
-        assert!(!valid_output(
-            format!("{oid}\n").as_bytes(),
-            if width == 40 { 64 } else { 40 }
-        ));
+        assert!(input_git(repo, &["not-a-git-command"], b"", None, expected).is_err());
     }
 }
 
@@ -249,22 +248,24 @@ fn option_terminator_named_entries_do_not_contaminate_projections() {
 #[test]
 fn projection_deadline_preserves_exchange_refusals() {
     use std::{process::Command, time::Duration};
-    for (size, status, reason) in [
-        (65, 0, None),
-        (66, 0, Some("projection-output-too-large")),
-        (0, 7, Some("error")),
-    ] {
+    for (size, status, reason) in [(40, 0, None), (66, 0, Some("error")), (0, 7, Some("error"))] {
         let mut command = Command::new("python3");
         command.args([
             "-c",
-            "import sys;sys.stdin.buffer.read();sys.stdout.buffer.write(b'x'*int(sys.argv[1]));sys.exit(int(sys.argv[2]))",
+            "import sys;sys.stdin.buffer.read();sys.stdout.buffer.write(b'a'*int(sys.argv[1]));sys.exit(int(sys.argv[2]))",
             &size.to_string(),
             &status.to_string(),
         ]).stdin(Stdio::piped());
-        let result = exchange(GitChild::spawn(&mut command).unwrap(), b"input");
+        let result = projection_capture::exchange(
+            &mut command,
+            b"input",
+            "fixture",
+            ExpectedOutput::Sha1,
+            Duration::from_secs(60),
+        );
         match reason {
             Some(reason) => assert_eq!(result.unwrap_err().reason, reason),
-            None => assert_eq!(result.unwrap(), vec![b'x'; size]),
+            None => assert_eq!(result.unwrap(), vec![b'a'; size]),
         }
     }
     for bytes in [b"".as_slice(), b"input"] {
@@ -272,14 +273,83 @@ fn projection_deadline_preserves_exchange_refusals() {
         command
             .args(["-c", "import signal;signal.pause()"])
             .stdin(Stdio::piped());
-        let child = GitChild::with_timeout(&mut command, Duration::ZERO).unwrap();
-        let failure = exchange(child, bytes).unwrap_err();
+        let failure = projection_capture::exchange(
+            &mut command,
+            bytes,
+            "fixture",
+            ExpectedOutput::Sha1,
+            Duration::ZERO,
+        )
+        .unwrap_err();
         assert_eq!(failure.reason, "error");
         assert!(
             failure
                 .detail
                 .to_string()
-                .contains("Git subprocess deadline exceeded")
+                .contains("timed out after 0 seconds")
         );
     }
+}
+#[test]
+fn successful_noisy_fsmonitor_matches_projection_oracle() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path();
+    git(repo, &["init"]).unwrap();
+    std::fs::write(repo.join("wanted"), b"fixture").unwrap();
+    git(repo, &["add", "wanted"]).unwrap();
+    let tree = String::from_utf8(git(repo, &["write-tree"]).unwrap()).unwrap();
+    // Nix check sandboxes have the pinned Python on PATH, but no /usr/bin/env.
+    let python = Command::new("python3")
+        .args(["-c", "import sys; print(sys.executable)"])
+        .output()
+        .unwrap();
+    assert!(python.status.success());
+    let python = String::from_utf8(python.stdout).unwrap();
+    let python = python.trim();
+    assert!(Path::new(python).is_absolute());
+    let hook = repo.join("monitor.py");
+    std::fs::write(&hook, format!("#!{python}\nimport pathlib,sys\np=pathlib.Path(__file__).with_suffix('.calls')\nwith p.open('ab') as f:f.write(b'x')\nsys.stderr.buffer.write(b'e'*1048577)\nsys.stderr.buffer.flush()\nsys.stdout.buffer.write(b'token\\0')\n")).unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    git(repo, &["config", "core.fsmonitor", hook.to_str().unwrap()]).unwrap();
+    let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap();
+    let output = Command::new("python3").args([
+        "-c", "import runpy,sys; o=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify');print(o['project'](sys.argv[2],sys.argv[3],['wanted']))",
+        &root, repo.to_str().unwrap(), tree.trim(),
+    ]).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        hook.with_extension("calls").exists(),
+        "the oracle projection must invoke the noisy fsmonitor hook"
+    );
+    let before = std::fs::read(hook.with_extension("calls")).unwrap().len();
+    assert!(before > 0);
+    let actual = project(repo, tree.trim(), &["wanted".into()])
+        .unwrap()
+        .unwrap();
+    assert_eq!(actual, String::from_utf8(output.stdout).unwrap().trim());
+    assert!(std::fs::read(hook.with_extension("calls")).unwrap().len() > before);
+}
+#[test]
+fn projection_timeout_uses_oracle_full_argv_and_caller_cwd() {
+    let repo = Path::new("relative-repository");
+    let mut command = projection_command(repo, &["hash-object", "--stdin"]);
+    assert!(command.get_current_dir().is_none());
+    let oracle = Command::new("python3").args(["-c", "import subprocess; print('git hash-object: '+str(subprocess.TimeoutExpired(['git','-C','relative-repository','-c','gpg.format=ssh','-c','gpg.ssh.program=ssh-keygen','-c','commit.gpgSign=false','hash-object','--stdin'],0)))"]).output().unwrap();
+    assert!(oracle.status.success());
+    let failure = projection_capture::exchange(
+        &mut command,
+        b"",
+        "hash-object",
+        ExpectedOutput::Sha1,
+        Duration::ZERO,
+    )
+    .unwrap_err();
+    assert_eq!(
+        failure.detail,
+        String::from_utf8(oracle.stdout).unwrap().trim()
+    );
 }
