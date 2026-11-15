@@ -5,6 +5,7 @@ pub mod collection;
 pub mod configured;
 pub mod crate_inputs;
 pub mod crate_inputs_text;
+pub mod crate_manifest_ops;
 pub mod discovery;
 pub mod events;
 pub mod facts;
