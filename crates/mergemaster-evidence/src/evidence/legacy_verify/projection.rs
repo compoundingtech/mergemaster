@@ -25,7 +25,10 @@ fn error(detail: impl ToString) -> PolicyError {
         detail: detail.to_string().into(),
     }
 }
-fn projection_command(repo: &Path, args: &[impl AsRef<OsStr>]) -> Result<Command, PolicyError> {
+pub(super) fn projection_command(
+    repo: &Path,
+    args: &[impl AsRef<OsStr>],
+) -> Result<Command, PolicyError> {
     if repo.as_os_str().as_bytes().contains(&0)
         || args.iter().any(|arg| arg.as_ref().as_bytes().contains(&0))
     {

@@ -958,6 +958,13 @@ text, but Rust returns `error` / Failure with
 `.st/rust-test-inputs.json: declared path is not a string`; acceptance is unchanged.
 Deterministic iteration/unhashable-element exceptions keep Python's class and text.
 Evidence: `tmp/crate-path-shapes/seed-results.json`.
+`cli_signature::signature` separately preserves the oracle's inherited Git
+programs/environment and exact argv, including configured non-SSH verifiers.
+It accepts raw key/revocation paths without native prevalidation. Signature
+stdout uses the approved RawBlob 1 MiB cap with original commit identity:
+`{commit} exceeds 1048576 bytes`, typed Failure/error, early abort and kill/reap.
+Strict UTF-8 failures retain the Python exception class/text. Native signature
+hardening is unchanged; this primitive does not wire CLI dispatch.
 `records::read_statement` adds bounded Git capture and record layout/parent/subject
 checks (3f-3a), with `statement-too-large` distinct from malformed-record refusal.
 Missing subjects are allowed without lazy fetch. `records::RecordCache`

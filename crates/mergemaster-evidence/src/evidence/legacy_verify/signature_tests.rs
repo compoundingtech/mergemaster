@@ -32,9 +32,10 @@ for fmt in ['sha1','sha256']:
  git('config','gpg.format','openpgp'); git('config','gpg.ssh.program','false')
  git('replace',unsigned,signed)
  def add(name,commit,allowed=keys,revocations=revoked):
+  error=None
   try: result=list(o['signature'](str(repo),commit,str(allowed),str(revocations)))
-  except o['Failure']: result=None
-  cases.append(dict(name=fmt+'-'+name,repo=str(repo),commit=commit,keys=str(allowed),revocations=str(revocations),expected=result))
+  except o['Failure'] as e: result=None;error=[e.reason,e.detail]
+  cases.append(dict(name=fmt+'-'+name,repo=str(repo),commit=commit,keys=str(allowed),revocations=str(revocations),expected=result,error=error))
  add('trusted',signed); add('unsigned-replacement',unsigned); add('forged',forged)
  add('unknown',signed,empty); add('missing-allowed',signed,missing)
  add('revoked',signed,keys,revoking)
@@ -108,6 +109,38 @@ print(json.dumps(cases))
     );
     let cases: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
     for case in cases {
+        let cli = super::super::cli_signature::signature(
+            Path::new(case["repo"].as_str().unwrap()),
+            super::super::value_inputs::TextRef::Str(case["commit"].as_str().unwrap()),
+            Path::new(case["keys"].as_str().unwrap()),
+            Path::new(case["revocations"].as_str().unwrap()),
+        );
+        match cli {
+            Ok((status, principal)) => assert_eq!(
+                serde_json::json!([status, principal]),
+                case["expected"],
+                "{}",
+                case["name"]
+            ),
+            Err(error) => {
+                assert_eq!(
+                    error.origin,
+                    crate::evidence::legacy_policy::ErrorOrigin::Failure
+                );
+                assert_eq!(
+                    serde_json::json!([error.reason, error.detail.to_string()]),
+                    case["error"],
+                    "{}",
+                    case["name"]
+                );
+            }
+        }
+        if let Some(marker) = case["marker"].as_str() {
+            assert_eq!(Path::new(marker).exists(), case["python_invoked"] == true);
+            if Path::new(marker).exists() {
+                std::fs::remove_file(marker).unwrap();
+            }
+        }
         if let Some(marker) = case["marker"].as_str() {
             assert_eq!(
                 case["python_invoked"],
