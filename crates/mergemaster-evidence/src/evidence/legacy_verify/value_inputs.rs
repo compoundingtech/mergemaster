@@ -148,6 +148,21 @@ impl<'a> ValidatedInputs<'a> {
     }
 }
 
+/// Borrowed run-input lookup without narrowing Python string codepoints.
+pub trait InputMap {
+    fn get_text(&self, key: TextRef<'_>) -> Option<TextRef<'_>>;
+}
+impl InputMap for BTreeMap<String, String> {
+    fn get_text(&self, key: TextRef<'_>) -> Option<TextRef<'_>> {
+        InputSource::Native(self).get_text(key)
+    }
+}
+impl InputMap for ValidatedInputs<'_> {
+    fn get_text(&self, key: TextRef<'_>) -> Option<TextRef<'_>> {
+        InputSource::Document(*self).get_text(key)
+    }
+}
+
 /// Validation and iteration share the same immutable arena, with no copied strings.
 #[derive(Clone)]
 pub(super) struct StringNodes<'a> {
@@ -229,6 +244,9 @@ impl<'a> InputSource<'a> {
         }
     }
 }
+#[cfg(test)]
+#[path = "run_inputs_tests.rs"]
+mod run_tests;
 #[cfg(test)]
 #[path = "value_inputs_tests.rs"]
 mod tests;

@@ -4,7 +4,7 @@ use super::{
     facts::DocumentFacts,
     routing::{RecordFacts, Routing},
     value_checks_source,
-    value_inputs::{InputSource, TextRef},
+    value_inputs::{InputMap, InputSource, TextRef},
 };
 use crate::evidence::legacy_policy::{PolicyRules, normalized_text::NormalizedText};
 use chrono::{DateTime, FixedOffset, SubsecRound, Utc};
@@ -182,7 +182,7 @@ pub fn check_inputs(
     routing: &Routing<'_>,
     record: &RecordFacts<'_>,
     clock: &Clock,
-    run_inputs: &BTreeMap<String, String>,
+    run_inputs: &dyn InputMap,
     attempts: usize,
 ) -> Result<(), Failure> {
     check_inputs_source(
@@ -208,7 +208,7 @@ pub fn check_document_inputs(
     routing: &Routing<'_>,
     record: &DocumentFacts<'_>,
     now_micros: i64,
-    run_inputs: &BTreeMap<String, String>,
+    run_inputs: &dyn InputMap,
     attempts: usize,
 ) -> Result<(), Failure> {
     check_inputs_source(
@@ -248,7 +248,7 @@ fn check_inputs_source(
     check: CheckSource<'_>,
     inputs: InputSource<'_>,
     clock: Moments,
-    run_inputs: &BTreeMap<String, String>,
+    run_inputs: &dyn InputMap,
     attempts: usize,
 ) -> Result<(), Failure> {
     let fail = |reason, detail: &str| Failure {

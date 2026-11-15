@@ -80,7 +80,7 @@ pub mod zero_test_crates;
 use super::legacy_policy::{ErrorOrigin, kind_rules::KindRule, normalized_text::NormalizedText};
 use serde::Serialize;
 use std::collections::BTreeMap;
-pub use value_inputs::ValidatedInputs;
+pub use value_inputs::{InputMap, ValidatedInputs};
 use value_inputs::{InputSource, TextRef};
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -147,7 +147,7 @@ pub fn value_checks_document(
 fn value_checks_source(
     rule: &KindRule,
     inputs: InputSource<'_>,
-    run: &BTreeMap<String, String>,
+    run: &dyn InputMap,
     attempts: usize,
 ) -> Result<(), Failure> {
     let metadata = |reason| Failure {
@@ -155,10 +155,6 @@ fn value_checks_source(
         reason,
         detail: "".into(),
         attempts: Some(attempts),
-    };
-    let run_value = |key: TextRef<'_>| {
-        run.iter()
-            .find(|(name, _)| TextRef::Str(name).points().eq(key.points()))
     };
     for (key, order) in &rule.values.input_order {
         let choices = || {
@@ -177,7 +173,7 @@ fn value_checks_source(
                     .position(|entry| value.points().eq(entry.borrowed().points()))
             })
         };
-        let run = run_value(key).map(|(_, value)| TextRef::Str(value));
+        let run = run.get_text(key);
         let note = inputs.get_text(key);
         let run_rank = rank(run).ok_or_else(|| Failure {
             detail: NormalizedText::concat(
@@ -229,9 +225,9 @@ fn value_checks_source(
     }
     for (key, _) in &rule.base_inputs {
         let key = key.borrowed();
-        let expected = run_value(key)
-            .map(|(_, value)| value)
-            .filter(|value| !value.is_empty())
+        let expected = run
+            .get_text(key)
+            .filter(|value| value.len() != 0)
             .ok_or_else(|| Failure {
                 detail: NormalizedText::around(
                     "the accepted base's ",
@@ -242,7 +238,7 @@ fn value_checks_source(
             })?;
         if !inputs
             .get_text(key)
-            .is_some_and(|value| value.points().eq(expected.chars().map(u32::from)))
+            .is_some_and(|value| value.points().eq(expected.points()))
         {
             return Err(Failure {
                 detail: NormalizedText::concat(
@@ -254,7 +250,7 @@ fn value_checks_source(
                         TextRef::Str(" is not the accepted base's "),
                         key,
                         TextRef::Str("="),
-                        TextRef::Str(expected),
+                        expected,
                     ]
                     .into_iter(),
                 ),

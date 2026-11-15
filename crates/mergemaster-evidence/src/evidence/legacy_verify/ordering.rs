@@ -1,5 +1,5 @@
 //! Candidate walks and conservative final selection, with or without policy.
-use super::value_inputs::TextRef;
+use super::value_inputs::{InputMap, TextRef};
 use super::{
     Failure,
     candidates::{LaneOnce, Levels, Prepared, Rules},
@@ -8,7 +8,9 @@ use super::{
     routing::Routing,
 };
 use crate::evidence::legacy_policy::{check_names::CheckName, normalized_text::NormalizedText};
-use std::{cmp::Reverse, collections::BTreeMap};
+use std::cmp::Reverse;
+#[cfg(test)]
+use std::collections::BTreeMap;
 #[derive(Default)]
 pub struct Walk {
     pub decided_by: Option<usize>,
@@ -22,7 +24,7 @@ pub struct Decision<'a> {
 }
 pub struct CheckJudgment<'a, P> {
     pub clock: &'a mut dyn CurrentTime,
-    pub run_inputs: &'a BTreeMap<String, String>,
+    pub run_inputs: &'a dyn InputMap,
     pub lane: Option<&'a LaneDefinition>,
     pub provider: LaneOnce<P>,
 }

@@ -3763,7 +3763,8 @@ fn legacy_clock_and_input_guards_match_signed_oracle_order() {
                 .unwrap(),
             now,
         };
-        let run_inputs = serde_json::from_value(run.clone()).unwrap();
+        let run_inputs: std::collections::BTreeMap<String, String> =
+            serde_json::from_value(run.clone()).unwrap();
         let checked = check_inputs(&rules, &routing, &record, &clock, &run_inputs, 1);
         let doc = mergemaster_evidence::evidence::legacy_verify::statement_document::Document::from_bytes(
             &serde_json::to_vec(&typed).unwrap()).unwrap();
