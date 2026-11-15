@@ -518,6 +518,8 @@ diagnostic, including whitespace, controls, quotes and lone surrogates.
 retaining lossless program text and interpolation provenance for future safe sinks.
 `argparse_help` adds the complete uncolored help text, preserving Python textwrap
 hyphen breaks and help indentation across explicit formatter widths.
+`argparse_parse` consumes lossless argv with unbounded integers, defaults, appends
+and exclusive groups; diagnostic rendering remains a separate library surface.
 `value_checks_document` applies that same guard body to a validated input object,
 preserving Python code points (including lone surrogates) in keys and values.
 Private borrowed views avoid converting statements into native String maps.
