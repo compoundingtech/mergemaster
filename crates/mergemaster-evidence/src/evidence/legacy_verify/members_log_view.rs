@@ -3,13 +3,13 @@ use super::{
     crate_manifest_ops::exception, log_lines, log_view, statement::zoned_time_micros,
     value_inputs::TextRef,
 };
-use crate::evidence::legacy_policy::PolicyError;
+use crate::evidence::legacy_policy::{PolicyError, normalized_text::NormalizedText};
 use std::{collections::BTreeMap, path::Path};
 
 pub struct Member<'a> {
     pub key: Option<&'a str>,
     pub chosen: Option<&'a str>,
-    pub observed: Option<&'a str>,
+    pub observed: Option<TextRef<'a>>,
 }
 #[derive(Debug, serde::Serialize)]
 pub struct View {
@@ -20,15 +20,46 @@ pub struct View {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub log_unlogged_crates: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub log_unlogged_observed_at: Option<Option<String>>,
+    pub log_unlogged_observed_at: Option<Option<NormalizedText>>,
 }
-fn time(text: &str) -> Option<(i64, bool)> {
-    let parse = |s: &str| zoned_time_micros(&s.chars().map(u32::from).collect::<Vec<_>>());
-    parse(text).map(|t| (t, true)).or_else(|| {
-        parse(&format!("{text}+00:00"))
-            .or_else(|| parse(&format!("{text}T00:00:00+00:00")))
-            .map(|t| (t, false))
-    })
+impl View {
+    pub fn write_fields<W: std::fmt::Write>(
+        &self,
+        o: &mut crate::evidence::legacy_output::Object<'_, W>,
+    ) -> std::fmt::Result {
+        self.head.write_fields(o)?;
+        if let Some(n) = self.log_unlogged {
+            o.field_text("log_unlogged", |w| w.integer(n as i128))?;
+        }
+        if let Some(s) = &self.log_unlogged_crates {
+            o.field_text("log_unlogged_crates", |w| w.text(s))?;
+        }
+        if let Some(s) = &self.log_unlogged_observed_at {
+            o.field_text("log_unlogged_observed_at", |w| match s {
+                Some(s) => w.codepoints(s.borrowed().points()),
+                None => w.null(),
+            })?;
+        }
+        Ok(())
+    }
+}
+fn time(text: TextRef<'_>) -> Option<(i64, bool)> {
+    let points: std::borrow::Cow<'_, [u32]> = match text {
+        TextRef::Str(s) => s.chars().map(u32::from).collect::<Vec<_>>().into(),
+        TextRef::Points(p) => p.into(),
+    };
+    if let Some(t) = zoned_time_micros(&points) {
+        return Some((t, true));
+    }
+    let mut naive = Vec::with_capacity(points.len() + 15);
+    naive.extend_from_slice(&points);
+    naive.extend("+00:00".chars().map(u32::from));
+    if let Some(t) = zoned_time_micros(&naive) {
+        return Some((t, false));
+    }
+    naive.truncate(points.len());
+    naive.extend("T00:00:00+00:00".chars().map(u32::from));
+    zoned_time_micros(&naive).map(|t| (t, false))
 }
 pub fn read<'a>(
     repo: &Path,
@@ -124,8 +155,12 @@ pub fn read<'a>(
             }
             times
                 .into_iter()
-                .min_by(|a, b| a.0.0.cmp(&b.0.0).then_with(|| a.1.cmp(b.1)))
-                .map(|(_, text)| text.to_owned())
+                .min_by(|a, b| {
+                    a.0.0
+                        .cmp(&b.0.0)
+                        .then_with(|| a.1.points().cmp(b.1.points()))
+                })
+                .map(|(_, text)| NormalizedText::around("", text, ""))
         } else {
             None
         };
