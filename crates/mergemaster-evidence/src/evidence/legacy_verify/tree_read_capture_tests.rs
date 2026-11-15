@@ -48,7 +48,7 @@ for size in [1048576,1048577]:
  assert done.returncode==0 and len(done.stdout.strip())==size
 print(json.dumps(dict(rows=rows,shim=str(shim))))
 "#;
-    let out = Command::new("python3")
+    let out = crate::pinned_python::command()
         .args(["-c", script])
         .arg(root.path())
         .output()

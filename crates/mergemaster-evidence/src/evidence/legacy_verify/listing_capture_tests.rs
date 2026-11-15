@@ -60,7 +60,7 @@ for size in [67108864,67108865]:
  assert m['selector_item']('.', 'a'*40,'.st/x.json::x') is None
  assert m['selected_content']('.', 'a'*40,'x.json::x')==b'{}'
 "#;
-    let output = Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .arg(root.path())
         .output()

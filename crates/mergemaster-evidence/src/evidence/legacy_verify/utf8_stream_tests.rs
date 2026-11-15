@@ -1,6 +1,5 @@
 use super::*;
 use serde_json::{Value, json};
-use std::process::Command;
 #[test]
 fn strict_streams_match_python_at_every_split_and_error_offset() {
     let script = r#"
@@ -17,7 +16,7 @@ for prefix in [b'',b'first record\n', 'é😀\n'.encode()]:
   rows.append(dict(bytes=list(data),expected=result))
 print(json.dumps(rows))
 "#;
-    let output = Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .output()
         .unwrap();

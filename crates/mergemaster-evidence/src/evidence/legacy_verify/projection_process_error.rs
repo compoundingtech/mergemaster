@@ -74,7 +74,7 @@ mod tests {
         let mut command = Command::new("git");
         command.args(&args);
         let timeout = io::Error::new(io::ErrorKind::TimedOut, "deadline");
-        let oracle = Command::new("python3").args(["-c", r#"import subprocess,sys; assert sys.version_info[:3]==(3,14,7); print(str(subprocess.TimeoutExpired(['git', "a'b", 'raw'+chr(0xdcff), 'ü'],60))); print(str(FileNotFoundError(2,'No such file or directory','git')))"#]).output().unwrap();
+        let oracle = crate::pinned_python::command().args(["-c", r#"import subprocess,sys; assert sys.version_info[:3]==(3,14,7); print(str(subprocess.TimeoutExpired(['git', "a'b", 'raw'+chr(0xdcff), 'ü'],60))); print(str(FileNotFoundError(2,'No such file or directory','git')))"#]).output().unwrap();
         assert!(oracle.status.success());
         let expected = String::from_utf8(oracle.stdout).unwrap();
         let lines: Vec<_> = expected.lines().collect();

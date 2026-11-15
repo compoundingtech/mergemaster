@@ -446,7 +446,7 @@ mod archive_tests {
 
     fn archive(root: &Path, case: &str) -> PathBuf {
         let path = root.join("source.zip");
-        let status = Command::new("python3").args(["-c", r#"
+        let status = crate::pinned_python::command().args(["-c", r#"
 import pathlib, stat, struct, sys, warnings, zipfile
 path, case = pathlib.Path(sys.argv[1]), sys.argv[2]
 names = ['receipt.json', 'source.pack']

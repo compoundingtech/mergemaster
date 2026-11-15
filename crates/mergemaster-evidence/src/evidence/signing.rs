@@ -927,9 +927,8 @@ mod hardening_tests {
             ("x", 0o120777, 0),
             ("x", 0o100644, 0),
         ];
-        let mut child = Command::new("python3")
+        let mut child = crate::pinned_python::command()
             .args([
-                "-I",
                 "-B",
                 "-c",
                 r#"

@@ -46,7 +46,7 @@ for n,(data,status) in enumerate(samples):
  results.append(dict(path=str(path),status=str(status),expected=expected))
 print(json.dumps(results))
 "#;
-    let output = Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .arg(root.path())
         .output()

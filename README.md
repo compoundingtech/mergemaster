@@ -893,6 +893,8 @@ core.quotePath C-quoted wildcard names.
 Oracle tests share a lazily resolved Python3.14.7 interpreter, checked once for
 the exact version and optimization level0. Each shared-helper launch uses `-I`
 to ignore Python environment/site overrides; fixture-local assertions remain.
+This includes integration oracle harnesses and nested oracle subprocesses.
+Synthetic pipe/deadline children and ZIP fixture writers are not oracle callers.
 Record depth fixtures retain their inputs with oracle recursionlimit10000, not
 an asserted stack-dependent497/498 RecursionError boundary. Rust's deterministic
 resource refusals remain unchanged;100k TOML depth rejection is Rust-only.

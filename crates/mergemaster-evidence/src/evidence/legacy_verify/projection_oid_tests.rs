@@ -1,9 +1,8 @@
 use super::*;
 use serde_json::Value;
-use std::process::Command;
 #[test]
 fn normalized_ids_match_python_strip() {
-    let oracle=Command::new("python3").args(["-c",r#"
+    let oracle=crate::pinned_python::command().args(["-c",r#"
 import json,sys
 assert sys.version_info[:3]==(3,14,7)
 cases=[]

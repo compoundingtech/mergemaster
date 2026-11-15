@@ -71,7 +71,7 @@ for case in ['config','members','stderr']:
    except m['Failure'] as e:assert str(e)=='cannot resolve configuration at HEAD~1: '+'e'*size
 print(json.dumps(str(shim)))
 "#;
-    let out = Command::new("python3")
+    let out = crate::pinned_python::command()
         .args(["-c", script])
         .arg(root.path())
         .output()

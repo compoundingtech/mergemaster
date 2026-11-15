@@ -27,7 +27,7 @@ for case in ['nonzero','success','missing','denied','timeout','nul']:
  rows.append(dict(path=str(d),repo=repo,args=[list(os.fsencode(a)) for a in args],timeout=case=='timeout',**expected))
 print(json.dumps(rows))
 "#;
-    let output = Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .arg(std::env::var("MERGEMASTER_PYTHON_PARITY_ORACLE").unwrap())
         .arg(fixture.path())
@@ -108,7 +108,7 @@ os.write(2,b'e'*1048577);os.write(1,b'x'*{size});raise SystemExit({status})
    rows.append(dict(repo='.',size=size,spec=args[-1],args=args,status=code,digest=hashlib.sha256(out).hexdigest(),shim=str(shim)))
 print(json.dumps(rows))
 "#;
-    let output = Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .arg(root.path())
         .output()
