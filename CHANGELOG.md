@@ -11,10 +11,13 @@
 - Add the library-only paths project dictionary with lossless comma splitting, shared literal-path validation and escaped JSON output.
 - Preserve ordered legacy CLI preflight diagnostics in a library-only validator; production argument parsing and policy loading remain unwired.
 - Decode Rust legacy skip policies from their original JSON text with lossless codepoint identities and wide positive-integer age limits; retain lazy age-overflow errors and remove the serde-value conversion bridge.
+- Use the pinned Python interpreter for the noisy fsmonitor projection test so its hook executes inside Nix check sandboxes without `/usr/bin/env`.
+- Derive the Nix package version from the Rust crate's Cargo manifest and check the packaged CLI's version against it, preventing release metadata drift.
 - Accept borrowed lossless JSON/workflow selector names in the Rust legacy projection library, preserving parse-before-lookup refusals and existing scalar callers.
 - Read selected legacy projection content with lossless filesystem paths and selector names, retaining lazy missing-path behavior and exact subprocess encoding refusals.
 - Resolve lossless legacy configuration selector identities with strict returned-name decoding and unchanged preferred-layout ordering.
 - Carry lossless declared paths through legacy projection, collection and prefix requests, preserving strict exclusions, selected index names and lazy whole-tree filesystem encoding.
+- Preserve per-argument filesystem encoding and embedded-NUL refusal order in legacy projection, including repository arguments before projection, selected-content and configuration-selector paths.
 - Compose per-crate legacy source-input keys from selected committed inputs, declared dependency paths and Git projection; preserve tree-first resolution and ordered unknown-crate refusals.
 - Retain exact Python UnicodeDecodeError diagnostics for legacy JSON byte decoding, without changing callers that treat invalid encoding as an absent statement.
 - Add lossless, uncapped JSON byte preflight with exact uncaught Python decode, JSON syntax and integer-limit exceptions for accepted-base source selection.

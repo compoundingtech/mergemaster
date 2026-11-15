@@ -96,6 +96,31 @@ fn ignored_input_metadata_has_approved_unbounded_depth() {
     );
     let inputs = Inputs::parse_bytes(text.as_bytes()).unwrap();
     assert_eq!(inputs.no_tests().count(), 0);
+    // CPython's result is stack-dependent; accept either exact shape or RecursionError.
+    let script = r#"
+import json
+s='{"ignored":'+('['*100000)+'0'+(']'*100000)+'}'
+try:
+    value=json.loads(s)
+except RecursionError:
+    pass
+else:
+    assert type(value) is dict and list(value)==['ignored']
+    value=value['ignored']
+    for _ in range(100000):
+        assert type(value) is list and len(value)==1
+        value=value[0]
+    assert type(value) is int and value==0
+"#;
+    let out = crate::pinned_python::command()
+        .args(["-c", script])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 #[test]
