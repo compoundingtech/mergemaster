@@ -23,6 +23,7 @@ fn candidate_walks_and_selection_match_python() {
             self.1.set(self.1.get() + 1);
             if self.0 {
                 Err(PolicyError {
+                    resource: None,
                     origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                     reason: "record-budget-exceeded",
                     detail: "provider refused".into(),

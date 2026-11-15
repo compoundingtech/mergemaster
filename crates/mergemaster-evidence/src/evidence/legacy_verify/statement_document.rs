@@ -9,6 +9,33 @@ use indexmap::IndexMap;
 /// Inclusive container depth, counting arrays, objects and an empty root container.
 pub const MAX_CONTAINER_DEPTH: usize = 256;
 
+/// Approved fail-closed policy-JSON limits, not Python exception classes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PolicyResource {
+    SourceBytes,
+    ContainerDepth,
+    Nodes,
+}
+impl PolicyResource {
+    pub const fn message(self) -> &'static str {
+        match self {
+            Self::SourceBytes => "policy JSON source exceeds 1048576 bytes",
+            Self::ContainerDepth => "policy JSON container depth exceeds 256",
+            Self::Nodes => "policy JSON node count exceeds 262144",
+        }
+    }
+}
+#[derive(Debug, PartialEq, Eq)]
+pub enum PolicyTextError {
+    Text(TextError),
+    Resource(PolicyResource),
+}
+impl From<TextError> for PolicyTextError {
+    fn from(error: TextError) -> Self {
+        Self::Text(error)
+    }
+}
+
 #[derive(Debug)]
 pub enum Node {
     Null,
@@ -102,12 +129,32 @@ impl Document {
     pub fn from_text_with_depth_limit(text: &str, max_depth: Option<usize>) -> Result<Self, Error> {
         Self::from_limited_tokens(Self::text_tokens(text)?, max_depth)
     }
+    /// Policy JSON is bounded here, including callers that already have text.
+    pub fn from_policy_text(text: &str) -> Result<Self, PolicyTextError> {
+        if text.len() > 1_048_576 {
+            return Err(PolicyTextError::Resource(PolicyResource::SourceBytes));
+        }
+        Self::from_tokens(
+            Self::text_tokens(text)?,
+            |_| Ok(()),
+            |point, depth, nodes| {
+                let resource = if nodes >= 262_144 {
+                    Some(PolicyResource::Nodes)
+                } else if matches!(point, Some(91 | 123)) && depth >= 256 {
+                    Some(PolicyResource::ContainerDepth)
+                } else {
+                    None
+                };
+                resource.map_or(Ok(()), |r| Err(PolicyTextError::Resource(r)))
+            },
+        )
+    }
     /// Uncapped JSON str parsing cannot fail decoding or exceed a depth budget.
     pub fn from_text(text: &str) -> Result<Self, TextError> {
-        Self::from_tokens(Self::text_tokens(text)?, |_| Ok(()))
+        Self::from_tokens(Self::text_tokens(text)?, |_| Ok(()), |_, _, _| Ok(()))
     }
     pub(super) fn from_points(points: Vec<u32>) -> Result<Self, TextError> {
-        Self::from_tokens(Tokens::from_points(points), |_| Ok(()))
+        Self::from_tokens(Tokens::from_points(points), |_| Ok(()), |_, _, _| Ok(()))
     }
     fn text_tokens(text: &str) -> Result<Tokens, TextError> {
         if text.starts_with('\u{feff}') {
@@ -121,17 +168,22 @@ impl Document {
         Ok(Tokens::from_text(text))
     }
     fn from_limited_tokens(tokens: Tokens, max_depth: Option<usize>) -> Result<Self, Error> {
-        Self::from_tokens(tokens, |depth| {
-            if max_depth.is_some_and(|limit| depth >= limit) {
-                Err(Error::NestingLimit)
-            } else {
-                Ok(())
-            }
-        })
+        Self::from_tokens(
+            tokens,
+            |depth| {
+                if max_depth.is_some_and(|limit| depth >= limit) {
+                    Err(Error::NestingLimit)
+                } else {
+                    Ok(())
+                }
+            },
+            |_, _, _| Ok(()),
+        )
     }
     fn from_tokens<E: From<TextError>>(
         mut tokens: Tokens,
         depth_check: impl Fn(usize) -> Result<(), E>,
+        value_check: impl Fn(Option<u32>, usize, usize) -> Result<(), E>,
     ) -> Result<Self, E> {
         let mut nodes = Vec::new();
         let mut stack: Vec<Frame> = Vec::new();
@@ -179,6 +231,14 @@ impl Document {
                 if let Some(kind) = expected {
                     return Err(syntax(kind, pos));
                 }
+            }
+            let value_expected = stack.last().is_none_or(|frame| {
+                matches!(frame.state, State::Value)
+                    || (matches!(frame.state, State::First)
+                        && matches!(nodes[frame.id], Node::Array(_)))
+            });
+            if value_expected && point.is_some() && !matches!(point, Some(93 | 125)) {
+                value_check(point, stack.len(), nodes.len())?;
             }
             let Some(token) = tokens.next() else {
                 return Err(TextError::Syntax(

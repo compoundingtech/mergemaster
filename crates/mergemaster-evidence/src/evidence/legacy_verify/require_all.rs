@@ -120,6 +120,7 @@ fn with_clock<'a>(
             Ok(Some(record)) => Ok(record),
             Ok(None) => {
                 return Err(PolicyError {
+                    resource: None,
                     origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                     reason: "error",
                     detail: "internal invariant: validated statement lacks a string tier".into(),
@@ -127,6 +128,7 @@ fn with_clock<'a>(
             }
             Err(error) if matches!(error.origin, ErrorOrigin::Exception { .. }) => {
                 return Err(PolicyError {
+                    resource: None,
                     origin: error.origin,
                     reason: error.reason,
                     detail: error.detail,

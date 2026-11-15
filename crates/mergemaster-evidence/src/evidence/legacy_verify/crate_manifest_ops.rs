@@ -6,6 +6,7 @@ use super::{
 use crate::evidence::legacy_policy::{ErrorOrigin, PolicyError};
 pub fn exception(class: &'static str, detail: impl ToString) -> PolicyError {
     PolicyError {
+        resource: None,
         reason: "error",
         origin: ErrorOrigin::Exception { class },
         detail: detail.to_string().into(),

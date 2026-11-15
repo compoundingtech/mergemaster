@@ -7,6 +7,7 @@ use crate::evidence::legacy_policy::{ErrorOrigin, PolicyError, normalized_text::
 use std::{ffi::OsStr, os::unix::ffi::OsStrExt, path::Path};
 fn error(detail: impl ToString) -> PolicyError {
     PolicyError {
+        resource: None,
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason: "error",
         detail: detail.to_string().into(),
@@ -62,6 +63,7 @@ pub(super) fn selector_item_with<'a>(
                 .position(|byte| *byte == b'\t')
                 .map_or(&[][..], |tab| &row[tab + 1..]);
             utf8(name).map_err(|detail| PolicyError {
+                resource: None,
                 origin: ErrorOrigin::Exception {
                     class: "UnicodeDecodeError",
                 },
@@ -146,6 +148,7 @@ pub(super) fn selected_content_with<'a>(
         max_bytes,
     )?;
     let text = std::str::from_utf8(&shown).map_err(|_| PolicyError {
+        resource: None,
         origin: ErrorOrigin::Failure,
         reason: "error",
         detail: NormalizedText::around("", path, " is not text"),

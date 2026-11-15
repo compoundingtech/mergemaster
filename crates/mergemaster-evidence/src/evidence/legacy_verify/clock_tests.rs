@@ -111,6 +111,7 @@ print(json.dumps(cases))
             self.calls.borrow_mut().push("lane");
             if self.name == "lazy-error" {
                 return Err(PolicyError {
+                    resource: None,
                     origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                     reason: "error",
                     detail: "lane failed".into(),

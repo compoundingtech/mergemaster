@@ -19,6 +19,7 @@ use std::{
 };
 fn error(detail: impl ToString) -> PolicyError {
     PolicyError {
+        resource: None,
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason: "error",
         detail: detail.to_string().into(),
@@ -29,6 +30,7 @@ fn projection_command(repo: &Path, args: &[impl AsRef<OsStr>]) -> Result<Command
         || args.iter().any(|arg| arg.as_ref().as_bytes().contains(&0))
     {
         return Err(PolicyError {
+            resource: None,
             origin: crate::evidence::legacy_policy::ErrorOrigin::Exception {
                 class: "ValueError",
             },

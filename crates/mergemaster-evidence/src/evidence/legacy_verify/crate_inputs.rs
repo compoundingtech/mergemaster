@@ -8,6 +8,7 @@ use std::{
 pub const INPUTS_PATH: &str = ".st/rust-test-inputs.json";
 pub(super) fn failure(detail: impl Into<NormalizedText>) -> PolicyError {
     PolicyError {
+        resource: None,
         origin: ErrorOrigin::Failure,
         reason: "error",
         detail: detail.into(),
@@ -83,6 +84,7 @@ impl TreeSource<'_> {
                 failure(format!("{path}: {e}"))
             } else {
                 PolicyError {
+                    resource: None,
                     reason: "error",
                     origin: ErrorOrigin::Exception {
                         class: e.kind.class(),

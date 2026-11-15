@@ -11,6 +11,7 @@ use crate::evidence::{
 use std::path::Path;
 fn error(detail: &str) -> PolicyError {
     PolicyError {
+        resource: None,
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason: "error",
         detail: detail.into(),
@@ -70,6 +71,7 @@ pub(super) fn bodies_have<'a>(
             Ok(doc) if has_check(&doc, &check) => return Ok(true), // Drop cancels/reaps, no later request/read.
             Err(Error::NestingLimit) => {
                 return Err(PolicyError {
+                    resource: None,
                     origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                     reason: "stale-scan-too-deep",
                     detail: "raw JSON exceeds 256 containers".into(),

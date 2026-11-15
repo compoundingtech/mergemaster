@@ -60,6 +60,7 @@ pub fn zero_test_crates(repo: &Path, base: &str) -> Result<BTreeSet<Vec<u32>>, P
             .nth(1)
             .unwrap_or_default();
         let name = super::crate_inputs_text::utf8(name).map_err(|detail| PolicyError {
+            resource: None,
             reason: "error",
             origin: crate::evidence::legacy_policy::ErrorOrigin::Exception {
                 class: "UnicodeDecodeError",

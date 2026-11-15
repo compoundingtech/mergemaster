@@ -20,11 +20,13 @@ pub enum ErrorOrigin {
     Failure,
     Exception { class: &'static str },
 }
+pub use super::legacy_verify::statement_document::PolicyResource;
 #[derive(Debug, PartialEq, Eq)]
 pub struct PolicyError {
     pub reason: &'static str,
     pub detail: normalized_text::NormalizedText,
     pub origin: ErrorOrigin,
+    pub resource: Option<PolicyResource>,
 }
 impl std::fmt::Display for PolicyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -62,6 +64,7 @@ impl<'a> PolicyDocument<'a> {
     }
     pub fn source(&self) -> Result<Source<'_>, PolicyError> {
         let entry = self.entry.ok_or_else(|| PolicyError {
+            resource: None,
             origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
             reason: "no_policy",
             detail: NormalizedText::around(
@@ -94,13 +97,19 @@ impl<'a> PolicyDocument<'a> {
 /// Parse the complete policy before selection; duplicate keys use the last value.
 fn policy_document(text: &str) -> Result<Document, PolicyError> {
     let document =
-        Document::from_text(text).map_err(|error| match error {
+        Document::from_policy_text(text).map_err(|error| match error {
+            super::legacy_verify::statement_document::PolicyTextError::Resource(resource) => PolicyError {
+                resource: Some(resource), origin: ErrorOrigin::Failure, reason: "error",
+                detail: resource.message().into(),
+            },
+            super::legacy_verify::statement_document::PolicyTextError::Text(error) => match error {
             super::legacy_verify::statement_document::TextError::Syntax(error) => {
                 invalid(format!("skip policy is not valid JSON: {error}"))
             }
             super::legacy_verify::statement_document::TextError::IntegerLimit { digits } => {
                 invalid(format!("skip policy is not valid JSON: Exceeds the limit (4300 digits) for integer string conversion: value has {digits} digits; use sys.set_int_max_str_digits() to increase the limit"))
             }
+            },
         })?;
     let root = Source::root(&document);
     let version_one = root.get("version").is_some_and(|value| match value.node() {
@@ -282,6 +291,7 @@ impl CheckHeader {
 }
 fn invalid(detail: impl Into<normalized_text::NormalizedText>) -> PolicyError {
     PolicyError {
+        resource: None,
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason: "error",
         detail: detail.into(),
@@ -297,6 +307,7 @@ fn rule_error(where_: &[TextRef<'_>], message: &str) -> PolicyError {
 }
 fn exception(class: &'static str, detail: impl Into<NormalizedText>) -> PolicyError {
     PolicyError {
+        resource: None,
         reason: "error",
         detail: detail.into(),
         origin: ErrorOrigin::Exception { class },
@@ -459,6 +470,7 @@ pub(super) fn declared_path_items<'a>(
     selectors: bool,
 ) -> Result<Vec<String>, PolicyError> {
     let error = |message: String| PolicyError {
+        resource: None,
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason: "error",
         detail: NormalizedText::concat(

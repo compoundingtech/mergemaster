@@ -103,6 +103,7 @@ impl Failure {
 
 pub(super) fn invalid_statement() -> super::legacy_policy::PolicyError {
     super::legacy_policy::PolicyError {
+        resource: None,
         reason: "error",
         origin: ErrorOrigin::Failure,
         detail: "invalid validated statement".into(),

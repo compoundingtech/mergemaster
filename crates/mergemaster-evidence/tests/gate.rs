@@ -3867,6 +3867,7 @@ fn legacy_lazy_lane_and_blob_composition_matches_signed_oracle() {
             self.lane_reads += 1;
             if self.failure == Some("lane") {
                 return Err(PolicyError {
+                    resource: None,
                     origin: mergemaster_evidence::evidence::legacy_policy::ErrorOrigin::Failure,
                     reason: "record-budget-exceeded",
                     detail: "provider refused".into(),
@@ -3882,6 +3883,7 @@ fn legacy_lazy_lane_and_blob_composition_matches_signed_oracle() {
             self.blobs.push(path.to_str().unwrap().into());
             if self.failure == Some("blob") {
                 return Err(PolicyError {
+                    resource: None,
                     origin: mergemaster_evidence::evidence::legacy_policy::ErrorOrigin::Failure,
                     reason: "record-budget-exceeded",
                     detail: "provider refused".into(),
