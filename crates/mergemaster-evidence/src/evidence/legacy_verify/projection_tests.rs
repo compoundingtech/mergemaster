@@ -520,6 +520,7 @@ cases=[
  ['.','!raw\udcff.json'],['!🦀\ud800'],['!\udc80','bad.json::x'],
  ['bad.json::x','!\ud800'],['!raw\0name'],['raw\0name'],
  ['raw\0name::x'],['scalar.json::x\0'],['\ud800'],['\udc7f'],
+ ['nul\0path','\ud800'],['\ud800','nul\0path'],
  ['\udfff'],['.','!astral🦀.json'],['scalar.json','!scalar.json'],
  ['.','raw\udcff.json::x'],['scalar.json::x','raw\udcff.json::x'],
  ['scalar.json::x','scalar.json::x'],['.','!scalar.json::x'],
@@ -548,7 +549,7 @@ print(json.dumps(dict(tree=tree,cases=out)))
     );
     let fixture: Value = serde_json::from_slice(&output.stdout).unwrap();
     let cases = fixture["cases"].as_array().unwrap();
-    assert_eq!(cases.len(), 34);
+    assert_eq!(cases.len(), 36);
     for case in cases {
         let paths: Vec<NormalizedText> = case["paths"]
             .as_array()
