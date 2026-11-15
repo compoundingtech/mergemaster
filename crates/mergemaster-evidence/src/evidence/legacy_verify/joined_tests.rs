@@ -268,6 +268,33 @@ print(json.dumps(cases))
                 assert_eq!(error.attempts.unwrap_or(0), case["expected"]["attempts"]);
             }
         }
+        calls.borrow_mut().clear();
+        let detailed = super::super::configured::retained_detailed(
+            &Request {
+                repo,
+                tree,
+                check: "check".into(),
+                keys: case["keys"].as_str().unwrap(),
+                inputs: None,
+                crate_key: None,
+            },
+            super::super::configured::Settings::Unconfigured(&options),
+            &mut judgment,
+            Levels::Codepoints(&prefer),
+        );
+        if let Err(error) = detailed {
+            assert_eq!(
+                json!({"reason":error.failure.reason,
+                    "attempts":error.failure.attempts.unwrap_or(0),
+                    "decided_by":error.decided_by,
+                    "skipped_newer":error.skipped_newer.unwrap_or_default()}),
+                case["expected"],
+                "{}",
+                case["name"]
+            );
+        } else {
+            assert_eq!(case["expected"]["satisfied"], true);
+        }
         assert_eq!(json!(calls.borrow().as_slice()), case["calls"]);
     }
 }

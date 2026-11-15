@@ -783,6 +783,9 @@ discards earlier successes; production uses the same reached-judgment SystemCloc
 Joined rules-absent parity tests use actual SHA-1/SHA-256 trees, SSH-signed notes,
 signature partition and Git blob reads through selection/result conversion, including
 Unix non-UTF-8 binding paths, lossless keys, skips/preferences and refusals.
+`configured::retained_detailed` also retains the complete deciding-record and
+skipped-newer metadata on selection refusals; preparation failures have neither.
+The simpler retained/verified interfaces intentionally return only the failure.
 `legacy_policy::check_names` enumerates sorted lossless policy names and selects entries
 by borrowed code points, including lone surrogates. It shares the existing root/entry
 parser without adding statement byte/depth caps; raw string controls are refused,
