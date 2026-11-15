@@ -11,6 +11,7 @@ pub mod crate_keys;
 pub mod crate_layout;
 pub mod crate_manifest_ops;
 pub mod crate_paths;
+pub mod crate_sources;
 pub mod discovery;
 pub mod events;
 pub mod facts;
