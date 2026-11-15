@@ -63,6 +63,12 @@ impl TemporaryFile {
                 error
             })
     }
+    pub fn close(self) -> Result<(), PolicyError> {
+        let path = self.path().to_owned();
+        self.0
+            .close()
+            .map_err(|e| source_io::error(path.as_os_str(), &e))
+    }
 }
 /// POSIX lexical abspath, including exactly two leading slashes and raw bytes.
 pub(super) fn abspath(path: &Path) -> std::io::Result<PathBuf> {

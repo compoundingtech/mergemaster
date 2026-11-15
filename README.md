@@ -1030,6 +1030,12 @@ with mode 0600, Python's temporary-directory search order, raw filesystem paths
 and exception provenance. Drop unlinks it on success and early failure; the
 native tempfile/canonicalization path is unchanged. The same owner supports
 the `.keys` and `.log-keys` preparation suffixes before dispatch composition.
+`cli_keys` separates signer preparation from later shadow-log preparation so the
+dispatcher can preserve main's early project/require-all returns and run-input
+ordering. Signer temporaries precede config reads; log temporaries follow reads.
+Explicit signer paths use lexical abspath/isfile; absent log config preserves
+explicit log keys. Owners remain alive through verification; explicit signer
+`close` runs after capturing any result, with cleanup errors taking precedence.
 `raw_batch::RawBatch` provides scanner-specific one-request exchanges, 128-byte headers
 and pre-read 1MiB body limits; explicit finish validates status, errors/drop kill and reap.
 `projection_capture::raw_batch` is the CLI batch prerequisite: one complete request
