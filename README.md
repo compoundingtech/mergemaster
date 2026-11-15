@@ -913,11 +913,16 @@ Lane discovery uses the gate's sanitized Git command and rejects malformed or
 unterminated ls-tree rows; shared subprocess timeout/output bounds remain open.
 `workflow::workflow_job` selects exact generated-workflow text and transitive
 job dependencies; it follows the legacy layout contract, not general YAML.
+Workflow refusals name the missing dependency, or quote the stripped offending
+line's first 60 code points with Python repr, rather than a generic layout error.
 `selection_json::select_json` preserves legacy integer JSON selections. Selected
 floats, JSON extensions and nesting above 127 containers refuse with named
 `input-selection-*` reasons; extension diagnostics identify the token and byte offset.
 `selection::selected` resolves the preferred `.fractal`/legacy `.st` layout at
 the supplied Git tree and reads strict UTF-8 there, never from the checkout.
+Malformed JSON (including integer digit-limit refusal) reports the unquoted
+resolved file path followed by ` is not JSON`; invalid UTF-8 reports ` is not text`.
+Selection/projection oracle failures compare complete diagnostic text, not just reason.
 Selected blobs above 16 MiB refuse with `error` before decoding or selection.
 `projection::project` computes legacy reduced Git-tree keys, retaining raw names,
 symlink/gitlink modes and canonical selector entries; empty projections have no key. Selected reads require full tree OIDs.

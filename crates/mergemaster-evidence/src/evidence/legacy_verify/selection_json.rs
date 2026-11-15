@@ -57,12 +57,15 @@ fn extension(text: &str) -> Option<(&str, usize)> {
 }
 pub fn select_json<'a>(
     text: &str,
+    path: impl Into<TextRef<'a>>,
     selector: impl Into<TextRef<'a>>,
 ) -> Result<Option<Vec<u8>>, PolicyError> {
     let mut selector = selector.into();
+    let path = path.into();
+    let malformed = || error("error", NormalizedText::around("", path, " is not JSON"));
     let (depth, long) = limits(text);
     if long {
-        return Err(error("error", "JSON integer exceeds 4300 digits"));
+        return Err(malformed());
     }
     if depth > 127 {
         return Err(error(
@@ -77,7 +80,7 @@ pub fn select_json<'a>(
                 format!("unsupported JSON token {token} at byte offset {at}"),
             )
         } else {
-            error("error", "selected input is not supported JSON")
+            malformed()
         }
     })?;
     loop {

@@ -1,5 +1,5 @@
 //! Generated-workflow text selection, not a general YAML parser.
-use super::value_inputs::TextRef;
+use super::{python_repr::Repr, value_inputs::TextRef};
 use crate::evidence::legacy_policy::PolicyError;
 use std::collections::{BTreeMap, BTreeSet};
 fn space(c: char) -> bool {
@@ -84,10 +84,21 @@ pub fn workflow_job<'a>(
     job: impl Into<TextRef<'a>>,
 ) -> Result<Option<Vec<u8>>, PolicyError> {
     let job = job.into();
-    let error = || PolicyError {
+    let error = |detail: String| PolicyError {
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason: "error",
-        detail: "workflow layout or dependency is not understood".into(),
+        detail: detail.into(),
+    };
+    let layout = |line: &str| {
+        let stripped = line.trim_matches(space);
+        let end = stripped
+            .char_indices()
+            .nth(60)
+            .map_or(stripped.len(), |(at, _)| at);
+        error(format!(
+            "workflow layout not understood at {}",
+            Repr(TextRef::Str(&stripped[..end]))
+        ))
     };
     let mut top = Vec::new();
     let mut jobs: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
@@ -95,7 +106,7 @@ pub fn workflow_job<'a>(
     for line in lines(text) {
         if line.trim_matches(space).is_empty() || line.starts_with('#') {
             if let Some(name) = current.filter(|_| in_jobs) {
-                jobs.get_mut(name).ok_or_else(error)?.push(line);
+                jobs.get_mut(name).ok_or_else(|| layout(line))?.push(line);
             } else {
                 top.push(line);
             }
@@ -115,9 +126,9 @@ pub fn workflow_job<'a>(
                 jobs.insert(name, vec![line]);
             } else {
                 let Some(name) = current.filter(|_| line.starts_with("    ")) else {
-                    return Err(error());
+                    return Err(layout(line));
                 };
-                jobs.get_mut(name).ok_or_else(error)?.push(line);
+                jobs.get_mut(name).ok_or_else(|| layout(line))?.push(line);
             }
         } else {
             top.push(line);
@@ -126,13 +137,18 @@ pub fn workflow_job<'a>(
     let Some(job) = jobs.keys().copied().find(|name| job.equals(name)) else {
         return Ok(None);
     };
+    let dependency = |name: &str| {
+        error(format!(
+            "workflow job {job} needs {name}, which the workflow does not have"
+        ))
+    };
     let (mut wanted, mut queue) = (BTreeSet::new(), vec![job]);
     while let Some(name) = queue.pop() {
         if !wanted.insert(name) {
             continue;
         }
         let Some(lines) = jobs.get(name) else {
-            return Err(error());
+            return Err(dependency(name));
         };
         queue.extend(needs(lines));
     }
@@ -144,7 +160,7 @@ pub fn workflow_job<'a>(
         result.extend_from_slice(b"\0job ");
         result.extend_from_slice(name.as_bytes());
         result.push(b'\n');
-        for line in jobs.get(name).ok_or_else(error)? {
+        for line in jobs.get(name).ok_or_else(|| dependency(name))? {
             result.extend_from_slice(line.as_bytes());
         }
     }

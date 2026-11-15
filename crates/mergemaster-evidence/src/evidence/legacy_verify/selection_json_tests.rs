@@ -7,15 +7,15 @@ fn lossless_selector_preserves_parse_before_lookup() {
     for selector in ["é.😀", ".", "missing", "é.missing"] {
         let points: Vec<_> = selector.chars().map(u32::from).collect();
         assert_eq!(
-            select_json(text, TextRef::Points(&points)).unwrap(),
-            select_json(text, selector).unwrap()
+            select_json(text, "fixture.json", TextRef::Points(&points)).unwrap(),
+            select_json(text, "fixture.json", selector).unwrap()
         );
     }
     let surrogate = TextRef::Points(&[0xd800]);
-    assert_eq!(select_json(text, surrogate).unwrap(), None);
+    assert_eq!(select_json(text, "fixture.json", surrogate).unwrap(), None);
     for invalid in ["not JSON", r#"{"other":"\ud800"}"#, r#"{"other":NaN}"#] {
-        let expected = select_json(invalid, "missing").unwrap_err();
-        let actual = select_json(invalid, surrogate).unwrap_err();
+        let expected = select_json(invalid, "fixture.json", "missing").unwrap_err();
+        let actual = select_json(invalid, "fixture.json", surrogate).unwrap_err();
         assert_eq!(actual.origin, expected.origin);
         assert_eq!(actual.reason, expected.reason);
         assert_eq!(actual.detail, expected.detail);
@@ -131,13 +131,13 @@ fn selected_json_matches_oracle_or_explicit_rejected_reason() {
     }
     let results: Vec<_> = cases
         .iter()
-        .map(|(text, key, _, _)| select_json(text, *key))
+        .map(|(text, key, _, _)| select_json(text, "fixture.json", *key))
         .collect();
     let actual: Vec<_> = results
         .iter()
         .map(|result| match result {
             Ok(bytes) => json!({"hex":bytes.as_ref().map(hex::encode)}),
-            Err(e) => json!({"reason":e.reason}),
+            Err(e) => json!({"reason":e.reason,"detail":e.detail.to_string(),"origin":"Failure"}),
         })
         .collect();
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE")
@@ -154,7 +154,7 @@ for (text, key, _, _), actual in zip(json.loads(sys.argv[3]),json.loads(sys.argv
         value = o['select_part'](text,'fixture.json',key)
         result = dict(hex=value.hex() if value is not None else None)
     except o['Failure'] as e:
-        result = dict(reason=e.reason)
+        result = dict(reason=e.reason,detail=str(e),origin='Failure')
     category = gate['classify'](1,dict(satisfied=False,reason=actual['reason'])) if 'reason' in actual else None
     results.append(dict(oracle=result,category=category))
 print(json.dumps(results))
@@ -183,6 +183,21 @@ print(json.dumps(results))
             assert_eq!(actual[i]["reason"], *reason);
             assert_eq!(expected[i]["category"], "rejected");
             assert!(expected[i]["oracle"]["hex"].is_string());
+            let detail = match *reason {
+                "input-selection-float-text" => {
+                    "selected value contains a floating number".to_owned()
+                }
+                "input-selection-nesting-depth" => "JSON exceeds 127 open containers".to_owned(),
+                "input-selection-json-extensions" => {
+                    let (token, at) = token.unwrap();
+                    format!("unsupported JSON token {token} at byte offset {at}")
+                }
+                other => panic!("unexpected divergence {other}"),
+            };
+            assert_eq!(
+                actual[i],
+                json!({"reason":reason,"detail":detail,"origin":"Failure"})
+            );
         } else {
             assert_eq!(actual[i], expected[i]["oracle"], "{}", cases[i].0);
         }
