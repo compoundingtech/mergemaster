@@ -60,6 +60,7 @@ pub mod projection_process_error;
 pub mod python_digits;
 pub mod python_repr;
 pub mod raw_batch;
+mod record_transport;
 pub mod records;
 pub mod require_all;
 mod require_all_json;

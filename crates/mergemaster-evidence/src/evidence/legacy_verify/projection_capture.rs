@@ -149,14 +149,49 @@ fn collect<S: CaptureSink<Error = ProcessError>>(
     timeout: Duration,
     sink: S,
 ) -> Result<S::Output, PolicyError> {
-    GitChild::capture_with_sink(command, Some(bytes), timeout, sink).map_err(|error| match error {
+    GitChild::capture_with_sink(command, Some(bytes), timeout, sink)
+        .map_err(|error| process_error(command, operation, timeout, error))
+}
+fn process_error(
+    command: &Command,
+    operation: &str,
+    timeout: Duration,
+    error: ProcessError,
+) -> PolicyError {
+    match error {
         ProcessError::Resource(resource) => resource.into_error(),
         ProcessError::Bytes(limit) => failure(format!("Git output exceeds {limit} bytes")),
         ProcessError::Io(error, spawned) => failure(format!(
             "git {operation}: {}",
             super::projection_process_error::diagnostic(command, &error, spawned, timeout)
         )),
-    })
+    }
+}
+pub(super) fn record_blob(command: &mut Command) -> Result<Vec<u8>, PolicyError> {
+    let timeout = Duration::from_secs(60);
+    let sink = ProjectionCapture::new(
+        "cat-file",
+        ExpectedOutput::Bytes(super::statement::MAX_STATEMENT_BYTES),
+    );
+    GitChild::capture_with_sink(command, Some(b""), timeout, sink).map_err(|error| match error {
+        ProcessError::Bytes(_) => PolicyError {
+            reason: "statement-too-large",
+            ..failure("record statement exceeds 1048576 bytes")
+        },
+        other => process_error(command, "cat-file", timeout, other),
+    })?
+}
+/// Only ordinary Git/process failures mean an absent subject; cap failures abort.
+pub(super) fn record_subject(command: &mut Command) -> Result<Option<Vec<u8>>, PolicyError> {
+    let timeout = Duration::from_secs(60);
+    let sink = ProjectionCapture::new("rev-parse", ExpectedOutput::Bytes(128));
+    match GitChild::capture_with_sink(command, Some(b""), timeout, sink) {
+        Ok(result) => Ok(result.ok()),
+        Err(error @ ProcessError::Bytes(_)) => {
+            Err(process_error(command, "rev-parse", timeout, error))
+        }
+        Err(_) => Ok(None),
+    }
 }
 #[path = "projection_refs.rs"]
 mod refs;
