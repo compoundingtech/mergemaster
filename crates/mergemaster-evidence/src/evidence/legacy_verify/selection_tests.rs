@@ -1,4 +1,5 @@
 use super::*;
+use crate::gate::git::git;
 use serde_json::{Value, json};
 #[test]
 fn content_and_layout_match_oracle_at_each_tree() {

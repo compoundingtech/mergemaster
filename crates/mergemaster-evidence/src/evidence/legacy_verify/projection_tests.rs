@@ -1,4 +1,5 @@
 use super::*;
+use crate::gate::git::git;
 use serde_json::{Value, json};
 use std::os::unix::{
     ffi::OsStringExt,
@@ -352,4 +353,110 @@ fn projection_timeout_uses_oracle_full_argv_and_caller_cwd() {
         failure.detail,
         String::from_utf8(oracle.stdout).unwrap().trim()
     );
+}
+
+#[test]
+fn alternate_objects_cover_listing_config_resolution_and_selected_blob() {
+    const CHILD: &str = "MERGEMASTER_PROJECTION_ALTERNATE_CHILD";
+    if let Ok(repo) = std::env::var(CHILD) {
+        let tree = std::env::var("MERGEMASTER_PROJECTION_ALTERNATE_TREE").unwrap();
+        let expected = std::env::var("MERGEMASTER_PROJECTION_ALTERNATE_KEY").unwrap();
+        assert_eq!(
+            project(
+                Path::new(&repo),
+                &tree,
+                &["wanted".into(), ".st/inputs.json::selected".into()]
+            )
+            .unwrap()
+            .unwrap(),
+            expected
+        );
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source");
+    let repo = dir.path().join("consumer");
+    std::fs::create_dir_all(source.join(".fractal")).unwrap();
+    std::fs::create_dir_all(&repo).unwrap();
+    git(&source, &["init"]).unwrap();
+    git(&repo, &["init"]).unwrap();
+    std::fs::write(source.join("wanted"), b"fixture").unwrap();
+    std::fs::write(
+        source.join(".fractal/inputs.json"),
+        br#"{"selected":{"value":1}}"#,
+    )
+    .unwrap();
+    git(&source, &["add", "."]).unwrap();
+    let tree = String::from_utf8(git(&source, &["write-tree"]).unwrap()).unwrap();
+    let tree = tree.trim();
+    let objects = source.join(".git/objects");
+    let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap();
+    let oracle = Command::new("python3")
+        .args(["-c", "import runpy,sys;o=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify');print(o['project'](sys.argv[2],sys.argv[3],['wanted','.st/inputs.json::selected']))",
+            &root, repo.to_str().unwrap(), tree])
+        .env("GIT_ALTERNATE_OBJECT_DIRECTORIES", &objects)
+        .output().unwrap();
+    assert!(
+        oracle.status.success(),
+        "{}",
+        String::from_utf8_lossy(&oracle.stderr)
+    );
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "evidence::legacy_verify::projection::tests::alternate_objects_cover_listing_config_resolution_and_selected_blob", "--nocapture"])
+        .env(CHILD, &repo)
+        .env("MERGEMASTER_PROJECTION_ALTERNATE_TREE", tree)
+        .env("MERGEMASTER_PROJECTION_ALTERNATE_KEY", String::from_utf8(oracle.stdout).unwrap().trim())
+        .env("GIT_ALTERNATE_OBJECT_DIRECTORIES", &objects)
+        .output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+}
+
+#[test]
+fn read_timeouts_preserve_exact_oracle_command_strings() {
+    let tree = "a".repeat(40);
+    let output = Command::new("python3")
+        .args([
+            "-c",
+            r#"
+import json,runpy,subprocess,sys
+v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify')
+def expired(command,**kwargs): raise subprocess.TimeoutExpired(command,0)
+subprocess.run=expired
+out=[]; repo='relative-repository'; tree='a'*40
+for call in [
+ lambda: v['selector_item'](repo,tree,'.st/input.json::value'),
+ lambda: v['selected_content'](repo,tree,"quoted'\n.json::value"),
+ lambda: v['project'](repo,tree,["quoted'\n"]),
+ lambda: v['project'](repo,tree,['.','!excluded'])]:
+ try: call(); raise AssertionError('expected timeout')
+ except v['Failure'] as e: out.append(str(e))
+print(json.dumps(out))
+"#,
+            &std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let expected: Vec<String> = serde_json::from_slice(&output.stdout).unwrap();
+    EXCHANGE_TIMEOUT.set(Duration::ZERO);
+    let repo = Path::new("relative-repository");
+    let actual = [
+        selector_item(repo, &tree, ".st/input.json::value").unwrap_err(),
+        selected_content(repo, &tree, "quoted'\n.json::value").unwrap_err(),
+        project(repo, &tree, &["quoted'\n".into()]).unwrap_err(),
+        project(repo, &tree, &[".".into(), "!excluded".into()]).unwrap_err(),
+    ];
+    EXCHANGE_TIMEOUT.set(Duration::from_secs(60));
+    for (error, expected) in actual.into_iter().zip(expected) {
+        assert_eq!(error.detail.to_string(), expected);
+    }
 }
