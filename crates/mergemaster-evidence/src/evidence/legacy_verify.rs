@@ -65,6 +65,7 @@ pub mod statement;
 pub mod statement_bytes;
 pub mod statement_document;
 pub mod statement_tokens;
+pub mod terminal_sink;
 pub mod toml;
 pub mod trust;
 pub(crate) mod value_inputs;

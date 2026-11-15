@@ -526,6 +526,14 @@ Approved ANSI-styling divergence: Rust help, usage and errors are always uncolor
 independent of TTY, FORCE_COLOR, NO_COLOR and TERM. Python 3.14 `_colorize.can_colorize`
 may add ANSI SGR styling; stripping only those sequences yields identical bytes.
 Non-TTY and NO_COLOR output, streams and exit codes remain exact. No CLI is wired.
+Approved terminal/log output divergence (#245): `terminal_sink::value` applies
+unbounded Python-repr-style escaping to C0, DEL, C1, lone surrogates and every
+backslash, without repr quotes. `RenderedHelp::write_terminal` escapes only
+code-point interpolation ranges, preserving structural usage/help/error terminator
+newlines. Exact lossless library text is unchanged; whole-message escaping is
+never used. Caller-constructed invalid ranges/codepoints or unsafe literal controls
+return typed sink errors, not panics; callers must discard partial output on error.
+No CLI is wired; these are explicit terminal/log writer surfaces for that boundary.
 `value_checks_document` applies that same guard body to a validated input object,
 preserving Python code points (including lone surrogates) in keys and values.
 Private borrowed views avoid converting statements into native String maps.
