@@ -508,6 +508,10 @@ then normalize command placeholders and the required-input/binding-key union.
 before returning typed policy rules; raw kind entries are not exposed to callers.
 `legacy_verify::value_checks` judges ranked/base inputs and complete shard results
 without granting signature trust or changing native gate behavior.
+`legacy_verify::base_input_values` reads accepted-base bindings in kind/input order,
+using inherited `no_lazy` Git show transport. Names remain lossless, later writes
+replace values without moving their first position, and nonzero reads mean `absent`.
+Raw blob capture retains the approved 1MiB fail-closed resource divergence.
 `legacy_verify::argparse_options` exposes the pinned verifier's complete ordered
 option metadata: aliases, destinations, actions, defaults, metavars, nargs,
 requiredness and exclusive groups. It is not production CLI dispatch or a loader.
