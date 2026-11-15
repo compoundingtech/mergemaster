@@ -818,6 +818,9 @@ Approved acceptance narrowing: a present non-string `package.name` refuses with
 Cargo rejects such manifests; Python's mixed-key collisions, NaN identity and
 sorting behaviour are deliberately not reproduced. This text has no Python-parity
 claim. Oracle evidence: `tmp/crate-shape-oracle/key-identity.json`.
+`crate_closure` walks normal/dev/build and target-specific path dependencies with
+an explicit stack. Its memoized cycle unions, eager target lookup and lazy
+per-table dependency evaluation preserve the pinned Python walk's ordering.
 `records::read_statement` adds bounded Git capture and record layout/parent/subject
 checks (3f-3a), with `statement-too-large` distinct from malformed-record refusal.
 Missing subjects are allowed without lazy fetch. `records::RecordCache`
