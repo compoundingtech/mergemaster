@@ -341,6 +341,37 @@ impl Provider for GitProvider<'_> {
         .and_then(blob_hash))
     }
 }
+/// CLI hash-only transport: inherited oracle command, uncapped streaming stdout.
+pub struct CliGitProvider<'a> {
+    pub repo: &'a Path,
+    pub tree: &'a str,
+}
+impl Provider for CliGitProvider<'_> {
+    fn level_lane(&mut self) -> Result<Option<&LaneDefinition>, PolicyError> {
+        Ok(None)
+    }
+    fn blob_sha256(
+        &mut self,
+        path: super::judgment::BindingPath<'_>,
+    ) -> Result<Option<String>, PolicyError> {
+        // Validate the earlier repo argument before encoding the later path.
+        let mut command = super::projection::projection_command(self.repo, &["cat-file", "blob"])?;
+        let path = path.native(Some(self.tree))?;
+        let mut object = std::ffi::OsString::from(self.tree);
+        object.push(":");
+        object.push(path.as_ref());
+        use std::os::unix::ffi::OsStrExt;
+        if object.as_os_str().as_bytes().contains(&0) {
+            return Err(super::crate_manifest_ops::exception(
+                "ValueError",
+                "embedded null byte",
+            ));
+        }
+        Ok(GitChild::spawn(command.arg(object))
+            .ok()
+            .and_then(blob_hash))
+    }
+}
 fn blob_hash(mut child: GitChild) -> Option<String> {
     let mut output = child.stdout().ok()?;
     let mut hash = Sha256::new();

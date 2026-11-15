@@ -89,8 +89,18 @@ print(json.dumps(cases))
         String::from_utf8_lossy(&output.stderr)
     );
     let fixtures: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    for f in fixtures.as_array().unwrap() {
-        let mut collector = CandidateCollector::for_check();
+    for (f, cli) in fixtures
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|f| [(f, false), (f, true)])
+    {
+        let new_collector = if cli {
+            CandidateCollector::for_cli_check
+        } else {
+            CandidateCollector::for_check
+        };
+        let mut collector = new_collector();
         let check: Vec<u32> = serde_json::from_value(f["check"].clone()).unwrap();
         let q = Request {
             repo: Path::new(f["repo"].as_str().unwrap()),
@@ -125,7 +135,7 @@ print(json.dumps(cases))
                 };
                 assert!(matches!(candidates(&mut collector,&later),Err(e) if e.reason==reason));
                 assert!(
-                    matches!(candidates(&mut CandidateCollector::for_check(),&later),Err(e) if e.reason=="no_record")
+                    matches!(candidates(&mut new_collector(),&later),Err(e) if e.reason=="no_record")
                 );
             }
         } else {

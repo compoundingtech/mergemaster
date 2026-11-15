@@ -57,6 +57,16 @@ fn has_check(doc: &Document, check: &[u32]) -> bool {
         _ => false,
     }
 }
+fn body_has(body: &[u8], check: &[u32]) -> Result<bool, PolicyError> {
+    match Document::from_bytes(body) {
+        Ok(doc) => Ok(has_check(&doc, check)),
+        Err(Error::NestingLimit) => Err(PolicyError {
+            reason: "stale-scan-too-deep",
+            ..error("raw JSON exceeds 256 containers")
+        }),
+        Err(Error::Encoding | Error::Syntax(_) | Error::IntegerLimit { .. }) => Ok(false),
+    }
+}
 pub(super) fn bodies_have<'a>(
     mut batch: RawBatch,
     blobs: &[String],
@@ -67,17 +77,8 @@ pub(super) fn bodies_have<'a>(
         let Some(body) = batch.read(blob)? else {
             continue;
         };
-        match Document::from_bytes(&body) {
-            Ok(doc) if has_check(&doc, &check) => return Ok(true), // Drop cancels/reaps, no later request/read.
-            Err(Error::NestingLimit) => {
-                return Err(PolicyError {
-                    resource: None,
-                    origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
-                    reason: "stale-scan-too-deep",
-                    detail: "raw JSON exceeds 256 containers".into(),
-                });
-            }
-            Ok(_) | Err(Error::Encoding | Error::Syntax(_) | Error::IntegerLimit { .. }) => {}
+        if body_has(&body, &check)? {
+            return Ok(true); // Native drop cancels/reaps before any later request.
         }
     }
     batch.finish()?;
@@ -108,6 +109,45 @@ pub fn other_trees_have<'a>(
     }
     bodies_have(RawBatch::open(repo)?, &blobs, check)
 }
+/// Oracle's two complete batch invocations, not a persistent request/response child.
+pub fn other_trees_have_cli<'a>(
+    repo: &Path,
+    commits: &[String],
+    tree: &str,
+    check: impl Into<CheckName<'a>>,
+) -> Result<bool, PolicyError> {
+    if commits.is_empty() {
+        return Ok(false);
+    }
+    oid(tree).map_err(|e| error(&e.to_string()))?;
+    let requests: Vec<_> = commits.iter().map(|c| format!("{c}^{{tree}}")).collect();
+    let mut blobs = Vec::new();
+    super::projection_capture::raw_batch(
+        &mut super::projection::projection_command(repo, &["cat-file", "--batch"])?,
+        &requests,
+        |body| {
+            other_blobs(body, tree, &mut blobs)?;
+            Ok(true)
+        },
+    )?;
+    if blobs.is_empty() {
+        return Ok(false);
+    }
+    let check = check.into().codepoints();
+    let mut found = false;
+    super::projection_capture::raw_batch(
+        &mut super::projection::projection_command(repo, &["cat-file", "--batch"])?,
+        &blobs,
+        |body| {
+            found = body_has(body, &check)?;
+            Ok(!found)
+        },
+    )?;
+    Ok(found)
+}
 #[cfg(test)]
 #[path = "stale_tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "stale_transport_tests.rs"]
+mod transport_tests;

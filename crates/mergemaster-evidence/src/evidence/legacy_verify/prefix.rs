@@ -66,8 +66,12 @@ pub fn candidates(
         let collected = collector
             .collect(q.repo, q.tree, q.check, q.inputs, q.crate_key)
             .map_err(phase_error)?;
-        let groups =
-            partition(q.repo, collected.records, q.keys, revocations).map_err(phase_error)?;
+        let groups = if collector.is_cli() {
+            super::trust::partition_cli(q.repo, collected.records, Path::new(q.keys), &path)
+        } else {
+            partition(q.repo, collected.records, q.keys, revocations)
+        }
+        .map_err(phase_error)?;
         (groups, collected.legacy, collected.input_key)
     }; // Match957-995: revocation file lives through partition, not the miss scan.
     let check = q.check.codepoints();
@@ -121,7 +125,12 @@ pub fn candidates(
             None,
         ));
     }
-    let stale = other_trees_have(q.repo, &legacy, q.tree, q.check).map_err(phase_error)?;
+    let stale = if collector.is_cli() {
+        super::stale::other_trees_have_cli(q.repo, &legacy, q.tree, q.check)
+    } else {
+        other_trees_have(q.repo, &legacy, q.tree, q.check)
+    }
+    .map_err(phase_error)?;
     Err(if stale {
         failure(
             "stale_tree",

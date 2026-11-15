@@ -1009,6 +1009,8 @@ is resynced. Returned statuses are not
 authorization: selection (3g) and require-all (3h) remain; candidate indexes and
 structural records establish no trust.
 `collection::CandidateCollector::for_check` owns the shared cache across member calls.
+`for_cli_check` fixes oracle ref/note/cache transport for that collector's lifetime;
+`prefix::candidates` follows its mode for signature partition and stale misses.
 It ports ordered structural candidate gathering (957-981), input-key projection,
 and default crate/key equality, not test-count policy or signature authorization.
 Any load error aborts collection without returning a partial candidate set; budget
@@ -1031,6 +1033,11 @@ A false consumer result disables later body parsing/retention/caps while drainin
 under the same deadline and validating Git exit/stderr; native batches are unchanged.
 `stale::other_trees_have` scans raw notes for check membership, not trusted statements.
 Reached 1MiB/depth256 overflow refuses; a true match stops before later body reads.
+CLI stale misses use exactly two complete inherited `cat-file --batch` invocations:
+all tree frames first, then blob frames. After a JSON match later bodies are discarded
+without retention/parsing/body-cap refusal, while status/stderr/deadline still apply.
+`configured::CliGitProvider` separately supplies inherited oracle hash-only reads:
+uncapped streaming stdout, the existing owned deadline, and no native sanitizer.
 Lane discovery uses the gate's sanitized Git command and rejects malformed or
 unterminated ls-tree rows; shared subprocess timeout/output bounds remain open.
 `workflow::workflow_job` selects exact generated-workflow text and transitive
