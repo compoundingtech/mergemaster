@@ -34,6 +34,7 @@ pub mod lanes;
 pub mod log_age;
 pub mod log_lines;
 pub mod log_transport;
+pub mod log_view;
 pub mod member_digest;
 pub mod member_project;
 pub mod members;

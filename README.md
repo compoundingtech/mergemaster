@@ -947,12 +947,15 @@ Nonzero Git status is data; stdout is uncapped and stderr is drained/discarded.
 Spawn/NUL/timeout exceptions retain Python class and text with no operation prefix.
 `log_lines::read` reads record IDs after the last GC marker, with replacement
 UTF-8 decoding and Python line/word whitespace. Real-Git SHA1/SHA256 oracle
-comparisons cover malformed records, GC ordering and absent blobs. Shadow-log
-metadata, member overlays and CLI wiring remain separate surfaces.
+comparisons cover malformed records, GC ordering and absent blobs.
 `log_age::total_seconds` rounds the exact integer microsecond ratio once, ties
 to even, matching CPython timedelta rather than converting to float first.
 Oracle comparisons cover complete f64 bits and integer ages at rounding
 boundaries, signed neighbours, large values and i64 endpoint differences.
+`log_view::read` judges the signed log head and returns absent/unsigned/stale,
+missing, unlogged-pass or ok metadata with exact age and missing counts. Signed
+SHA1/SHA256 fixtures compare the entire view with Python, including clock edges
+and input-key indexes. Member overlays and CLI wiring remain separate surfaces.
 
 ### Main-push tree-equality evidence
 
