@@ -886,7 +886,10 @@ Approved acceptance narrowing: a present non-string `package.name` refuses with
 `error` / Failure and `<manifest path>: package.name is not a string`.
 Cargo rejects such manifests; Python's mixed-key collisions, NaN identity and
 sorting behaviour are deliberately not reproduced. This text has no Python-parity
-claim. Oracle evidence: `tmp/crate-shape-oracle/key-identity.json`.
+claim. Committed coverage: `crate_layout_tests::layout_and_type_confusion_match_oracle_except_approved_names`
+asserts all12 approved non-string refusals and compares ordered member pairs for
+all96 cases, including duplicate-name replacement, root prepending and Git's
+core.quotePath C-quoted wildcard names.
 `crate_closure` walks normal/dev/build and target-specific path dependencies with
 an explicit stack. Its memoized cycle unions, eager target lookup and lazy
 per-table dependency evaluation preserve the pinned Python walk's ordering.
@@ -911,8 +914,9 @@ limited to 262144 nodes with typed Failure/error
 and Rust-only deep boundary cases cover this independently of CPython recursion.
 `crate_paths` assembles globals, all member manifests, patches, dependency closures
 and per-crate extras without encoding lossless paths. Unreviewed crates declare `.`.
-Approved diagnostic divergence: mixed non-string path elements that Python refuses
-with hash-seed-dependent sorting text refuse as `error` / Failure with
+Approved class/origin AND diagnostic-text divergence: mixed non-string path
+elements raise Python TypeError / Exception with hash-seed-dependent sorting
+text, but Rust returns `error` / Failure with
 `.st/rust-test-inputs.json: declared path is not a string`; acceptance is unchanged.
 Deterministic iteration/unhashable-element exceptions keep Python's class and text.
 Evidence: `tmp/crate-path-shapes/seed-results.json`.
