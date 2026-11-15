@@ -177,6 +177,24 @@ fn actual_git_supports_both_formats_missing_objects_and_size_refusal() {
             "stale-scan-too-large"
         );
         assert!(batch.child.is_none());
+        for (index, id) in ids.iter().enumerate() {
+            let mut cmd =
+                super::super::projection::projection_command(repo, &["cat-file", "--batch"])
+                    .unwrap();
+            let result = super::super::projection_capture::raw_batch(
+                &mut cmd,
+                &["f".repeat(id.len()), id.clone()],
+                |body| {
+                    assert_eq!(body.len(), MAX_STATEMENT_BYTES);
+                    Ok(true)
+                },
+            );
+            if index == 0 {
+                result.unwrap();
+            } else {
+                assert_eq!(result.unwrap_err().reason, "stale-scan-too-large");
+            }
+        }
     }
 }
 

@@ -1025,6 +1025,10 @@ It owns an EMPTY revocation file like Python957, not caller revocations; never u
 this prefix for an API promising external revocation enforcement.
 `raw_batch::RawBatch` provides scanner-specific one-request exchanges, 128-byte headers
 and pre-read 1MiB body limits; explicit finish validates status, errors/drop kill and reap.
+`projection_capture::raw_batch` is the CLI batch prerequisite: one complete request
+set through the shared collector, retaining bounded 128-byte headers/1MiB bodies.
+A false consumer result disables later body parsing/retention/caps while draining
+under the same deadline and validating Git exit/stderr; native batches are unchanged.
 `stale::other_trees_have` scans raw notes for check membership, not trusted statements.
 Reached 1MiB/depth256 overflow refuses; a true match stops before later body reads.
 Lane discovery uses the gate's sanitized Git command and rejects malformed or

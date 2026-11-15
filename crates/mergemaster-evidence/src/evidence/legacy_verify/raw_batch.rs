@@ -23,17 +23,11 @@ fn error(detail: impl ToString) -> PolicyError {
         detail: detail.to_string().into(),
     }
 }
-fn frame(output: &mut impl Read, request: &str) -> Result<Option<Vec<u8>>, PolicyError> {
-    let mut header = Vec::new();
-    // No buffered prefetch: an oversized declaration must not read body bytes.
-    for _ in 0..=MAX_HEADER_BYTES {
-        let mut byte = [0];
-        output.read_exact(&mut byte).map_err(error)?;
-        header.push(byte[0]);
-        if byte == *b"\n" {
-            break;
-        }
-    }
+pub(super) fn header_size(
+    header: &[u8],
+    request: &str,
+    retain: bool,
+) -> Result<Option<u64>, PolicyError> {
     if header.len() > MAX_HEADER_BYTES {
         return Err(PolicyError {
             resource: None,
@@ -45,7 +39,7 @@ fn frame(output: &mut impl Read, request: &str) -> Result<Option<Vec<u8>>, Polic
     if header.last() != Some(&b'\n') {
         return Err(error("unterminated raw Git header"));
     }
-    let mut fields = std::str::from_utf8(&header)
+    let mut fields = std::str::from_utf8(header)
         .map_err(error)?
         .split_ascii_whitespace();
     let (name, kind, size, extra) = (fields.next(), fields.next(), fields.next(), fields.next());
@@ -57,7 +51,7 @@ fn frame(output: &mut impl Read, request: &str) -> Result<Option<Vec<u8>>, Polic
     };
     oid(name).map_err(error)?;
     let size: u64 = size.parse().map_err(error)?;
-    if size > MAX_STATEMENT_BYTES as u64 {
+    if retain && size > MAX_STATEMENT_BYTES as u64 {
         return Err(PolicyError {
             resource: None,
             origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
@@ -65,6 +59,22 @@ fn frame(output: &mut impl Read, request: &str) -> Result<Option<Vec<u8>>, Polic
             detail: "raw Git body exceeds 1048576 bytes".into(),
         });
     }
+    Ok(Some(size))
+}
+fn frame(output: &mut impl Read, request: &str) -> Result<Option<Vec<u8>>, PolicyError> {
+    let mut header = Vec::new();
+    // No buffered prefetch: an oversized declaration must not read body bytes.
+    for _ in 0..=MAX_HEADER_BYTES {
+        let mut byte = [0];
+        output.read_exact(&mut byte).map_err(error)?;
+        header.push(byte[0]);
+        if byte == *b"\n" {
+            break;
+        }
+    }
+    let Some(size) = header_size(&header, request, true)? else {
+        return Ok(None);
+    };
     let mut body = vec![0; size as usize];
     output.read_exact(&mut body).map_err(error)?;
     let mut newline = [0];
