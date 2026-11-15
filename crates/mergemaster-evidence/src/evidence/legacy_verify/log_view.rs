@@ -118,6 +118,7 @@ pub fn read<'a>(
             OsStr::new("--end-of-options"),
             OsStr::new("refs/evidence-log/main^{commit}"),
         ],
+        super::source_resource::SourceResource::RawBlob("refs/evidence-log/main^{commit}".into()),
     )?;
     let text = utf8(&out.stdout).map_err(|e| exception("UnicodeDecodeError", e))?;
     let head = text.trim_matches(space);
@@ -143,6 +144,7 @@ pub fn read<'a>(
             OsStr::new("--format=%G?%x00%GS%x00%s"),
             OsStr::new(head),
         ],
+        super::source_resource::SourceResource::RawBlob(head.into()),
     )?;
     let text = String::from_utf8_lossy(&out.stdout);
     let mut parts = text.trim_matches('\n').splitn(3, '\0');

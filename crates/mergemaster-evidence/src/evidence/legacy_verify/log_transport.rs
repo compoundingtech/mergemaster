@@ -1,4 +1,5 @@
 //! Exact inherited no_lazy subprocess boundary for shadow-log reads.
+use super::source_resource::{SOURCE_BYTES, SourceResource};
 use super::{crate_manifest_ops::exception, projection_process_error, source_io};
 use crate::{
     evidence::legacy_policy::PolicyError,
@@ -12,32 +13,36 @@ use std::{
     process::{Command, ExitStatus},
     time::Duration,
 };
-struct ProcessError {
-    error: io::Error,
-    spawned: bool,
+enum ProcessError {
+    Io(io::Error, bool),
+    Resource(SourceResource),
 }
 impl From<io::Error> for ProcessError {
     fn from(error: io::Error) -> Self {
-        Self {
-            error,
-            spawned: false,
-        }
+        Self::Io(error, false)
     }
 }
 pub struct Read {
     pub status: ExitStatus,
     pub stdout: Vec<u8>,
 }
-#[derive(Default)]
+/// Stdout is an in-memory source; stderr is drained without retention.
 struct Capture {
     stdout: Vec<u8>,
+    resource: SourceResource,
 }
 impl CaptureSink for Capture {
     type Error = ProcessError;
     type Output = Read;
     fn push(&mut self, stream: Stream, bytes: &[u8]) -> Result<(), ProcessError> {
         if matches!(stream, Stream::Stdout) {
-            self.stdout.extend_from_slice(bytes);
+            let retained = bytes
+                .len()
+                .min((SOURCE_BYTES + 1).saturating_sub(self.stdout.len()));
+            self.stdout.extend_from_slice(&bytes[..retained]);
+            if self.stdout.len() > SOURCE_BYTES {
+                return Err(ProcessError::Resource(self.resource.clone()));
+            }
         }
         Ok(())
     }
@@ -48,19 +53,22 @@ impl CaptureSink for Capture {
         }
     }
     fn context(self, mut error: ProcessError) -> ProcessError {
-        error.spawned = true;
+        if let ProcessError::Io(_, spawned) = &mut error {
+            *spawned = true;
+        }
         error
     }
 }
-/// Nonzero Git status remains ordinary data. No native sanitizer or byte cap.
-pub fn read(repo: &Path, args: &[&OsStr]) -> Result<Read, PolicyError> {
-    read_with(repo, args, Duration::from_secs(60), None)
+/// Nonzero Git status remains ordinary data, except source overflow.
+pub fn read(repo: &Path, args: &[&OsStr], resource: SourceResource) -> Result<Read, PolicyError> {
+    read_with(repo, args, Duration::from_secs(60), None, resource)
 }
 fn read_with(
     repo: &Path,
     args: &[&OsStr],
     timeout: Duration,
     path: Option<&OsStr>,
+    resource: SourceResource,
 ) -> Result<Read, PolicyError> {
     // Inspect original bytes: Command::get_args omits rejected NUL arguments.
     if std::iter::once(repo.as_os_str())
@@ -81,23 +89,31 @@ fn read_with(
     if let Some(path) = path {
         command.env("PATH", path);
     }
-    GitChild::capture_with_sink(&mut command, None, timeout, Capture::default()).map_err(|error| {
-        if error.error.kind() == io::ErrorKind::TimedOut {
+    GitChild::capture_with_sink(
+        &mut command,
+        None,
+        timeout,
+        Capture {
+            stdout: Vec::new(),
+            resource,
+        },
+    )
+    .map_err(|error| {
+        let (error, spawned) = match error {
+            ProcessError::Resource(resource) => return resource.into_error(),
+            ProcessError::Io(error, spawned) => (error, spawned),
+        };
+        if error.kind() == io::ErrorKind::TimedOut {
             exception(
                 "TimeoutExpired",
-                projection_process_error::diagnostic(
-                    &command,
-                    &error.error,
-                    error.spawned,
-                    timeout,
-                ),
+                projection_process_error::diagnostic(&command, &error, spawned, timeout),
             )
-        } else if !error.spawned {
-            source_io::error(command.get_program(), &error.error)
+        } else if !spawned {
+            source_io::error(command.get_program(), &error)
         } else {
             exception(
                 "OSError",
-                projection_process_error::diagnostic(&command, &error.error, true, timeout),
+                projection_process_error::diagnostic(&command, &error, true, timeout),
             )
         }
     })
