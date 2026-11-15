@@ -93,3 +93,48 @@ print(json.dumps(results))
         }
     }
 }
+
+#[test]
+fn exact_decode_errors_match_python_detection_and_surrogatepass() {
+    let script = r#"
+import json,random,sys
+assert sys.version_info[:3]==(3,14,7)
+samples=[bytes([i]) for i in range(256)]
+for lead in [0xc0,0xc2,0xdf,0xe0,0xed,0xef,0xf0,0xf4,0xf5]:
+ for second in range(256):
+  for suffix in [b'',b'x',b'\x80',b'\xbf\x80']:
+   samples.append(bytes([lead,second])+suffix)
+rng=random.Random(735)
+for bom in [b'',b'\xef\xbb\xbf',b'\xff\xfe',b'\xfe\xff',b'\xff\xfe\0\0',b'\0\0\xfe\xff']:
+ for n in range(500):
+  samples.append(bom+rng.randbytes(n%17))
+for encoding,bom in [('utf-16-le',b'\xff\xfe'),('utf-16-be',b'\xfe\xff'),('utf-32-le',b'\xff\xfe\0\0'),('utf-32-be',b'\0\0\xfe\xff')]:
+ for point in [0,0xd7ff,0xd800,0xdbff,0xdc00,0xdfff,0xe000,0x10ffff]:
+  blob=bom+chr(point).encode(encoding,'surrogatepass')
+  samples += [blob,blob+b'x',blob+b'\0']
+cases=[]
+for blob in samples:
+ try: expected={'points':list(map(ord,blob.decode(json.detect_encoding(blob),'surrogatepass')))}
+ except UnicodeDecodeError as e: expected={'error':str(e)}
+ cases.append([list(blob),expected])
+print(json.dumps(cases))
+"#;
+    let out = std::process::Command::new("python3")
+        .args(["-c", script])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let cases: Vec<(Vec<u8>, serde_json::Value)> = serde_json::from_slice(&out.stdout).unwrap();
+    for (bytes, expected) in &cases {
+        let actual = match super::decode_json_bytes_exact(bytes) {
+            Ok(points) => serde_json::json!({"points":points}),
+            Err(error) => serde_json::json!({"error":error.to_string()}),
+        };
+        assert_eq!(&actual, expected, "{bytes:?}");
+    }
+    assert_eq!(cases.len(), 12_568);
+}

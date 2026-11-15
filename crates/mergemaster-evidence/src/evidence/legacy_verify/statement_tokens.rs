@@ -78,6 +78,9 @@ pub struct Tokens {
     at: usize,
 }
 impl Tokens {
+    pub(super) fn from_points(text: Vec<u32>) -> Self {
+        Self { text, at: 0 }
+    }
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
         Some(Self {
             text: decode_json_bytes(bytes)?,
