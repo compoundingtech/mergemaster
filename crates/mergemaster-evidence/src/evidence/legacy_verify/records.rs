@@ -177,6 +177,7 @@ pub struct RecordCache {
     documents: IndexMap<OwnedKey, Arc<Document>>,
     remaining_units: usize,
     exhausted: bool,
+    transport: Transport,
 }
 impl RecordCache {
     /// Construct once for one candidate/check, shared across its member crates.
@@ -186,6 +187,14 @@ impl RecordCache {
             documents: IndexMap::new(),
             remaining_units: MAX_RECORD_UNITS,
             exhausted: false,
+            transport: Transport::Native,
+        }
+    }
+    /// A separate immutable transport owner; native and CLI cache entries never mix.
+    pub fn for_cli_check() -> Self {
+        Self {
+            transport: Transport::Cli,
+            ..Self::for_check()
         }
     }
     pub(super) fn check_budget(&mut self) -> Result<(), PolicyError> {
@@ -233,7 +242,7 @@ impl RecordCache {
         // Refuse an exhausted invocation/entry limit before reading another record.
         self.charge(0, true)?;
         // Failed reads are not inserted, matching assignment only after Python returns.
-        let parsed = read_statement(repo, commit, tree)?;
+        let parsed = read_with(self.transport, repo, commit, tree)?;
         let identity = Key {
             repo: key.repo,
             commit,

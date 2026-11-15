@@ -100,7 +100,14 @@ pub fn input_refs<'a>(
     check: impl Into<CheckName<'a>>,
     key: &str,
 ) -> Result<Vec<String>, PolicyError> {
-    let check = check.into();
+    input_refs_with(repo, check.into(), key, records_under)
+}
+pub(super) fn input_refs_with(
+    repo: &Path,
+    check: CheckName<'_>,
+    key: &str,
+    read: impl FnOnce(&Path, &[String]) -> Result<Vec<String>, PolicyError>,
+) -> Result<Vec<String>, PolicyError> {
     let text = check.text();
     let ascii_alnum = |p| matches!(p, 48..=57 | 65..=90 | 97..=122);
     if !(1..=100).contains(&text.len())
@@ -112,7 +119,7 @@ pub fn input_refs<'a>(
     {
         return Ok(Vec::new());
     }
-    records_under(
+    read(
         repo,
         &[
             format!("refs/tags/evidence/input/{check}/{key}/"),
