@@ -121,7 +121,7 @@ impl Aggregate {
             })
             .collect::<Result<_, Failure>>()?;
         self.log = Some(
-            super::super::members_log_view::read(
+            super::super::members_log_view::read_at(
                 q.repo,
                 log.keys,
                 q.tree,

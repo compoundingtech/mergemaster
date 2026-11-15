@@ -110,6 +110,14 @@ impl<'a> WireError<'a> {
         check: CheckName<'_>,
         writer: ValueWriter<'s, '_, impl Write>,
     ) -> Result<Written<'s>, fmt::Error> {
+        self.write_extended_json(check, writer, |_| Ok(()))
+    }
+    pub(super) fn write_extended_json<'s, W: Write>(
+        &self,
+        check: CheckName<'_>,
+        writer: ValueWriter<'s, '_, W>,
+        extra: impl FnOnce(&mut crate::evidence::legacy_output::Object<'_, W>) -> fmt::Result,
+    ) -> Result<Written<'s>, fmt::Error> {
         writer.object(|o| {
             o.field_text("satisfied", |w| w.boolean(false))?;
             o.field_text("reason", |w| self.write_reason(w))?;
@@ -133,7 +141,7 @@ impl<'a> WireError<'a> {
                     })?;
                 }
             }
-            Ok(())
+            extra(o)
         })
     }
 }

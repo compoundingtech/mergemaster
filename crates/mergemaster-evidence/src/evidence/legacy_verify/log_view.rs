@@ -9,7 +9,8 @@ use std::{collections::BTreeSet, ffi::OsStr, path::Path};
 #[derive(Clone, Copy)]
 pub struct Request<'a> {
     pub keys: &'a Path,
-    pub now_micros: i64,
+    /// None samples the system clock at the oracle's freshness phase.
+    pub now_micros: Option<i64>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct View {
@@ -85,6 +86,28 @@ pub fn read<'a>(
     now_micros: i64,
     max_age: i64,
 ) -> Result<View, PolicyError> {
+    read_at(
+        repo,
+        keys,
+        tree,
+        check,
+        input_key,
+        chosen,
+        Some(now_micros),
+        max_age,
+    )
+}
+#[allow(clippy::too_many_arguments)]
+pub(super) fn read_at<'a>(
+    repo: &Path,
+    keys: &Path,
+    tree: &str,
+    check: impl Into<TextRef<'a>>,
+    input_key: Option<&str>,
+    chosen: Option<&str>,
+    now_micros: Option<i64>,
+    max_age: i64,
+) -> Result<View, PolicyError> {
     let check = check.into();
     let mut view = View {
         log: "absent",
@@ -147,9 +170,16 @@ pub fn read<'a>(
             let end = suffix.find(space).unwrap_or(suffix.len());
             (end != 0).then_some(&suffix[..end])
         });
-    let Some(moment) =
-        stamp.and_then(|s| zoned_time_micros(&s.chars().map(u32::from).collect::<Vec<_>>()))
-    else {
+    let moment =
+        stamp.and_then(|s| zoned_time_micros(&s.chars().map(u32::from).collect::<Vec<_>>()));
+    use super::inputs::CurrentTime;
+    let now_micros = match now_micros {
+        Some(now) => now,
+        None => super::inputs::SystemClock
+            .epoch_micros()
+            .map_err(|e| exception(e.class, e.detail))?,
+    };
+    let Some(moment) = moment else {
         return Ok(view);
     };
     let age = super::log_age::total_seconds(now_micros, moment) as i64;
