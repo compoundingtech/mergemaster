@@ -21,11 +21,16 @@ samples += ['\n'.join(p) for p in itertools.product(parts,repeat=2)]
 samples += ['[[a]]\nx=1\n[a.b]\ny=2\n[[a]]\nx=3\n[a.b]\ny=4','a.b.c=1\na.b.d=2\n[a]\nx=3','[a.b]\nx=1\n[a]\ny=2']
 for token in ['[package]\nname="é"\nversion="1"\n','[[bin]]\nname="x"\npath="src/main.rs"\n']:
  samples.extend(token[:i] for i in range(len(token)+1))
+quote_cases=[('a='+quote*3+'text'+quote*count+tail,count) for quote in ['"',"'"] for count in range(3,8) for tail in ['', '\nb=2', ' trailing']]
+samples += [raw for raw,count in quote_cases]
+six_quotes={raw for raw,count in quote_cases if count==6}
 cases=[]
 for raw in samples:
  try: expected=dict(value=tomllib.loads(raw))
  except Exception as e: expected=dict(error=str(e),kind=type(e).__name__)
- cases.append(dict(raw=raw,expected=expected))
+ if raw in six_quotes:
+  assert expected==dict(error='Expected newline or end of document after a statement (at line 1, column 15)',kind='TOMLDecodeError')
+ cases.append(dict(raw=raw,expected=expected,six_quotes=raw in six_quotes))
 print(json.dumps(cases))
 "#;
     let output = std::process::Command::new("python3")
@@ -38,14 +43,23 @@ print(json.dumps(cases))
         String::from_utf8_lossy(&output.stderr)
     );
     let cases: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
+    let mut six_quote_rejections = 0;
     for case in &cases {
         let actual = match parse(case["raw"].as_str().unwrap()) {
             Ok(table) => json!({"value":snapshot(&Value::Table(table))}),
             Err(e) => json!({"error":e.to_string(),"kind":e.kind.class()}),
         };
         assert_eq!(actual, case["expected"], "{case}");
+        if case["six_quotes"] == true {
+            assert_eq!(
+                actual,
+                json!({"error":"Expected newline or end of document after a statement (at line 1, column 15)","kind":"TOMLDecodeError"})
+            );
+            six_quote_rejections += 1;
+        }
     }
-    assert_eq!(cases.len(), 180);
+    assert_eq!(cases.len(), 210);
+    assert_eq!(six_quote_rejections, 6);
 }
 #[test]
 fn deeply_nested_document_is_iterative() {
