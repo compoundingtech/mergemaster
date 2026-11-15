@@ -1,12 +1,8 @@
 //! Oracle config lookup for CLI reads, without native OID validation.
 use super::{
-    binding_path::encode,
-    crate_inputs_text::utf8,
-    crate_manifest_ops::exception,
-    projection::{read_git, read_git_source},
-    source_resource::SourceResource,
-    statement_document::PolicyResource,
-    value_inputs::TextRef,
+    binding_path::encode, crate_inputs_text::utf8, crate_manifest_ops::exception,
+    projection::read_git_source, source_resource::SourceResource,
+    statement_document::PolicyResource, value_inputs::TextRef,
 };
 use crate::evidence::legacy_policy::{ErrorOrigin, PolicyError, normalized_text::NormalizedText};
 use std::{
@@ -23,9 +19,10 @@ pub fn path(
     if repo.as_os_str().as_bytes().contains(&0) {
         return Err(exception("ValueError", "embedded null byte"));
     }
+    let resource = SourceResource::RawBlob(NormalizedText::concat(std::iter::once(revision)));
     let revision = encode(revision, 0, true)?;
     let preferred = legacy.replacen(".st/", ".fractal/", 1);
-    let listing = read_git(
+    let listing = read_git_source(
         repo,
         &[
             OsStr::new("ls-tree"),
@@ -36,7 +33,7 @@ pub fn path(
             OsStr::new(&preferred),
             OsStr::new(legacy),
         ],
-        usize::MAX,
+        resource,
     )?;
     let mut has_preferred = false;
     let mut has_legacy = false;

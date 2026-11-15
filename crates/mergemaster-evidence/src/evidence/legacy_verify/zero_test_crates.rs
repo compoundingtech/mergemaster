@@ -2,7 +2,8 @@
 use super::{
     crate_input_document::Inputs,
     crate_inputs::failure,
-    projection::read_git,
+    projection::read_git_source,
+    source_resource::SourceResource,
     statement_document::{Document, Node},
 };
 use crate::evidence::legacy_policy::PolicyError;
@@ -35,50 +36,15 @@ fn parse(bytes: &[u8]) -> Result<BTreeSet<Vec<u32>>, PolicyError> {
 }
 /// Missing configuration is an empty allowance; malformed preferred bytes never fall back.
 pub fn zero_test_crates(repo: &Path, base: &str) -> Result<BTreeSet<Vec<u32>>, PolicyError> {
-    // Unlike the native config helper, Python accepts unresolved revision names.
-    let preferred = INPUTS.replacen(".st/", ".fractal/", 1);
-    let listing = read_git(
-        repo,
-        &[
-            "ls-tree",
-            "-z",
-            "--full-tree",
-            base,
-            "--",
-            &preferred,
-            INPUTS,
-        ],
-        usize::MAX,
-    )?;
-    let mut names = BTreeSet::new();
-    for row in listing
-        .split(|byte| *byte == 0)
-        .filter(|row| !row.is_empty())
-    {
-        let name = row
-            .splitn(2, |byte| *byte == b'\t')
-            .nth(1)
-            .unwrap_or_default();
-        let name = super::crate_inputs_text::utf8(name).map_err(|detail| PolicyError {
-            resource: None,
-            reason: "error",
-            origin: crate::evidence::legacy_policy::ErrorOrigin::Exception {
-                class: "UnicodeDecodeError",
-            },
-            detail: detail.into(),
-        })?;
-        names.insert(name);
-    }
-    let Some(path) = [preferred.as_str(), INPUTS]
-        .into_iter()
-        .find(|path| names.contains(path))
-    else {
+    // Share exact inherited lookup, including unresolved revision and lossless filename errors.
+    let Some(path) = super::cli_config::path(repo, base.into(), INPUTS)? else {
         return Ok(BTreeSet::new());
     };
-    let bytes = read_git(
+    let spec = format!("{base}:{path}");
+    let bytes = read_git_source(
         repo,
-        &["show", "--end-of-options", &format!("{base}:{path}")],
-        usize::MAX,
+        &["show", "--end-of-options", &spec],
+        SourceResource::RawBlob(spec.clone().into()),
     )?;
     parse(&bytes)
 }
