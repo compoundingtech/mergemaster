@@ -796,6 +796,13 @@ cache port: Python's end-to-end deepcopy fails at interpreter-dependent depths.
 Depth does not bound arena node count; the 1 MiB statement-byte cap bounds nodes.
 The uncapped `Document::from_text` API returns only syntax or integer-limit errors;
 policy ingress uses it, so impossible decoding/depth errors have no diagnostic arm.
+Approved resource-dependent policy JSON divergence: Rust accepts unbounded nesting
+through this iterative parser where CPython `json.loads` raises `RecursionError`
+at a depth dependent on interpreter stack and caller depth; Rust does not emulate
+a fixed recursion boundary. This applies to policy JSON as well as the input JSON
+noted below, not to the bounded statement ingress.
+Lane-file `check_names` fields retain their serde-value domain; this caveat is
+limited to the lane domain and does not narrow lossless policy JSON check names.
 Library-only invariant refusals have no Python counterpart: manually constructed
 malformed validated-record primitives return `error` / Failure with
 `invalid validated statement` (no attempts). These states are unreachable through

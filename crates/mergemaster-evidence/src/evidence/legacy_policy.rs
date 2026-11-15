@@ -325,7 +325,7 @@ fn serialize_kind_pairs<S: serde::Serializer>(
 ) -> Result<S::Ok, S::Error> {
     serializer.collect_map(pairs.iter().map(|(key, value)| (key, value)))
 }
-/// Consume only command/input fields; kind/level key validation is separate.
+/// Borrow command/input fields from the original Document; kind/level key validation is separate.
 /// Required-input duplicates/order and placeholders remain unnormalized here.
 pub fn checked_command_inputs(
     rule: Source<'_>,
@@ -359,7 +359,7 @@ fn command_source(
     })
 }
 
-/// Consume and validate accepted-base file bindings without reading any files.
+/// Borrow and validate accepted-base file bindings from the original Document without reading files.
 pub fn checked_base_inputs(
     rule: Source<'_>,
     where_: &[TextRef<'_>],
