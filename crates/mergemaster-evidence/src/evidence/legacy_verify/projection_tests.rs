@@ -299,8 +299,17 @@ fn successful_noisy_fsmonitor_matches_projection_oracle() {
     std::fs::write(repo.join("wanted"), b"fixture").unwrap();
     git(repo, &["add", "wanted"]).unwrap();
     let tree = String::from_utf8(git(repo, &["write-tree"]).unwrap()).unwrap();
+    // Nix check sandboxes have the pinned Python on PATH, but no /usr/bin/env.
+    let python = Command::new("python3")
+        .args(["-c", "import sys; print(sys.executable)"])
+        .output()
+        .unwrap();
+    assert!(python.status.success());
+    let python = String::from_utf8(python.stdout).unwrap();
+    let python = python.trim();
+    assert!(Path::new(python).is_absolute());
     let hook = repo.join("monitor.py");
-    std::fs::write(&hook, "#!/usr/bin/env python3\nimport pathlib,sys\np=pathlib.Path(__file__).with_suffix('.calls')\nwith p.open('ab') as f:f.write(b'x')\nsys.stderr.buffer.write(b'e'*1048577)\nsys.stderr.buffer.flush()\nsys.stdout.buffer.write(b'token\\0')\n").unwrap();
+    std::fs::write(&hook, format!("#!{python}\nimport pathlib,sys\np=pathlib.Path(__file__).with_suffix('.calls')\nwith p.open('ab') as f:f.write(b'x')\nsys.stderr.buffer.write(b'e'*1048577)\nsys.stderr.buffer.flush()\nsys.stdout.buffer.write(b'token\\0')\n")).unwrap();
     std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
     git(repo, &["config", "core.fsmonitor", hook.to_str().unwrap()]).unwrap();
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap();
@@ -313,7 +322,12 @@ fn successful_noisy_fsmonitor_matches_projection_oracle() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    assert!(
+        hook.with_extension("calls").exists(),
+        "the oracle projection must invoke the noisy fsmonitor hook"
+    );
     let before = std::fs::read(hook.with_extension("calls")).unwrap().len();
+    assert!(before > 0);
     let actual = project(repo, tree.trim(), &["wanted".into()])
         .unwrap()
         .unwrap();

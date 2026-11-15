@@ -175,3 +175,26 @@ fn capture_sink_drains_without_retaining_stream_bytes() {
         assert_eq!(counts, [2_097_152, 1_048_576]);
     }
 }
+
+thread_local! {
+    pub(super) static EXPIRE_AFTER_STDERR: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+#[test]
+fn capture_deadline_preserves_partial_stderr_and_reaps() {
+    assert!(!EXPIRE_AFTER_STDERR.with(|flag| flag.replace(true)));
+    let mut command = Command::new("python3");
+    command.args(["-c",
+        "import os,signal;os.write(2,('partial-stderr pid='+str(os.getpid())).encode());signal.pause()"
+    ]).stdin(Stdio::null());
+    let error = GitChild::capture(&mut command, None, Duration::from_secs(60)).unwrap_err();
+    assert!(!EXPIRE_AFTER_STDERR.with(|flag| flag.replace(false)));
+    assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    let detail = error.to_string();
+    assert!(
+        detail.contains("Git subprocess deadline exceeded: partial-stderr pid="),
+        "{detail}"
+    );
+    let pid = detail.rsplit_once('=').unwrap().1.parse().unwrap();
+    assert_reaped(pid);
+}
