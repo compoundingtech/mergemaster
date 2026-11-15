@@ -107,7 +107,7 @@ print(json.dumps(cases))
             repo: Path::new(case["repo"].as_str().unwrap()),
             tree: case["tree"].as_str().unwrap(),
             check: check.as_slice().into(),
-            keys: case["keys"].as_str().unwrap(),
+            keys: Path::new(case["keys"].as_str().unwrap()),
             inputs: Some(&ignored_inputs),
             crate_key: Some(super::super::collection::CrateBinding {
                 name: "wrong-crate".into(),

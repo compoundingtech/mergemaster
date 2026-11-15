@@ -143,7 +143,7 @@ print(json.dumps(cases))
             let result = with_transport(
                 Path::new(case["repo"].as_str().unwrap()),
                 case["tree"].as_str().unwrap(),
-                case["keys"].as_str().unwrap(),
+                Path::new(case["keys"].as_str().unwrap()),
                 policy,
                 "fixture",
                 case["lane"]
