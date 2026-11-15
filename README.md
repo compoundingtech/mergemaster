@@ -971,7 +971,10 @@ time. Invalid times clear the summary before mixed naive/aware times can raise
 Python's exact TypeError. `members::verified` accepts optional log keys and overlays
 the full member view on success or uncovered refusal, retaining every original key
 and using no chosen records on refusal. Preparation errors/exceptions stay unadorned.
-Single-check overlays and CLI wiring remain separate.
+`configured::verify` adds the single-check optional log overlay, retaining complete
+failure selection metadata. Shadow-key projection precedes verification, swallowing
+only ordinary projection Failure, never Exception; crate keys bypass projection.
+Empty log keys disable decoration. CLI wiring remains separate.
 Member times remain lossless code points through parsing, lexical tie-breaking
 and the JSON field writer, including lone-surrogate ISO date/time separators.
 Log readers preserve lossless check names through comparisons and filesystem

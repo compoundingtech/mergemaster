@@ -149,6 +149,7 @@ pub struct Refusal {
     pub failure: Failure,
     pub decided_by: Option<String>,
     pub skipped_newer: Option<Vec<String>>,
+    pub log: Option<super::log_view::View>,
 }
 impl From<Failure> for Box<Refusal> {
     fn from(failure: Failure) -> Self {
@@ -156,6 +157,7 @@ impl From<Failure> for Box<Refusal> {
             failure,
             decided_by: None,
             skipped_newer: None,
+            log: None,
         })
     }
 }
@@ -170,6 +172,72 @@ pub fn retained_detailed<P: Provider>(
         super::result::Selection::capture(view)
     })
     .map(|(selection, record)| super::result::Retained::new(record, selection))
+}
+/// Single-check verify(): prepare the advisory input key before verification.
+/// Only projection Failure is swallowed; exceptions and log-reader errors replace
+/// the original outcome exactly as in Python's outer verify wrapper.
+pub fn verify<P: Provider>(
+    q: &Request<'_>,
+    settings: Settings<'_>,
+    judgment: &mut CheckJudgment<'_, P>,
+    prefer: Levels<'_>,
+    log: Option<super::log_view::Request<'_>>,
+) -> Result<(super::result::Retained, Option<super::log_view::View>), Box<Refusal>> {
+    let Some(log) = log.filter(|log| !log.keys.as_os_str().is_empty()) else {
+        return retained_detailed(q, settings, judgment, prefer).map(|r| (r, None));
+    };
+    let inputs = match settings {
+        Settings::Policy(rules) => rules.header.inputs.as_deref(),
+        Settings::Unconfigured(_) => None,
+    };
+    let input_key = if let Some(binding) = q.crate_key {
+        Some(std::borrow::Cow::Borrowed(binding.key))
+    } else if let Some(inputs) = inputs {
+        match super::projection::project(q.repo, q.tree, inputs) {
+            Ok(key) => key.map(std::borrow::Cow::Owned),
+            Err(e) if e.origin == crate::evidence::legacy_policy::ErrorOrigin::Failure => None,
+            Err(e) => return Err(log_failure(e).into()),
+        }
+    } else {
+        None
+    };
+    let mut outcome = retained_detailed(q, settings, judgment, prefer);
+    if outcome
+        .as_ref()
+        .err()
+        .is_some_and(|e| e.failure.origin != crate::evidence::legacy_policy::ErrorOrigin::Failure)
+    {
+        return outcome.map(|r| (r, None));
+    }
+    let view = super::log_view::read(
+        q.repo,
+        log.keys,
+        q.tree,
+        q.check.text(),
+        input_key.as_deref(),
+        outcome
+            .as_ref()
+            .ok()
+            .map(|r| r.record().candidate.commit.as_str()),
+        log.now_micros,
+        600,
+    )
+    .map_err(log_failure)?;
+    match &mut outcome {
+        Ok(_) => outcome.map(|r| (r, Some(view))),
+        Err(e) => {
+            e.log = Some(view);
+            outcome.map(|r| (r, None))
+        }
+    }
+}
+fn log_failure(e: PolicyError) -> Failure {
+    Failure {
+        origin: e.origin,
+        reason: e.reason,
+        detail: e.detail,
+        attempts: None,
+    }
 }
 
 fn selected_record<T, P: Provider>(
@@ -197,6 +265,7 @@ fn selected_record<T, P: Provider>(
     let selected = decision.result.map_err(|failure| {
         Box::new(Refusal {
             failure,
+            log: None,
             decided_by: decision
                 .walk
                 .decided_by
@@ -297,3 +366,7 @@ mod git_tests;
 #[cfg(all(test, unix))]
 #[path = "configured_tests.rs"]
 mod tests;
+
+#[cfg(all(test, unix))]
+#[path = "single_log_tests.rs"]
+mod single_log_tests;
