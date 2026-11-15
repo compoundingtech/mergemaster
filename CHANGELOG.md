@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Skip the Linux search-only working-directory regression when the effective UID is root, which bypasses the permission restriction needed to exercise O_PATH.
 - Reuse borrowed check codepoints across member aggregation and stream uncovered summaries without temporary per-member formatted strings or joined buffers.
 - Aggregate legacy member successes from original records: oldest metadata, weakest trust, maximum attempts, any input match, narrowed events and combined sampling key, with escaped sorted crate output.
 - Verify legacy members in sorted crate order with shared lazy-lane state, retaining original records and complete uncovered metadata while propagating uncaught exceptions globally.
