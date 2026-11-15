@@ -1,4 +1,5 @@
 //! Exact supported JSON selections; approved refusals never become missing entries.
+use super::value_inputs::TextRef;
 use crate::evidence::{
     legacy_json::{self, Value, encode_integer, extension_syntax, has_float, limits},
     legacy_policy::{PolicyError, normalized_text::NormalizedText},
@@ -54,7 +55,11 @@ fn extension(text: &str) -> Option<(&str, usize)> {
     }
     None
 }
-pub fn select_json(text: &str, selector: &str) -> Result<Option<Vec<u8>>, PolicyError> {
+pub fn select_json<'a>(
+    text: &str,
+    selector: impl Into<TextRef<'a>>,
+) -> Result<Option<Vec<u8>>, PolicyError> {
+    let mut selector = selector.into();
     let (depth, long) = limits(text);
     if long {
         return Err(error("error", "JSON integer exceeds 4300 digits"));
@@ -75,14 +80,28 @@ pub fn select_json(text: &str, selector: &str) -> Result<Option<Vec<u8>>, Policy
             error("error", "selected input is not supported JSON")
         }
     })?;
-    for key in selector.split('.') {
+    loop {
+        let (key, remaining) = selector
+            .split_once(".")
+            .map_or((selector, None), |(key, tail)| (key, Some(tail)));
         let Value::Object(mut object) = value else {
             return Ok(None);
         };
-        let Some(next) = object.remove(key) else {
+        let next = match key {
+            TextRef::Str(key) => object.remove(key),
+            TextRef::Points(_) => object
+                .into_iter()
+                .find(|(candidate, _)| key.equals(candidate))
+                .map(|(_, value)| value),
+        };
+        let Some(next) = next else {
             return Ok(None);
         };
         value = next;
+        let Some(tail) = remaining else {
+            break;
+        };
+        selector = tail;
     }
     if has_float(&value) {
         return Err(error(

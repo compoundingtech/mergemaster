@@ -1,10 +1,10 @@
 //! Resolve configuration layout and select content from the supplied Git tree only.
 use super::{
-    lane_git::config_path_with, projection::read_git, selection_json::select_json,
-    workflow::workflow_job,
+    binding_path::encode, lane_git::config_path_with, projection::read_git,
+    selection_json::select_json, value_inputs::TextRef, workflow::workflow_job,
 };
 use crate::evidence::legacy_policy::PolicyError;
-use std::path::Path;
+use std::{ffi::OsStr, os::unix::ffi::OsStrExt, path::Path};
 fn error(detail: impl ToString) -> PolicyError {
     PolicyError {
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
@@ -42,34 +42,47 @@ pub fn selected(repo: &Path, tree: &str, item: &str) -> Result<Option<Vec<u8>>, 
         None => Ok(None),
     }
 }
-pub fn selected_content(
+pub fn selected_content<'a>(
     repo: &Path,
     tree: &str,
-    item: &str,
+    item: impl Into<TextRef<'a>>,
 ) -> Result<Option<Vec<u8>>, PolicyError> {
     // Generous configuration/workflow cap; enforce before decoding or either selector.
-    selected_content_limit(repo, tree, item, 16 * 1024 * 1024)
+    selected_content_limit(repo, tree, item.into(), 16 * 1024 * 1024)
 }
-fn selected_content_limit(
+fn selected_content_limit<'a>(
     repo: &Path,
     tree: &str,
-    item: &str,
+    item: impl Into<TextRef<'a>>,
     max_bytes: usize,
 ) -> Result<Option<Vec<u8>>, PolicyError> {
     crate::evidence::oid(tree).map_err(error)?;
-    let (path, selector) = item.split_once("::").unwrap_or((item, ""));
+    let item = item.into();
+    let (path, selector) = item.split_once("::").unwrap_or((item, TextRef::Str("")));
+    let encoded = encode(path, 0, true)?;
     if read_git(
         repo,
-        &["ls-tree", "--full-tree", tree, "--", path],
+        &[
+            OsStr::new("ls-tree"),
+            OsStr::new("--full-tree"),
+            OsStr::new(tree),
+            OsStr::new("--"),
+            OsStr::from_bytes(&encoded),
+        ],
         usize::MAX,
     )?
     .is_empty()
     {
         return Ok(None);
     }
+    let shown_path = [tree.as_bytes(), b":", &encoded].concat();
     let shown = read_git(
         repo,
-        &["show", "--end-of-options", &format!("{tree}:{path}")],
+        &[
+            OsStr::new("show"),
+            OsStr::new("--end-of-options"),
+            OsStr::from_bytes(&shown_path),
+        ],
         max_bytes,
     )?;
     let text = std::str::from_utf8(&shown).map_err(error)?;

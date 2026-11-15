@@ -7,7 +7,36 @@ pub enum TextRef<'a> {
     Str(&'a str),
     Points(&'a [u32]),
 }
-impl TextRef<'_> {
+impl<'a> TextRef<'a> {
+    pub(super) fn split_once(self, separator: &str) -> Option<(Self, Self)> {
+        match self {
+            Self::Str(text) => text
+                .split_once(separator)
+                .map(|(head, tail)| (Self::Str(head), Self::Str(tail))),
+            Self::Points(points) => {
+                let width = separator.chars().count();
+                let at = if width == 0 {
+                    0
+                } else {
+                    points.windows(width).position(|window| {
+                        window.iter().copied().eq(separator.chars().map(u32::from))
+                    })?
+                };
+                Some((
+                    Self::Points(&points[..at]),
+                    Self::Points(&points[at + width..]),
+                ))
+            }
+        }
+    }
+    pub(super) fn strip_prefix(self, prefix: &str) -> Option<Self> {
+        match self {
+            Self::Str(text) => text.strip_prefix(prefix).map(Self::Str),
+            Self::Points(points) => self
+                .starts_with(prefix)
+                .then(|| Self::Points(&points[prefix.chars().count()..])),
+        }
+    }
     pub(super) fn starts_with(self, prefix: &str) -> bool {
         match self {
             Self::Str(text) => text.starts_with(prefix),
@@ -55,6 +84,21 @@ impl TextRef<'_> {
             }
         }
         points.next().is_none()
+    }
+}
+impl<'a> From<&'a str> for TextRef<'a> {
+    fn from(text: &'a str) -> Self {
+        Self::Str(text)
+    }
+}
+impl<'a> From<&'a String> for TextRef<'a> {
+    fn from(text: &'a String) -> Self {
+        Self::Str(text)
+    }
+}
+impl<'a> From<&'a crate::evidence::legacy_policy::normalized_text::NormalizedText> for TextRef<'a> {
+    fn from(text: &'a crate::evidence::legacy_policy::normalized_text::NormalizedText) -> Self {
+        text.borrowed()
     }
 }
 impl std::fmt::Display for TextRef<'_> {
