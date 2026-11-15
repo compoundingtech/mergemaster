@@ -20,13 +20,14 @@ pub enum ErrorOrigin {
     Failure,
     Exception { class: &'static str },
 }
+pub use super::legacy_verify::source_resource::SourceResource;
 pub use super::legacy_verify::statement_document::PolicyResource;
 #[derive(Debug, PartialEq, Eq)]
 pub struct PolicyError {
     pub reason: &'static str,
     pub detail: normalized_text::NormalizedText,
     pub origin: ErrorOrigin,
-    pub resource: Option<PolicyResource>,
+    pub resource: Option<SourceResource>,
 }
 impl std::fmt::Display for PolicyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -99,7 +100,7 @@ fn policy_document(text: &str) -> Result<Document, PolicyError> {
     let document =
         Document::from_policy_text(text).map_err(|error| match error {
             super::legacy_verify::statement_document::PolicyTextError::Resource(resource) => PolicyError {
-                resource: Some(resource), origin: ErrorOrigin::Failure, reason: "error",
+                resource: Some(SourceResource::PolicyJson(resource)), origin: ErrorOrigin::Failure, reason: "error",
                 detail: resource.message().into(),
             },
             super::legacy_verify::statement_document::PolicyTextError::Text(error) => match error {

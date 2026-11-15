@@ -203,7 +203,7 @@ fn projection_plumbing_output_is_bounded_and_never_truncated() {
             &["hash-object", "--stdin"],
             b"fixture",
             None,
-            expected,
+            expected.clone(),
         )
         .unwrap();
         assert_eq!(blob.len(), if format == "sha1" { 40 } else { 64 });
@@ -214,7 +214,7 @@ fn projection_plumbing_output_is_bounded_and_never_truncated() {
                 &["config", "--get", "projection.fixture"],
                 b"",
                 None,
-                expected,
+                expected.clone(),
             )
             .unwrap_err();
             assert_eq!(failure.reason, "error");
@@ -231,7 +231,7 @@ fn projection_plumbing_output_is_bounded_and_never_truncated() {
             .unwrap(),
             b""
         );
-        let tree = input_git(repo, &["write-tree"], b"", None, expected).unwrap();
+        let tree = input_git(repo, &["write-tree"], b"", None, expected.clone()).unwrap();
         assert_eq!(tree.len(), blob.len());
         assert!(input_git(repo, &["not-a-git-command"], b"", None, expected).is_err());
     }

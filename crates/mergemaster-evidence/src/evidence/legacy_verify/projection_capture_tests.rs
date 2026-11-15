@@ -99,3 +99,53 @@ fn byte_capture_preserves_binary_and_drains_overflow() {
     );
     assert_eq!(run(b"", ExpectedOutput::Bytes(0), "", 0, 0).unwrap(), b"");
 }
+
+#[test]
+fn source_capture_aborts_at_boundary_and_reaps_child() {
+    use super::super::{
+        source_resource::{SOURCE_BYTES, SourceResource},
+        statement_document::PolicyResource,
+    };
+    let resource = SourceResource::PolicyJson(PolicyResource::SourceBytes);
+    let exact = vec![b'x'; SOURCE_BYTES];
+    assert_eq!(
+        run(
+            &exact,
+            ExpectedOutput::Source(resource.clone()),
+            "65",
+            SOURCE_BYTES + 1,
+            0
+        )
+        .unwrap(),
+        exact
+    );
+    let error = run(&exact, ExpectedOutput::Source(resource.clone()), "65", 3, 7).unwrap_err();
+    assert_eq!(error.resource, None);
+    assert_eq!(error.detail, "git write-tree: eee");
+    let directory = tempfile::tempdir().unwrap();
+    let pid_path = directory.path().join("pid");
+    let mut command = Command::new("python3");
+    command.args(["-c", "import os,sys;open(sys.argv[1],'w').write(str(os.getpid()));sys.stderr.buffer.write(b'e'*1048577);sys.stderr.buffer.flush();sys.stdout.buffer.write(b'x'*1048577);sys.stdout.buffer.flush();\nwhile True: os.write(1,b'x'*65536)"]).arg(&pid_path);
+    command.stdin(Stdio::piped());
+    let error = exchange(
+        &mut command,
+        b"",
+        "show",
+        ExpectedOutput::Source(resource.clone()),
+        Duration::from_secs(60),
+    )
+    .unwrap_err();
+    assert_eq!(error.resource, Some(resource.clone()));
+    assert_eq!(error.detail, resource.detail());
+    assert_eq!(
+        error.origin,
+        crate::evidence::legacy_policy::ErrorOrigin::Failure
+    );
+    assert_eq!(error.reason, "error");
+    let pid: i32 = std::fs::read_to_string(pid_path).unwrap().parse().unwrap();
+    let status = Command::new("python3").args(["-c", "import os,sys\ntry: os.kill(int(sys.argv[1]),0)\nexcept ProcessLookupError: sys.exit(0)\nsys.exit(1)", &pid.to_string()]).status().unwrap();
+    assert!(
+        status.success(),
+        "capture must kill and reap the direct child"
+    );
+}

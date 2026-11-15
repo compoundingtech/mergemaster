@@ -140,7 +140,7 @@ fn policy_text_helpers_enforce_resource_bounds() {
                 PolicyResource::ContainerDepth
             };
             let error = check_names::selected(&text, &[99, 104, 101, 99, 107]).unwrap_err();
-            assert_eq!(error.resource, Some(resource));
+            assert_eq!(error.resource, Some(SourceResource::PolicyJson(resource)));
             assert_eq!(error.origin, ErrorOrigin::Failure);
             assert_eq!(error.reason, "error");
             assert_eq!(error.detail.to_string(), resource.message());
@@ -194,7 +194,10 @@ fn selected_payload_preserves_explicit_unbounded_document_api() {
     assert_eq!(error, expected);
     drop(document);
     let error = PolicyDocument::parse(&text, "check").unwrap_err();
-    assert_eq!(error.resource, Some(PolicyResource::SourceBytes));
+    assert_eq!(
+        error.resource,
+        Some(SourceResource::PolicyJson(PolicyResource::SourceBytes))
+    );
     assert_eq!(
         error.detail.to_string(),
         PolicyResource::SourceBytes.message()
