@@ -1,16 +1,16 @@
 //! Committed sources for the pinned rust-test-keys projection.
 use super::toml::{self, Table};
-use crate::evidence::legacy_policy::{ErrorOrigin, PolicyError};
+use crate::evidence::legacy_policy::{ErrorOrigin, PolicyError, normalized_text::NormalizedText};
 use std::{
     path::Path,
     process::{Command, Output},
 };
 pub const INPUTS_PATH: &str = ".st/rust-test-inputs.json";
-pub(super) fn failure(detail: impl ToString) -> PolicyError {
+pub(super) fn failure(detail: impl Into<NormalizedText>) -> PolicyError {
     PolicyError {
         origin: ErrorOrigin::Failure,
         reason: "error",
-        detail: detail.to_string().into(),
+        detail: detail.into(),
     }
 }
 pub use super::crate_inputs_text::{joined, normpath, utf8};
@@ -26,7 +26,7 @@ impl TreeSource<'_> {
         if self.no_lazy_fetch {
             command.env("GIT_NO_LAZY_FETCH", "1");
         }
-        command.output().map_err(failure)
+        command.output().map_err(|error| failure(error.to_string()))
     }
     pub fn resolve(&self) -> Result<String, PolicyError> {
         let expression = format!("{}^{{tree}}", self.tree);

@@ -906,6 +906,12 @@ Python whitespace is stripped with at most 65 retained OID bytes, including
 100k padding and byte-split Unicode whitespace. Bare OIDs need no final newline.
 The approved trusted-Git fail-closed guard rejects malformed keys Python accepts;
 evidence: `tmp/projection-stderr-oracle/stdout-parsing.json`. Python has no cap at :75.
+`projection_capture` supplies the replacement collector API; project integration is separate.
+It drains stderr while retaining 1 MiB: success stays accepted at any stderr volume.
+Nonzero overflow refuses with `Git projection stderr exceeds 1048576 bytes`;
+otherwise Python's stderr diagnostic and operation-prefixed process errors survive.
+This is an approved resource divergence: Python has no byte caps at oracle :75.
+The exchange's 60-second deadline matches that same line; update-index stdout is discarded.
 
 ### Main-push tree-equality evidence
 
