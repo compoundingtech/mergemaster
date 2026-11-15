@@ -43,6 +43,15 @@ fn committed_manifest_and_configuration_match_oracle() {
         ("bad/Cargo.toml", "[a".into()),
         ("key/Cargo.toml", format!("{}=1", vec!["x"; 1001].join("."))),
         ("int/Cargo.toml", format!("x={}", "9".repeat(4301))),
+        (
+            "depth/Cargo.toml",
+            format!("x={}0{}", "[".repeat(257), "]".repeat(257)),
+        ),
+        ("bytes/Cargo.toml", format!("#{}", " ".repeat(1_048_576))),
+        (
+            "nodes/Cargo.toml",
+            format!("x=[{}]", vec!["0"; 262_143].join(",")),
+        ),
         (".st/rust-test-inputs.json", "{}".into()),
     ] {
         let path = repo.join(name);
@@ -64,7 +73,7 @@ fn committed_manifest_and_configuration_match_oracle() {
 import json,runpy,sys,types
 m=types.SimpleNamespace(**runpy.run_path(sys.argv[1])); out=[]; repo=sys.argv[2]
 for tree in sys.argv[3:]:
- for directory in ['','.','bad','utf','missing','key','int']:
+ for directory in ['','.','bad','utf','missing','key','int','depth','bytes','nodes']:
   try: m.manifest(repo,tree,directory); result=dict(ok=True)
   except Exception as e: result=dict(error=str(e),kind='Failure' if isinstance(e,m.Failure) else type(e).__name__)
   out.append(dict(tree=tree,directory=directory,result=result,config=m.config_path(repo,tree,m.INPUTS_PATH)))
@@ -89,6 +98,19 @@ print(json.dumps(out))
                 json!({"error":e.detail.to_string(),"kind":match e.origin { ErrorOrigin::Failure=>"Failure",ErrorOrigin::Exception{class}=>class }})
             }
         };
+        if let Some(message) = match case["directory"].as_str().unwrap() {
+            "depth" => Some("TOML container depth exceeds 256"),
+            "bytes" => Some("TOML source exceeds 1048576 bytes"),
+            "nodes" => Some("TOML node count exceeds 262144"),
+            _ => None,
+        } {
+            assert_eq!(case["result"], json!({"ok":true})); // Approved #257 divergence.
+            assert_eq!(
+                result,
+                json!({"kind":"Failure","error":format!("{}/Cargo.toml: {message}",case["directory"].as_str().unwrap())})
+            );
+            continue;
+        }
         assert_eq!(result, case["result"]);
         assert_eq!(
             json!(source.config_path(INPUTS_PATH).unwrap()),

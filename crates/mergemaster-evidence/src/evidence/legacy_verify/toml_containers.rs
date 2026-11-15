@@ -49,6 +49,7 @@ impl Source {
             if matches!(self.at(pos), Some('[' | '{')) && stack.len() >= 256 {
                 return Err(super::Resource::ContainerDepth.error());
             }
+            self.charge_node()?; // Each scalar/container, before owned value allocation.
             let mut value = match self.at(pos) {
                 Some('\'' | '"') => {
                     let (end, text) = self.string(pos)?;
@@ -136,7 +137,7 @@ impl Source {
                         // Source::key always returns a nonempty key; split at its final part.
                         let parent_len = key.len().saturating_sub(1);
                         let nest = out
-                            .nest(&key[..parent_len], false)
+                            .nest_charged(&key[..parent_len], false, &mut || self.charge_node())?
                             .ok_or_else(|| self.error("Cannot overwrite a value", pos))?;
                         if let Some(stem) = key.last()
                             && nest.contains_key(stem)

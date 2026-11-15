@@ -77,6 +77,7 @@ impl Resource {
 #[derive(Debug)]
 pub struct Source {
     pub chars: Vec<char>,
+    nodes: std::cell::Cell<usize>,
 }
 impl Source {
     pub fn new(text: &str) -> Self {
@@ -90,7 +91,17 @@ impl Source {
                 chars.push(c);
             }
         }
-        Self { chars }
+        Self {
+            chars,
+            nodes: std::cell::Cell::new(0),
+        }
+    }
+    pub(super) fn charge_node(&self) -> Result<(), Error> {
+        if self.nodes.get() == 262_144 {
+            return Err(Resource::Nodes.error());
+        }
+        self.nodes.set(self.nodes.get() + 1);
+        Ok(())
     }
     pub fn error(&self, message: impl Into<String>, position: usize) -> Error {
         let prefix = &self.chars[..position.min(self.chars.len())];

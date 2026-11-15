@@ -108,6 +108,57 @@ fn deeply_nested_document_is_iterative() {
     );
 }
 #[test]
+fn node_boundaries_match_oracle_below_limit() {
+    let script = r#"
+import json,sys,tomllib
+assert sys.version_info[:3]==(3,14,7)
+rows=[]
+for prefix,suffix,overhead in [('x=[',']',2),('x={a.b=[',']}',4),('[a.b]\nx=[',']',4),('[[a.b]]\nx=[',']',5)]:
+ for extra in [0,1]:
+  raw=prefix+','.join(['0']*(262144-overhead+extra))+suffix
+  pending=[tomllib.loads(raw)]; count=0
+  while pending:
+   value=pending.pop(); count+=1
+   if isinstance(value,dict): pending.extend(value.values())
+   elif isinstance(value,list): pending.extend(value)
+   else: assert type(value) is int and value==0
+  assert count==262144+extra and len(raw.encode())<1048576
+  rows.append([raw,count])
+print(json.dumps(rows))
+"#;
+    let output = std::process::Command::new("python3")
+        .args(["-c", script])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let rows: Vec<(String, usize)> = serde_json::from_slice(&output.stdout).unwrap();
+    for (raw, expected) in rows {
+        if expected > 262_144 {
+            let error = parse(&raw).unwrap_err();
+            assert_eq!(error.kind, ErrorKind::Resource(Resource::Nodes));
+            assert_eq!(error.to_string(), "TOML node count exceeds 262144");
+        } else {
+            let root = Value::Table(parse(&raw).unwrap());
+            let mut pending = vec![&root];
+            let mut count = 0;
+            while let Some(value) = pending.pop() {
+                count += 1;
+                match value {
+                    Value::Table(table) => pending.extend(table.values()),
+                    Value::Array(items) => pending.extend(items),
+                    Value::Integer(i) => assert_eq!(i, "0"),
+                    _ => panic!("unexpected node"),
+                }
+            }
+            assert_eq!(count, expected);
+        }
+    }
+}
+#[test]
 fn source_and_container_limits_match_oracle_below_bounds() {
     let script = r#"
 import json,sys,tomllib
