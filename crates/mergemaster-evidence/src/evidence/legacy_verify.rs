@@ -3,6 +3,7 @@ mod binding_path;
 pub mod candidates;
 pub mod collection;
 pub mod configured;
+pub mod crate_inputs;
 pub mod crate_inputs_text;
 pub mod discovery;
 pub mod events;
