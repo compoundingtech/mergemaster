@@ -949,6 +949,10 @@ Spawn/NUL/timeout exceptions retain Python class and text with no operation pref
 UTF-8 decoding and Python line/word whitespace. Real-Git SHA1/SHA256 oracle
 comparisons cover malformed records, GC ordering and absent blobs. Shadow-log
 metadata, member overlays and CLI wiring remain separate surfaces.
+`log_age::total_seconds` rounds the exact integer microsecond ratio once, ties
+to even, matching CPython timedelta rather than converting to float first.
+Oracle comparisons cover complete f64 bits and integer ages at rounding
+boundaries, signed neighbours, large values and i64 endpoint differences.
 
 ### Main-push tree-equality evidence
 
