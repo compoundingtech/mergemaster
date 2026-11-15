@@ -1,7 +1,10 @@
 use super::*;
 use std::{
     io::Write,
-    os::{fd::AsRawFd, unix::ffi::OsStringExt},
+    os::{
+        fd::AsRawFd,
+        unix::ffi::{OsStrExt, OsStringExt},
+    },
     process::Command,
 };
 #[test]
@@ -37,6 +40,26 @@ fn subprocess_driver() {
                         std::process::exit(2);
                     }
                 }
+            }
+            if std::env::var_os("MM_TREE_ONLY").is_some() {
+                use super::super::{binding_path::encode, cli_dispatch};
+                if let Err(message) = parsed.preflight() {
+                    writeln!(std::io::stderr(), "{message}").unwrap();
+                    std::process::exit(2);
+                }
+                let bytes = encode(parsed.value("--repo").unwrap(), 0, true).unwrap();
+                let repo = std::path::Path::new(std::ffi::OsStr::from_bytes(&bytes));
+                let exit = match cli_dispatch::resolve_tree(repo, &parsed) {
+                    Ok(tree) => Exit {
+                        stdout: format!("{{\n  \"tree\": \"{tree}\"\n}}\n"),
+                        stderr: String::new(),
+                        code: 0,
+                    },
+                    Err(error) => cli_dispatch::refusal(&parsed, &error).unwrap(),
+                };
+                std::io::stdout().write_all(exit.stdout.as_bytes()).unwrap();
+                std::io::stderr().write_all(exit.stderr.as_bytes()).unwrap();
+                std::process::exit(i32::from(exit.code));
             }
             let values: Vec<Vec<Vec<u32>>> = parsed
                 .values
