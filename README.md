@@ -448,6 +448,14 @@ These decisions exit zero with `outcome=rejected` and no record; `summary`
 names the changed side or metadata field and includes event/live values and SHAs.
 Authentication and API failures remain nonzero errors, not refusal decisions.
 
+A decision authorizes only the `base`, `head` and `tree` IDs that it names. The
+local recheck compares endpoint values and does not fence concurrent local ref
+writers: a ref can move after the final recheck and before output is written,
+and a move that is later restored (A to B to A) is not detected. Consumers must
+bind their action to the named IDs, for example with a compare-and-swap on the
+target ref, and must not treat `skip=true` as authorization for whatever
+checkout or ref is current.
+
 The JSON result contains `version`, `check`, `base`, `head`, `tree`, `decision`,
 `outcome`, `reason`, `record` (an immutable record ID or null),
 `protected_paths` (the touched protected paths, empty otherwise), and `summary`.
@@ -820,7 +828,8 @@ validates root/global/crates/no_tests shapes and never downgrades malformed new 
 Approved resource-dependent divergence: CPython `json.loads` can raise
 `RecursionError` on nested `rust-test-inputs.json`, depending on stack/caller depth;
 Rust uses no fixed bound or emulation. A 100,000-depth ignored-metadata fixture
-accepts in Rust and pins Python's `RecursionError`.
+accepts in Rust; CPython may raise `RecursionError` depending on stack size, or
+successfully parse the same nested-list shape.
 `crate_paths` assembles globals, all member manifests, patches, dependency closures
 and per-crate extras without encoding lossless paths. Unreviewed crates declare `.`.
 Approved diagnostic divergence: mixed non-string path elements that Python refuses

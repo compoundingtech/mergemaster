@@ -105,6 +105,10 @@ impl GitChild {
                 if fds[1].revents != 0 && capture_read(&mut stderr, &mut err)? {
                     fds[1].fd = -1;
                 }
+                #[cfg(test)]
+                if !err.is_empty() && tests::EXPIRE_AFTER_STDERR.with(|flag| flag.replace(false)) {
+                    child.expire_for_test();
+                }
                 if fds[2].revents != 0
                     && let Some(pipe) = &mut stdin
                 {
