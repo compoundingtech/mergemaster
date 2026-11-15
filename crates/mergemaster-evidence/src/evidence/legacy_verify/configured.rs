@@ -17,6 +17,21 @@ use crate::{
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, io::Read, path::Path};
 
+/// Explicit transport choice; native entry points retain their existing default.
+#[derive(Clone, Copy)]
+pub enum Transport {
+    Native,
+    Cli,
+}
+impl Transport {
+    fn collector(self) -> CandidateCollector {
+        match self {
+            Self::Native => CandidateCollector::for_check(),
+            Self::Cli => CandidateCollector::for_cli_check(),
+        }
+    }
+}
+
 // require_all supplies an eager lane, but never a level_lane callback.
 struct RequiredProvider<P>(P);
 impl<P: Provider> Provider for RequiredProvider<P> {
@@ -44,8 +59,19 @@ pub fn required(
     clock: &mut dyn CurrentTime,
     provider: impl Provider,
 ) -> Result<TrustedCandidate, Failure> {
+    required_with_transport(q, rules, lane, clock, provider, Transport::Native)
+}
+
+pub fn required_with_transport(
+    q: &Request<'_>,
+    rules: &PolicyRules,
+    lane: Option<&LaneDefinition>,
+    clock: &mut dyn CurrentTime,
+    provider: impl Provider,
+    transport: Transport,
+) -> Result<TrustedCandidate, Failure> {
     let mut records = candidates(
-        &mut CandidateCollector::for_check(),
+        &mut transport.collector(),
         &Request {
             inputs: rules.header.inputs.as_deref(),
             crate_key: None,
@@ -168,7 +194,17 @@ pub fn retained_detailed<P: Provider>(
     judgment: &mut CheckJudgment<'_, P>,
     prefer: Levels<'_>,
 ) -> Result<super::result::Retained, Box<Refusal>> {
-    selected_record(q, settings, judgment, prefer, |view, _| {
+    retained_with_transport(q, settings, judgment, prefer, Transport::Native)
+}
+
+pub fn retained_with_transport<P: Provider>(
+    q: &Request<'_>,
+    settings: Settings<'_>,
+    judgment: &mut CheckJudgment<'_, P>,
+    prefer: Levels<'_>,
+    transport: Transport,
+) -> Result<super::result::Retained, Box<Refusal>> {
+    selected_record_with_transport(q, settings, judgment, prefer, transport, |view, _| {
         super::result::Selection::capture(view)
     })
     .map(|(selection, record)| super::result::Retained::new(record, selection))
@@ -183,8 +219,20 @@ pub fn verify<P: Provider>(
     prefer: Levels<'_>,
     log: Option<super::log_view::Request<'_>>,
 ) -> Result<(super::result::Retained, Option<super::log_view::View>), Box<Refusal>> {
+    verify_with_transport(q, settings, judgment, prefer, log, Transport::Native)
+}
+
+pub fn verify_with_transport<P: Provider>(
+    q: &Request<'_>,
+    settings: Settings<'_>,
+    judgment: &mut CheckJudgment<'_, P>,
+    prefer: Levels<'_>,
+    log: Option<super::log_view::Request<'_>>,
+    transport: Transport,
+) -> Result<(super::result::Retained, Option<super::log_view::View>), Box<Refusal>> {
     let Some(log) = log.filter(|log| !log.keys.as_os_str().is_empty()) else {
-        return retained_detailed(q, settings, judgment, prefer).map(|r| (r, None));
+        return retained_with_transport(q, settings, judgment, prefer, transport)
+            .map(|r| (r, None));
     };
     let inputs = match settings {
         Settings::Policy(rules) => rules.header.inputs.as_deref(),
@@ -201,7 +249,7 @@ pub fn verify<P: Provider>(
     } else {
         None
     };
-    let mut outcome = retained_detailed(q, settings, judgment, prefer);
+    let mut outcome = retained_with_transport(q, settings, judgment, prefer, transport);
     if outcome
         .as_ref()
         .err()
@@ -247,14 +295,22 @@ fn selected_record<T, P: Provider>(
     prefer: Levels<'_>,
     emit: impl FnOnce(&super::result::Satisfied<'_>, &TrustedCandidate) -> T,
 ) -> Result<(T, TrustedCandidate), Box<Refusal>> {
+    selected_record_with_transport(q, settings, judgment, prefer, Transport::Native, emit)
+}
+
+fn selected_record_with_transport<T, P: Provider>(
+    q: &Request<'_>,
+    settings: Settings<'_>,
+    judgment: &mut CheckJudgment<'_, P>,
+    prefer: Levels<'_>,
+    transport: Transport,
+    emit: impl FnOnce(&super::result::Satisfied<'_>, &TrustedCandidate) -> T,
+) -> Result<(T, TrustedCandidate), Box<Refusal>> {
     let inputs = match settings {
         Settings::Policy(rules) => rules.header.inputs.as_deref(),
         Settings::Unconfigured(_) => None,
     };
-    let mut gathered = candidates(
-        &mut CandidateCollector::for_check(),
-        &Request { inputs, ..*q },
-    )?;
+    let mut gathered = candidates(&mut transport.collector(), &Request { inputs, ..*q })?;
     let check = q.check.codepoints();
     let records = document_candidates(&gathered.records, &check)?;
     let prepared = match settings {
@@ -310,6 +366,26 @@ pub fn required_git(
             repo: q.repo,
             tree: q.tree,
         },
+    )
+}
+
+/// CLI required-check collection and bound-file reads share oracle transports.
+pub fn required_git_cli(
+    q: &Request<'_>,
+    rules: &PolicyRules,
+    lane: Option<&LaneDefinition>,
+    clock: &mut dyn CurrentTime,
+) -> Result<TrustedCandidate, Failure> {
+    required_with_transport(
+        q,
+        rules,
+        lane,
+        clock,
+        CliGitProvider {
+            repo: q.repo,
+            tree: q.tree,
+        },
+        Transport::Cli,
     )
 }
 

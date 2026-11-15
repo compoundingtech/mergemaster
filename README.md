@@ -1038,6 +1038,11 @@ all tree frames first, then blob frames. After a JSON match later bodies are dis
 without retention/parsing/body-cap refusal, while status/stderr/deadline still apply.
 `configured::CliGitProvider` separately supplies inherited oracle hash-only reads:
 uncapped streaming stdout, the existing owned deadline, and no native sanitizer.
+Explicit `configured::Transport::Cli` joins select that collector for detailed
+single-check selection/log overlays and member aggregation; native wrappers keep
+their defaults. `required_git_cli` also selects the CLI hash provider, and
+`require_all_cli` uses CLI lane resolution and required-check collection.
+These library joins do not install a binary dispatch or prepare CLI tempfiles.
 Lane discovery uses the gate's sanitized Git command and rejects malformed or
 unterminated ls-tree rows; shared subprocess timeout/output bounds remain open.
 `workflow::workflow_job` selects exact generated-workflow text and transitive

@@ -92,7 +92,10 @@ print(json.dumps(cases))
             panic!("fixture has no bound files")
         }
     }
-    for case in cases {
+    for (case, transport) in cases
+        .iter()
+        .flat_map(|case| [Transport::Native, Transport::Cli].map(move |mode| (case, mode)))
+    {
         let check: Vec<u32> = serde_json::from_value(case["check"].clone()).unwrap();
         let rules = PolicyDocument::parse(case["policy"].as_str().unwrap(), check.as_slice())
             .unwrap()
@@ -112,14 +115,17 @@ print(json.dumps(cases))
                 needs_tests: false,
             }),
         };
-        let result = required(&q, &rules, None, &mut clock, NoBindings);
+        let result = required_with_transport(&q, &rules, None, &mut clock, NoBindings, transport);
         if case["budget"] == true {
             assert!(matches!(result,Err(e) if e.reason=="record-budget-exceeded"));
             let later = Request {
                 tree: case["later"].as_str().unwrap(),
                 ..q
             };
-            assert!(required(&later, &rules, None, &mut clock, NoBindings).is_ok());
+            assert!(
+                required_with_transport(&later, &rules, None, &mut clock, NoBindings, transport)
+                    .is_ok()
+            );
             continue;
         }
         let actual = match result {
@@ -178,7 +184,7 @@ print(json.dumps(cases))
                 "crate_wire",
             ),
         ] {
-            let joined = retained(
+            let joined = retained_with_transport(
                 &Request {
                     crate_key: binding,
                     ..q
@@ -186,7 +192,9 @@ print(json.dumps(cases))
                 Settings::Policy(&rules),
                 &mut judgment,
                 Levels::Utf8(&[]),
+                transport,
             )
+            .map_err(|e| e.failure)
             .and_then(|note| {
                 note.with_view(q.tree, q.check, |view| {
                     assert_eq!(view.record, note.record().candidate.commit);

@@ -61,6 +61,29 @@ pub fn require_all<'a>(
         &mut SystemClock,
     )
 }
+
+/// CLI transport composition, without changing native lane or record defaults.
+pub fn require_all_cli<'a>(
+    repo: &Path,
+    tree: &'a str,
+    keys: &str,
+    policy_text: &str,
+    repository: &str,
+    lane_file: Option<(&str, &str)>,
+    lane_base: Option<&str>,
+) -> Result<All<'a>, PolicyError> {
+    with_transport(
+        repo,
+        tree,
+        keys,
+        policy_text,
+        repository,
+        lane_file,
+        lane_base,
+        &mut SystemClock,
+        configured::Transport::Cli,
+    )
+}
 // The private seam preserves Python's seven inputs plus a deterministic clock capability.
 #[allow(clippy::too_many_arguments)]
 fn with_clock<'a>(
@@ -73,6 +96,31 @@ fn with_clock<'a>(
     lane_base: Option<&str>,
     clock: &mut dyn CurrentTime,
 ) -> Result<All<'a>, PolicyError> {
+    with_transport(
+        repo,
+        tree,
+        keys,
+        policy_text,
+        repository,
+        lane_file,
+        lane_base,
+        clock,
+        configured::Transport::Native,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn with_transport<'a>(
+    repo: &Path,
+    tree: &'a str,
+    keys: &str,
+    policy_text: &str,
+    repository: &str,
+    lane_file: Option<(&str, &str)>,
+    lane_base: Option<&str>,
+    clock: &mut dyn CurrentTime,
+    transport: configured::Transport,
+) -> Result<All<'a>, PolicyError> {
     let mut all = All {
         tree,
         satisfied: true,
@@ -84,7 +132,22 @@ fn with_clock<'a>(
         if rules.header.require == RequireMode::Off {
             continue;
         }
-        let eager = lane_git::required_lane(repo, tree, lane_file, check.as_slice(), lane_base)?;
+        let eager = match transport {
+            configured::Transport::Native => {
+                lane_git::required_lane(repo, tree, lane_file, check.as_slice(), lane_base)?
+            }
+            configured::Transport::Cli => match super::cli_lane_for::lane_for(
+                repo,
+                super::value_inputs::TextRef::Str(tree),
+                lane_file.map(|(text, base)| (text, super::value_inputs::TextRef::Str(base))),
+                super::value_inputs::TextRef::Points(&check),
+                lane_base.map(super::value_inputs::TextRef::Str),
+            ) {
+                Ok(lane) => lane_git::RequiredLane::Ready(lane),
+                Err(e) if e.reason == "no_lane" => lane_git::RequiredLane::Missing(e),
+                Err(e) => return Err(e),
+            },
+        };
         let outcome = match eager {
             lane_git::RequiredLane::Missing(error) => Err(Failure {
                 reason: error.reason,
@@ -92,7 +155,10 @@ fn with_clock<'a>(
                 attempts: None,
                 origin: error.origin,
             }),
-            lane_git::RequiredLane::Ready(lane) => configured::required_git(
+            lane_git::RequiredLane::Ready(lane) => (match transport {
+                configured::Transport::Native => configured::required_git,
+                configured::Transport::Cli => configured::required_git_cli,
+            })(
                 &Request {
                     repo,
                     tree,

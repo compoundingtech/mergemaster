@@ -51,11 +51,31 @@ pub fn verified<P: Provider>(
     prefer: Levels<'_>,
     log: Option<super::log_view::Request<'_>>,
 ) -> Result<Aggregate, Refusal> {
+    verified_with_transport(
+        q,
+        policy_base,
+        settings,
+        judgment,
+        prefer,
+        log,
+        configured::Transport::Native,
+    )
+}
+
+pub fn verified_with_transport<P: Provider>(
+    q: &Request<'_>,
+    policy_base: Option<&str>,
+    settings: Settings<'_>,
+    judgment: &mut CheckJudgment<'_, P>,
+    prefer: Levels<'_>,
+    log: Option<super::log_view::Request<'_>>,
+    transport: configured::Transport,
+) -> Result<Aggregate, Refusal> {
     let log = log.filter(|log| !log.keys.as_os_str().is_empty());
     let members = Members::read(q.repo, q.tree, policy_base)
         .map_err(|e| Refusal::Verification(policy_failure(e)))?;
     let outcome = collect(members.into_sorted(), |name, key, needs_tests| {
-        configured::retained(
+        configured::retained_with_transport(
             &Request {
                 crate_key: Some(CrateBinding {
                     name: TextRef::Str(name),
@@ -67,7 +87,9 @@ pub fn verified<P: Provider>(
             settings,
             judgment,
             prefer,
+            transport,
         )
+        .map_err(|e| e.failure)
     });
     match outcome {
         Ok(covered) => {
