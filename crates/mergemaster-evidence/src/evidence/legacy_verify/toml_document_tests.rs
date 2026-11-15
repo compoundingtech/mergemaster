@@ -131,3 +131,63 @@ print(json.dumps(rows))
         assert_eq!(actual, row["expected"], "{row}");
     }
 }
+
+#[test]
+fn document_flag_timing_and_combined_two_thousand_parts_match_tomllib() {
+    let script = r#"
+import json,sys,tomllib
+assert sys.version_info[:3]==(3,14,7)
+samples=['[a]\nb.c=1\n[a.b]','[a]\nb.c=1\n[a.b.c]','a.b.c=1\n[a.b]','[a.b]\nc=1\n[a]\nb.d=1']
+samples.append('['+'.'.join('h'+str(i) for i in range(1000))+']\n'+'.'.join('k'+str(i) for i in range(1000))+'=1')
+rows=[]
+for raw in samples:
+ try:
+  pending=[tomllib.loads(raw)]; nodes=[]
+  while pending:
+   value=pending.pop()
+   if isinstance(value,dict):
+    nodes.append(['table',list(value)]); pending.extend(reversed(list(value.values())))
+   else:
+    assert type(value) is int
+    nodes.append(['int',str(value)])
+  expected=dict(nodes=nodes)
+ except Exception as e: expected=dict(error=str(e),kind=type(e).__name__)
+ rows.append(dict(raw=raw,expected=expected))
+assert len(rows[-1]['expected']['nodes'])==2001
+assert rows[-1]['expected']['nodes'][-1]==['int','1']
+print(json.dumps(rows))
+"#;
+    let out = std::process::Command::new("python3")
+        .args(["-c", script])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let rows: Vec<serde_json::Value> = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(rows.len(), 5);
+    for row in rows {
+        let actual = match parse(row["raw"].as_str().unwrap()) {
+            Err(e) => json!({"error":e.to_string(),"kind":e.kind.class()}),
+            Ok(table) => {
+                let root = Value::Table(table);
+                let mut pending = vec![&root];
+                let mut nodes = Vec::new();
+                while let Some(value) = pending.pop() {
+                    match value {
+                        Value::Table(table) => {
+                            nodes.push(json!(["table", table.keys().collect::<Vec<_>>()]));
+                            pending.extend(table.values().rev());
+                        }
+                        Value::Integer(n) => nodes.push(json!(["int", n])),
+                        _ => panic!("unexpected timing fixture value"),
+                    }
+                }
+                json!({"nodes":nodes})
+            }
+        };
+        assert_eq!(actual, row["expected"], "{row}");
+    }
+}
