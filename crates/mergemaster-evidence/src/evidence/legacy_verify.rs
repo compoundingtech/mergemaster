@@ -61,6 +61,7 @@ mod require_all_json;
 pub mod result;
 mod result_json;
 pub mod routing;
+pub mod run_inputs;
 pub mod selection;
 pub mod selection_json;
 pub mod signature;

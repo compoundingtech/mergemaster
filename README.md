@@ -553,6 +553,10 @@ Private borrowed views avoid converting statements into native String maps.
 `InputMap` carries borrowed run-input lookup through judgments and value guards;
 native `BTreeMap<String, String>` and lossless `ValidatedInputs` share that path.
 The native `value_checks_document` convenience signature retains map inference.
+`run_inputs::RunInputs` borrows first-equals CLI pairs and accepted-base hashes,
+retaining first key position with last value wins. Accepted-base values overwrite
+caller claims; callers keep the reader's owned hashes alive for this InputMap view.
+Full unbounded Python repr refusals remain library text, not a raw terminal sink.
 Event helpers retain signer-level event order when narrowing check permissions
 and identify shard parts only from the configured producer kind and index input.
 Routing requires a signature-verified principal and a validated generic check.
