@@ -1,4 +1,5 @@
 //! Legacy policy evaluation, separate from native gate authorization.
+pub mod argparse_int;
 pub mod argparse_options;
 mod binding_path;
 pub mod candidates;
