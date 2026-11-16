@@ -2,8 +2,9 @@
 
 ## Unreleased
 
+- Resolve v2 link targets component by component and require authority for every intermediate link; accept fully validated workspace dependency cycles while rejecting nonterminating link chains, and use logarithmic tracked-directory prefix lookups.
 - Share v2 link reachability validation across an entire workspace observation, expanding each canonical directory once per tracked-authority mode even across chained and shared inputs.
-- Validate every reachable descendant of v2 workspace directory links, refusing nested escapes, reachable scratch paths and cycles without changing digest preimages.
+- Validate every reachable descendant of v2 workspace directory links, refusing nested escapes, reachable scratch paths and nonterminating link chains without changing digest preimages.
 - Add opt-in `tree-sha256-v2` measured inputs: hash root symlink targets and resolved contents, and bind descendant link targets within declared measured trees or the verified-clean tracked checkout; retain legacy tree digests, scratch restrictions and evidence compatibility, with no Nix-store exemption.
 - Reuse borrowed check codepoints across member aggregation and stream uncovered summaries without temporary per-member formatted strings or joined buffers.
 - Aggregate legacy member successes from original records: oldest metadata, weakest trust, maximum attempts, any input match, narrowed events and combined sampling key, with escaped sorted crate output.

@@ -97,11 +97,102 @@ pub fn tree_digest_v2(root: &Path, measured_roots: &[std::path::PathBuf]) -> Res
 
 #[derive(Default)]
 struct Reachability {
-    active: BTreeSet<std::path::PathBuf>,
+    active: [BTreeSet<std::path::PathBuf>; 2],
     // Keep tracked-authority modes separate without allocating a tuple for lookups.
     complete: [BTreeSet<std::path::PathBuf>; 2],
     #[cfg(test)]
     expansions: [std::collections::BTreeMap<std::path::PathBuf, usize>; 2],
+}
+
+fn authorized(
+    path: &Path,
+    measured_roots: &[std::path::PathBuf],
+    tracked: Option<(&Path, &BTreeSet<String>)>,
+    directory: bool,
+) -> bool {
+    measured_roots.iter().any(|root| path.starts_with(root))
+        || tracked.is_some_and(|(repo, files)| {
+            let Some(name) = path.strip_prefix(repo).ok().and_then(Path::to_str) else {
+                return false;
+            };
+            if files.contains(name) {
+                return true;
+            }
+            if !directory {
+                return false;
+            }
+            let prefix = format!("{name}/");
+            files
+                .range::<str, _>((
+                    std::ops::Bound::Included(prefix.as_str()),
+                    std::ops::Bound::Unbounded,
+                ))
+                .next()
+                .is_some_and(|file| file.starts_with(&prefix))
+        })
+}
+
+// Resolve target components explicitly: canonicalize alone hides unmeasured bridge links.
+fn resolve_links(
+    path: &Path,
+    measured_roots: &[std::path::PathBuf],
+    tracked: Option<(&Path, &BTreeSet<String>)>,
+    bound_root: bool,
+) -> Result<std::path::PathBuf> {
+    use std::path::{Component, PathBuf};
+    let Some(name) = path.file_name() else {
+        return Ok(fs::canonicalize(path)?);
+    };
+    // Initial ancestors are checked by contained(); only target paths need hop-by-hop resolution.
+    let parent = path.parent().filter(|parent| !parent.as_os_str().is_empty());
+    let initial = fs::canonicalize(parent.unwrap_or(Path::new(".")))?.join(name);
+    let mut pending = initial.clone();
+    let mut hops = 0;
+    loop {
+        let mut resolved = PathBuf::new();
+        let mut components = pending.components();
+        let next = loop {
+            let Some(component) = components.next() else {
+                return Ok(resolved);
+            };
+            match component {
+                Component::ParentDir => {
+                    resolved.pop();
+                    continue;
+                }
+                Component::CurDir => continue,
+                _ => resolved.push(component.as_os_str()),
+            }
+            let meta =
+                fs::symlink_metadata(&resolved).context("dangling or cyclic workspace symlink")?;
+            if !meta.file_type().is_symlink() {
+                continue;
+            }
+            ensure!(
+                (bound_root && resolved == initial)
+                    || authorized(&resolved, measured_roots, tracked, false),
+                "workspace symlink escapes through unmeasured intermediate link: {}",
+                resolved.display()
+            );
+            hops += 1;
+            ensure!(
+                hops <= 40,
+                "cyclic workspace symlink or excessive link chain"
+            );
+            let target = fs::read_link(&resolved)?;
+            let mut next = if target.is_absolute() {
+                target
+            } else {
+                resolved
+                    .parent()
+                    .context("symlink without parent")?
+                    .join(target)
+            };
+            next.push(components.as_path());
+            break next;
+        };
+        pending = next;
+    }
 }
 
 // Validate reachability separately from digest rows: v1 and v2 preimages stay unchanged.
@@ -109,25 +200,12 @@ fn reachable(
     path: &Path,
     measured_roots: &[std::path::PathBuf],
     tracked: Option<(&Path, &BTreeSet<String>)>,
+    bound_root: bool,
     state: &mut Reachability,
 ) -> Result<()> {
-    let resolved = fs::canonicalize(path).context("dangling or cyclic workspace symlink")?;
-    let meta = fs::metadata(&resolved)?;
-    let authorized = measured_roots.iter().any(|root| resolved.starts_with(root))
-        || tracked.is_some_and(|(repo, files)| {
-            resolved
-                .strip_prefix(repo)
-                .ok()
-                .and_then(Path::to_str)
-                .is_some_and(|name| {
-                    files.contains(name)
-                        || (meta.is_dir()
-                            && files.iter().any(|file| {
-                                file.strip_prefix(name)
-                                    .is_some_and(|rest| rest.starts_with('/'))
-                            }))
-                })
-        });
+    let resolved = resolve_links(path, measured_roots, tracked, bound_root)?;
+    let meta = fs::metadata(path)?;
+    let authorized = authorized(&resolved, measured_roots, tracked, meta.is_dir());
     ensure!(
         authorized,
         "workspace symlink escapes measured inputs: {}",
@@ -141,19 +219,20 @@ fn reachable(
     if !meta.is_dir() || state.complete[mode].contains(&resolved) {
         return Ok(());
     }
-    ensure!(
-        state.active.insert(resolved.clone()),
-        "cyclic workspace symlink"
-    );
+    // Directory dependency cycles are safe co-inductively: this mode is already
+    // validating every physical child. Nonterminating link chains fail in resolve_links.
+    if !state.active[mode].insert(resolved.clone()) {
+        return Ok(());
+    }
     #[cfg(test)]
     {
         *state.expansions[mode].entry(resolved.clone()).or_default() += 1;
     }
     // A tracked directory prefix only permits traversal, never its untracked children.
     for entry in fs::read_dir(&resolved)? {
-        reachable(&entry?.path(), measured_roots, tracked, state)?;
+        reachable(&entry?.path(), measured_roots, tracked, false, state)?;
     }
-    state.active.remove(&resolved);
+    state.active[mode].remove(&resolved);
     state.complete[mode].insert(resolved);
     Ok(())
 }
@@ -164,7 +243,7 @@ fn digest_tree(
     tracked: Option<(&Path, &BTreeSet<String>)>,
 ) -> Result<String> {
     if let Some(roots) = measured_roots {
-        reachable(root, roots, tracked, &mut Reachability::default())?;
+        reachable(root, roots, tracked, true, &mut Reachability::default())?;
     }
     digest_rows(root, measured_roots)
 }
@@ -355,6 +434,7 @@ pub fn verify(repo: &Path, head: &str, lane: &Lane, start: bool) -> Result<()> {
                 &path,
                 &measured_roots,
                 Some((&canonical_repo, &files)),
+                true,
                 &mut reachability,
             )?;
             digest_rows(&path, Some(&measured_roots))?
@@ -449,7 +529,7 @@ mod tests {
         let mut observation = Reachability::default();
         for tracked in [None, Some((base.as_path(), &files))] {
             for root in &roots {
-                reachable(root, &roots, tracked, &mut observation).unwrap();
+                reachable(root, &roots, tracked, true, &mut observation).unwrap();
             }
         }
         for mode in 0..2 {
@@ -474,5 +554,18 @@ mod tests {
         symlink(".pnpm/pkg/node_modules/pkg", modules.join("pkg")).unwrap();
         symlink("pkg/node_modules/pkg", modules.join(".pnpm/alias")).unwrap();
         tree_digest_v2(&modules, std::slice::from_ref(&modules)).unwrap();
+    }
+
+    #[test]
+    fn tracked_directory_range_lookup_is_component_aware() {
+        let repo = Path::new("/checkout");
+        let files = BTreeSet::from([
+            "packages/core-extra/index.js".into(),
+            "packages/core/index.js".into(),
+        ]);
+        let tracked = Some((repo, &files));
+        assert!(authorized(&repo.join("packages/core"), &[], tracked, true));
+        assert!(!authorized(&repo.join("packages/cor"), &[], tracked, true));
+        assert!(!authorized(&repo.join("packages/core"), &[], tracked, false));
     }
 }
