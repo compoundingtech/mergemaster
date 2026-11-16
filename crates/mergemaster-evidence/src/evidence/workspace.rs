@@ -133,7 +133,10 @@ fn reachable(
         "workspace symlink escapes measured inputs: {}",
         path.display()
     );
-    ensure!(meta.is_dir() || meta.is_file(), "unsupported workspace entry");
+    ensure!(
+        meta.is_dir() || meta.is_file(),
+        "unsupported workspace entry"
+    );
     let mode = usize::from(tracked.is_some());
     if !meta.is_dir() || state.complete[mode].contains(&resolved) {
         return Ok(());
@@ -430,7 +433,9 @@ mod tests {
         use std::os::unix::fs::symlink;
         let fixture = tempfile::tempdir().unwrap();
         let base = fs::canonicalize(fixture.path()).unwrap();
-        let roots: Vec<_> = (0..8).map(|index| base.join(format!("root{index}"))).collect();
+        let roots: Vec<_> = (0..8)
+            .map(|index| base.join(format!("root{index}")))
+            .collect();
         for root in &roots {
             fs::create_dir(root).unwrap();
         }
@@ -449,7 +454,11 @@ mod tests {
         }
         for mode in 0..2 {
             assert_eq!(observation.expansions[mode].len(), roots.len());
-            assert!(observation.expansions[mode].values().all(|count| *count == 1));
+            assert!(
+                observation.expansions[mode]
+                    .values()
+                    .all(|count| *count == 1)
+            );
         }
     }
 
