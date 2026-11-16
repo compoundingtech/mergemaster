@@ -27,6 +27,7 @@ pub mod lane_git;
 pub mod lanes;
 pub mod member_project;
 pub mod ordering;
+pub mod paths_project;
 pub mod prefix;
 pub mod projection;
 pub mod projection_capture;

@@ -22,15 +22,7 @@ impl<'a> MemberProject<'a> {
         check: CheckName<'a>,
         policy_base: Option<&str>,
     ) -> Result<Self, PolicyError> {
-        if !matches!(tree.len(), 40 | 64)
-            || !tree
-                .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        {
-            return Err(super::crate_inputs::failure(
-                "expected a full lowercase Git tree ID",
-            ));
-        }
+        super::paths_project::validate_tree(tree)?;
         let mut keys = member_keys(repo, tree, policy_base)?;
         keys.sort_keys();
         Ok(Self { tree, check, keys })
