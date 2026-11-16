@@ -154,7 +154,13 @@ fn reachable(
     }
     // A tracked directory prefix only permits traversal, never its untracked children.
     for entry in fs::read_dir(&resolved)? {
-        reachable(&entry?.path(), measured_roots, tracked, closure_roots, state)?;
+        reachable(
+            &entry?.path(),
+            measured_roots,
+            tracked,
+            closure_roots,
+            state,
+        )?;
     }
     state.active.remove(&resolved);
     state.complete[mode].insert(resolved);
