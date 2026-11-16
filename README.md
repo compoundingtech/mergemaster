@@ -1352,11 +1352,12 @@ nix develop -c python3 tests/test-graph-proof.py \
 ## Repository check-publisher infrastructure
 
 `iac/alchemy.run.ts` owns one private, user-owned GitHub App per entry in
-`iac/stack.ts`. The Graph entry targets `schickling/factory`, whose
-default branch is `main`. Its App requests only `checks: write` (GitHub adds
-`metadata: read`), has no events or active webhook, and has no author allowlist.
-The Graph repository owns its ruleset and consumer workflows; this stack
-does not declare a ruleset or run candidate code.
+`iac/stack.ts`. The Graph entry (`id: graph`) targets `schickling/factory`;
+the PTG entry (`id: ptg`, App name `PTG Evidence`) targets `schickling/ptg`.
+Both default branches are `main`. Each App requests only `checks: write`
+(GitHub adds `metadata: read`), has no events or active webhook, and has no
+author allowlist. Each consumer repository owns its ruleset and workflows;
+this stack does not declare a ruleset or run candidate code.
 
 The environment `mergemaster-check-publisher` permits only the exact `main`
 branch, not all protected branches. The App provider seals the private key
@@ -1369,8 +1370,8 @@ environment support requires a compatible GitHub plan.
 
 ### Operator manifest registration
 
-The isolated IaC package uses pnpm 12.15.0, the fleet pin from the composed
-effect-utils `nix/pnpm.nix`, with its own `iac/pnpm-lock.yaml`.
+The isolated IaC package uses pnpm 12.17.0, the current fleet pin, with its own
+`iac/pnpm-lock.yaml`.
 Node 24.20.0 is used in hosted CI. The pinned effect-utils source is composed
 through `megarepo.lock`; pnpm's `file:` dependency installs the unpublished
 provider with its dependencies, rather than linking an uninstalled checkout.
@@ -1394,9 +1395,10 @@ does not submit the manifest. The loopback redirect
 `http://127.0.0.1:8787/github-app-callback` carries the one-time `code` and
 `state`; a refused connection is harmless because those values remain in the
 address bar. Compare state to `graph.state` and complete within one hour.
-Read the code through a trusted secret-input path, not a literal shell command
-or a committed env file; then, with `APP_MANIFEST_CODE` and
-`APP_MANIFEST_CODE_STATE` exported in that same operator shell:
+The operator captures the callback code through a trusted secret channel;
+never paste it into chat or command-line arguments. The operator passes
+`APP_MANIFEST_CODE` and `APP_MANIFEST_CODE_STATE` into that same operator
+shell through the trusted secret channel, without logging values:
 
 ```sh
 pnpm run deploy
@@ -1416,12 +1418,12 @@ Install the App on **only** `schickling/factory`. Registered outputs
 are `graph.status`, `graph.integrationId`, and `graph.slug`. Pending outputs
 are `graph.status`, `graph.manifestHtml`, `graph.state`, and `graph.expiresAt`;
 there is no integration ID until registration succeeds. Give
-`graph.integrationId` (the App ID, not an installation ID) to the Graph
-ruleset owner for the required `graph-full-check` integration binding.
+`graph.integrationId` (the App ID, not an installation ID) to the repository
+owner for the consumer's required-lane integration bindings.
 
-The base-only publisher is `genericEvidenceRequiredJob` from
-`genie/generic-evidence.ts`, running on `pull_request_target`; the independent
-unprivileged `validate` workflow remains `.github/workflows/validate.yml`.
+The reusable base-only publisher is `genericEvidenceRequiredJob` from
+`genie/generic-evidence.ts`, running on `pull_request_target`; consumers must
+retain independent unprivileged validation.
 Its consumer must set job `environment: 'mergemaster-check-publisher'` and
 supply `appTokenStep` using a SHA-pinned `actions/create-github-app-token`:
 `app-id` is the exported integration ID, `private-key` is
@@ -1481,4 +1483,101 @@ After ambiguous conversion failure, do not replay the one-use code: inspect
 the owner UI, revoke/rotate and reseed the same secret through a trusted
 secret-management path, then use `APP_ADOPT_SLUG` with `pnpm run deploy` and
 unset it afterward. `APP_REPOSITORY` selects the entry for conversion/adoption
-(default `graph`); adding future repositories requires one table entry each.
+(default `graph`); use `APP_REPOSITORY=ptg` for PTG. IDs also name the resource
+state keys (`ptg-publisher-app`, `ptg-publisher-environment`), registration
+lookup, and output namespace (`ptg.*`); do not rename an existing ID.
+
+### PTG bootstrap and required-publisher handoff
+
+Use the same protected operator state root that already owns Graph; do not
+bootstrap a second copy of the existing App. Materialize dependencies and
+install the isolated package as above, then run from `iac/`:
+
+```sh
+umask 077
+export APP_REPOSITORY=ptg
+pnpm run plan
+pnpm run deploy
+```
+
+Review the plan: Graph must retain its existing resources; PTG adds its
+main-only environment and pending App manifest. `operator.mjs` invokes the
+Alchemy CLI with `--import ./register.mjs`; `register.mjs` only registers the
+Oxc TypeScript loader, not the GitHub App. There is no separate App-register
+CLI command.
+
+**Human consent:** the repository owner gives browser consent for the
+**`ptg.manifestHtml` form** creating the private `PTG Evidence` App, and later
+for its installation on only `schickling/ptg`. The operator prepares the form;
+the form POST is required, not merely opening its action URL.
+
+The operator captures the callback code through a trusted secret channel,
+compares the redirect `state` with `ptg.state`, and completes conversion within
+one hour. A refused connection to
+`http://127.0.0.1:8787/github-app-callback` does not lose the address-bar
+callback. Never paste the code into chat or command-line arguments. The
+operator supplies the one-use `code` and matching `state` as
+`APP_MANIFEST_CODE` and `APP_MANIFEST_CODE_STATE` through the trusted secret
+channel in the same operator shell, without exposing values, then runs:
+
+```sh
+pnpm run deploy
+unset APP_MANIFEST_CODE APP_MANIFEST_CODE_STATE
+pnpm run check-state
+unset APP_REPOSITORY
+```
+
+The repository owner installs the App on **only `schickling/ptg`**. The provider
+seals the private key into PTG's `mergemaster-check-publisher` environment
+secret `MERGEMASTER_APP_PRIVATE_KEY`. The callback code, private key and
+minted App tokens are secret; never paste them into commands, logs, git or
+state. `ptg.integrationId` (the App ID, not installation ID), `ptg.slug`,
+pending manifest/state and the secret's destination name are non-secret
+metadata. Retain the existing state root and back it up only after the
+post-registration state check succeeds.
+
+#### Required-publisher binding contract
+
+The required contexts are exactly the consumer's `required_evidence` lane
+IDs in its BASE `.mergemaster/lanes.json`, each bound to
+`integration_id` = the consumer's App ID (not its installation ID).
+
+The reusable publisher's check-name contract is in
+`genie/generic-evidence.ts`: `genericEvidenceRequiredJob({ check, ... })`
+sets `env.CHECK = check`, and Python `finalize()` posts
+`POST /repos/{owner}/{repository}/check-runs` with
+`{"name": os.environ["CHECK"], "head_sha": head, ...}` using `APP_TOKEN`.
+The check-run name is therefore the lane ID, not the publisher job name or
+an informational report job name.
+
+The repository owner enrolls its BASE-controlled lane/environment/signer
+policy, retains independent unprivileged validation, and uses
+`genericEvidenceRequiredJob({ check: laneId, ... })` for each required lane on
+`pull_request_target`, with job environment `mergemaster-check-publisher`.
+Supply a SHA-pinned `actions/create-github-app-token` step with
+`app-id` set to the consumer's exported `integrationId`,
+`private-key: ${{ secrets.MERGEMASTER_APP_PRIVATE_KEY }}`, and `owner` and
+`repositories` limited to the target repository. Never use `GITHUB_TOKEN`
+as the check publisher or require the informational reporter.
+
+Only after registration, installation and successful publisher runs for
+every required lane, the repository owner adds the required-status-check
+rule to its main-branch ruleset. Include one context per BASE
+`required_evidence` lane ID and replace the symbolic App ID with the
+consumer's numeric `integrationId`:
+
+```text
+{
+  "type": "required_status_checks",
+  "parameters": {
+    "required_status_checks": [
+      {"context": "<required_evidence lane ID>", "integration_id": <consumer App ID>}
+    ],
+    "strict_required_status_checks_policy": true
+  }
+}
+```
+
+Consumer workflow/policy and ruleset changes belong in their respective
+repositories, not this stack. None of the apply/consent/installation/ruleset
+steps above run as part of the offline test suite.
