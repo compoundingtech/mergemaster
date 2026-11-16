@@ -531,3 +531,86 @@ fn workspace_links_may_reach_verified_tracked_siblings_but_not_unmeasured_paths(
         );
     }
 }
+
+#[cfg(unix)]
+fn assert_tracked_directory_link_rejected(case: &str) {
+    use mergemaster_evidence::{
+        evidence::workspace::{tree_digest_v2, verify},
+        gate::config::Artifact,
+    };
+    use std::os::unix::fs::symlink;
+    let repo = fixture();
+    let outside = tempfile::tempdir().unwrap();
+    fs::write(outside.path().join("payload"), "outside").unwrap();
+    let package = repo.path().join("packages/core");
+    fs::create_dir_all(&package).unwrap();
+    fs::write(package.join("index.js"), "tracked").unwrap();
+    if case == "escape" {
+        symlink(outside.path(), package.join("escape")).unwrap();
+    } else if case == "cycle" {
+        symlink(".", package.join("cycle")).unwrap();
+    }
+    git(repo.path(), &["add", "."]);
+    git(repo.path(), &["commit", "-q", "-m", "tracked package"]);
+    let head = git(repo.path(), &["rev-parse", "HEAD"]);
+    let modules = repo.path().join("node_modules");
+    fs::create_dir(&modules).unwrap();
+    let mut lane = lane();
+    lane.inputs.insert(
+        "node_modules".into(),
+        Artifact {
+            name: "modules".into(),
+            identity: format!(
+                "tree-sha256-v2:{}",
+                tree_digest_v2(&modules, &[fs::canonicalize(&modules).unwrap()]).unwrap()
+            ),
+        },
+    );
+    if case == "scratch" {
+        fs::create_dir(package.join("output")).unwrap();
+        fs::write(package.join("output/payload"), "scratch").unwrap();
+        lane.scratch = vec!["packages/core/output".into()];
+    }
+    symlink("../packages/core", modules.join("core")).unwrap();
+    if case != "cycle" {
+        // Use the attack's actual digest, with broader authority only during measurement.
+        let roots = [
+            fs::canonicalize(&modules).unwrap(),
+            fs::canonicalize(&package).unwrap(),
+            fs::canonicalize(outside.path()).unwrap(),
+        ];
+        lane.inputs.get_mut("node_modules").unwrap().identity = format!(
+            "tree-sha256-v2:{}",
+            tree_digest_v2(&modules, &roots).unwrap()
+        );
+    }
+    for start in [false, true] {
+        let error = verify(repo.path(), head.trim(), &lane, start).unwrap_err();
+        assert!(
+            error.to_string().contains(if case == "cycle" {
+                "cyclic workspace symlink"
+            } else {
+                "symlink escapes"
+            }),
+            "{case}: {error}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn tracked_directory_link_rejects_nested_tracked_escape() {
+    assert_tracked_directory_link_rejected("escape");
+}
+
+#[cfg(unix)]
+#[test]
+fn tracked_directory_link_rejects_reachable_scratch_descendant() {
+    assert_tracked_directory_link_rejected("scratch");
+}
+
+#[cfg(unix)]
+#[test]
+fn tracked_directory_link_rejects_cycle() {
+    assert_tracked_directory_link_rejected("cycle");
+}

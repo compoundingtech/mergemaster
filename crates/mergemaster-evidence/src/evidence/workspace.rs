@@ -89,10 +89,54 @@ pub fn tree_digest(root: &Path) -> Result<String> {
 }
 
 /// Measure raw link targets and the complete contents of a possibly linked root.
-/// Descendant links are not traversed. This standalone API requires measured
-/// tree roots; verify additionally authorizes paths in its verified-clean tracked tree.
+/// Descendant links contribute only their raw targets to the digest, but their
+/// complete reachable subtrees must be authorized. Verify also permits clean tracked paths.
 pub fn tree_digest_v2(root: &Path, measured_roots: &[std::path::PathBuf]) -> Result<String> {
     digest_tree(root, Some(measured_roots), None)
+}
+
+// Validate reachability separately from digest rows: v1 and v2 preimages stay unchanged.
+fn reachable(
+    path: &Path,
+    measured_roots: &[std::path::PathBuf],
+    tracked: Option<(&Path, &BTreeSet<String>)>,
+    active: &mut BTreeSet<std::path::PathBuf>,
+    complete: &mut BTreeSet<std::path::PathBuf>,
+) -> Result<()> {
+    let resolved = fs::canonicalize(path).context("dangling or cyclic workspace symlink")?;
+    let meta = fs::metadata(&resolved)?;
+    let authorized = measured_roots.iter().any(|root| resolved.starts_with(root))
+        || tracked.is_some_and(|(repo, files)| {
+            resolved
+                .strip_prefix(repo)
+                .ok()
+                .and_then(Path::to_str)
+                .is_some_and(|name| {
+                    files.contains(name)
+                        || (meta.is_dir()
+                            && files.iter().any(|file| {
+                                file.strip_prefix(name)
+                                    .is_some_and(|rest| rest.starts_with('/'))
+                            }))
+                })
+        });
+    ensure!(
+        authorized,
+        "workspace symlink escapes measured inputs: {}",
+        path.display()
+    );
+    ensure!(meta.is_dir() || meta.is_file(), "unsupported workspace entry");
+    if !meta.is_dir() || complete.contains(&resolved) {
+        return Ok(());
+    }
+    ensure!(active.insert(resolved.clone()), "cyclic workspace symlink");
+    // A tracked directory prefix only permits traversal, never its untracked children.
+    for entry in fs::read_dir(&resolved)? {
+        reachable(&entry?.path(), measured_roots, tracked, active, complete)?;
+    }
+    active.remove(&resolved);
+    complete.insert(resolved);
+    Ok(())
 }
 
 fn digest_tree(
@@ -104,7 +148,6 @@ fn digest_tree(
         root: &Path,
         path: &Path,
         measured_roots: Option<&[std::path::PathBuf]>,
-        tracked: Option<(&Path, &BTreeSet<String>)>,
         rows: &mut Vec<(String, String, String)>,
     ) -> Result<()> {
         let meta = fs::symlink_metadata(path)?;
@@ -116,26 +159,6 @@ fn digest_tree(
         if meta.file_type().is_symlink() {
             let measured_roots = measured_roots.context("materialized input contains symlink")?;
             let target = fs::read_link(path)?;
-            let resolved =
-                fs::canonicalize(path).context("dangling or cyclic workspace symlink")?;
-            ensure!(
-                measured_roots.iter().any(|root| resolved.starts_with(root))
-                    || tracked.is_some_and(|(repo, files)| {
-                        resolved
-                            .strip_prefix(repo)
-                            .ok()
-                            .and_then(Path::to_str)
-                            .is_some_and(|name| {
-                                files.contains(name)
-                                    || files.iter().any(|file| {
-                                        file.strip_prefix(name)
-                                            .is_some_and(|rest| rest.starts_with('/'))
-                                    })
-                            })
-                    }),
-                "workspace symlink escapes measured inputs: {}",
-                path.display()
-            );
             let is_root = path == root;
             rows.push((
                 name,
@@ -148,7 +171,7 @@ fn digest_tree(
                     "linked tree root must be a directory"
                 );
                 for entry in fs::read_dir(path)? {
-                    walk(root, &entry?.path(), Some(measured_roots), tracked, rows)?;
+                    walk(root, &entry?.path(), Some(measured_roots), rows)?;
                 }
             }
             return Ok(());
@@ -179,7 +202,7 @@ fn digest_tree(
         rows.push((name, kind.into(), digest));
         if meta.is_dir() {
             for entry in fs::read_dir(path)? {
-                walk(root, &entry?.path(), measured_roots, tracked, rows)?;
+                walk(root, &entry?.path(), measured_roots, rows)?;
             }
         }
         Ok(())
@@ -192,8 +215,17 @@ fn digest_tree(
         },
         "tree artifact must be a directory"
     );
+    if let Some(roots) = measured_roots {
+        reachable(
+            root,
+            roots,
+            tracked,
+            &mut BTreeSet::new(),
+            &mut BTreeSet::new(),
+        )?;
+    }
     let mut rows = Vec::new();
-    walk(root, root, measured_roots, tracked, &mut rows)?;
+    walk(root, root, measured_roots, &mut rows)?;
     rows.sort_by(|a, b| a.0.cmp(&b.0));
     let version = if measured_roots.is_some() { 2 } else { 1 };
     Ok(hex::encode(Sha256::digest(serde_json::to_vec(&(
