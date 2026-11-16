@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Preserve exact declared input-root link locations as explicit cross-root hop authority, separately from canonical measured endpoints; require standalone callers to supply the original declared root paths.
 - Resolve v2 link targets component by component and require authority for every intermediate link; accept fully validated workspace dependency cycles while rejecting nonterminating link chains, and use logarithmic tracked-directory prefix lookups.
 - Constrain nested links reachable through measured Nix closure directories to authorized closure members and measured input roots, including cross-member links, while retaining v1/v2 digest bytes and evidence verification.
 - Share v2 link reachability validation across an entire workspace observation, expanding each canonical directory once per tracked-authority mode even across chained and shared inputs.

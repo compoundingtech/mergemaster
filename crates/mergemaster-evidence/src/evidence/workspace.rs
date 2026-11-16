@@ -91,17 +91,39 @@ pub fn tree_digest(root: &Path) -> Result<String> {
 /// Measure raw link targets and the complete contents of a possibly linked root.
 /// Descendant links contribute only their raw targets to the digest, but their
 /// complete reachable subtrees must be authorized. Verify also permits clean tracked paths.
+/// Supply declared root paths without canonicalizing their final components, so
+/// their individually measured root links can also authorize cross-root hops.
 pub fn tree_digest_v2(root: &Path, measured_roots: &[std::path::PathBuf]) -> Result<String> {
     digest_tree(root, Some(measured_roots), None, &[])
 }
 
 #[derive(Default)]
 struct Reachability {
+    bound_roots: BTreeSet<std::path::PathBuf>,
     active: [BTreeSet<std::path::PathBuf>; 2],
     // Keep tracked-authority modes separate without allocating a tuple for lookups.
     complete: [BTreeSet<std::path::PathBuf>; 2],
     #[cfg(test)]
     expansions: [std::collections::BTreeMap<std::path::PathBuf, usize>; 2],
+}
+
+impl Reachability {
+    fn bind_root(&mut self, path: &Path) -> Result<()> {
+        if fs::symlink_metadata(path)?.file_type().is_symlink() {
+            self.bound_roots.insert(root_location(path)?);
+        }
+        Ok(())
+    }
+}
+
+fn root_location(path: &Path) -> Result<std::path::PathBuf> {
+    let Some(name) = path.file_name() else {
+        return Ok(fs::canonicalize(path)?);
+    };
+    let parent = path.parent().filter(|parent| !parent.as_os_str().is_empty());
+    let mut location = fs::canonicalize(parent.unwrap_or(Path::new(".")))?;
+    location.push(name);
+    Ok(location)
 }
 
 fn authorized(
@@ -138,16 +160,11 @@ fn resolve_links(
     measured_roots: &[std::path::PathBuf],
     tracked: &mut Option<(&Path, &BTreeSet<String>)>,
     closure_roots: &[std::path::PathBuf],
-    bound_root: bool,
+    bound_roots: &BTreeSet<std::path::PathBuf>,
 ) -> Result<std::path::PathBuf> {
     use std::path::{Component, PathBuf};
-    let Some(name) = path.file_name() else {
-        return Ok(fs::canonicalize(path)?);
-    };
     // Initial ancestors are checked by contained(); only target paths need hop-by-hop resolution.
-    let parent = path.parent().filter(|parent| !parent.as_os_str().is_empty());
-    let initial = fs::canonicalize(parent.unwrap_or(Path::new(".")))?.join(name);
-    let mut pending = initial.clone();
+    let mut pending = root_location(path)?;
     let mut hops = 0;
     loop {
         let mut resolved = PathBuf::new();
@@ -175,7 +192,7 @@ fn resolve_links(
                 continue;
             }
             ensure!(
-                (bound_root && resolved == initial)
+                bound_roots.contains(&resolved)
                     || authorized(&resolved, measured_roots, *tracked, false),
                 "workspace symlink escapes through unmeasured intermediate link: {}",
                 resolved.display()
@@ -207,7 +224,6 @@ fn reachable(
     measured_roots: &[std::path::PathBuf],
     tracked: Option<(&Path, &BTreeSet<String>)>,
     closure_roots: &[std::path::PathBuf],
-    bound_root: bool,
     state: &mut Reachability,
 ) -> Result<()> {
     let mut tracked = tracked;
@@ -216,7 +232,7 @@ fn reachable(
         measured_roots,
         &mut tracked,
         closure_roots,
-        bound_root,
+        &state.bound_roots,
     )?;
     let meta = fs::metadata(path)?;
     let authorized = authorized(&resolved, measured_roots, tracked, meta.is_dir());
@@ -249,7 +265,6 @@ fn reachable(
             measured_roots,
             tracked,
             closure_roots,
-            false,
             state,
         )?;
     }
@@ -264,17 +279,20 @@ fn digest_tree(
     tracked: Option<(&Path, &BTreeSet<String>)>,
     closure_roots: &[std::path::PathBuf],
 ) -> Result<String> {
-    if let Some(roots) = measured_roots {
-        reachable(
-            root,
-            roots,
-            tracked,
-            closure_roots,
-            true,
-            &mut Reachability::default(),
-        )?;
+    let Some(roots) = measured_roots else {
+        return digest_rows(root, None);
+    };
+    let canonical_roots = roots
+        .iter()
+        .map(fs::canonicalize)
+        .collect::<std::io::Result<Vec<_>>>()?;
+    let mut state = Reachability::default();
+    state.bind_root(root)?;
+    for declared_root in roots {
+        state.bind_root(declared_root)?;
     }
-    digest_rows(root, measured_roots)
+    reachable(root, &canonical_roots, tracked, closure_roots, &mut state)?;
+    digest_rows(root, Some(&canonical_roots))
 }
 
 fn digest_rows(root: &Path, measured_roots: Option<&[std::path::PathBuf]>) -> Result<String> {
@@ -465,6 +483,11 @@ pub fn verify(
     }
     let mut reachability = Reachability::default();
     for (root, artifact) in &lane.inputs {
+        if artifact.identity.starts_with("tree-sha256-v2:") {
+            reachability.bind_root(&repo.join(root))?;
+        }
+    }
+    for (root, artifact) in &lane.inputs {
         let path = repo.join(root);
         let actual = if artifact.identity.starts_with("tree-sha256:") {
             tree_digest(&path)?
@@ -474,7 +497,6 @@ pub fn verify(
                 &measured_roots,
                 Some((&canonical_repo, &files)),
                 toolchain.map_or(&[], |measurement| measurement.nix_roots.as_slice()),
-                true,
                 &mut reachability,
             )?;
             digest_rows(&path, Some(&measured_roots))?
@@ -647,7 +669,7 @@ mod tests {
         let mut observation = Reachability::default();
         for tracked in [None, Some((base.as_path(), &files))] {
             for root in &roots {
-                reachable(root, &roots, tracked, &[], true, &mut observation).unwrap();
+                reachable(root, &roots, tracked, &[], &mut observation).unwrap();
             }
         }
         for mode in 0..2 {

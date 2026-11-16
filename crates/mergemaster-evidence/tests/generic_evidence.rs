@@ -347,10 +347,7 @@ fn measured_symlink_modules_sign_and_verify_without_materializations() {
         };
         symlink(modules_target, f.repo.join("node_modules")).unwrap();
         symlink(&external_dependencies, f.repo.join("dependencies")).unwrap();
-        let roots = vec![
-            fs::canonicalize(f.repo.join("node_modules")).unwrap(),
-            fs::canonicalize(f.repo.join("dependencies")).unwrap(),
-        ];
+        let roots = vec![f.repo.join("node_modules"), f.repo.join("dependencies")];
         let mut policy: Value =
             serde_json::from_slice(&fs::read(f.repo.join(".mergemaster/lanes.json")).unwrap())
                 .unwrap();
