@@ -85,14 +85,14 @@ fn contained(repo: &Path, root: &str, linked_root: bool) -> Result<()> {
 
 /// Hash directory entries in byte-sorted relative path order; include empty directories and modes.
 pub fn tree_digest(root: &Path) -> Result<String> {
-    digest_tree(root, None, None)
+    digest_tree(root, None, None, &[])
 }
 
 /// Measure raw link targets and the complete contents of a possibly linked root.
 /// Descendant links contribute only their raw targets to the digest, but their
 /// complete reachable subtrees must be authorized. Verify also permits clean tracked paths.
 pub fn tree_digest_v2(root: &Path, measured_roots: &[std::path::PathBuf]) -> Result<String> {
-    digest_tree(root, Some(measured_roots), None)
+    digest_tree(root, Some(measured_roots), None, &[])
 }
 
 // Validate reachability separately from digest rows: v1 and v2 preimages stay unchanged.
@@ -100,11 +100,14 @@ fn reachable(
     path: &Path,
     measured_roots: &[std::path::PathBuf],
     tracked: Option<(&Path, &BTreeSet<String>)>,
+    closure_roots: &[std::path::PathBuf],
     active: &mut BTreeSet<std::path::PathBuf>,
-    complete: &mut BTreeSet<std::path::PathBuf>,
+    complete: &mut BTreeSet<(std::path::PathBuf, bool)>,
 ) -> Result<()> {
     let resolved = fs::canonicalize(path).context("dangling or cyclic workspace symlink")?;
     let meta = fs::metadata(&resolved)?;
+    // Closure links may reach measured inputs or other closure members, not checkout files.
+    let tracked = tracked.filter(|_| !super::nix::contains(&resolved, closure_roots));
     let authorized = measured_roots.iter().any(|root| resolved.starts_with(root))
         || tracked.is_some_and(|(repo, files)| {
             resolved
@@ -126,16 +129,23 @@ fn reachable(
         path.display()
     );
     ensure!(meta.is_dir() || meta.is_file(), "unsupported workspace entry");
-    if !meta.is_dir() || complete.contains(&resolved) {
+    if !meta.is_dir() || complete.contains(&(resolved.clone(), tracked.is_some())) {
         return Ok(());
     }
     ensure!(active.insert(resolved.clone()), "cyclic workspace symlink");
     // A tracked directory prefix only permits traversal, never its untracked children.
     for entry in fs::read_dir(&resolved)? {
-        reachable(&entry?.path(), measured_roots, tracked, active, complete)?;
+        reachable(
+            &entry?.path(),
+            measured_roots,
+            tracked,
+            closure_roots,
+            active,
+            complete,
+        )?;
     }
     active.remove(&resolved);
-    complete.insert(resolved);
+    complete.insert((resolved, tracked.is_some()));
     Ok(())
 }
 
@@ -143,6 +153,7 @@ fn digest_tree(
     root: &Path,
     measured_roots: Option<&[std::path::PathBuf]>,
     tracked: Option<(&Path, &BTreeSet<String>)>,
+    closure_roots: &[std::path::PathBuf],
 ) -> Result<String> {
     fn walk(
         root: &Path,
@@ -220,6 +231,7 @@ fn digest_tree(
             root,
             roots,
             tracked,
+            closure_roots,
             &mut BTreeSet::new(),
             &mut BTreeSet::new(),
         )?;
@@ -346,6 +358,7 @@ pub fn verify(
                 &path,
                 Some(&measured_roots),
                 Some((&canonical_repo, &files)),
+                toolchain.map_or(&[], |measurement| measurement.nix_roots.as_slice()),
             )?
         } else {
             ensure!(
@@ -414,5 +427,63 @@ mod tests {
             "protected_edits":"reject","remediation_argv":["check"]});
         let lane: Lane = serde_json::from_value(legacy.clone()).unwrap();
         assert_eq!(serde_json::to_value(lane).unwrap(), legacy);
+    }
+
+    #[cfg(unix)]
+    fn closure_directory_link(case: &str) -> Result<String> {
+        use std::os::unix::fs::symlink;
+        let fixture = tempfile::tempdir()?;
+        let repo = fixture.path().join("repo");
+        let modules = repo.join("modules");
+        let store = fixture.path().join("store");
+        let package = store.join("00000000000000000000000000000000-package");
+        let dependency = store.join("11111111111111111111111111111111-dependency");
+        fs::create_dir_all(&modules)?;
+        fs::create_dir_all(package.join("bin"))?;
+        fs::create_dir_all(&dependency)?;
+        fs::write(dependency.join("helper"), "authorized")?;
+        let outside = fixture.path().join("helper");
+        fs::write(&outside, "unmeasured")?;
+        fs::write(repo.join("tracked"), "tracked")?;
+        let target = match case {
+            "authorized" => dependency.join("helper"),
+            "measured" => {
+                fs::write(modules.join("helper"), "measured")?;
+                modules.join("helper")
+            }
+            "tracked" => repo.join("tracked"),
+            _ => outside,
+        };
+        symlink(target, package.join("bin/helper"))?;
+        symlink(&package, modules.join("package"))?;
+        let closure = vec![package, dependency];
+        let mut measured = vec![modules.clone()];
+        measured.extend_from_slice(&closure);
+        digest_tree(
+            &modules,
+            Some(&measured),
+            Some((&repo, &BTreeSet::from(["tracked".into()]))),
+            &closure,
+        )
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn closure_directory_link_rejects_nested_unmeasured_helper() {
+        for case in ["escape", "tracked"] {
+            let error = closure_directory_link(case).unwrap_err();
+            assert!(
+                error.to_string().contains("symlink escapes"),
+                "{case}: {error}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn closure_directory_link_accepts_other_authorized_member_and_measured_root() {
+        for case in ["authorized", "measured"] {
+            closure_directory_link(case).unwrap();
+        }
     }
 }
