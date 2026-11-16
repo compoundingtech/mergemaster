@@ -91,3 +91,43 @@ fn deeply_nested_document_is_iterative() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+#[test]
+fn full_document_numeric_rounding_matches_tomllib_bits() {
+    let script = r#"
+import json,struct,sys,tomllib
+assert sys.version_info[:3]==(3,14,7)
+samples=['1e309','-1e309','2.2250738585072011e-308','4.9e-324','1e-400','9007199254740993','1.00000000000000011102230246251565404236316680908203125']
+rows=[]
+for token in samples:
+ value=tomllib.loads('value='+token)['value']
+ expected={'integer':str(value)} if type(value) is int else {'bits':struct.pack('>d',value).hex()}
+ rows.append(dict(token=token,expected=expected))
+assert rows[0]['expected']=={'bits':'7ff0000000000000'}
+assert rows[1]['expected']=={'bits':'fff0000000000000'}
+assert rows[3]['expected']=={'bits':'0000000000000001'}
+assert rows[4]['expected']=={'bits':'0000000000000000'}
+assert rows[5]['expected']=={'integer':'9007199254740993'}
+assert rows[6]['expected']=={'bits':'3ff0000000000000'}
+print(json.dumps(rows))
+"#;
+    let out = std::process::Command::new("python3")
+        .args(["-c", script])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let rows: Vec<serde_json::Value> = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(rows.len(), 7);
+    for row in rows {
+        let table = parse(&format!("value={}", row["token"].as_str().unwrap())).unwrap();
+        let actual = match &table["value"] {
+            Value::Float(number) => json!({"bits":format!("{:016x}", number.to_bits())}),
+            Value::Integer(number) => json!({"integer":number}),
+            value => panic!("unexpected numeric value {value:?}"),
+        };
+        assert_eq!(actual, row["expected"], "{row}");
+    }
+}
