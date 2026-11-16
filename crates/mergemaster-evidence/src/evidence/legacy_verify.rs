@@ -31,6 +31,8 @@ pub mod judgment;
 pub mod lane_entry;
 pub mod lane_git;
 pub mod lanes;
+pub mod log_age;
+pub mod log_lines;
 pub mod log_transport;
 pub mod member_digest;
 pub mod member_project;

@@ -954,7 +954,14 @@ The exchange's 60-second deadline matches that same line; update-index stdout is
 fixed SSH Git settings, no lazy fetch/replacements, LC_ALL=C and a 60-second deadline.
 Nonzero Git status is data; stdout is uncapped and stderr is drained/discarded.
 Spawn/NUL/timeout exceptions retain Python class and text with no operation prefix.
-This is transport only, not shadow-log metadata or CLI wiring.
+`log_lines::read` reads record IDs after the last GC marker, with replacement
+UTF-8 decoding and Python line/word whitespace. Real-Git SHA1/SHA256 oracle
+comparisons cover malformed records, GC ordering and absent blobs. Shadow-log
+metadata, member overlays and CLI wiring remain separate surfaces.
+`log_age::total_seconds` rounds the exact integer microsecond ratio once, ties
+to even, matching CPython timedelta rather than converting to float first.
+Oracle comparisons cover complete f64 bits and integer ages at rounding
+boundaries, signed neighbours, large values and i64 endpoint differences.
 
 ### Main-push tree-equality evidence
 
