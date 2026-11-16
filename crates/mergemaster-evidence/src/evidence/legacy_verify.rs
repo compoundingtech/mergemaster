@@ -28,6 +28,7 @@ pub mod projection;
 pub mod projection_capture;
 pub mod projection_oid;
 pub mod projection_process_error;
+pub mod python_digits;
 pub mod python_repr;
 pub mod raw_batch;
 pub mod records;
