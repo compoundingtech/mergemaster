@@ -120,7 +120,9 @@ fn root_location(path: &Path) -> Result<std::path::PathBuf> {
     let Some(name) = path.file_name() else {
         return Ok(fs::canonicalize(path)?);
     };
-    let parent = path.parent().filter(|parent| !parent.as_os_str().is_empty());
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty());
     let mut location = fs::canonicalize(parent.unwrap_or(Path::new(".")))?;
     location.push(name);
     Ok(location)
@@ -596,6 +598,11 @@ mod tests {
         let tracked = Some((repo, &files));
         assert!(authorized(&repo.join("packages/core"), &[], tracked, true));
         assert!(!authorized(&repo.join("packages/cor"), &[], tracked, true));
-        assert!(!authorized(&repo.join("packages/core"), &[], tracked, false));
+        assert!(!authorized(
+            &repo.join("packages/core"),
+            &[],
+            tracked,
+            false
+        ));
     }
 }
