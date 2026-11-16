@@ -72,3 +72,102 @@ print(json.dumps(rows))
         );
     }
 }
+
+#[test]
+fn lossless_log_checks_reach_exact_reader_argv_boundaries() {
+    let root = tempfile::tempdir().unwrap();
+    let script = r#"
+import json,pathlib,runpy,subprocess,sys
+v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify'); repo=pathlib.Path(sys.argv[2]); rows=[]
+def git(*a,data=None): return subprocess.check_output(['git','-C',str(repo),*a],input=data,stderr=subprocess.PIPE).decode().strip()
+git('init','-q'); git('config','user.name','Fixture'); git('config','user.email','fixture@example.invalid')
+key=repo/'key'; subprocess.run(['ssh-keygen','-q','-t','ed25519','-N','','-f',str(key)],check=True)
+keys=repo/'keys'; keys.write_text('log/fixture '+key.with_suffix('.pub').read_text())
+tree=git('mktree',data=b''); head=git('-c','gpg.format=ssh','-c','user.signingkey='+str(key),'commit-tree','-S',tree,data=b'as_of=2026-01-01T00:05:00Z')
+git('update-ref',v['LOG_REF'],head); ik='b'*40
+now=v['datetime'](2026,1,1,0,5,tzinfo=v['timezone'].utc)
+for check in ['check','a\udcff','a\ud800','a\0','😀\ud800\ud801','a\0\ud800']:
+ for variant in ['lines','single','members','lines-repo-nul','single-repo-nul','members-repo-nul']:
+  target=str(repo)+('\0' if variant.endswith('-repo-nul') else ''); mode=variant.split('-')[0]
+  try:
+   if mode=='lines': result=sorted(v['log_lines'](target,head,'keys/'+check+'/'+ik[:2]+'/'+ik,check))
+   elif mode=='single': result=v['log_view'](target,str(keys),tree,check,ik,None,now)
+   else: result=v['members_log_view'](target,str(keys),tree,check,{'a':(ik,None)},now)
+   expected=dict(value=result)
+  except Exception as e: expected=dict(exception=type(e).__name__,detail=str(e))
+  rows.append(dict(repo=target,check=list(map(ord,check)),mode=mode,expected=expected))
+print(json.dumps(dict(rows=rows,tree=tree,head=head,keys=str(keys),key=ik)))
+"#;
+    let out = std::process::Command::new("python3")
+        .args(["-c", script])
+        .arg(std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap())
+        .arg(root.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let data: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    for row in data["rows"].as_array().unwrap() {
+        let points: Vec<u32> = row["check"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p.as_u64().unwrap() as u32)
+            .collect();
+        let check = TextRef::Points(&points);
+        let key = data["key"].as_str().unwrap();
+        let tree = data["tree"].as_str().unwrap();
+        let keys = Path::new(data["keys"].as_str().unwrap());
+        let repo = Path::new(row["repo"].as_str().unwrap());
+        let result = match row["mode"].as_str().unwrap() {
+            "lines" => super::super::log_lines::read(
+                repo,
+                data["head"].as_str().unwrap(),
+                TextRef::Points(&key_path(check, key)),
+                check,
+            )
+            .map(|v| serde_json::to_value(v).unwrap()),
+            "single" => read(
+                repo,
+                keys,
+                tree,
+                check,
+                Some(key),
+                None,
+                1_767_225_900_000_000,
+                600,
+            )
+            .map(|v| serde_json::to_value(v).unwrap()),
+            _ => super::super::members_log_view::read(
+                repo,
+                keys,
+                tree,
+                check,
+                &std::collections::BTreeMap::from([(
+                    "a".into(),
+                    super::super::members_log_view::Member {
+                        key: Some(key),
+                        chosen: None,
+                        observed: None,
+                    },
+                )]),
+                1_767_225_900_000_000,
+                600,
+            )
+            .map(|v| serde_json::to_value(v).unwrap()),
+        };
+        let actual = match result {
+            Ok(value) => serde_json::json!({"value":value}),
+            Err(e) => match e.origin {
+                crate::evidence::legacy_policy::ErrorOrigin::Exception { class } => {
+                    serde_json::json!({"exception":class,"detail":e.detail.to_string()})
+                }
+                _ => panic!("unexpected Failure"),
+            },
+        };
+        assert_eq!(actual, row["expected"], "{row}");
+    }
+}

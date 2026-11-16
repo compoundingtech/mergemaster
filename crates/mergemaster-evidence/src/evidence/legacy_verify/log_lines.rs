@@ -1,6 +1,7 @@
 //! Record IDs after the last shadow-log GC marker (oracle log_lines).
-use super::{log_transport, projection_oid::space};
+use super::{binding_path::encode, log_transport, projection_oid::space, value_inputs::TextRef};
 use crate::evidence::legacy_policy::PolicyError;
+use std::os::unix::ffi::OsStrExt;
 use std::{collections::BTreeSet, ffi::OsStr, path::Path};
 
 pub(super) fn oid(text: &str) -> bool {
@@ -10,19 +11,32 @@ pub(super) fn oid(text: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-pub fn read(
+pub fn read<'a>(
     repo: &Path,
     head: &str,
-    path: &str,
-    check: &str,
+    path: impl Into<TextRef<'a>>,
+    check: impl Into<TextRef<'a>>,
 ) -> Result<BTreeSet<String>, PolicyError> {
-    let name = format!("{head}:{path}");
+    // CPython converts/checks the earlier repo argv before the head:path argv.
+    if repo.as_os_str().as_bytes().contains(&0) {
+        return Err(super::crate_manifest_ops::exception(
+            "ValueError",
+            "embedded null byte",
+        ));
+    }
+    let path = path.into();
+    let check = check.into();
+    let path = encode(path, head.chars().count() + 1, true)?;
+    let mut name = Vec::with_capacity(head.len() + 1 + path.len());
+    name.extend_from_slice(head.as_bytes());
+    name.push(b':');
+    name.extend_from_slice(&path);
     let out = log_transport::read(
         repo,
         &[
             OsStr::new("cat-file"),
             OsStr::new("blob"),
-            OsStr::new(&name),
+            OsStr::from_bytes(&name),
         ],
     )?;
     if !out.status.success() {
@@ -45,7 +59,7 @@ pub fn read(
         let Some(id) = parts.next().filter(|id| oid(id)) else {
             continue;
         };
-        if parts.next() == Some(check)
+        if parts.next().is_some_and(|part| check.equals(part))
             && parts.by_ref().take(3).count() == 3
             && parts.next().is_none()
         {

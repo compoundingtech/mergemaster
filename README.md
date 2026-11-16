@@ -835,6 +835,8 @@ CPython 3.14.7 tomllib raises `RecursionError` for nested arrays and inline tabl
 at about depth 495, depending on interpreter stack and caller depth. Rust accepts
 these values using an iterative parser and iterative drop; a full-document fixture
 parses 100,000 nested array/inline-table pairs. `MAX_KEY_PARTS=1000` remains exact.
+Full-document tomllib comparisons also cover dotted-key/header flag timing and a
+1000-part header followed by a 1000-part key, preserving all 2000 nested parts.
 `crate_inputs_text` preserves Python's strict UTF-8 decode diagnostics and POSIX
 join/normpath semantics, including empty directories and exactly two leading slashes.
 `crate_inputs::TreeSource` reads committed manifests using Python's inherited Git
@@ -968,6 +970,9 @@ and input-key indexes. `members_log_view::read` adds sorted per-member key reads
 deduplicated missing counts, first-five unlogged summaries and oldest readable
 time. Invalid times clear the summary before mixed naive/aware times can raise
 Python's exact TypeError. Success/failure overlays and CLI wiring remain separate.
+Log readers preserve lossless check names through comparisons and filesystem
+surrogateescape argv encoding; invalid surrogates and NUL retain exact Python
+exception class, text and evaluation order.
 
 ### Main-push tree-equality evidence
 

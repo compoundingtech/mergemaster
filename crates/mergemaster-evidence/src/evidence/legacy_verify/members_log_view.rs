@@ -1,5 +1,8 @@
 //! Advisory log metadata for the complete sorted per-crate decision.
-use super::{crate_manifest_ops::exception, log_lines, log_view, statement::zoned_time_micros};
+use super::{
+    crate_manifest_ops::exception, log_lines, log_view, statement::zoned_time_micros,
+    value_inputs::TextRef,
+};
 use crate::evidence::legacy_policy::PolicyError;
 use std::{collections::BTreeMap, path::Path};
 
@@ -27,15 +30,16 @@ fn time(text: &str) -> Option<(i64, bool)> {
             .map(|t| (t, false))
     })
 }
-pub fn read(
+pub fn read<'a>(
     repo: &Path,
     keys: &Path,
     tree: &str,
-    check: &str,
+    check: impl Into<TextRef<'a>>,
     members: &BTreeMap<String, Member<'_>>,
     now_micros: i64,
     max_age: i64,
 ) -> Result<View, PolicyError> {
+    let check = check.into();
     let head = log_view::read(repo, keys, tree, check, None, None, now_micros, max_age)?;
     let mut view = View {
         head,
@@ -74,7 +78,7 @@ pub fn read(
         let logged = log_lines::read(
             repo,
             head,
-            &format!("keys/{check}/{}/{key}", &key[..2]),
+            TextRef::Points(&log_view::key_path(check, key)),
             check,
         )?;
         let here = log_view::input_refs(repo, check, key)?;
