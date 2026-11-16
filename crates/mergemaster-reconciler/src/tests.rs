@@ -563,6 +563,7 @@ fn jwt_uses_actual_rs256_library_signing_without_private_key_subprocess() {
     let mut capabilities = RealCapabilities {
         git: std::path::PathBuf::from("/nonexistent/fixture-git"),
         gh: std::path::PathBuf::from("/nonexistent/fixture-gh"),
+        ssh_keygen: std::path::PathBuf::from("/nonexistent/fixture-ssh-keygen"),
         environ: BTreeMap::from([("PATH".to_owned(), String::new())]),
     };
     let actual = capabilities.jwt(APP_ID, private).unwrap();

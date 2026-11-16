@@ -1509,6 +1509,11 @@ API and provenance calls. No new HTTP library or crypto implementation is added.
 The flake package supplies its Git/SSH/GPG/GitHub CLI runtime tools; `scripts/`
 remains the unchanged parity-oracle surface. Local signing keys never enter
 Actions.
+The restricted child `PATH` includes independently resolved Git, GitHub CLI and
+`ssh-keygen` directories, so the pinned verifier can validate SSH-signed evidence
+without searching the BASE checkout or caller-controlled paths. The reconciler
+flake check exercises this production subprocess adapter against a real
+ephemeral SSH-signed Git commit using the package wrapper's runtime tool set.
 
 `iac/consumers.json` is the reconciler's sole enrollment allowlist, compiled into
 the binary. Unknown dispatch repositories are rejected. For each enrolled

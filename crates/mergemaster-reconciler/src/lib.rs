@@ -252,6 +252,7 @@ fn clean_environment(environ: &BTreeMap<String, String>, token: &str) -> BTreeMa
 pub struct RealCapabilities {
     git: PathBuf,
     gh: PathBuf,
+    ssh_keygen: PathBuf,
     environ: BTreeMap<String, String>,
 }
 impl RealCapabilities {
@@ -270,6 +271,7 @@ impl RealCapabilities {
         Ok(Self {
             git: tool("git")?,
             gh: tool("gh")?,
+            ssh_keygen: tool("ssh-keygen")?,
             environ: std::env::vars().collect(),
         })
     }
@@ -331,6 +333,7 @@ impl Capabilities for RealCapabilities {
         let trusted_path = std::env::join_paths([
             self.git.parent().expect("absolute tool path"),
             self.gh.parent().expect("absolute tool path"),
+            self.ssh_keygen.parent().expect("absolute tool path"),
         ])?;
         command.env("PATH", trusted_path);
         if let Some(cwd) = request.cwd {

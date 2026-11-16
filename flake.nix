@@ -55,7 +55,9 @@
           };
         };
       reconcilerFor = system:
-        let pkgs = import nixpkgs { inherit system; };
+        let
+          pkgs = import nixpkgs { inherit system; };
+          runtimeTools = [ pkgs.git pkgs.gh pkgs.openssh pkgs.gnupg ];
         in pkgs.rustPlatform.buildRustPackage {
           pname = "mergemaster-reconciler";
           version = (builtins.fromTOML (builtins.readFile ./crates/mergemaster-reconciler/Cargo.toml)).package.version;
@@ -64,11 +66,12 @@
           cargoBuildFlags = [ "--package" "mergemaster-reconciler" ];
           cargoTestFlags = [ "--package" "mergemaster-reconciler" ];
           nativeBuildInputs = [ pkgs.makeWrapper ];
-          nativeCheckInputs = [ pkgs.openssl ];
+          # Exercise the production subprocess boundary with the wrapper's tools.
+          nativeCheckInputs = [ pkgs.openssl ] ++ runtimeTools;
           doCheck = false;
           postInstall = ''
             wrapProgram "$out/bin/mergemaster-reconciler" \
-              --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.git pkgs.gh pkgs.openssh pkgs.gnupg ]}
+              --prefix PATH : ${pkgs.lib.makeBinPath runtimeTools}
           '';
           meta = {
             description = "BASE-authorized GitHub evidence check reconciliation";
