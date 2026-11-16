@@ -169,3 +169,279 @@ fn materialized_tree_identity_binds_bytes_modes_paths_and_empty_directories() {
         assert!(tree_digest(tree.path()).is_err());
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn symlink_tree_digest_measures_targets_and_refuses_unmeasured_destinations() {
+    use mergemaster_evidence::evidence::workspace::{tree_digest, tree_digest_v2};
+    use std::os::unix::fs::symlink;
+    let tree = tempfile::tempdir().unwrap();
+    let other = tempfile::tempdir().unwrap();
+    let roots = vec![fs::canonicalize(tree.path()).unwrap()];
+    fs::write(tree.path().join("input"), "bytes").unwrap();
+    fs::write(tree.path().join("same-bytes"), "bytes").unwrap();
+    symlink("input", tree.path().join("link")).unwrap();
+    let original = tree_digest_v2(tree.path(), &roots).unwrap();
+    assert!(tree_digest(tree.path()).is_err());
+    fs::remove_file(tree.path().join("link")).unwrap();
+    symlink("same-bytes", tree.path().join("link")).unwrap();
+    assert_ne!(tree_digest_v2(tree.path(), &roots).unwrap(), original);
+    fs::remove_file(tree.path().join("link")).unwrap();
+    symlink("missing", tree.path().join("link")).unwrap();
+    assert!(tree_digest_v2(tree.path(), &roots).is_err());
+    fs::remove_file(tree.path().join("link")).unwrap();
+    symlink(other.path(), tree.path().join("link")).unwrap();
+    assert!(tree_digest_v2(tree.path(), &roots).is_err());
+    let mut both = roots;
+    both.push(fs::canonicalize(other.path()).unwrap());
+    assert!(tree_digest_v2(tree.path(), &both).is_ok());
+    fs::remove_file(tree.path().join("link")).unwrap();
+    symlink(other.path().join("missing"), tree.path().join("link")).unwrap();
+    assert!(tree_digest_v2(tree.path(), &both).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn linked_tree_roots_measure_raw_targets_and_complete_resolved_contents() {
+    use mergemaster_evidence::evidence::workspace::{tree_digest, tree_digest_v2};
+    use sha2::{Digest, Sha256};
+    use std::os::unix::fs::symlink;
+
+    for absolute in [false, true] {
+        let fixture = tempfile::tempdir().unwrap();
+        for target in ["first", "second"] {
+            fs::create_dir_all(fixture.path().join(target).join("empty")).unwrap();
+            fs::write(fixture.path().join(target).join("input"), "bytes").unwrap();
+        }
+        let root = fixture.path().join("linked");
+        let target = if absolute {
+            fs::canonicalize(fixture.path().join("first")).unwrap()
+        } else {
+            "first".into()
+        };
+        symlink(&target, &root).unwrap();
+        let roots = vec![fs::canonicalize(&root).unwrap()];
+        let original = tree_digest_v2(&root, &roots).unwrap();
+        // The root has one link row, not an additional empty-path directory row.
+        // Link bytes are hashed verbatim, not replaced by the canonical destination.
+        let preimage = serde_json::json!([
+            2,
+            [
+                [
+                    "",
+                    "symlink",
+                    hex::encode(Sha256::digest(target.as_os_str().as_encoded_bytes()))
+                ],
+                ["empty", "directory", ""],
+                ["input", "file", hex::encode(Sha256::digest(b"bytes"))]
+            ]
+        ]);
+        assert_eq!(
+            original,
+            hex::encode(Sha256::digest(serde_json::to_vec(&preimage).unwrap()))
+        );
+        assert!(tree_digest(&root).is_err());
+        fs::write(root.join("input"), "changed").unwrap();
+        assert_ne!(tree_digest_v2(&root, &roots).unwrap(), original);
+        fs::write(root.join("input"), "bytes").unwrap();
+        fs::remove_dir(root.join("empty")).unwrap();
+        assert_ne!(tree_digest_v2(&root, &roots).unwrap(), original);
+        fs::create_dir(root.join("empty")).unwrap();
+        assert_eq!(tree_digest_v2(&root, &roots).unwrap(), original);
+        fs::remove_file(&root).unwrap();
+        let target = if absolute {
+            fs::canonicalize(fixture.path().join("second")).unwrap()
+        } else {
+            "second".into()
+        };
+        symlink(target, &root).unwrap();
+        let roots = vec![fs::canonicalize(&root).unwrap()];
+        assert_ne!(tree_digest_v2(&root, &roots).unwrap(), original);
+    }
+}
+
+#[cfg(unix)]
+fn measured_artifact(
+    root: &Path,
+    roots: &[std::path::PathBuf],
+) -> mergemaster_evidence::gate::config::Artifact {
+    mergemaster_evidence::gate::config::Artifact {
+        name: "measured tree".into(),
+        identity: format!(
+            "tree-sha256-v2:{}",
+            mergemaster_evidence::evidence::workspace::tree_digest_v2(root, roots).unwrap()
+        ),
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn pnpm_package_links_verify_through_declared_linked_external_dependency_roots() {
+    use mergemaster_evidence::evidence::workspace::verify;
+    use std::os::unix::fs::symlink;
+
+    for absolute in [false, true] {
+        let repo = fixture();
+        let external = tempfile::tempdir().unwrap();
+        fs::create_dir_all(external.path().join("pkg")).unwrap();
+        fs::write(external.path().join("pkg/index.js"), "package bytes").unwrap();
+        let dependency = repo.path().join("dependencies");
+        symlink(external.path(), &dependency).unwrap();
+        let modules = repo.path().join("node_modules");
+        fs::create_dir(&modules).unwrap();
+        let target = if absolute {
+            fs::canonicalize(external.path().join("pkg")).unwrap()
+        } else {
+            "../dependencies/pkg".into()
+        };
+        symlink(target, modules.join("pkg")).unwrap();
+        let roots = vec![
+            fs::canonicalize(&modules).unwrap(),
+            fs::canonicalize(&dependency).unwrap(),
+        ];
+        let mut lane = lane();
+        lane.inputs
+            .insert("node_modules".into(), measured_artifact(&modules, &roots));
+        lane.inputs.insert(
+            "dependencies".into(),
+            measured_artifact(&dependency, &roots),
+        );
+        let head = git(repo.path(), &["rev-parse", "HEAD"]);
+        verify(repo.path(), head.trim(), &lane, true).unwrap();
+        let modules_before =
+            mergemaster_evidence::evidence::workspace::tree_digest_v2(&modules, &roots).unwrap();
+        verify(repo.path(), head.trim(), &lane, false).unwrap();
+        fs::write(external.path().join("pkg/index.js"), "changed").unwrap();
+        // Descendant links are rows, not traversals; the other declared root binds these bytes.
+        assert_eq!(
+            mergemaster_evidence::evidence::workspace::tree_digest_v2(&modules, &roots).unwrap(),
+            modules_before
+        );
+        assert!(verify(repo.path(), head.trim(), &lane, false).is_err());
+        fs::write(external.path().join("pkg/index.js"), "package bytes").unwrap();
+        lane.inputs.remove("dependencies");
+        assert!(verify(repo.path(), head.trim(), &lane, false).is_err());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn linked_inputs_refuse_dangling_roots_linked_ancestors_and_aliases() {
+    use mergemaster_evidence::evidence::workspace::verify;
+    use std::os::unix::fs::symlink;
+
+    for case in [
+        "dangling",
+        "ancestor",
+        "scratch-root",
+        "scratch-descendant",
+        "aliased-roots",
+        "overlapping-roots",
+        "tracked-root",
+    ] {
+        let repo = fixture();
+        let external = tempfile::tempdir().unwrap();
+        let mut lane = lane();
+        let (name, root) = match case {
+            "tracked-root" => {
+                symlink("tools", repo.path().join("input")).unwrap();
+                ("input", repo.path().join("input"))
+            }
+            "ancestor" => {
+                fs::create_dir(external.path().join("input")).unwrap();
+                symlink(external.path(), repo.path().join("parent")).unwrap();
+                ("parent/input", repo.path().join("parent/input"))
+            }
+            "scratch-root" => {
+                fs::create_dir(repo.path().join("output")).unwrap();
+                symlink("output", repo.path().join("input")).unwrap();
+                ("input", repo.path().join("input"))
+            }
+            _ => {
+                symlink(external.path(), repo.path().join("input")).unwrap();
+                ("input", repo.path().join("input"))
+            }
+        };
+        let roots = vec![fs::canonicalize(&root).unwrap()];
+        lane.inputs
+            .insert(name.into(), measured_artifact(&root, &roots));
+        if case == "dangling" {
+            fs::remove_file(&root).unwrap();
+            symlink(external.path().join("missing"), &root).unwrap();
+        } else if case == "scratch-descendant" {
+            fs::create_dir(repo.path().join("output")).unwrap();
+            symlink(repo.path().join("output"), root.join("link")).unwrap();
+            // Even a matching raw-link preimage must not admit scratch as a measured root.
+            let mut with_scratch = roots;
+            with_scratch.push(fs::canonicalize(repo.path().join("output")).unwrap());
+            lane.inputs
+                .insert(name.into(), measured_artifact(&root, &with_scratch));
+        }
+        if matches!(case, "aliased-roots" | "overlapping-roots") {
+            let other = repo.path().join("other");
+            let target = if case == "overlapping-roots" {
+                let nested = external.path().join("nested");
+                fs::create_dir(&nested).unwrap();
+                nested
+            } else {
+                external.path().to_path_buf()
+            };
+            symlink(target, &other).unwrap();
+            let roots = vec![
+                fs::canonicalize(&root).unwrap(),
+                fs::canonicalize(&other).unwrap(),
+            ];
+            lane.inputs
+                .insert(name.into(), measured_artifact(&root, &roots));
+            lane.inputs
+                .insert("other".into(), measured_artifact(&other, &roots));
+        }
+        let head = git(repo.path(), &["rev-parse", "HEAD"]);
+        assert!(
+            verify(repo.path(), head.trim(), &lane, true).is_err(),
+            "{case}"
+        );
+        assert!(
+            verify(repo.path(), head.trim(), &lane, false).is_err(),
+            "{case}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn symlink_inputs_are_remeasured_and_cannot_reach_scratch_or_tracked_files() {
+    use mergemaster_evidence::{
+        evidence::workspace::{tree_digest_v2, verify},
+        gate::config::Artifact,
+    };
+    use std::os::unix::fs::symlink;
+    let repo = fixture();
+    let head = git(repo.path(), &["rev-parse", "HEAD"]);
+    let modules = repo.path().join("node_modules");
+    fs::create_dir(&modules).unwrap();
+    fs::write(modules.join("input"), "bytes").unwrap();
+    symlink("input", modules.join("link")).unwrap();
+    let roots = vec![fs::canonicalize(&modules).unwrap()];
+    let mut lane = lane();
+    lane.inputs.insert(
+        "node_modules".into(),
+        Artifact {
+            name: "modules".into(),
+            identity: format!(
+                "tree-sha256-v2:{}",
+                tree_digest_v2(&modules, &roots).unwrap()
+            ),
+        },
+    );
+    verify(repo.path(), head.trim(), &lane, true).unwrap();
+    verify(repo.path(), head.trim(), &lane, false).unwrap();
+    fs::write(modules.join("input"), "changed").unwrap();
+    assert!(verify(repo.path(), head.trim(), &lane, false).is_err());
+    fs::write(modules.join("input"), "bytes").unwrap();
+    for target in ["../output", "../tools/check", "../../escape"] {
+        fs::remove_file(modules.join("link")).unwrap();
+        symlink(target, modules.join("link")).unwrap();
+        assert!(verify(repo.path(), head.trim(), &lane, false).is_err());
+    }
+}

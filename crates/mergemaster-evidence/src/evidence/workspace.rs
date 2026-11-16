@@ -23,6 +23,10 @@ fn tracked(repo: &Path, head: &str) -> Result<BTreeSet<String>> {
 
 /// Validate declarations using committed paths, without consulting candidate policy.
 pub fn validate(repo: &Path, head: &str, lane: &Lane) -> Result<()> {
+    declarations(repo, head, lane).map(|_| ())
+}
+
+fn declarations(repo: &Path, head: &str, lane: &Lane) -> Result<BTreeSet<String>> {
     let roots: Vec<_> = lane.inputs.keys().chain(&lane.scratch).collect();
     let files = tracked(repo, head)?;
     for (index, root) in roots.iter().enumerate() {
@@ -45,7 +49,10 @@ pub fn validate(repo: &Path, head: &str, lane: &Lane) -> Result<()> {
             .identity
             .strip_prefix("sha256:")
             .or_else(|| artifact.identity.strip_prefix("tree-sha256:"))
-            .context("workspace input requires sha256: file or tree-sha256: directory identity")?;
+            .or_else(|| artifact.identity.strip_prefix("tree-sha256-v2:"))
+            .context(
+                "workspace input requires sha256:, tree-sha256: or tree-sha256-v2: identity",
+            )?;
         ensure!(
             !artifact.name.is_empty()
                 && hash.len() == 64
@@ -55,17 +62,17 @@ pub fn validate(repo: &Path, head: &str, lane: &Lane) -> Result<()> {
             "invalid workspace artifact"
         );
     }
-    Ok(())
+    Ok(files)
 }
 
-// Never traverse a symlink, including an ancestor of a declared root.
-fn contained(repo: &Path, root: &str) -> Result<()> {
+// Only a v2 input's final component may be a link; ancestors and scratch stay physical.
+fn contained(repo: &Path, root: &str, linked_root: bool) -> Result<()> {
     let mut path = repo.to_path_buf();
     for part in root.split('/') {
         path.push(part);
         match fs::symlink_metadata(&path) {
             Ok(meta) => ensure!(
-                !meta.file_type().is_symlink(),
+                !meta.file_type().is_symlink() || (linked_root && path == repo.join(root)),
                 "workspace symlink: {}",
                 path.display()
             ),
@@ -78,18 +85,57 @@ fn contained(repo: &Path, root: &str) -> Result<()> {
 
 /// Hash directory entries in byte-sorted relative path order; include empty directories and modes.
 pub fn tree_digest(root: &Path) -> Result<String> {
-    fn walk(root: &Path, path: &Path, rows: &mut Vec<(String, String, String)>) -> Result<()> {
+    digest_tree(root, None)
+}
+
+/// Measure raw link targets and the complete contents of a possibly linked root.
+/// Descendant links are not traversed; their resolved destinations must belong
+/// to declared measured trees. Dangling links and cycles fail closed.
+pub fn tree_digest_v2(root: &Path, measured_roots: &[std::path::PathBuf]) -> Result<String> {
+    digest_tree(root, Some(measured_roots))
+}
+
+fn digest_tree(root: &Path, measured_roots: Option<&[std::path::PathBuf]>) -> Result<String> {
+    fn walk(
+        root: &Path,
+        path: &Path,
+        measured_roots: Option<&[std::path::PathBuf]>,
+        rows: &mut Vec<(String, String, String)>,
+    ) -> Result<()> {
         let meta = fs::symlink_metadata(path)?;
-        ensure!(
-            !meta.file_type().is_symlink(),
-            "materialized input contains symlink"
-        );
         let name = path
             .strip_prefix(root)?
             .to_str()
             .context("non UTF-8 materialization")?
             .to_owned();
-        let mode = if meta.is_dir() {
+        if meta.file_type().is_symlink() {
+            let measured_roots = measured_roots.context("materialized input contains symlink")?;
+            let target = fs::read_link(path)?;
+            let resolved =
+                fs::canonicalize(path).context("dangling or cyclic workspace symlink")?;
+            ensure!(
+                measured_roots.iter().any(|root| resolved.starts_with(root)),
+                "workspace symlink escapes measured inputs: {}",
+                path.display()
+            );
+            let is_root = path == root;
+            rows.push((
+                name,
+                "symlink".into(),
+                hex::encode(Sha256::digest(target.as_os_str().as_encoded_bytes())),
+            ));
+            if is_root {
+                ensure!(
+                    fs::metadata(path)?.is_dir(),
+                    "linked tree root must be a directory"
+                );
+                for entry in fs::read_dir(path)? {
+                    walk(root, &entry?.path(), Some(measured_roots), rows)?;
+                }
+            }
+            return Ok(());
+        }
+        let kind = if meta.is_dir() {
             "directory"
         } else {
             ensure!(meta.is_file(), "unsupported workspace entry");
@@ -112,22 +158,29 @@ pub fn tree_digest(root: &Path) -> Result<String> {
         } else {
             String::new()
         };
-        rows.push((name, mode.into(), digest));
+        rows.push((name, kind.into(), digest));
         if meta.is_dir() {
             for entry in fs::read_dir(path)? {
-                walk(root, &entry?.path(), rows)?;
+                walk(root, &entry?.path(), measured_roots, rows)?;
             }
         }
         Ok(())
     }
     ensure!(
-        fs::symlink_metadata(root)?.is_dir(),
+        if measured_roots.is_some() {
+            fs::metadata(root)?.is_dir()
+        } else {
+            fs::symlink_metadata(root)?.is_dir()
+        },
         "tree artifact must be a directory"
     );
     let mut rows = Vec::new();
-    walk(root, root, &mut rows)?;
+    walk(root, root, measured_roots, &mut rows)?;
     rows.sort_by(|a, b| a.0.cmp(&b.0));
-    Ok(hex::encode(Sha256::digest(serde_json::to_vec(&(1, rows))?)))
+    let version = if measured_roots.is_some() { 2 } else { 1 };
+    Ok(hex::encode(Sha256::digest(serde_json::to_vec(&(
+        version, rows,
+    ))?)))
 }
 
 /// Enumerate filesystem entries too: Git status can omit empty directories and ignored descendants.
@@ -181,18 +234,56 @@ fn scratch_tree(path: &Path) -> Result<()> {
 
 /// Wrapper start creates empty scratch; all later observers independently remeasure inputs.
 pub fn verify(repo: &Path, head: &str, lane: &Lane, start: bool) -> Result<()> {
-    validate(repo, head, lane)?;
+    let files = declarations(repo, head, lane)?;
     ensure!(
         git::text(repo, &["rev-parse", "HEAD"])? == head && super::signing::tracked_clean(repo)?,
         "workspace differs from exact committed HEAD"
     );
-    for root in lane.inputs.keys().chain(&lane.scratch) {
-        contained(repo, root)?;
+    for (root, artifact) in &lane.inputs {
+        contained(repo, root, artifact.identity.starts_with("tree-sha256-v2:"))?;
+    }
+    for root in &lane.scratch {
+        contained(repo, root, false)?;
+    }
+    let measured_roots = lane
+        .inputs
+        .iter()
+        .filter(|(_, artifact)| {
+            artifact.identity.starts_with("tree-sha256:")
+                || artifact.identity.starts_with("tree-sha256-v2:")
+        })
+        .map(|(root, _)| fs::canonicalize(repo.join(root)))
+        .collect::<std::io::Result<Vec<_>>>()?;
+    let canonical_repo = fs::canonicalize(repo)?;
+    for (index, root) in measured_roots.iter().enumerate() {
+        if let Ok(relative) = root.strip_prefix(&canonical_repo) {
+            let relative = relative.to_str().context("non UTF-8 materialization")?;
+            ensure!(
+                !files.iter().any(|file| overlaps(relative, file)),
+                "measured input aliases tracked path"
+            );
+            ensure!(
+                !lane
+                    .scratch
+                    .iter()
+                    .any(|scratch| overlaps(relative, scratch)),
+                "measured input aliases scratch"
+            );
+        }
+        ensure!(
+            !canonical_repo.starts_with(root)
+                && !measured_roots[..index]
+                    .iter()
+                    .any(|other| root.starts_with(other) || other.starts_with(root)),
+            "aliased or overlapping measured workspace roots"
+        );
     }
     for (root, artifact) in &lane.inputs {
         let path = repo.join(root);
         let actual = if artifact.identity.starts_with("tree-sha256:") {
             tree_digest(&path)?
+        } else if artifact.identity.starts_with("tree-sha256-v2:") {
+            tree_digest_v2(&path, &measured_roots)?
         } else {
             ensure!(
                 fs::symlink_metadata(&path)?.is_file(),

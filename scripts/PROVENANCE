@@ -25,6 +25,9 @@
 # https://github.com/compoundingtech/fractal/pull/4398 (5f995f26e5).
 # The source_blob column remains the original import; mergemaster_blob includes applied patches.
 # The local parity-drift reporter is a Rust command, not a copied upstream script.
+# Native generic workspace inputs, including tree-sha256-v2 measured symlinks,
+# have no copied-script oracle counterpart. This support changes no copied
+# script bytes or executable modes and introduces no oracle-guard exception.
 # Rust parity cases: newest-valid-pass-level and newest-valid-pass-definition;
 # PR/queue tie order follows oracle discovery. Push remains newest-trusted.
 # These differential cases are not a claim of complete selection parity.
