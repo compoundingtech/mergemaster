@@ -24,6 +24,7 @@
 - Filter per-crate records by positive tests run when required, preserving Python Unicode decimal semantics, conversion exceptions and lazy crate/key mismatch behavior across both record indexes.
 - Parse explicit legacy crate keys losslessly with exact first-separator, lowercase Git-id syntax and Python repr refusals; retain escaped-wire-only diagnostic delivery.
 - Construct member and explicit-crate test-count bindings from the accepted base's standalone no-tests allowance, preserving lazy unjudged handling and member-key-first failure order.
+- Prepare legacy member-project JSON with full lowercase tree-id validation before member-key reads, sorted crate keys, both input-index refspec namespaces and lossless escaped check names.
 
 ## [0.8.0] - 2026-11-13
 
