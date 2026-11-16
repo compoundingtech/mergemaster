@@ -140,7 +140,7 @@ fn workspace_roots_refuse_escape_overlap_tracked_collisions_and_symlinks() {
                 repo.path().join(root.split('/').next().unwrap()),
             )
             .unwrap();
-            assert!(verify(repo.path(), head.trim(), &lane, true).is_err());
+            assert!(verify(repo.path(), head.trim(), &lane, true, None).is_err());
         }
     }
 }
@@ -304,7 +304,7 @@ fn pnpm_package_links_verify_through_declared_linked_external_dependency_roots()
             measured_artifact(&dependency, &roots),
         );
         let head = git(repo.path(), &["rev-parse", "HEAD"]);
-        verify(repo.path(), head.trim(), &lane, true).unwrap();
+        verify(repo.path(), head.trim(), &lane, true, None).unwrap();
         let modules_before =
             mergemaster_evidence::evidence::workspace::tree_digest_v2(&modules, &roots).unwrap();
         if !absolute {
@@ -321,17 +321,17 @@ fn pnpm_package_links_verify_through_declared_linked_external_dependency_roots()
                 .is_err()
             );
         }
-        verify(repo.path(), head.trim(), &lane, false).unwrap();
+        verify(repo.path(), head.trim(), &lane, false, None).unwrap();
         fs::write(external.path().join("pkg/index.js"), "changed").unwrap();
         // Descendant links are rows, not traversals; the other declared root binds these bytes.
         assert_eq!(
             mergemaster_evidence::evidence::workspace::tree_digest_v2(&modules, &roots).unwrap(),
             modules_before
         );
-        assert!(verify(repo.path(), head.trim(), &lane, false).is_err());
+        assert!(verify(repo.path(), head.trim(), &lane, false, None).is_err());
         fs::write(external.path().join("pkg/index.js"), "package bytes").unwrap();
         lane.inputs.remove("dependencies");
-        assert!(verify(repo.path(), head.trim(), &lane, false).is_err());
+        assert!(verify(repo.path(), head.trim(), &lane, false, None).is_err());
     }
 }
 
@@ -409,11 +409,11 @@ fn linked_inputs_refuse_dangling_roots_linked_ancestors_and_aliases() {
         }
         let head = git(repo.path(), &["rev-parse", "HEAD"]);
         assert!(
-            verify(repo.path(), head.trim(), &lane, true).is_err(),
+            verify(repo.path(), head.trim(), &lane, true, None).is_err(),
             "{case}"
         );
         assert!(
-            verify(repo.path(), head.trim(), &lane, false).is_err(),
+            verify(repo.path(), head.trim(), &lane, false, None).is_err(),
             "{case}"
         );
     }
@@ -445,15 +445,15 @@ fn symlink_inputs_are_remeasured_and_cannot_reach_scratch_or_unmeasured_paths() 
             ),
         },
     );
-    verify(repo.path(), head.trim(), &lane, true).unwrap();
-    verify(repo.path(), head.trim(), &lane, false).unwrap();
+    verify(repo.path(), head.trim(), &lane, true, None).unwrap();
+    verify(repo.path(), head.trim(), &lane, false, None).unwrap();
     fs::write(modules.join("input"), "changed").unwrap();
-    assert!(verify(repo.path(), head.trim(), &lane, false).is_err());
+    assert!(verify(repo.path(), head.trim(), &lane, false, None).is_err());
     fs::write(modules.join("input"), "bytes").unwrap();
     for target in ["../output", "../../escape"] {
         fs::remove_file(modules.join("link")).unwrap();
         symlink(target, modules.join("link")).unwrap();
-        assert!(verify(repo.path(), head.trim(), &lane, false).is_err());
+        assert!(verify(repo.path(), head.trim(), &lane, false, None).is_err());
     }
 }
 
@@ -498,21 +498,21 @@ fn workspace_links_may_reach_verified_tracked_siblings_but_not_unmeasured_paths(
             identity: format!("tree-sha256-v2:{original}"),
         },
     );
-    verify(repo.path(), head.trim(), &lane, true).unwrap();
-    verify(repo.path(), head.trim(), &lane, false).unwrap();
+    verify(repo.path(), head.trim(), &lane, true, None).unwrap();
+    verify(repo.path(), head.trim(), &lane, false, None).unwrap();
     fs::remove_file(&link).unwrap();
     symlink("../../packages/other", &link).unwrap();
     assert_ne!(digest(), original);
-    assert!(verify(repo.path(), head.trim(), &lane, false).is_err());
+    assert!(verify(repo.path(), head.trim(), &lane, false, None).is_err());
     lane.inputs.get_mut("node_modules").unwrap().identity = format!("tree-sha256-v2:{}", digest());
-    verify(repo.path(), head.trim(), &lane, false).unwrap();
+    verify(repo.path(), head.trim(), &lane, false, None).unwrap();
     // Tracked files, as well as directory prefixes, are valid endpoints.
     fs::remove_file(&link).unwrap();
     symlink("../../packages/core/index.js", &link).unwrap();
     lane.inputs.get_mut("node_modules").unwrap().identity = format!("tree-sha256-v2:{}", digest());
-    verify(repo.path(), head.trim(), &lane, false).unwrap();
+    verify(repo.path(), head.trim(), &lane, false, None).unwrap();
     fs::write(repo.path().join("packages/core/index.js"), "dirty").unwrap();
-    assert!(verify(repo.path(), head.trim(), &lane, false).is_err());
+    assert!(verify(repo.path(), head.trim(), &lane, false, None).is_err());
     fs::write(repo.path().join("packages/core/index.js"), "same bytes").unwrap();
     for target in ["packages/untracked", "packages/ignored"] {
         fs::create_dir(repo.path().join(target)).unwrap();
@@ -535,7 +535,7 @@ fn workspace_links_may_reach_verified_tracked_siblings_but_not_unmeasured_paths(
             "tree-sha256-v2:{}",
             tree_digest_v2(&modules, &roots).unwrap()
         );
-        let error = verify(repo.path(), head.trim(), &lane, false).unwrap_err();
+        let error = verify(repo.path(), head.trim(), &lane, false, None).unwrap_err();
         assert!(
             error.to_string().contains("symlink escapes"),
             "{target}: {error}"
@@ -596,7 +596,7 @@ fn assert_tracked_directory_link_rejected(case: &str) {
         );
     }
     for start in [false, true] {
-        let error = verify(repo.path(), head.trim(), &lane, start).unwrap_err();
+        let error = verify(repo.path(), head.trim(), &lane, start, None).unwrap_err();
         assert!(
             error.to_string().contains(if case == "cycle" {
                 "cyclic workspace symlink"
@@ -661,8 +661,8 @@ fn tracked_directory_links_accept_only_in_tree_nested_links() {
         },
     );
     let head = git(repo.path(), &["rev-parse", "HEAD"]);
-    verify(repo.path(), head.trim(), &lane, true).unwrap();
-    verify(repo.path(), head.trim(), &lane, false).unwrap();
+    verify(repo.path(), head.trim(), &lane, true, None).unwrap();
+    verify(repo.path(), head.trim(), &lane, false, None).unwrap();
 }
 
 #[cfg(unix)]
@@ -712,9 +712,9 @@ fn intermediate_bridge_links_must_have_measured_or_tracked_authority() {
                 .insert("node_modules".into(), measured_artifact(&modules, &roots));
             let head = git(repo.path(), &["rev-parse", "HEAD"]);
             if matches!(location, "tracked" | "measured") {
-                verify(repo.path(), head.trim(), &lane, true).unwrap();
+                verify(repo.path(), head.trim(), &lane, true, None).unwrap();
             } else {
-                let error = verify(repo.path(), head.trim(), &lane, false).unwrap_err();
+                let error = verify(repo.path(), head.trim(), &lane, false, None).unwrap_err();
                 assert!(
                     error.to_string().contains("unmeasured intermediate link"),
                     "{location}, component={component}: {error}"
@@ -730,7 +730,7 @@ fn intermediate_bridge_links_must_have_measured_or_tracked_authority() {
                     measured_artifact(&modules, &roots).identity,
                     lane.inputs["node_modules"].identity
                 );
-                assert!(verify(repo.path(), head.trim(), &lane, false).is_err());
+                assert!(verify(repo.path(), head.trim(), &lane, false, None).is_err());
             }
         }
     }
@@ -781,6 +781,6 @@ fn mutual_workspace_dependencies_accept_authorized_directory_cycles() {
         );
     }
     let head = git(repo.path(), &["rev-parse", "HEAD"]);
-    verify(repo.path(), head.trim(), &lane, true).unwrap();
-    verify(repo.path(), head.trim(), &lane, false).unwrap();
+    verify(repo.path(), head.trim(), &lane, true, None).unwrap();
+    verify(repo.path(), head.trim(), &lane, false, None).unwrap();
 }

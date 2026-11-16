@@ -85,7 +85,7 @@ fn contained(repo: &Path, root: &str, linked_root: bool) -> Result<()> {
 
 /// Hash directory entries in byte-sorted relative path order; include empty directories and modes.
 pub fn tree_digest(root: &Path) -> Result<String> {
-    digest_tree(root, None, None)
+    digest_tree(root, None, None, &[])
 }
 
 /// Measure raw link targets and the complete contents of a possibly linked root.
@@ -94,7 +94,7 @@ pub fn tree_digest(root: &Path) -> Result<String> {
 /// Supply declared root paths without canonicalizing their final components, so
 /// their individually measured root links can also authorize cross-root hops.
 pub fn tree_digest_v2(root: &Path, measured_roots: &[std::path::PathBuf]) -> Result<String> {
-    digest_tree(root, Some(measured_roots), None)
+    digest_tree(root, Some(measured_roots), None, &[])
 }
 
 #[derive(Default)]
@@ -160,7 +160,8 @@ fn authorized(
 fn resolve_links(
     path: &Path,
     measured_roots: &[std::path::PathBuf],
-    tracked: Option<(&Path, &BTreeSet<String>)>,
+    tracked: &mut Option<(&Path, &BTreeSet<String>)>,
+    closure_roots: &[std::path::PathBuf],
     bound_roots: &BTreeSet<std::path::PathBuf>,
 ) -> Result<std::path::PathBuf> {
     use std::path::{Component, PathBuf};
@@ -182,6 +183,11 @@ fn resolve_links(
                 Component::CurDir => continue,
                 _ => resolved.push(component.as_os_str()),
             }
+            // Once a path enters a closure, every following hop stays within
+            // measured inputs and closure members, never checkout-only authority.
+            if super::nix::contains(&resolved, closure_roots) {
+                *tracked = None;
+            }
             let meta =
                 fs::symlink_metadata(&resolved).context("dangling or cyclic workspace symlink")?;
             if !meta.file_type().is_symlink() {
@@ -189,7 +195,7 @@ fn resolve_links(
             }
             ensure!(
                 bound_roots.contains(&resolved)
-                    || authorized(&resolved, measured_roots, tracked, false),
+                    || authorized(&resolved, measured_roots, *tracked, false),
                 "workspace symlink escapes through unmeasured intermediate link: {}",
                 resolved.display()
             );
@@ -219,9 +225,17 @@ fn reachable(
     path: &Path,
     measured_roots: &[std::path::PathBuf],
     tracked: Option<(&Path, &BTreeSet<String>)>,
+    closure_roots: &[std::path::PathBuf],
     state: &mut Reachability,
 ) -> Result<()> {
-    let resolved = resolve_links(path, measured_roots, tracked, &state.bound_roots)?;
+    let mut tracked = tracked;
+    let resolved = resolve_links(
+        path,
+        measured_roots,
+        &mut tracked,
+        closure_roots,
+        &state.bound_roots,
+    )?;
     let meta = fs::metadata(path)?;
     let authorized = authorized(&resolved, measured_roots, tracked, meta.is_dir());
     ensure!(
@@ -248,7 +262,13 @@ fn reachable(
     }
     // A tracked directory prefix only permits traversal, never its untracked children.
     for entry in fs::read_dir(&resolved)? {
-        reachable(&entry?.path(), measured_roots, tracked, state)?;
+        reachable(
+            &entry?.path(),
+            measured_roots,
+            tracked,
+            closure_roots,
+            state,
+        )?;
     }
     state.active[mode].remove(&resolved);
     state.complete[mode].insert(resolved);
@@ -259,6 +279,7 @@ fn digest_tree(
     root: &Path,
     measured_roots: Option<&[std::path::PathBuf]>,
     tracked: Option<(&Path, &BTreeSet<String>)>,
+    closure_roots: &[std::path::PathBuf],
 ) -> Result<String> {
     let Some(roots) = measured_roots else {
         return digest_rows(root, None);
@@ -272,7 +293,7 @@ fn digest_tree(
     for declared_root in roots {
         state.bind_root(declared_root)?;
     }
-    reachable(root, &canonical_roots, tracked, &mut state)?;
+    reachable(root, &canonical_roots, tracked, closure_roots, &mut state)?;
     digest_rows(root, Some(&canonical_roots))
 }
 
@@ -348,6 +369,7 @@ fn digest_rows(root: &Path, measured_roots: Option<&[std::path::PathBuf]>) -> Re
         },
         "tree artifact must be a directory"
     );
+
     let mut rows = Vec::new();
     walk(root, root, measured_roots, &mut rows)?;
     rows.sort_by(|a, b| a.0.cmp(&b.0));
@@ -407,7 +429,13 @@ fn scratch_tree(path: &Path) -> Result<()> {
 }
 
 /// Wrapper start creates empty scratch; all later observers independently remeasure inputs.
-pub fn verify(repo: &Path, head: &str, lane: &Lane, start: bool) -> Result<()> {
+pub fn verify(
+    repo: &Path,
+    head: &str,
+    lane: &Lane,
+    start: bool,
+    toolchain: Option<&super::signing::ToolchainMeasurement>,
+) -> Result<()> {
     let files = declarations(repo, head, lane)?;
     ensure!(
         git::text(repo, &["rev-parse", "HEAD"])? == head && super::signing::tracked_clean(repo)?,
@@ -419,7 +447,7 @@ pub fn verify(repo: &Path, head: &str, lane: &Lane, start: bool) -> Result<()> {
     for root in &lane.scratch {
         contained(repo, root, false)?;
     }
-    let measured_roots = lane
+    let mut measured_roots = lane
         .inputs
         .iter()
         .filter(|(_, artifact)| {
@@ -452,6 +480,9 @@ pub fn verify(repo: &Path, head: &str, lane: &Lane, start: bool) -> Result<()> {
             "aliased or overlapping measured workspace roots"
         );
     }
+    if let Some(toolchain) = toolchain {
+        measured_roots.extend_from_slice(&toolchain.nix_roots);
+    }
     let mut reachability = Reachability::default();
     for (root, artifact) in &lane.inputs {
         if artifact.identity.starts_with("tree-sha256-v2:") {
@@ -467,6 +498,7 @@ pub fn verify(repo: &Path, head: &str, lane: &Lane, start: bool) -> Result<()> {
                 &path,
                 &measured_roots,
                 Some((&canonical_repo, &files)),
+                toolchain.map_or(&[], |measurement| measurement.nix_roots.as_slice()),
                 &mut reachability,
             )?;
             digest_rows(&path, Some(&measured_roots))?
@@ -540,6 +572,84 @@ mod tests {
     }
 
     #[cfg(unix)]
+    fn closure_directory_link(case: &str) -> Result<String> {
+        use std::os::unix::fs::symlink;
+        let fixture = tempfile::tempdir()?;
+        let repo = fixture.path().join("repo");
+        let modules = repo.join("modules");
+        let store = fixture.path().join("store");
+        let package = store.join("00000000000000000000000000000000-package");
+        let dependency = store.join("11111111111111111111111111111111-dependency");
+        fs::create_dir_all(&modules)?;
+        fs::create_dir_all(package.join("bin"))?;
+        fs::create_dir_all(&dependency)?;
+        fs::write(dependency.join("helper"), "authorized")?;
+        let outside = fixture.path().join("helper");
+        fs::write(&outside, "unmeasured")?;
+        fs::write(repo.join("tracked"), "tracked")?;
+        let target = match case {
+            "authorized" => dependency.join("helper"),
+            "authorized-directory" => dependency.clone(),
+            "authorized-bridge" => {
+                symlink("helper", dependency.join("bridge"))?;
+                dependency.join("bridge")
+            }
+            "outside-bridge" => {
+                let bridge = fixture.path().join("bridge");
+                symlink(dependency.join("helper"), &bridge)?;
+                bridge
+            }
+            "tracked-bridge" => {
+                let bridge = repo.join("bridge");
+                symlink(dependency.join("helper"), &bridge)?;
+                bridge
+            }
+            "measured" => {
+                fs::write(modules.join("helper"), "measured")?;
+                modules.join("helper")
+            }
+            "tracked" => repo.join("tracked"),
+            _ => outside,
+        };
+        symlink(target, package.join("bin/helper"))?;
+        symlink(&package, modules.join("package"))?;
+        let closure = vec![package, dependency];
+        let mut measured = vec![modules.clone()];
+        measured.extend_from_slice(&closure);
+        digest_tree(
+            &modules,
+            Some(&measured),
+            Some((&repo, &BTreeSet::from(["tracked".into(), "bridge".into()]))),
+            &closure,
+        )
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn closure_directory_link_rejects_nested_unmeasured_helper() {
+        for case in ["escape", "tracked", "outside-bridge", "tracked-bridge"] {
+            let error = closure_directory_link(case).unwrap_err();
+            assert!(
+                error.to_string().contains("symlink escapes"),
+                "{case}: {error}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn closure_directory_link_accepts_other_authorized_member_and_measured_root() {
+        for case in [
+            "authorized",
+            "authorized-directory",
+            "authorized-bridge",
+            "measured",
+        ] {
+            closure_directory_link(case).unwrap();
+        }
+    }
+
+    #[cfg(unix)]
     #[test]
     fn observation_reachability_expands_shared_chained_roots_once_per_authority_mode() {
         use std::os::unix::fs::symlink;
@@ -561,7 +671,7 @@ mod tests {
         let mut observation = Reachability::default();
         for tracked in [None, Some((base.as_path(), &files))] {
             for root in &roots {
-                reachable(root, &roots, tracked, &mut observation).unwrap();
+                reachable(root, &roots, tracked, &[], &mut observation).unwrap();
             }
         }
         for mode in 0..2 {
