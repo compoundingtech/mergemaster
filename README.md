@@ -522,6 +522,8 @@ requiredness and exclusive groups. It is not production CLI dispatch or a loader
 `argparse_int` preserves unbounded decimal conversion and Python's 4300-digit
 limit. Conversion errors retain the exact unbounded argparse argument-repr
 diagnostic, including whitespace, controls, quotes and lone surrogates.
+`argparse_usage` renders the pinned usage layout at an explicit formatter width,
+retaining lossless program text and interpolation provenance for future safe sinks.
 `value_checks_document` applies that same guard body to a validated input object,
 preserving Python code points (including lone surrogates) in keys and values.
 Private borrowed views avoid converting statements into native String maps.
