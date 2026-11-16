@@ -548,7 +548,7 @@ fn assert_tracked_directory_link_rejected(case: &str) {
     if case == "escape" {
         symlink(outside.path(), package.join("escape")).unwrap();
     } else if case == "cycle" {
-        symlink(".", package.join("cycle")).unwrap();
+        symlink("cycle", package.join("cycle")).unwrap();
     }
     git(repo.path(), &["add", "."]);
     git(repo.path(), &["commit", "-q", "-m", "tracked package"]);
@@ -585,7 +585,7 @@ fn assert_tracked_directory_link_rejected(case: &str) {
         );
     }
     for start in [false, true] {
-        let error = verify(repo.path(), head.trim(), &lane, start).unwrap_err();
+        let error = verify(repo.path(), head.trim(), &lane, start, None).unwrap_err();
         assert!(
             error.to_string().contains(if case == "cycle" {
                 "cyclic workspace symlink"
@@ -650,6 +650,126 @@ fn tracked_directory_links_accept_only_in_tree_nested_links() {
         },
     );
     let head = git(repo.path(), &["rev-parse", "HEAD"]);
-    verify(repo.path(), head.trim(), &lane, true).unwrap();
-    verify(repo.path(), head.trim(), &lane, false).unwrap();
+    verify(repo.path(), head.trim(), &lane, true, None).unwrap();
+    verify(repo.path(), head.trim(), &lane, false, None).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn intermediate_bridge_links_must_have_measured_or_tracked_authority() {
+    use mergemaster_evidence::evidence::workspace::verify;
+    use std::os::unix::fs::symlink;
+    for location in ["outside", "untracked", "ignored", "tracked", "measured"] {
+        for component in [false, true] {
+            let repo = fixture();
+            let outside = tempfile::tempdir().unwrap();
+            fs::write(repo.path().join(".gitignore"), "ignored/\n").unwrap();
+            if location == "ignored" {
+                fs::create_dir(repo.path().join("ignored")).unwrap();
+            }
+            let modules = repo.path().join("node_modules");
+            fs::create_dir_all(modules.join("data")).unwrap();
+            fs::write(modules.join("data/a"), "a").unwrap();
+            fs::write(modules.join("data/b"), "b").unwrap();
+            fs::create_dir(modules.join("data-other")).unwrap();
+            fs::write(modules.join("data-other/a"), "other").unwrap();
+            let bridge = match location {
+                "outside" => outside.path().join("bridge"),
+                "ignored" => repo.path().join("ignored/bridge"),
+                "measured" => modules.join("bridge"),
+                _ => repo.path().join("bridge"),
+            };
+            let destination = modules.join(if component { "data" } else { "data/a" });
+            symlink(&destination, &bridge).unwrap();
+            git(repo.path(), &["add", ".gitignore"]);
+            if location == "tracked" {
+                git(repo.path(), &["add", "bridge"]);
+            }
+            git(repo.path(), &["commit", "-q", "-m", "bridge authority"]);
+            let link_target = if component {
+                bridge.join("a")
+            } else {
+                bridge.clone()
+            };
+            symlink(link_target, modules.join("link")).unwrap();
+            let roots = [
+                fs::canonicalize(&modules).unwrap(),
+                fs::canonicalize(bridge.parent().unwrap()).unwrap(),
+            ];
+            let mut lane = lane();
+            lane.inputs
+                .insert("node_modules".into(), measured_artifact(&modules, &roots));
+            let head = git(repo.path(), &["rev-parse", "HEAD"]);
+            if matches!(location, "tracked" | "measured") {
+                verify(repo.path(), head.trim(), &lane, true, None).unwrap();
+            } else {
+                let error = verify(repo.path(), head.trim(), &lane, false, None).unwrap_err();
+                assert!(
+                    error.to_string().contains("unmeasured intermediate link"),
+                    "{location}, component={component}: {error}"
+                );
+                // Retargeting this bridge must not make the unchanged raw input link admissible.
+                fs::remove_file(&bridge).unwrap();
+                symlink(
+                    modules.join(if component { "data-other" } else { "data/b" }),
+                    &bridge,
+                )
+                .unwrap();
+                assert_eq!(
+                    measured_artifact(&modules, &roots).identity,
+                    lane.inputs["node_modules"].identity
+                );
+                assert!(verify(repo.path(), head.trim(), &lane, false, None).is_err());
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn mutual_workspace_dependencies_accept_authorized_directory_cycles() {
+    use mergemaster_evidence::evidence::workspace::verify;
+    use std::os::unix::fs::symlink;
+    let repo = fixture();
+    for package in ["a", "b"] {
+        fs::create_dir_all(repo.path().join(format!("packages/{package}"))).unwrap();
+        fs::write(
+            repo.path().join(format!("packages/{package}/index.js")),
+            package,
+        )
+        .unwrap();
+    }
+    git(repo.path(), &["add", "."]);
+    git(
+        repo.path(),
+        &["commit", "-q", "-m", "mutual workspace packages"],
+    );
+    for package in ["a", "b"] {
+        let modules = repo.path().join(format!("packages/{package}/node_modules"));
+        fs::create_dir(modules).unwrap();
+    }
+    fs::create_dir(repo.path().join("node_modules")).unwrap();
+    symlink("../packages/a", repo.path().join("node_modules/a")).unwrap();
+    symlink("../../b", repo.path().join("packages/a/node_modules/b")).unwrap();
+    symlink("../../a", repo.path().join("packages/b/node_modules/a")).unwrap();
+    let names = [
+        "node_modules",
+        "packages/a/node_modules",
+        "packages/b/node_modules",
+    ];
+    let mut roots = names
+        .iter()
+        .map(|name| fs::canonicalize(repo.path().join(name)).unwrap())
+        .collect::<Vec<_>>();
+    roots.push(fs::canonicalize(repo.path()).unwrap());
+    let mut lane = lane();
+    for name in names {
+        lane.inputs.insert(
+            name.into(),
+            measured_artifact(&repo.path().join(name), &roots),
+        );
+    }
+    let head = git(repo.path(), &["rev-parse", "HEAD"]);
+    verify(repo.path(), head.trim(), &lane, true, None).unwrap();
+    verify(repo.path(), head.trim(), &lane, false, None).unwrap();
 }
