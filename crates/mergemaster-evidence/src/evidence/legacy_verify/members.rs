@@ -2,7 +2,7 @@
 use super::{
     Failure,
     candidates::Levels,
-    collection::CrateBinding,
+    collection::{CandidateCollector, CrateBinding},
     configured::{self, Settings},
     crate_bindings::Members,
     judgment::Provider,
@@ -40,8 +40,8 @@ impl<T> Covered<T> {
 #[path = "members_aggregate.rs"]
 mod aggregate;
 pub use aggregate::{Aggregate, View};
-/// Keys precede the standalone allowance; one judgment shares its LaneOnce across
-/// all members. There is deliberately no log_keys parameter on this no-log API.
+/// Keys precede the standalone allowance; one judgment shares its LaneOnce and
+/// one collector shares its record budget across all members. No log_keys API.
 pub fn verified<P: Provider>(
     q: &Request<'_>,
     policy_base: Option<&str>,
@@ -57,8 +57,10 @@ pub fn verified<P: Provider>(
             attempts: None,
         })
     })?;
+    let mut collector = CandidateCollector::for_check();
     collect(members.into_sorted(), |name, key, needs_tests| {
         configured::retained(
+            &mut collector,
             &Request {
                 crate_key: Some(CrateBinding {
                     name: TextRef::Str(name),
@@ -96,7 +98,10 @@ fn collect<T>(
         };
         match judge(&name, &key, needs_tests) {
             Ok(note) => entries.push((name, key, note)),
-            Err(error) if error.origin == ErrorOrigin::Failure => {
+            Err(error)
+                if error.origin == ErrorOrigin::Failure
+                    && error.reason != "record-budget-exceeded" =>
+            {
                 missing.insert(name, error.reason);
             }
             Err(error) => return Err(Refusal::Verification(error)),
