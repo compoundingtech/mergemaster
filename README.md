@@ -964,7 +964,10 @@ boundaries, signed neighbours, large values and i64 endpoint differences.
 `log_view::read` judges the signed log head and returns absent/unsigned/stale,
 missing, unlogged-pass or ok metadata with exact age and missing counts. Signed
 SHA1/SHA256 fixtures compare the entire view with Python, including clock edges
-and input-key indexes. Member overlays and CLI wiring remain separate surfaces.
+and input-key indexes. `members_log_view::read` adds sorted per-member key reads,
+deduplicated missing counts, first-five unlogged summaries and oldest readable
+time. Invalid times clear the summary before mixed naive/aware times can raise
+Python's exact TypeError. Success/failure overlays and CLI wiring remain separate.
 
 ### Main-push tree-equality evidence
 
