@@ -627,7 +627,10 @@ fn tracked_directory_links_accept_only_in_tree_nested_links() {
     symlink("lib", package.join("alias")).unwrap();
     symlink("index.js", package.join("lib/entry.js")).unwrap();
     git(repo.path(), &["add", "."]);
-    git(repo.path(), &["commit", "-q", "-m", "in-tree package aliases"]);
+    git(
+        repo.path(),
+        &["commit", "-q", "-m", "in-tree package aliases"],
+    );
     let modules = repo.path().join("node_modules");
     fs::create_dir(&modules).unwrap();
     symlink("../packages/core", modules.join("core")).unwrap();
@@ -640,7 +643,10 @@ fn tracked_directory_links_accept_only_in_tree_nested_links() {
         "node_modules".into(),
         mergemaster_evidence::gate::config::Artifact {
             name: "modules".into(),
-            identity: format!("tree-sha256-v2:{}", tree_digest_v2(&modules, &roots).unwrap()),
+            identity: format!(
+                "tree-sha256-v2:{}",
+                tree_digest_v2(&modules, &roots).unwrap()
+            ),
         },
     );
     let head = git(repo.path(), &["rev-parse", "HEAD"]);
