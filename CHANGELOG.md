@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Constrain nested links reachable through measured Nix closure directories to authorized closure members and measured input roots, including cross-member links, while retaining v1/v2 digest bytes and evidence verification.
+- Share v2 link reachability validation across an entire workspace observation, expanding each canonical directory once per tracked-authority mode even across chained and shared inputs.
 - Validate every reachable descendant of v2 workspace directory links, refusing nested escapes, reachable scratch paths and cycles without changing digest preimages.
 - Admit v2 workspace input links into independently remeasured closures of BASE environment Nix artifacts, binding every workspace observation to the original toolchain claims; keep arbitrary store paths, dangling links and scratch symlinks forbidden.
 - Add opt-in `tree-sha256-v2` measured inputs: hash root symlink targets and resolved contents, and bind descendant link targets within declared measured trees or the verified-clean tracked checkout; retain legacy tree digests, scratch restrictions and evidence compatibility, with no blanket Nix-store exemption.
