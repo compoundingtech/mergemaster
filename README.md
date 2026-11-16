@@ -1389,235 +1389,102 @@ nix develop -c python3 tests/test-graph-proof.py \
   --binary "$package/bin/mergemaster" --work-dir /absolute/new/proof-directory
 ```
 
-## Repository check-publisher infrastructure
+## Shared evidence-publisher infrastructure
 
-`iac/alchemy.run.ts` owns one private, user-owned GitHub App per entry in
-`iac/stack.ts`. The Graph entry (`id: graph`) targets `schickling/factory`;
-the PTG entry (`id: ptg`, App name `PTG Evidence`) targets `schickling/ptg`.
-Both default branches are `main`. Each App requests only `checks: write`
-(GitHub adds `metadata: read`), has no events or active webhook, and has no
-author allowlist. Each consumer repository owns its ruleset and workflows;
-this stack does not declare a ruleset or run candidate code.
+`iac/stack.ts` declares one private, schickling-owned `Mergemaster Evidence`
+GitHub App. `iac/consumers.json` is the shared enrollment allowlist consumed by
+the stack and the central reconciler: each entry records a stable consumer ID,
+owner, repository, numeric GitHub repository ID and default branch. Initial
+consumers are `schickling/factory` (`graph`) and `schickling/ptg` (`ptg`).
+Repository names alone are not enrollment identity.
 
-The environment `mergemaster-check-publisher` permits only the exact `main`
-branch, not all protected branches. The App provider seals the private key
-directly into that environment's `MERGEMASTER_APP_PRIVATE_KEY` Actions secret.
-There is deliberately no separate `GitHub.Secret` resource: neither a PEM
-input nor a PEM output belongs in Alchemy state. Deployment credentials need
-repository administration/environment and Actions-secret access; these are
-separate from the new App's checks-only runtime credential. Private-repository
-environment support requires a compatible GitHub plan.
+The App requests `checks: write`, `contents: read` and `pull_requests: read`
+(GitHub adds `metadata: read`), with no events. There is one shared App
+registration and owner approval, not a registration per consumer. Selected-repo
+installation consent is a separate necessary step: one installation on the
+schickling account can select both enrolled repositories. Adding another
+repository requires enrollment and installation consent, not another App
+registration. Registration and installation are not one API action.
+Organization consumers would require a public App registration and their own
+installation consent.
 
-### Operator manifest registration
+The provider seals the private key **only** into
+`compoundingtech/mergemaster`'s `mergemaster-check-publisher` environment as
+`MERGEMASTER_APP_PRIVATE_KEY`. That environment permits only the exact `main`
+branch. The stack creates no consumer environments, and consumers receive
+neither the App key nor an installation token. No private key or callback code
+enters resource props, outputs or state. The single-sink provider cannot fan
+out the private key, by design.
 
-The isolated IaC package uses pnpm 12.17.0, the current fleet pin, with its own
-`iac/pnpm-lock.yaml`.
-Node 24.20.0 is used in hosted CI. The pinned effect-utils source is composed
-through `megarepo.lock`; pnpm's `file:` dependency installs the unpublished
-provider with its dependencies, rather than linking an uninstalled checkout.
-The small Oxc loader uses Alchemy's own runtime tooling to load that
-provider's TypeScript without building effect-utils.
+The central GitHub-hosted reconciler in `compoundingtech/mergemaster` polls
+enrolled repositories every five minutes; `workflow_dispatch` provides manual
+repair. It reads and verifies evidence before publishing checks on the
+corresponding PR head. Its installation tokens are scoped to one enrolled
+repository with only the App permissions above. Consumer PR jobs do not run
+privileged publication or choose arbitrary installations, repositories or
+heads for a token broker. Local evidence signing and signer trust are
+unchanged: the App publishes verified results; it does not sign local evidence.
+
+### Offline infrastructure checks
+
+The isolated package uses pnpm 12.17.0 and the pinned effect-utils provider:
 
 ```sh
 mr apply --worktree-mode commit --only effect-utils
 cd iac
 pnpm install --frozen-lockfile --ignore-scripts
-pnpm test                       # offline; no GitHub credentials or mutation
-umask 077
-pnpm run plan                   # review before deploying
-pnpm run deploy                 # first deployment: pending manifest, not an App
+pnpm test
 ```
 
-Only an operator with delegated owner consent may continue. Submit the
-`graph.manifestHtml` form from the pending output in the owner's authenticated
-browser session. The form POST is required; navigating to its action URL alone
-does not submit the manifest. The loopback redirect
-`http://127.0.0.1:8787/github-app-callback` carries the one-time `code` and
-`state`; a refused connection is harmless because those values remain in the
-address bar. Compare state to `graph.state` and complete within one hour.
-The operator captures the callback code through a trusted secret channel;
-never paste it into chat or command-line arguments. The operator passes
-`APP_MANIFEST_CODE` and `APP_MANIFEST_CODE_STATE` into that same operator
-shell through the trusted secret channel, without logging values:
+The plan test runs the real Alchemy planner with offline providers that reject
+mutation. It asserts one App, only the central exact-main key environment,
+the requested permissions and the non-secret enrollment outputs. The manifest
+conversion regression uses only a loopback HTTP fixture and proves a single
+private-key sink write, no callback code in state, and secret-free outputs.
+These tests do not change a live App, installation, environment, secret,
+ruleset or check run.
 
-```sh
-pnpm run deploy
-unset APP_MANIFEST_CODE APP_MANIFEST_CODE_STATE
-```
+### Registration, installation and runtime configuration
 
-The apply-time `ManifestCodes.fromEnv('APP_MANIFEST_CODE')` source reads the
-code and its companion `APP_MANIFEST_CODE_STATE` only during conversion;
-planning and provider construction never read the code. Only
-`conversion.state` enters resource inputs: that token is non-secret because
-it is already a pending output and part of the manifest form. The provider
-fix ends the callback-code-in-state exception: the code is never a resource
-input, durable state value or stack output, so no purge deploy is required.
-After successful registration, run `pnpm run check-state` before backup.
+The shared App has not been registered. No deploy or live mutation was run for
+this change; source declarations and offline fixtures are not evidence of a live
+registration, installation or working reconciler.
 
-Install the App on **only** `schickling/factory`. Registered outputs
-are `graph.status`, `graph.integrationId`, and `graph.slug`. Pending outputs
-are `graph.status`, `graph.manifestHtml`, `graph.state`, and `graph.expiresAt`;
-there is no integration ID until registration succeeds. Give
-`graph.integrationId` (the App ID, not an installation ID) to the repository
-owner for the consumer's required-lane integration bindings.
+Use the protected operator state with `pnpm run plan` / `pnpm run deploy`
+only during an approved deployment. `MERGEMASTER_IAC_STATE_DIR` must name an
+absolute, external directory, with 0700 directories and 0600 files. The operator
+wrappers check state before and after execution; `pnpm run check-state`
+also checks it explicitly. Registered App deletion fails closed.
 
-The reusable base-only publisher is `genericEvidenceRequiredJob` from
-`genie/generic-evidence.ts`, running on `pull_request_target`; consumers must
-retain independent unprivileged validation.
-Its consumer must set job `environment: 'mergemaster-check-publisher'` and
-supply `appTokenStep` using a SHA-pinned `actions/create-github-app-token`:
-`app-id` is the exported integration ID, `private-key` is
-`${{ secrets.MERGEMASTER_APP_PRIVATE_KEY }}`, `owner` is `schickling`, and
-`repositories` is `factory`. The fragment assigns step ID `app-token`
-and consumes its `token` output; it never falls back to `GITHUB_TOKEN`.
-There were no pre-existing environment or secret names in the generic
-fragment; the names above are this stack's explicit consumer contract.
+For registration, pending output provides `publisher.manifestHtml`,
+`publisher.state` and `publisher.expiresAt`. Submit the manifest for the shared
+owner approval. Pass its returned one-use callback code through
+`APP_MANIFEST_CODE`, with the matching pending state in
+`APP_MANIFEST_CODE_STATE`, for the conversion deploy.
+`ManifestCodes.fromEnv('APP_MANIFEST_CODE')` keeps the code out of durable
+inputs. There are no per-consumer registration inputs. The code and private key
+are secret; never put them in arguments, logs, chat or git.
 
-### Interim: local operator state and operator apply
+After registration, `publisher.integrationId` and `publisher.slug` are public
+outputs. Follow `installation.url` and grant installation access to **only**
+the selected repositories listed in `installation.repositories`. The output
+reports `consent-required`, not an assertion that installation has occurred.
+`consumers.<id>` exposes only owner, repository, numeric repository ID and
+default branch, matching the enrollment allowlist. App IDs and installation
+IDs are different identifiers.
 
-The interim exception covers **App bootstrap only**: local operator state and
-operator-run deploy, because the manifest consent flow cannot run in CI.
-When the Effect-utils Manager's program remote state backend lands (due
-2026-11-12), this stack moves to that backend and to CI-applied plan plus
-drift detection on `main`, no later than **2026-11-19**.
+Set the **public repository Actions variable** `MERGEMASTER_APP_ID` in
+`compoundingtech/mergemaster` to the registered `publisher.integrationId`.
+The central workflow reads that variable and the environment-scoped
+`MERGEMASTER_APP_PRIVATE_KEY` secret; do not put the private key in a variable
+or copy it to consumers. Installation consent and runtime configuration must
+be complete before enabling central publication.
 
-`MERGEMASTER_IAC_STATE_DIR` configures the absolute state root, defaulting to
-`${XDG_STATE_HOME:-$HOME/.local/state}/mergemaster/iac`; Alchemy stores its
-state under that root's `state/` subdirectory. The root must be outside the
-repository checkout, including through symlink aliases. The supported
-`AlchemyContext` directory injection is scoped to `localState()` only;
-other runtime artifacts retain Alchemy's defaults. Local state is accepted
-because it contains no private key and a registered App can be recovered
-with adopt-by-slug if state is lost.
-
-Use the documented `pnpm run plan` and `pnpm run deploy` commands: they set
-umask 077 and check the state tree before and after the CLI exits. Directories
-must be 0700, regular files 0600; symlinks and looser modes fail closed,
-without silently changing existing permissions. After every deploy, run
-`pnpm run check-state`: it must find **no** PEM/`-----BEGIN`/private-key value
-markers, `conversion.code` properties or `__redacted__` values anywhere in the
-state tree. Secret destination names such as `MERGEMASTER_APP_PRIVATE_KEY`
-are non-secret metadata, not key values; the scanner permits those names
-and never prints matched contents.
-
-Take the state backup only after a successful registration (status registered
-with an integrationId) and a clean state check; keep it protected until
-migration. Legacy state containing callback codes must be cleaned without
-printing them before strict checks permit plan/deploy or backup.
-
-```sh
-pnpm run check-state
-state_dir="${MERGEMASTER_IAC_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/mergemaster/iac}"
-backup_dir="${state_dir}.backup-$(date -u +%Y%m%dT%H%M%SZ)"
-install -d -m 0700 "$backup_dir"
-cp -a "$state_dir/." "$backup_dir/"
-```
-
-Retain the same state root across both manifest deployments. Lost pending
-state cannot be recovered by adoption before an App exists. CI runs offline
-tests only during the bootstrap exception. Do not create preview stages
-for these long-lived Apps. Permission/event drift is a typed
-hard error. Registered destruction fails closed: uninstall/delete in the
-owner UI; the stack never automatically orphans an App or destroys its key.
-After ambiguous conversion failure, do not replay the one-use code: inspect
-the owner UI, revoke/rotate and reseed the same secret through a trusted
-secret-management path, then use `APP_ADOPT_SLUG` with `pnpm run deploy` and
-unset it afterward. `APP_REPOSITORY` selects the entry for conversion/adoption
-(default `graph`); use `APP_REPOSITORY=ptg` for PTG. IDs also name the resource
-state keys (`ptg-publisher-app`, `ptg-publisher-environment`), registration
-lookup, and output namespace (`ptg.*`); do not rename an existing ID.
-
-### PTG bootstrap and required-publisher handoff
-
-Use the same protected operator state root that already owns Graph; do not
-bootstrap a second copy of the existing App. Materialize dependencies and
-install the isolated package as above, then run from `iac/`:
-
-```sh
-umask 077
-export APP_REPOSITORY=ptg
-pnpm run plan
-pnpm run deploy
-```
-
-Review the plan: Graph must retain its existing resources; PTG adds its
-main-only environment and pending App manifest. `operator.mjs` invokes the
-Alchemy CLI with `--import ./register.mjs`; `register.mjs` only registers the
-Oxc TypeScript loader, not the GitHub App. There is no separate App-register
-CLI command.
-
-**Human consent:** the repository owner gives browser consent for the
-**`ptg.manifestHtml` form** creating the private `PTG Evidence` App, and later
-for its installation on only `schickling/ptg`. The operator prepares the form;
-the form POST is required, not merely opening its action URL.
-
-The operator captures the callback code through a trusted secret channel,
-compares the redirect `state` with `ptg.state`, and completes conversion within
-one hour. A refused connection to
-`http://127.0.0.1:8787/github-app-callback` does not lose the address-bar
-callback. Never paste the code into chat or command-line arguments. The
-operator supplies the one-use `code` and matching `state` as
-`APP_MANIFEST_CODE` and `APP_MANIFEST_CODE_STATE` through the trusted secret
-channel in the same operator shell, without exposing values, then runs:
-
-```sh
-pnpm run deploy
-unset APP_MANIFEST_CODE APP_MANIFEST_CODE_STATE
-pnpm run check-state
-unset APP_REPOSITORY
-```
-
-The repository owner installs the App on **only `schickling/ptg`**. The provider
-seals the private key into PTG's `mergemaster-check-publisher` environment
-secret `MERGEMASTER_APP_PRIVATE_KEY`. The callback code, private key and
-minted App tokens are secret; never paste them into commands, logs, git or
-state. `ptg.integrationId` (the App ID, not installation ID), `ptg.slug`,
-pending manifest/state and the secret's destination name are non-secret
-metadata. Retain the existing state root and back it up only after the
-post-registration state check succeeds.
-
-#### Required-publisher binding contract
-
-The required contexts are exactly the consumer's `required_evidence` lane
-IDs in its BASE `.mergemaster/lanes.json`, each bound to
-`integration_id` = the consumer's App ID (not its installation ID).
-
-The reusable publisher's check-name contract is in
-`genie/generic-evidence.ts`: `genericEvidenceRequiredJob({ check, ... })`
-sets `env.CHECK = check`, and Python `finalize()` posts
-`POST /repos/{owner}/{repository}/check-runs` with
-`{"name": os.environ["CHECK"], "head_sha": head, ...}` using `APP_TOKEN`.
-The check-run name is therefore the lane ID, not the publisher job name or
-an informational report job name.
-
-The repository owner enrolls its BASE-controlled lane/environment/signer
-policy, retains independent unprivileged validation, and uses
-`genericEvidenceRequiredJob({ check: laneId, ... })` for each required lane on
-`pull_request_target`, with job environment `mergemaster-check-publisher`.
-Supply a SHA-pinned `actions/create-github-app-token` step with
-`app-id` set to the consumer's exported `integrationId`,
-`private-key: ${{ secrets.MERGEMASTER_APP_PRIVATE_KEY }}`, and `owner` and
-`repositories` limited to the target repository. Never use `GITHUB_TOKEN`
-as the check publisher or require the informational reporter.
-
-Only after registration, installation and successful publisher runs for
-every required lane, the repository owner adds the required-status-check
-rule to its main-branch ruleset. Include one context per BASE
-`required_evidence` lane ID and replace the symbolic App ID with the
-consumer's numeric `integrationId`:
-
-```text
-{
-  "type": "required_status_checks",
-  "parameters": {
-    "required_status_checks": [
-      {"context": "<required_evidence lane ID>", "integration_id": <consumer App ID>}
-    ],
-    "strict_required_status_checks_policy": true
-  }
-}
-```
-
-Consumer workflow/policy and ruleset changes belong in their respective
-repositories, not this stack. None of the apply/consent/installation/ruleset
-steps above run as part of the offline test suite.
+Consumer required-check contexts remain their BASE `required_evidence` lane
+IDs. After installation and successful central publication, bind every required
+lane context to the same `integration_id = publisher.integrationId`; do not
+substitute consumer IDs, lane display names or installation IDs. App binding
+rejects checks from other Apps, not forged checks from someone holding this
+same App's key or a checks-write installation token. A leaked scoped token
+lasts at most one hour; a leaked App private key can mint tokens for every
+installation regardless of the originally requested token scope.

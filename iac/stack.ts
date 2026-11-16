@@ -1,18 +1,20 @@
 import * as GitHub from '@overeng/alchemy-github'
 import * as Output from 'alchemy/Output'
 import { Effect } from 'effect'
+import consumers from './consumers.json' with { type: 'json' }
 
-/** One entry per repository; each owns a separate checks-only App and key sink. */
-export const repositories = [{
-  id: 'graph', owner: 'schickling', repository: 'factory', defaultBranch: 'main',
-  appName: 'Factory Evidence',
-}, {
-  id: 'ptg', owner: 'schickling', repository: 'ptg', defaultBranch: 'main',
-  appName: 'PTG Evidence',
-}] as const
+/** The reconciler reads this same allowlist; consumers never receive the App key. */
+export const repositories = consumers
 
 export const publisherEnvironment = 'mergemaster-check-publisher'
 export const publisherPrivateKey = 'MERGEMASTER_APP_PRIVATE_KEY'
+export const publisher = {
+  owner: 'schickling',
+  name: 'Mergemaster Evidence',
+  keyOwner: 'compoundingtech',
+  keyRepository: 'mergemaster',
+  defaultBranch: 'main',
+} as const
 
 /** Only these non-secret facts cross the stack output boundary. */
 export const appOutput = (app: GitHub.AppAttributes) => app.status === 'pending'
@@ -21,33 +23,38 @@ export const appOutput = (app: GitHub.AppAttributes) => app.status === 'pending'
 
 export interface Registration {
   readonly state?: string
-  readonly adoptSlug?: string
 }
 
-export const resources = (registrations: Readonly<Record<string, Registration>> = {}) => Effect.gen(function* () {
-  const outputs = []
-  for (const repo of repositories) {
-    const registration = registrations[repo.id] ?? {}
-    const environment = yield* GitHub.Environment(`${repo.id}-publisher-environment`, {
-      owner: repo.owner, repository: repo.repository, name: publisherEnvironment,
-      deploymentBranchPolicy: { customBranchPolicies: [repo.defaultBranch] },
-    })
-    const app = yield* GitHub.App(`${repo.id}-publisher-app`, {
-      owner: repo.owner, ownerType: 'user',
-      manifest: {
-        name: repo.appName,
-        url: `https://github.com/${repo.owner}/${repo.repository}`,
-        redirectUrl: 'http://127.0.0.1:8787/github-app-callback',
-        permissions: { checks: 'write' }, events: [],
-      },
-      privateKeySecret: {
-        owner: repo.owner, repository: repo.repository,
-        environment: environment.name, name: publisherPrivateKey,
-      },
-      ...(registration.state === undefined ? {} : { conversion: { state: registration.state } }),
-      ...(registration.adoptSlug === undefined ? {} : { adopt: { slug: registration.adoptSlug } }),
-    })
-    outputs.push([repo.id, Output.map(Output.of(app), appOutput)] as const)
+export const resources = (registration: Registration = {}) => Effect.gen(function* () {
+  const keyEnvironment = yield* GitHub.Environment('publisher-key-environment', {
+    owner: publisher.keyOwner, repository: publisher.keyRepository, name: publisherEnvironment,
+    deploymentBranchPolicy: { customBranchPolicies: [publisher.defaultBranch] },
+  })
+  const app = yield* GitHub.App('publisher-app', {
+    owner: publisher.owner, ownerType: 'user',
+    manifest: {
+      name: publisher.name,
+      url: `https://github.com/${publisher.keyOwner}/${publisher.keyRepository}`,
+      redirectUrl: 'http://127.0.0.1:8787/github-app-callback',
+      permissions: { checks: 'write', contents: 'read', pull_requests: 'read' }, events: [],
+    },
+    privateKeySecret: {
+      owner: publisher.keyOwner, repository: publisher.keyRepository,
+      environment: keyEnvironment.name, name: publisherPrivateKey,
+    },
+    ...(registration.state === undefined ? {} : { conversion: { state: registration.state } }),
+  })
+  return {
+    publisher: Output.map(Output.of(app), appOutput),
+    // App installation consent remains manual; the provider cannot observe it without a key.
+    installation: Output.map(Output.of(app), (attributes) => attributes.status === 'pending'
+      ? { status: 'pending-registration' as const }
+      : {
+        status: 'consent-required' as const,
+        url: `https://github.com/apps/${attributes.slug}/installations/new`,
+        owner: publisher.owner,
+        repositories: repositories.map((repo) => repo.repository),
+      }),
+    consumers: Object.fromEntries(repositories.map(({ id, ...repository }) => [id, repository])),
   }
-  return Object.fromEntries(outputs)
 })
