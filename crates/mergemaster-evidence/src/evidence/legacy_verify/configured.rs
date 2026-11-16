@@ -122,21 +122,30 @@ pub fn verified<T, P: Provider>(
     prefer: Levels<'_>,
     emit: impl FnOnce(&super::result::Satisfied<'_>, &TrustedCandidate) -> T,
 ) -> Result<T, Failure> {
-    selected_record(q, settings, judgment, prefer, emit)
-        .map(|(value, _)| value)
-        .map_err(|e| e.failure)
+    selected_record(
+        &mut CandidateCollector::for_check(),
+        q,
+        settings,
+        judgment,
+        prefer,
+        emit,
+    )
+    .map(|(value, _)| value)
+    .map_err(|e| e.failure)
 }
 
 /// Retain the selected original document and typed metadata for aggregation.
 /// Ownership moves after the borrowed view is consumed; no JSON bridge or
-/// duplicate statement/principal allocation is needed.
+/// duplicate statement/principal allocation is needed. Reuse the check-owned
+/// collector across members so retained documents remain charged to one budget.
 pub fn retained<P: Provider>(
+    collector: &mut CandidateCollector,
     q: &Request<'_>,
     settings: Settings<'_>,
     judgment: &mut CheckJudgment<'_, P>,
     prefer: Levels<'_>,
 ) -> Result<super::result::Retained, Failure> {
-    selected_record(q, settings, judgment, prefer, |view, _| {
+    selected_record(collector, q, settings, judgment, prefer, |view, _| {
         super::result::Selection::capture(view)
     })
     .map(|(selection, record)| super::result::Retained::new(record, selection))
@@ -160,19 +169,26 @@ impl From<Failure> for Box<Refusal> {
     }
 }
 /// Preserve ordering metadata that the simpler verified/retained APIs discard.
+/// This standalone single-check entry point owns its collector budget.
 pub fn retained_detailed<P: Provider>(
     q: &Request<'_>,
     settings: Settings<'_>,
     judgment: &mut CheckJudgment<'_, P>,
     prefer: Levels<'_>,
 ) -> Result<super::result::Retained, Box<Refusal>> {
-    selected_record(q, settings, judgment, prefer, |view, _| {
-        super::result::Selection::capture(view)
-    })
+    selected_record(
+        &mut CandidateCollector::for_check(),
+        q,
+        settings,
+        judgment,
+        prefer,
+        |view, _| super::result::Selection::capture(view),
+    )
     .map(|(selection, record)| super::result::Retained::new(record, selection))
 }
 
 fn selected_record<T, P: Provider>(
+    collector: &mut CandidateCollector,
     q: &Request<'_>,
     settings: Settings<'_>,
     judgment: &mut CheckJudgment<'_, P>,
@@ -183,10 +199,7 @@ fn selected_record<T, P: Provider>(
         Settings::Policy(rules) => rules.header.inputs.as_deref(),
         Settings::Unconfigured(_) => None,
     };
-    let mut gathered = candidates(
-        &mut CandidateCollector::for_check(),
-        &Request { inputs, ..*q },
-    )?;
+    let mut gathered = candidates(collector, &Request { inputs, ..*q })?;
     let check = q.check.codepoints();
     let records = document_candidates(&gathered.records, &check)?;
     let prepared = match settings {
