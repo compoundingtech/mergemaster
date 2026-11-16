@@ -295,10 +295,7 @@ fn pnpm_package_links_verify_through_declared_linked_external_dependency_roots()
             "../dependencies/pkg".into()
         };
         symlink(target, modules.join("pkg")).unwrap();
-        let roots = vec![
-            fs::canonicalize(&modules).unwrap(),
-            fs::canonicalize(&dependency).unwrap(),
-        ];
+        let roots = vec![modules.clone(), dependency.clone()];
         let mut lane = lane();
         lane.inputs
             .insert("node_modules".into(), measured_artifact(&modules, &roots));
@@ -310,6 +307,20 @@ fn pnpm_package_links_verify_through_declared_linked_external_dependency_roots()
         verify(repo.path(), head.trim(), &lane, true).unwrap();
         let modules_before =
             mergemaster_evidence::evidence::workspace::tree_digest_v2(&modules, &roots).unwrap();
+        if !absolute {
+            let canonical_roots = roots
+                .iter()
+                .map(|root| fs::canonicalize(root).unwrap())
+                .collect::<Vec<_>>();
+            // Endpoints alone must not implicitly authorize the dependencies bridge.
+            assert!(
+                mergemaster_evidence::evidence::workspace::tree_digest_v2(
+                    &modules,
+                    &canonical_roots,
+                )
+                .is_err()
+            );
+        }
         verify(repo.path(), head.trim(), &lane, false).unwrap();
         fs::write(external.path().join("pkg/index.js"), "changed").unwrap();
         // Descendant links are rows, not traversals; the other declared root binds these bytes.

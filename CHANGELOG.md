@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Preserve exact declared input-root link locations as explicit cross-root hop authority, separately from canonical measured endpoints; require standalone callers to supply the original declared root paths.
 - Resolve v2 link targets component by component and require authority for every intermediate link; accept fully validated workspace dependency cycles while rejecting nonterminating link chains, and use logarithmic tracked-directory prefix lookups.
 - Share v2 link reachability validation across an entire workspace observation, expanding each canonical directory once per tracked-authority mode even across chained and shared inputs.
 - Validate every reachable descendant of v2 workspace directory links, refusing nested escapes, reachable scratch paths and nonterminating link chains without changing digest preimages.
