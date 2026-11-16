@@ -41,14 +41,19 @@ fn phase_error(e: PolicyError) -> Failure {
 fn includes(doc: &Document, check: &[u32]) -> bool {
     matches!(field(doc,doc.root(),"predicate").and_then(|p| field(doc,p,"observed")).and_then(|o| field(doc,o,"checks")),Some(Node::Object(v)) if v.contains_key(check))
 }
+pub struct Candidates {
+    pub records: Vec<TrustedCandidate>,
+    /// The exact collection key, retained without a second projection.
+    pub input_key: Option<String>,
+}
 /// Reproduce Python's EMPTY owned revocation file, not external revocation policy.
 /// Do not reuse for an API promising caller-supplied revocation enforcement.
 /// Omitted Python attempts metadata stays absent; only degraded includes its count.
 pub fn candidates(
     collector: &mut CandidateCollector,
     q: &Request<'_>,
-) -> Result<Vec<TrustedCandidate>, Failure> {
-    let (groups, legacy) = {
+) -> Result<Candidates, Failure> {
+    let (groups, legacy, input_key) = {
         let file =
             tempfile::NamedTempFile::new().map_err(|e| failure("error", e.to_string(), None))?;
         let path = file
@@ -63,7 +68,7 @@ pub fn candidates(
             .map_err(phase_error)?;
         let groups =
             partition(q.repo, collected.records, q.keys, revocations).map_err(phase_error)?;
-        (groups, collected.legacy)
+        (groups, collected.legacy, collected.input_key)
     }; // Match957-995: revocation file lives through partition, not the miss scan.
     let check = q.check.codepoints();
     let had_trusted = !groups.trusted.is_empty();
@@ -73,7 +78,10 @@ pub fn candidates(
         .filter(|c| includes(&c.candidate.statement, &check))
         .collect();
     if !with_check.is_empty() {
-        return Ok(with_check);
+        return Ok(Candidates {
+            records: with_check,
+            input_key,
+        });
     }
     let degraded = groups
         .degraded

@@ -131,7 +131,7 @@ print(json.dumps(cases))
         } else {
             let actual = match result {
                 Ok(v) => {
-                    serde_json::json!({"records":v.iter().map(|c| &c.candidate.commit).collect::<Vec<_>>()})
+                    serde_json::json!({"records":v.records.iter().map(|c| &c.candidate.commit).collect::<Vec<_>>()})
                 }
                 Err(e) => {
                     assert_eq!(e.attempts.is_some(), e.reason == "degraded");

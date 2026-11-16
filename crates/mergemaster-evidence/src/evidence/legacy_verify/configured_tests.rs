@@ -23,7 +23,7 @@ for fmt in ['sha1','sha256']:
    subject=git('commit-tree',current,data=b'subject').decode().strip()
    def record(label,target=current,shard=False,wide=False):
     parent=subject if target==current else git('commit-tree',target,data=b'fresh subject').decode().strip()
-    inputs={'n':'1','r':'0=success'}
+    inputs={'n':'1','r':'0=success','crate':'fixture','source_inputs':'1'*len(current),'tests_run':'1'}
     if shard: inputs['i']='0'
     value=dict(_type=v['STATEMENT_TYPE'],predicateType=v['PREDICATE_TYPE'],subject=[dict(name=parent,digest=dict(gitTree=target))],
      predicate=dict(schema_version=1,tier='full',change_id=label,signer='agent/fixture',observed_at='2026-01-01T00:04:00Z',
@@ -47,7 +47,8 @@ for fmt in ['sha1','sha256']:
    def verify(target):
     try:
      result=v['verify'](str(repo),target,points,str(keys),None,rules=rules,now=datetime(2026,1,1,0,5,tzinfo=timezone.utc))
-     return dict(record=result['record'],signer=result['signer'],tier=list(map(ord,result['tier'])))
+     bound=v['verify'](str(repo),target,points,str(keys),None,rules=rules,now=datetime(2026,1,1,0,5,tzinfo=timezone.utc),crate_key=('fixture','1'*len(current),True))
+     return dict(record=result['record'],signer=result['signer'],tier=list(map(ord,result['tier'])),wire=json.dumps(result,indent=2),crate_wire=json.dumps(bound,indent=2))
     except v['Failure'] as e: return dict(reason=e.reason,attempts=e.extra.get('attempts',0))
    expected=verify(current)
    reason={'wrong-command':'wrong_command','failed':'check_failed','shard-only':'no_record','level-lane':'no_lane'}.get(name)
@@ -155,7 +156,57 @@ print(json.dumps(cases))
                 json!({"record":view.record,"signer":view.signer,"tier":view.tier})
             }
         };
-        assert_eq!(actual, case["expected"], "{}", case["name"]);
+        let mut expected = case["expected"].clone();
+        expected.as_object_mut().unwrap().remove("wire");
+        expected.as_object_mut().unwrap().remove("crate_wire");
+        assert_eq!(actual, expected, "{}", case["name"]);
+        let mut judgment = CheckJudgment {
+            clock: &mut clock,
+            run_inputs: &BTreeMap::new(),
+            lane: None,
+            provider: LaneOnce::new(RequiredProvider(NoBindings)),
+        };
+        let crate_key = "1".repeat(q.tree.len());
+        for (binding, expected_wire) in [
+            (None, "wire"),
+            (
+                Some(super::super::collection::CrateBinding {
+                    name: "fixture".into(),
+                    key: &crate_key,
+                    needs_tests: true,
+                }),
+                "crate_wire",
+            ),
+        ] {
+            let joined = verified(
+                &Request {
+                    crate_key: binding,
+                    ..q
+                },
+                Settings::Policy(&rules),
+                &mut judgment,
+                Levels::Utf8(&[]),
+                |view, record| {
+                    assert_eq!(view.record, record.candidate.commit);
+                    let mut wire = String::new();
+                    crate::evidence::legacy_output::write(&mut wire, |w| view.write_json(w))
+                        .unwrap();
+                    wire
+                },
+            );
+            match joined {
+                Ok(wire) => assert_eq!(
+                    wire,
+                    case["expected"][expected_wire].as_str().unwrap(),
+                    "{}",
+                    case["name"]
+                ),
+                Err(error) => {
+                    assert_eq!(error.reason, case["expected"]["reason"]);
+                    assert_eq!(error.attempts.unwrap_or(0), case["expected"]["attempts"]);
+                }
+            }
+        }
     }
 }
 
