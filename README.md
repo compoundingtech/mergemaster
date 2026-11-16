@@ -1488,3 +1488,106 @@ rejects checks from other Apps, not forged checks from someone holding this
 same App's key or a checks-write installation token. A leaked scoped token
 lasts at most one hour; a leaked App private key can mint tokens for every
 installation regardless of the originally requested token scope.
+
+### Scheduled verification and repair
+
+`.github/workflows/evidence-reconcile.yml` builds the `evidence-reconciler` flake
+package and runs `mergemaster-reconciler` on a GitHub-hosted Ubuntu runner every
+five minutes (`2-57/5 * * * *`) and accepts
+manual `workflow_dispatch`. Both paths are restricted to `main`, use the central
+`mergemaster-check-publisher` environment and share one concurrency group.
+No fleet host, webhook receiver, consumer dispatch credential or consumer App
+secret is required. Scheduling is best effort: GitHub can delay or drop a run;
+the next successful sweep revisits current open PRs and durable evidence.
+
+The runtime is a separate Rust binary crate, `crates/mergemaster-reconciler`.
+Polling, GitHub credentials and publication stay outside the evidence verifier's
+CLI/trust core: the reconciler still invokes the independently BASE-pinned
+verifier release. It reuses the workspace's `jsonwebtoken`/AWS-LC RS256 and serde
+dependency graph, and the existing trusted `gh` HTTP transport convention for
+API and provenance calls. No new HTTP library or crypto implementation is added.
+The flake package supplies its Git/SSH/GPG/GitHub CLI runtime tools; `scripts/`
+remains the unchanged parity-oracle surface. Local signing keys never enter
+Actions.
+The restricted child `PATH` includes independently resolved Git, GitHub CLI and
+`ssh-keygen` directories, so the pinned verifier can validate SSH-signed evidence
+without searching the BASE checkout or caller-controlled paths. The reconciler
+flake check exercises this production subprocess adapter against a real
+ephemeral SSH-signed Git commit using the package wrapper's runtime tool set.
+
+`iac/consumers.json` is the reconciler's sole enrollment allowlist, compiled into
+the binary. Unknown dispatch repositories are rejected. For each enrolled
+numeric repository ID, the reconciler discovers that App's installation and
+requires `repository_selection: selected`; an all-repositories installation
+fails closed before token minting. It mints a token with exactly one enrolled
+`repository_ids` entry and `checks: write`, `contents: read`, `pull_requests: read`.
+Both the token response and its paginated installation repository listing must
+expose exactly that enrolled repository; unexpected IDs or names fail closed
+before verification or publication. Live repository/account identity is also
+checked before using the token.
+
+This does not prove that the installation contains no other selected repository:
+GitHub's installation repository listing reflects the token's narrowed scope.
+An extra selected repository outside that scope is not detectable with the
+App JWT and these least-privilege tokens. Detecting it would require broader
+credentials; the reconciler deliberately does not mint an unscoped token.
+Enrollment remains the authority for every token and publication target.
+
+For each same-repository open PR, it observes the live target branch, reads
+the required lane list and verifier pin from that accepted BASE, fetches HEAD
+and evidence refs as data, and checks out **only BASE**. The BASE-pinned release
+must match its SHA-256 and GitHub attestation source revision and release
+workflow. That existing verifier reads the BASE-controlled policy and signer
+keys and decides whether signed evidence authorizes each required lane.
+Candidate source is never run and no fallback build is performed.
+
+The synthesized verifier event contains authenticated PR/repository/base
+observations, not dispatch-supplied conclusions. Central workflow actor metadata
+is retained rather than inventing the original PR event actor. Fork PRs remain
+unsupported, as with the existing generic publisher. Policies needing hosted
+approval/check evidence fail closed: this reconciler does not collect hosted
+evidence or request the unapproved `actions: read` App grant.
+
+Immediately before publishing, the reconciler rechecks the live PR, HEAD and
+accepted base. Success requires the verifier's exact lane/base/head identity,
+`skip` with `satisfied` or `reused`, and a non-report-only successful process.
+Missing or invalid verification is never success. Existing check runs matching
+the lane name, HEAD and shared App are updated with `PATCH`; only a missing run
+is created. Historical matching duplicates are repaired together. This is
+serialized single-workflow reconciliation, not a claim that GitHub provides an
+atomic external-ID uniqueness constraint for arbitrary concurrent publishers.
+
+After registration, installation and runtime configuration, an authorized
+operator can request an immediate current-state repair:
+
+```sh
+gh workflow run evidence-reconcile.yml --repo compoundingtech/mergemaster \
+  --ref main -f repo=schickling/factory -f pr=123
+```
+
+Omit either filter to expand within the enrollment allowlist; omitting both
+reconciles every enrolled repository's open PRs. Unknown repository names and
+nonpositive PR numbers fail closed. A re-run/backfill recomputes current
+HEAD/BASE and evidence; it never replays an old caller's success claim.
+Local signing continues independently during publisher outages, and signed
+notes remain in the consumer's origin until a subsequent sweep can verify them.
+
+Offline runtime tests use reduced recorded API identity fixtures and synthetic
+credential/check responses; no live writes or recorded secrets are involved:
+
+```sh
+nix build .#evidence-reconciler
+nix build .#checks.x86_64-linux.evidence-reconciler
+```
+
+The same suite is wired into CI and `nix flake check`. It covers enrollment and
+token scoping, BASE-only authorization reads, release provenance, exact verifier
+identity, stale HEAD/base refusal, existing-check updates and workflow key
+isolation.
+
+Consumers retain their unprivileged validation and optional informational
+reporters; central publication needs no consumer App environment or key.
+The legacy `genericEvidenceRequiredJob` adapter is not used by this reconciler.
+Retiring that adapter and updating any separately pinned consumer-generated
+workflows is a separate consumer rollout; do not configure its old privileged
+job as a required check or provision a consumer key for this central setup.
