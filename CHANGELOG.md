@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Share v2 link reachability validation across an entire workspace observation, expanding each canonical directory once per tracked-authority mode even across chained and shared inputs.
 - Validate every reachable descendant of v2 workspace directory links, refusing nested escapes, reachable scratch paths and cycles without changing digest preimages.
 - Add opt-in `tree-sha256-v2` measured inputs: hash root symlink targets and resolved contents, and bind descendant link targets within declared measured trees or the verified-clean tracked checkout; retain legacy tree digests, scratch restrictions and evidence compatibility, with no Nix-store exemption.
 - Reuse borrowed check codepoints across member aggregation and stream uncovered summaries without temporary per-member formatted strings or joined buffers.
