@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Preserve ordered legacy CLI preflight diagnostics in a library-only validator; production argument parsing and policy loading remain unwired.
 - Decode Rust legacy skip policies from their original JSON text with lossless codepoint identities and wide positive-integer age limits; retain lazy age-overflow errors and remove the serde-value conversion bridge.
 - Use the pinned Python interpreter for the noisy fsmonitor projection test so its hook executes inside Nix check sandboxes without `/usr/bin/env`.
 - Derive the Nix package version from the Rust crate's Cargo manifest and check the packaged CLI's version against it, preventing release metadata drift.
