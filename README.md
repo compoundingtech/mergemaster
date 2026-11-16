@@ -1107,21 +1107,55 @@ BASE lanes may declare materialized workspace `inputs` and writable `scratch`:
 
 ```json
 "inputs": {
-  "node_modules": {"name": "locked modules", "identity": "tree-sha256:<64 lowercase hex>"}
+  "node_modules": {"name": "locked modules", "identity": "tree-sha256-v2:<64 lowercase hex>"},
+  "repos/dependency": {"name": "dependency tree", "identity": "tree-sha256-v2:<64 lowercase hex>"}
 },
 "scratch": [".build"]
 ```
 
 These are lane fields in `lanes.json`, not operator configuration. Provision inputs
-before wrapping; the wrapper does not download or install them. `sha256:` binds a
-regular file's bytes. `tree-sha256:` binds a directory: SHA-256 of compact JSON
-`[1, rows]`, with rows `[relative_path, kind, digest]` sorted by UTF-8 path bytes.
-The root row has path `""`; kinds are `directory`, `file`, or `executable` (any
-execute bit). Directory digests are `""`; file digests are lowercase SHA-256.
-Empty directories are included. Symlinks and special entries are refused.
+before wrapping; the wrapper does not download or install them. In this consumer
+shape, both dependency trees are measured inputs; only `.build` is writable scratch.
+Do not classify dependencies as scratch to bypass measurement.
+
+`sha256:` binds a regular file's bytes. The legacy `tree-sha256:` identity is
+unchanged: it requires a physical directory root and refuses all symlinks and
+special entries, preserving its exact v1 digest and refusal behavior. Its digest
+is SHA-256 of compact JSON `[1, rows]`, with rows `[relative_path, kind, digest]`
+sorted by UTF-8 path bytes. The root row has path `""`; kinds are `directory`,
+`file`, or `executable` (any execute bit). Directory digests are `""`; file
+digests are lowercase SHA-256. Empty directories are included.
+
+Opt in to `tree-sha256-v2:` for measured symlink inputs. It hashes compact JSON
+`[2, rows]`, retaining the same sorted row format, regular-file modes and empty
+directories, and adds kind `symlink`. A symlink row's digest is lowercase SHA-256
+of its raw target bytes, not its destination's bytes. Descendant symlinks are
+recorded but not traversed; their canonical destinations must lie within the
+same or another declared measured tree input, or name a tracked file or a
+directory prefix of tracked files in the verified-clean checkout. This permits
+pnpm workspace links into tracked sibling packages: their actual tracked bytes
+are already checked against committed blobs by both wrapper and signer.
+Ignored/untracked destinations, scratch, Git metadata and checkout escapes
+are not authorized by this tracked-path rule. Dangling links, cycles and
+special entries remain refused.
+
+The declared v2 tree root itself may be an absolute- or relative-target symlink
+to a directory. Its raw target is hashed as the `symlink` row at path `""`, and
+the resolved directory's full contents are measured under that root. There is
+no additional directory row at `""`. Thus both root retargeting and changes to
+the resolved tree affect the identity; a root link is not merely a target-string
+measurement.
+
+There is no Nix-store exemption. `.devenv` may be declared as a measured tree
+input, but its descendant links into `/nix/store` (or any other external tree)
+are refused unless their canonical destinations lie within declared measured
+tree roots. Declaring `.devenv` does not implicitly declare its external Nix
+closure, and putting it in scratch does not make those links acceptable.
 
 Roots must be literal repository-relative paths without trailing slashes. They
 cannot overlap each other, tracked files (including ancestors), or Git metadata.
+Canonical measured roots also cannot physically overlap each other, encompass
+the repository, or alias tracked paths or scratch.
 Root ancestors cannot be symlinks. Scratch must start absent or empty; the wrapper
 creates it before execution. Only scratch may acquire output; its descendants
 must remain regular files/directories. Every other ignored or untracked entry,
@@ -1137,6 +1171,9 @@ preserved). The object-only verifier recomputes this digest from BASE policy;
 it never requires materializations in its checkout. With both declarations
 absent or empty, Lane serialization and expected inputs remain unchanged, so
 v0.1 evidence stays verifiable.
+
+The new tree identity does not change the workspace-binding v2 declaration
+format or object-only verification of existing v2 evidence.
 
 The signing key must also be account-owned, mode 0600 and outside the consumer
 checkout. An optional `path` field supplies a trusted executable search path;
