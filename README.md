@@ -1366,8 +1366,8 @@ environment support requires a compatible GitHub plan.
 
 ### Operator manifest registration
 
-The isolated IaC package uses pnpm 12.15.0, the fleet pin from the composed
-effect-utils `nix/pnpm.nix`, with its own `iac/pnpm-lock.yaml`.
+The isolated IaC package uses pnpm 12.17.0, the current fleet pin, with its own
+`iac/pnpm-lock.yaml`.
 Node 24.20.0 is used in hosted CI. The pinned effect-utils source is composed
 through `megarepo.lock`; pnpm's `file:` dependency installs the unpublished
 provider with its dependencies, rather than linking an uninstalled checkout.
