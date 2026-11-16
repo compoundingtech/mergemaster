@@ -88,3 +88,107 @@ print(json.dumps(cases))
     }
     assert_eq!(cases.len(), 14);
 }
+
+#[test]
+fn member_keys_match_base_first_oracle_and_refusals() {
+    let script = r#"
+import ast,json,os,pathlib,runpy,subprocess,sys,types
+assert sys.version_info[:3]==(3,14,7)
+repo=pathlib.Path(sys.argv[2]); root=pathlib.Path(sys.argv[1])
+v=runpy.run_path(str(root/'scripts/evidence-verify'))
+rtk=types.SimpleNamespace(**runpy.run_path(sys.argv[3]))
+scope=dict(os=os,Failure=v['Failure'],project=v['project'],sibling=lambda name:rtk)
+module=ast.parse((root/'scripts/evidence-verify').read_text())
+exec(compile(ast.Module(body=[n for n in module.body if isinstance(n,ast.FunctionDef) and n.name=='member_keys'],type_ignores=[]),'oracle','exec'),scope)
+def git(*args): return subprocess.check_output(['git','-C',str(repo),*args],stderr=subprocess.PIPE).decode().strip()
+def write(name,data):
+ p=repo/name; p.parent.mkdir(parents=True,exist_ok=True); p.write_bytes(data)
+git('init')
+fixtures=[
+ ('good',b'[workspace]\nmembers=["z","a"]',b'{"global":["Cargo.toml"],"crates":{"a":{"extra":[".st/settings.json::x"]},"z":{"extra":[]}}}'),
+ ('empty',b'[workspace]\nmembers=[]',b'{}'),
+ ('missing-manifest',None,b'{}'),
+ ('bad-manifest',b'bad = [',b'{}'),
+ ('bad-inputs',b'[workspace]\nmembers=[]',b'{'),
+ ('bad-shape',b'[workspace]\nmembers=[]',b'[]'),
+ ('bad-utf8',b'[workspace]\nmembers=[]',b'\xff'),
+ ('no-inputs',b'[workspace]\nmembers=[]',None),
+ ('exception',b'[workspace]\nmembers=[]',b'{"global":1}'),
+ ('project-missing-old',b'[workspace]\nmembers=["z","a"]',b'{}'),
+ ('project-missing-preferred',b'[workspace]\nmembers=["z","a"]',b'{}'),
+]
+trees={}
+for name,manifest,inputs in fixtures:
+ prefix=name+'/'
+ write(prefix+'marker',b'')
+ if manifest is not None: write(prefix+'Cargo.toml',manifest)
+ if inputs is not None: write(prefix+'.st/rust-test-inputs.json',inputs)
+ for crate in ['z','a']:
+  write(prefix+crate+'/Cargo.toml',('[package]\nname="'+crate+'"').encode())
+  write(prefix+crate+'/src/lib.rs',b'pub fn fixture() {}')
+ write(prefix+'.st/settings.json',b'{"x":1}')
+ if name=='project-missing-old': write(prefix+'.st/settings.json',b'{"x":"gone-old"}')
+ if name=='project-missing-preferred': write(prefix+'.fractal/settings.json',b'{"x":"gone-preferred"}')
+git('add','.'); outer=git('write-tree')
+for name,_,_ in fixtures: trees[name]=git('rev-parse',outer+':'+name)
+for name,path in [('project-missing-old','.st/settings.json'),('project-missing-preferred','.fractal/settings.json')]:
+ oid=git('rev-parse',trees[name]+':'+path)
+ (repo/'.git/objects'/oid[:2]/oid[2:]).unlink()
+base=trees['good']; raw=f'tree {base}\nauthor A <a@b> 1 +0000\ncommitter A <a@b> 1 +0000\n\nmembers\n'.encode()
+commit=subprocess.check_output(['git','-C',str(repo),'hash-object','-t','commit','-w','--stdin'],input=raw).decode().strip()
+git('update-ref','refs/heads/accepted',commit); git('symbolic-ref','HEAD','refs/heads/accepted')
+pairs=[(base,None),(base,''),(base,base),('missing-tree',base),('missing-tree',trees['bad-inputs'])]
+pairs += [(trees[name],base) for name in ['empty','missing-manifest','bad-manifest','project-missing-old','project-missing-preferred']]
+pairs += [(base,trees[name]) for name in ['bad-inputs','bad-shape','bad-utf8','no-inputs','exception']]
+pairs += [(candidate,accepted) for candidate,accepted in [('HEAD','accepted'),(commit[:12],'HEAD'),('accepted',commit[:12]),(base,'missing-base')]]
+cases=[]
+for inherited in [None,'0','1']:
+ if inherited is None: os.environ.pop('GIT_NO_LAZY_FETCH',None)
+ else: os.environ['GIT_NO_LAZY_FETCH']=inherited
+ for tree,base in pairs:
+  try: expected={'ok':scope['member_keys'](repo,tree,base)}
+  except v['Failure'] as e: expected={'class':'Failure','reason':e.reason,'detail':str(e)}
+  except Exception as e: expected={'class':type(e).__name__,'detail':str(e)}
+  assert os.environ.get('GIT_NO_LAZY_FETCH')==inherited
+  cases.append(dict(tree=tree,base=base,expected=expected))
+print(json.dumps(cases))
+"#;
+    let repo = tempfile::tempdir().unwrap();
+    let out = std::process::Command::new("python3")
+        .args(["-c", script])
+        .arg(std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap())
+        .arg(repo.path())
+        .arg(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/fixtures/fractal/scripts/rust-test-keys"),
+        )
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let cases: Vec<Value> = serde_json::from_slice(&out.stdout).unwrap();
+    for case in &cases {
+        let actual = match member_keys(
+            repo.path(),
+            case["tree"].as_str().unwrap(),
+            case["base"].as_str(),
+        ) {
+            Ok(keys) => {
+                json!({"ok":keys.into_iter().collect::<std::collections::BTreeMap<_, _>>()})
+            }
+            Err(error) => match error.origin {
+                crate::evidence::legacy_policy::ErrorOrigin::Failure => {
+                    json!({"class":"Failure","reason":error.reason,"detail":error.detail.to_string()})
+                }
+                crate::evidence::legacy_policy::ErrorOrigin::Exception { class } => {
+                    json!({"class":class,"detail":error.detail.to_string()})
+                }
+            },
+        };
+        assert_eq!(actual, case["expected"], "{case}");
+    }
+    assert_eq!(cases.len(), 57);
+}

@@ -11,6 +11,7 @@ pub struct CrateKey {
     pub key: Option<String>,
     pub paths: Vec<NormalizedText>,
 }
+type KeyPaths = IndexMap<String, Vec<NormalizedText>>;
 impl TreeSource<'_> {
     /// Like rust-test-keys main: resolve the candidate before reading selected inputs.
     pub fn keys_from(
@@ -37,6 +38,14 @@ impl TreeSource<'_> {
         inputs: &Inputs,
         only: &[String],
     ) -> Result<IndexMap<String, CrateKey>, PolicyError> {
+        let (tree, paths) = self.key_paths(inputs, only)?;
+        project_keys(self.repo, &tree, paths, self.no_lazy_fetch)
+    }
+    fn key_paths(
+        &self,
+        inputs: &Inputs,
+        only: &[String],
+    ) -> Result<(String, KeyPaths), PolicyError> {
         let tree = self.resolve()?;
         let paths = TreeSource {
             repo: self.repo,
@@ -55,15 +64,70 @@ impl TreeSource<'_> {
                 unknown.join(", ")
             )));
         }
-        paths
-            .into_iter()
-            .filter(|(name, _)| only.is_empty() || only.contains(name))
-            .map(|(name, paths)| {
-                let key = project_with_fetch(self.repo, &tree, &paths, self.no_lazy_fetch)?;
-                Ok((name, CrateKey { key, paths }))
-            })
-            .collect()
+        Ok((
+            tree,
+            paths
+                .into_iter()
+                .filter(|(name, _)| only.is_empty() || only.contains(name))
+                .collect(),
+        ))
     }
+}
+fn project_keys(
+    repo: &std::path::Path,
+    tree: &str,
+    paths: KeyPaths,
+    no_lazy_fetch: bool,
+) -> Result<IndexMap<String, CrateKey>, PolicyError> {
+    paths
+        .into_iter()
+        .map(|(name, paths)| {
+            let key = project_with_fetch(repo, tree, &paths, no_lazy_fetch)?;
+            Ok((name, CrateKey { key, paths }))
+        })
+        .collect()
+}
+/// Verifier member mode reads accepted-base inputs before resolving the candidate.
+/// Each subprocess disables lazy fetching without changing inherited process state.
+pub fn member_keys(
+    repo: &std::path::Path,
+    tree: &str,
+    policy_base: Option<&str>,
+) -> Result<IndexMap<String, Option<String>>, PolicyError> {
+    let base = policy_base.filter(|base| !base.is_empty()).ok_or_else(|| {
+        failure("--members needs --policy-from: the keys are defined by the accepted base")
+    })?;
+    let load = || {
+        let inputs = TreeSource {
+            repo,
+            tree: base,
+            no_lazy_fetch: true,
+        }
+        .read_inputs()?;
+        TreeSource {
+            repo,
+            tree,
+            no_lazy_fetch: true,
+        }
+        .key_paths(&inputs, &[])
+    };
+    // Python catches only rust-test-keys failures, not verifier projection failures.
+    let (resolved, paths) = load().map_err(|mut error| {
+        if error.origin == crate::evidence::legacy_policy::ErrorOrigin::Failure {
+            error.detail = NormalizedText::around("per-crate keys: ", error.detail.borrowed(), "");
+        }
+        error
+    })?;
+    let members: IndexMap<_, _> = project_keys(repo, &resolved, paths, true)?
+        .into_iter()
+        .map(|(name, value)| (name, value.key))
+        .collect();
+    if members.is_empty() {
+        return Err(failure(
+            "the tree has no workspace member: nothing to cover is not a pass",
+        ));
+    }
+    Ok(members)
 }
 #[cfg(test)]
 #[path = "crate_keys_tests.rs"]
