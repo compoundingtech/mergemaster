@@ -105,7 +105,11 @@ print(json.dumps(cases))
             check: check.as_slice().into(),
             keys: case["keys"].as_str().unwrap(),
             inputs: Some(&ignored_inputs),
-            crate_key: Some(("wrong-crate", "wrong-key")),
+            crate_key: Some(super::super::collection::CrateBinding {
+                name: "wrong-crate".into(),
+                key: "wrong-key",
+                needs_tests: false,
+            }),
         };
         let result = required(&q, &rules, None, &mut clock, NoBindings);
         if case["budget"] == true {
