@@ -251,7 +251,13 @@ fn scratch_tree(path: &Path) -> Result<()> {
 }
 
 /// Wrapper start creates empty scratch; all later observers independently remeasure inputs.
-pub fn verify(repo: &Path, head: &str, lane: &Lane, start: bool) -> Result<()> {
+pub fn verify(
+    repo: &Path,
+    head: &str,
+    lane: &Lane,
+    start: bool,
+    toolchain: Option<&super::signing::ToolchainMeasurement>,
+) -> Result<()> {
     let files = declarations(repo, head, lane)?;
     ensure!(
         git::text(repo, &["rev-parse", "HEAD"])? == head && super::signing::tracked_clean(repo)?,
@@ -263,7 +269,7 @@ pub fn verify(repo: &Path, head: &str, lane: &Lane, start: bool) -> Result<()> {
     for root in &lane.scratch {
         contained(repo, root, false)?;
     }
-    let measured_roots = lane
+    let mut measured_roots = lane
         .inputs
         .iter()
         .filter(|(_, artifact)| {
@@ -295,6 +301,9 @@ pub fn verify(repo: &Path, head: &str, lane: &Lane, start: bool) -> Result<()> {
                     .any(|other| root.starts_with(other) || other.starts_with(root)),
             "aliased or overlapping measured workspace roots"
         );
+    }
+    if let Some(toolchain) = toolchain {
+        measured_roots.extend_from_slice(&toolchain.nix_roots);
     }
     for (root, artifact) in &lane.inputs {
         let path = repo.join(root);

@@ -1126,13 +1126,14 @@ Opt in to `tree-sha256-v2:` for measured symlink inputs. It hashes compact JSON
 directories, and adds kind `symlink`. A symlink row's digest is lowercase SHA-256
 of its raw target bytes, not its destination's bytes. Descendant symlinks are
 recorded but not traversed; their canonical destinations must lie within the
-same or another declared measured tree input, or name a tracked file or a
-directory prefix of tracked files in the verified-clean checkout. This permits
-pnpm workspace links into tracked sibling packages: their actual tracked bytes
-are already checked against committed blobs by both wrapper and signer.
-Ignored/untracked destinations, scratch, Git metadata and checkout escapes
-are not authorized by this tracked-path rule. Dangling links, cycles and
-special entries remain refused.
+same or another declared measured tree input, name a tracked file or a directory
+prefix of tracked files in the verified-clean checkout, or lie within a registered
+closure root of a BASE environment `nix:` artifact independently remeasured by
+the observer. Tracked sibling package links are safe because both wrapper and
+signer already check their actual tracked bytes against committed blobs.
+Ignored/untracked destinations, scratch, Git metadata and checkout escapes are
+not authorized by the tracked-path rule. Dangling links, cycles and special
+entries remain refused.
 
 The declared v2 tree root itself may be an absolute- or relative-target symlink
 to a directory. Its raw target is hashed as the `symlink` row at path `""`, and
@@ -1141,11 +1142,18 @@ no additional directory row at `""`. Thus both root retargeting and changes to
 the resolved tree affect the identity; a root link is not merely a target-string
 measurement.
 
-There is no Nix-store exemption. `.devenv` may be declared as a measured tree
-input, but its descendant links into `/nix/store` (or any other external tree)
-are refused unless their canonical destinations lie within declared measured
-tree roots. Declaring `.devenv` does not implicitly declare its external Nix
-closure, and putting it in scratch does not make those links acceptable.
+There is no blanket Nix-store exemption. Only the independently remeasured
+closures of the current system's BASE environment runtime and dependencies
+authorize Nix destinations; a caller-supplied closure receipt cannot authorize
+links, and an unrelated `/nix/store` path is refused. The wrapper and signer
+remeasure these closures at each workspace observation and require their claims
+to match the initial wrapper inputs or signing request.
+`.devenv/profile` must still be declared as a measured input (or be within one,
+such as `.devenv`); a linked input root binds its raw target and resolved contents
+as described above. Declaring `.devenv` does not implicitly authorize arbitrary
+external trees. Mutable runtime links such as `.devenv/run` into `/tmp` remain
+refused unless their destinations are separately declared measured trees.
+Putting `.devenv` in scratch does not authorize any symlinks.
 
 Roots must be literal repository-relative paths without trailing slashes. They
 cannot overlap each other, tracked files (including ancestors), or Git metadata.

@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- Add opt-in `tree-sha256-v2` measured inputs: hash root symlink targets and resolved contents, and bind descendant link targets within declared measured trees or the verified-clean tracked checkout; retain legacy tree digests, scratch restrictions and evidence compatibility, with no Nix-store exemption.
+- Admit v2 workspace input links into independently remeasured closures of BASE environment Nix artifacts, binding every workspace observation to the original toolchain claims; keep arbitrary store paths, dangling links and scratch symlinks forbidden.
+- Add opt-in `tree-sha256-v2` measured inputs: hash root symlink targets and resolved contents, and bind descendant link targets within declared measured trees or the verified-clean tracked checkout; retain legacy tree digests, scratch restrictions and evidence compatibility, with no blanket Nix-store exemption.
 - Reuse borrowed check codepoints across member aggregation and stream uncovered summaries without temporary per-member formatted strings or joined buffers.
 - Aggregate legacy member successes from original records: oldest metadata, weakest trust, maximum attempts, any input match, narrowed events and combined sampling key, with escaped sorted crate output.
 - Share one check-owned record collector across legacy member verification, refusing aggregate record-budget exhaustion instead of resetting the budget for each retained member.
