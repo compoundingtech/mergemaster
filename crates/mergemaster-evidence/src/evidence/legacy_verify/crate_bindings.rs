@@ -37,6 +37,18 @@ impl Members {
             )
         })
     }
+    pub(super) fn into_sorted(self) -> Vec<(String, Option<String>, bool)> {
+        let mut members: Vec<_> = self
+            .keys
+            .into_iter()
+            .map(|(name, key)| {
+                let needs_tests = !listed(&self.no_tests, TextRef::Str(&name));
+                (name, key, needs_tests)
+            })
+            .collect();
+        members.sort_by(|a, b| a.0.cmp(&b.0));
+        members
+    }
 }
 fn listed(names: &BTreeSet<Vec<u32>>, name: TextRef<'_>) -> bool {
     match name {

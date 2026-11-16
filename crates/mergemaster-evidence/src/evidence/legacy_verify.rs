@@ -27,6 +27,7 @@ pub mod lane_git;
 pub mod lanes;
 pub mod member_digest;
 pub mod member_project;
+pub mod members;
 pub mod ordering;
 pub mod paths_project;
 pub mod prefix;
