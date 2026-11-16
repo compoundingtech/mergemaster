@@ -2,6 +2,7 @@
 pub mod argparse_help;
 pub mod argparse_int;
 pub mod argparse_options;
+pub mod argparse_parse;
 pub mod argparse_usage;
 mod binding_path;
 pub mod candidates;
