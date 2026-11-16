@@ -528,6 +528,12 @@ retaining lossless program text and interpolation provenance for future safe sin
 hyphen breaks and help indentation across explicit formatter widths.
 `argparse_parse` consumes lossless argv with unbounded integers, defaults, appends
 and exclusive groups; diagnostic rendering remains a separate library surface.
+`argparse_diagnostic` renders exact uncolored parser stdout/stderr and exit status.
+Manually constructed invalid option indices return typed `InvalidOption`, never panic.
+Approved ANSI-styling divergence: Rust help, usage and errors are always uncolored,
+independent of TTY, FORCE_COLOR, NO_COLOR and TERM. Python 3.14 `_colorize.can_colorize`
+may add ANSI SGR styling; stripping only those sequences yields identical bytes.
+Non-TTY and NO_COLOR output, streams and exit codes remain exact. No CLI is wired.
 `value_checks_document` applies that same guard body to a validated input object,
 preserving Python code points (including lone surrogates) in keys and values.
 Private borrowed views avoid converting statements into native String maps.
