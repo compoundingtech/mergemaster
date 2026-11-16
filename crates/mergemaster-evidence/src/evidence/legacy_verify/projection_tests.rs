@@ -306,8 +306,17 @@ fn successful_noisy_fsmonitor_matches_projection_oracle() {
     std::fs::write(repo.join("wanted"), b"fixture").unwrap();
     git(repo, &["add", "wanted"]).unwrap();
     let tree = String::from_utf8(git(repo, &["write-tree"]).unwrap()).unwrap();
+    // Nix check sandboxes have the pinned Python on PATH, but no /usr/bin/env.
+    let python = Command::new("python3")
+        .args(["-c", "import sys; print(sys.executable)"])
+        .output()
+        .unwrap();
+    assert!(python.status.success());
+    let python = String::from_utf8(python.stdout).unwrap();
+    let python = python.trim();
+    assert!(Path::new(python).is_absolute());
     let hook = repo.join("monitor.py");
-    std::fs::write(&hook, "#!/usr/bin/env python3\nimport pathlib,sys\np=pathlib.Path(__file__).with_suffix('.calls')\nwith p.open('ab') as f:f.write(b'x')\nsys.stderr.buffer.write(b'e'*1048577)\nsys.stderr.buffer.flush()\nsys.stdout.buffer.write(b'token\\0')\n").unwrap();
+    std::fs::write(&hook, format!("#!{python}\nimport pathlib,sys\np=pathlib.Path(__file__).with_suffix('.calls')\nwith p.open('ab') as f:f.write(b'x')\nsys.stderr.buffer.write(b'e'*1048577)\nsys.stderr.buffer.flush()\nsys.stdout.buffer.write(b'token\\0')\n")).unwrap();
     std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
     git(repo, &["config", "core.fsmonitor", hook.to_str().unwrap()]).unwrap();
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap();
@@ -320,7 +329,12 @@ fn successful_noisy_fsmonitor_matches_projection_oracle() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    assert!(
+        hook.with_extension("calls").exists(),
+        "the oracle projection must invoke the noisy fsmonitor hook"
+    );
     let before = std::fs::read(hook.with_extension("calls")).unwrap().len();
+    assert!(before > 0);
     let actual = project(repo, tree.trim(), &["wanted".into()])
         .unwrap()
         .unwrap();
@@ -527,6 +541,7 @@ cases=[
  ['.','!raw\udcff.json'],['!🦀\ud800'],['!\udc80','bad.json::x'],
  ['bad.json::x','!\ud800'],['!raw\0name'],['raw\0name'],
  ['raw\0name::x'],['scalar.json::x\0'],['\ud800'],['\udc7f'],
+ ['nul\0path','\ud800'],['\ud800','nul\0path'],
  ['\udfff'],['.','!astral🦀.json'],['scalar.json','!scalar.json'],
  ['.','raw\udcff.json::x'],['scalar.json::x','raw\udcff.json::x'],
  ['scalar.json::x','scalar.json::x'],['.','!scalar.json::x'],
@@ -555,7 +570,7 @@ print(json.dumps(dict(tree=tree,cases=out)))
     );
     let fixture: Value = serde_json::from_slice(&output.stdout).unwrap();
     let cases = fixture["cases"].as_array().unwrap();
-    assert_eq!(cases.len(), 34);
+    assert_eq!(cases.len(), 36);
     for case in cases {
         let paths: Vec<NormalizedText> = case["paths"]
             .as_array()
@@ -607,4 +622,83 @@ fn projection_fetch_overlay_is_child_local() {
         assert_eq!(bytes, expected);
         assert_eq!(std::env::var_os("GIT_NO_LAZY_FETCH"), inherited);
     }
+}
+fn compare_repository_argument_order(operation: &str) {
+    let script = r#"
+import json,os,runpy,sys
+v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify'); tree='a'*40; out=[]
+for operation in [sys.argv[2]]:
+ for repo,path in [('nul\0repo','\ud800'),('raw\udcff','\ud800'),
+                   ('raw\udcff','nul\0path')]:
+  item=('.st/'+path+'::x') if operation=='selector_item' else path
+  try: v[operation](repo,tree,[item] if operation=='project' else item)
+  except Exception as e:
+   out.append(dict(operation=operation,repo=list(os.fsencode(repo)),
+                   item=list(map(ord,item)),exception=type(e).__name__,message=str(e)))
+# Strict exclusion encoding happens before any subprocess argv conversion.
+try: v['project']('nul\0repo',tree,['\ud800','!\ud800'])
+except Exception as e:
+ out.append(dict(operation='excluded',repo=list(b'nul\0repo'),
+                 item=[0xd800],exception=type(e).__name__,message=str(e)))
+print(json.dumps(out))
+"#;
+    let output = Command::new("python3")
+        .args([
+            "-c",
+            script,
+            &std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap(),
+            operation,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(cases.len(), 4);
+    for case in cases {
+        let repo = std::path::PathBuf::from(std::ffi::OsString::from_vec(
+            serde_json::from_value(case["repo"].clone()).unwrap(),
+        ));
+        let item =
+            NormalizedText::Codepoints(serde_json::from_value(case["item"].clone()).unwrap());
+        let tree = "a".repeat(40);
+        let error = match case["operation"].as_str().unwrap() {
+            "project" => project(&repo, &tree, &[item]).unwrap_err(),
+            "selected_content" => selected_content(&repo, &tree, &item).unwrap_err(),
+            "selector_item" => selector_item(&repo, &tree, &item).unwrap_err(),
+            "excluded" => project(
+                &repo,
+                &tree,
+                &[
+                    item.clone(),
+                    NormalizedText::around("!", item.borrowed(), ""),
+                ],
+            )
+            .unwrap_err(),
+            other => panic!("unexpected oracle operation: {other}"),
+        };
+        let crate::evidence::legacy_policy::ErrorOrigin::Exception { class } = error.origin else {
+            panic!("expected exception: {error:?}");
+        };
+        assert_eq!(class, case["exception"], "{case}");
+        assert_eq!(error.detail.to_string(), case["message"], "{case}");
+    }
+}
+
+#[test]
+fn project_repository_argument_precedes_path_conversion() {
+    compare_repository_argument_order("project");
+}
+
+#[test]
+fn selected_content_repository_argument_precedes_path_conversion() {
+    compare_repository_argument_order("selected_content");
+}
+
+#[test]
+fn selector_item_repository_argument_precedes_path_conversion() {
+    compare_repository_argument_order("selector_item");
 }

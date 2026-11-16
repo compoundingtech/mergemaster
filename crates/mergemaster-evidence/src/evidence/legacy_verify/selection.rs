@@ -24,9 +24,10 @@ pub fn selector_item<'a>(
     tree: &str,
     item: impl Into<TextRef<'a>>,
 ) -> Result<Option<NormalizedText>, PolicyError> {
-    selector_item_with(tree, item, |args, limit| read_git(repo, args, limit))
+    selector_item_with(repo, tree, item, |args, limit| read_git(repo, args, limit))
 }
 pub(super) fn selector_item_with<'a>(
+    repo: &Path,
     tree: &str,
     item: impl Into<TextRef<'a>>,
     read: impl Fn(&[&OsStr], usize) -> Result<Vec<u8>, PolicyError>,
@@ -38,6 +39,7 @@ pub(super) fn selector_item_with<'a>(
         crate::evidence::oid(tree).map_err(error)?;
         let legacy = replace_first(path, ".fractal/", ".st/");
         let preferred = replace_first(legacy.borrowed(), ".st/", ".fractal/");
+        super::projection::check_repo_argument(repo)?;
         let preferred_bytes = encode(preferred.borrowed(), 0, true)?;
         let legacy_bytes = encode(legacy.borrowed(), 0, true)?;
         let listing = read(
@@ -108,11 +110,12 @@ fn selected_content_limit<'a>(
     item: impl Into<TextRef<'a>>,
     max_bytes: usize,
 ) -> Result<Option<Vec<u8>>, PolicyError> {
-    selected_content_with(tree, item, max_bytes, |args, limit| {
+    selected_content_with(repo, tree, item, max_bytes, |args, limit| {
         read_git(repo, args, limit)
     })
 }
 pub(super) fn selected_content_with<'a>(
+    repo: &Path,
     tree: &str,
     item: impl Into<TextRef<'a>>,
     max_bytes: usize,
@@ -121,6 +124,7 @@ pub(super) fn selected_content_with<'a>(
     crate::evidence::oid(tree).map_err(error)?;
     let item = item.into();
     let (path, selector) = item.split_once("::").unwrap_or((item, TextRef::Str("")));
+    super::projection::check_repo_argument(repo)?;
     let encoded = encode(path, 0, true)?;
     if read(
         &[

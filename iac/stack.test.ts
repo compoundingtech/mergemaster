@@ -16,7 +16,7 @@ const encode = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))
 const forbidden = /-----BEGIN .*PRIVATE KEY-----|fixture-private-key|fixture-secret-value/
 const noSecrets = (value: unknown) => assert.doesNotMatch(encode(value), forbidden)
 
-test('offline Alchemy plan declares a main-only environment and a sink-only checks App', async () => {
+test('offline Alchemy plan declares isolated main-only environments and sink-only checks Apps', async () => {
   // Real engine, offline providers: observation is absent, mutation is forbidden.
   const unexpected = () => Effect.die('Offline plan attempted provider mutation')
   const appProvider = Provider.succeed(GitHub.App, {
@@ -36,34 +36,43 @@ test('offline Alchemy plan declares a main-only environment and a sink-only chec
     const options = { providers, stage: 'production', dev: false, sidecar: false }
     const stack = scratchStack(options, 'RepositoryCheckPublishers')
     await Effect.runPromise(toEffect(Effect.gen(function* () {
-      const plan = yield* stack.plan(resources())
-      assert.deepEqual(Object.keys(plan.resources).sort(), ['graph-publisher-app', 'graph-publisher-environment'])
-      const app = plan.resources['graph-publisher-app']
-      const environment = plan.resources['graph-publisher-environment']
-      assert.ok(app?.action === 'create')
-      assert.ok(environment?.action === 'create')
-      noSecrets({ app: app.props, environment: environment.props })
+      const expected = [
+        { id: 'graph', repository: 'factory', appName: 'Factory Evidence' },
+        { id: 'ptg', repository: 'ptg', appName: 'PTG Evidence' },
+      ]
+      const plan = yield* stack.plan(resources({ ptg: { state: 'ptg-callback-state' } }))
+      assert.deepEqual(Object.keys(plan.resources).sort(), expected.flatMap(({ id }) => [
+        `${id}-publisher-app`, `${id}-publisher-environment`,
+      ]).sort())
+      for (const repo of expected) {
+        const app = plan.resources[`${repo.id}-publisher-app`]
+        const environment = plan.resources[`${repo.id}-publisher-environment`]
+        assert.ok(app?.action === 'create')
+        assert.ok(environment?.action === 'create')
+        noSecrets({ app: app.props, environment: environment.props })
+        assert.deepEqual(app.props.conversion, repo.id === 'ptg' ? { state: 'ptg-callback-state' } : undefined)
+        assert.deepEqual(environment.props.deploymentBranchPolicy, { customBranchPolicies: ['main'] })
+        assert.deepEqual(app.props.manifest.permissions, { checks: 'write' })
+        assert.deepEqual(app.props.manifest.events, [])
+        assert.equal(app.props.manifest.name, repo.appName)
+        assert.equal(app.props.manifest.url, `https://github.com/schickling/${repo.repository}`)
+        assert.equal(environment.props.repository, repo.repository)
+        assert.equal(app.props.privateKeySecret.name, publisherPrivateKey)
+        assert.equal(app.props.privateKeySecret.owner, 'schickling')
+        assert.equal(app.props.privateKeySecret.repository, repo.repository)
+        assert.equal(environment.props.name, publisherEnvironment)
+        assert.equal('value' in app.props.privateKeySecret, false)
+      }
       for (const attributes of [
-        { status: 'registered', integrationId: 123, slug: 'graph-evidence' },
+        { status: 'registered', integrationId: 123, slug: 'repository-evidence' },
         { status: 'pending', manifestHtml: '<form></form>', state: 'callback-state', expiresAt: 123 },
       ]) {
-        const output = yield* Output.evaluate(plan.output, {
-          'graph-publisher-app': { ...attributes, pem: 'fixture-private-key', value: 'fixture-secret-value' },
-        }).pipe(Effect.provide(stack.state))
-        assert.deepEqual(output, { graph: attributes })
+        const output = yield* Output.evaluate(plan.output, Object.fromEntries(expected.map(({ id }) => [
+          `${id}-publisher-app`, { ...attributes, pem: 'fixture-private-key', value: 'fixture-secret-value' },
+        ]))).pipe(Effect.provide(stack.state))
+        assert.deepEqual(output, Object.fromEntries(expected.map(({ id }) => [id, attributes])))
         noSecrets(output)
       }
-      assert.deepEqual(environment.props.deploymentBranchPolicy, { customBranchPolicies: ['main'] })
-      assert.deepEqual(app.props.manifest.permissions, { checks: 'write' })
-      assert.deepEqual(app.props.manifest.events, [])
-      assert.equal(app.props.manifest.name, 'Factory Evidence')
-      assert.equal(app.props.manifest.url, 'https://github.com/schickling/factory')
-      assert.equal(environment.props.repository, 'factory')
-      assert.equal(app.props.privateKeySecret.name, publisherPrivateKey)
-      assert.equal(app.props.privateKeySecret.owner, 'schickling')
-      assert.equal(app.props.privateKeySecret.repository, 'factory')
-      assert.equal(environment.props.name, publisherEnvironment)
-      assert.equal('value' in app.props.privateKeySecret, false)
     }), { ...options, state: stack.state }).pipe(
       Effect.provideService(AlchemyContext, { dotAlchemy: directory, dev: false, adopt: false }),
     ))

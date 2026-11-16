@@ -6,6 +6,9 @@ import { Effect } from 'effect'
 export const repositories = [{
   id: 'graph', owner: 'schickling', repository: 'factory', defaultBranch: 'main',
   appName: 'Factory Evidence',
+}, {
+  id: 'ptg', owner: 'schickling', repository: 'ptg', defaultBranch: 'main',
+  appName: 'PTG Evidence',
 }] as const
 
 export const publisherEnvironment = 'mergemaster-check-publisher'
