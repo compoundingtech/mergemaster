@@ -1491,24 +1491,43 @@ installation regardless of the originally requested token scope.
 
 ### Scheduled verification and repair
 
-`.github/workflows/evidence-reconcile.yml` runs `reconciler/main.py` on a
-GitHub-hosted Ubuntu runner every five minutes (`2-57/5 * * * *`) and accepts
+`.github/workflows/evidence-reconcile.yml` builds the `evidence-reconciler` flake
+package and runs `mergemaster-reconciler` on a GitHub-hosted Ubuntu runner every
+five minutes (`2-57/5 * * * *`) and accepts
 manual `workflow_dispatch`. Both paths are restricted to `main`, use the central
 `mergemaster-check-publisher` environment and share one concurrency group.
 No fleet host, webhook receiver, consumer dispatch credential or consumer App
 secret is required. Scheduling is best effort: GitHub can delay or drop a run;
 the next successful sweep revisits current open PRs and durable evidence.
 
-The runtime uses Python's standard library, matching the repository's Python
-automation, with OpenSSL for App JWT signatures and `gh` for release provenance
-verification. Native orchestration lives in `reconciler/`; `scripts/` remains
-the unchanged parity-oracle surface. No crypto is reimplemented and no local
-signing key is copied into Actions.
+The runtime is a separate Rust binary crate, `crates/mergemaster-reconciler`.
+Polling, GitHub credentials and publication stay outside the evidence verifier's
+CLI/trust core: the reconciler still invokes the independently BASE-pinned
+verifier release. It reuses the workspace's `jsonwebtoken`/AWS-LC RS256 and serde
+dependency graph, and the existing trusted `gh` HTTP transport convention for
+API and provenance calls. No new HTTP library or crypto implementation is added.
+The flake package supplies its Git/SSH/GPG/GitHub CLI runtime tools; `scripts/`
+remains the unchanged parity-oracle surface. Local signing keys never enter
+Actions.
 
-For each numeric-ID-enrolled repository, the reconciler discovers that App's
-installation and mints a token with exactly one `repository_ids` entry and
-`checks: write`, `contents: read`, `pull_requests: read`. It checks the returned
-scope and live repository/account identity before using the token.
+`iac/consumers.json` is the reconciler's sole enrollment allowlist, compiled into
+the binary. Unknown dispatch repositories are rejected. For each enrolled
+numeric repository ID, the reconciler discovers that App's installation and
+requires `repository_selection: selected`; an all-repositories installation
+fails closed before token minting. It mints a token with exactly one enrolled
+`repository_ids` entry and `checks: write`, `contents: read`, `pull_requests: read`.
+Both the token response and its paginated installation repository listing must
+expose exactly that enrolled repository; unexpected IDs or names fail closed
+before verification or publication. Live repository/account identity is also
+checked before using the token.
+
+This does not prove that the installation contains no other selected repository:
+GitHub's installation repository listing reflects the token's narrowed scope.
+An extra selected repository outside that scope is not detectable with the
+App JWT and these least-privilege tokens. Detecting it would require broader
+credentials; the reconciler deliberately does not mint an unscoped token.
+Enrollment remains the authority for every token and publication target.
+
 For each same-repository open PR, it observes the live target branch, reads
 the required lane list and verifier pin from that accepted BASE, fetches HEAD
 and evidence refs as data, and checks out **only BASE**. The BASE-pinned release
@@ -1552,7 +1571,7 @@ Offline runtime tests use reduced recorded API identity fixtures and synthetic
 credential/check responses; no live writes or recorded secrets are involved:
 
 ```sh
-python3 -B tests/test-evidence-reconcile.py
+nix build .#evidence-reconciler
 nix build .#checks.x86_64-linux.evidence-reconciler
 ```
 

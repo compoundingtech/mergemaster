@@ -34,6 +34,13 @@ jobs:
         with:
           ref: refs/heads/main
           persist-credentials: false
+      - uses: DeterminateSystems/determinate-nix-action@92957199488000b908fdad19f63711000965d8f3 # v3
+      - name: Build reconciler package
+        id: reconciler
+        shell: bash
+        run: |
+          package=$(nix build .#evidence-reconciler --no-link --print-out-paths)
+          printf 'binary=%s/bin/mergemaster-reconciler\n' "$package" >> "$GITHUB_OUTPUT"
       - name: Reconcile enrolled evidence checks
         env:
           MERGEMASTER_APP_ID: ${{ vars.MERGEMASTER_APP_ID }}
@@ -41,9 +48,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RECONCILE_REPO: ${{ inputs.repo }}
           RECONCILE_PR: ${{ inputs.pr }}
+          RECONCILER_BINARY: ${{ steps.reconciler.outputs.binary }}
         shell: bash
         run: |
           args=()
           if [[ -n "$RECONCILE_REPO" ]]; then args+=(--repo "$RECONCILE_REPO"); fi
           if [[ -n "$RECONCILE_PR" ]]; then args+=(--pr "$RECONCILE_PR"); fi
-          python3 reconciler/main.py "${args[@]}"
+          "$RECONCILER_BINARY" "${args[@]}"
