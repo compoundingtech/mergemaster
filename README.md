@@ -1349,11 +1349,12 @@ nix develop -c python3 tests/test-graph-proof.py \
 ## Repository check-publisher infrastructure
 
 `iac/alchemy.run.ts` owns one private, user-owned GitHub App per entry in
-`iac/stack.ts`. The Graph entry targets `schickling/factory`, whose
-default branch is `main`. Its App requests only `checks: write` (GitHub adds
-`metadata: read`), has no events or active webhook, and has no author allowlist.
-The Graph repository owns its ruleset and consumer workflows; this stack
-does not declare a ruleset or run candidate code.
+`iac/stack.ts`. The Graph entry (`id: graph`) targets `schickling/factory`;
+the PTG entry (`id: ptg`, App name `PTG Evidence`) targets `schickling/ptg`.
+Both default branches are `main`. Each App requests only `checks: write`
+(GitHub adds `metadata: read`), has no events or active webhook, and has no
+author allowlist. Each consumer repository owns its ruleset and workflows;
+this stack does not declare a ruleset or run candidate code.
 
 The environment `mergemaster-check-publisher` permits only the exact `main`
 branch, not all protected branches. The App provider seals the private key
@@ -1414,11 +1415,11 @@ are `graph.status`, `graph.integrationId`, and `graph.slug`. Pending outputs
 are `graph.status`, `graph.manifestHtml`, `graph.state`, and `graph.expiresAt`;
 there is no integration ID until registration succeeds. Give
 `graph.integrationId` (the App ID, not an installation ID) to the Graph
-ruleset owner for the required `graph-full-check` integration binding.
+ruleset owner for the future required `graph-full-check` integration binding.
 
-The base-only publisher is `genericEvidenceRequiredJob` from
-`genie/generic-evidence.ts`, running on `pull_request_target`; the independent
-unprivileged `validate` workflow remains `.github/workflows/validate.yml`.
+The reusable base-only publisher is `genericEvidenceRequiredJob` from
+`genie/generic-evidence.ts`, running on `pull_request_target`; consumers must
+retain independent unprivileged validation (Factory currently uses `graph.yml`).
 Its consumer must set job `environment: 'mergemaster-check-publisher'` and
 supply `appTokenStep` using a SHA-pinned `actions/create-github-app-token`:
 `app-id` is the exported integration ID, `private-key` is
@@ -1478,4 +1479,129 @@ After ambiguous conversion failure, do not replay the one-use code: inspect
 the owner UI, revoke/rotate and reseed the same secret through a trusted
 secret-management path, then use `APP_ADOPT_SLUG` with `pnpm run deploy` and
 unset it afterward. `APP_REPOSITORY` selects the entry for conversion/adoption
-(default `graph`); adding future repositories requires one table entry each.
+(default `graph`); use `APP_REPOSITORY=ptg` for PTG. IDs also name the resource
+state keys (`ptg-publisher-app`, `ptg-publisher-environment`), registration
+lookup, and output namespace (`ptg.*`); do not rename an existing ID.
+
+### PTG bootstrap and required-publisher handoff
+
+Use the same protected operator state root that already owns Graph; do not
+bootstrap a second copy of the existing App. Materialize dependencies and
+install the isolated package as above, then run from `iac/`:
+
+```sh
+umask 077
+export APP_REPOSITORY=ptg
+pnpm run plan
+pnpm run deploy
+```
+
+Review the plan: Graph must retain its existing resources; PTG adds its
+main-only environment and pending App manifest. `operator.mjs` invokes the
+Alchemy CLI with `--import ./register.mjs`; `register.mjs` only registers the
+Oxc TypeScript loader, not the GitHub App. There is no separate App-register
+CLI command.
+
+**Human consent:** Johannes must submit the **`ptg.manifestHtml` form** in
+his authenticated GitHub owner browser session and approve creating the
+private `PTG Evidence` App. Opening the form action URL without its POST body
+does not submit the manifest. On the redirect to
+`http://127.0.0.1:8787/github-app-callback`, compare `state` with `ptg.state`;
+the connection may be refused without losing the address-bar callback.
+Within one hour, provide the one-use callback `code` and matching `state`
+through trusted secret input as `APP_MANIFEST_CODE` and
+`APP_MANIFEST_CODE_STATE` in the same operator shell, then run:
+
+```sh
+pnpm run deploy
+unset APP_MANIFEST_CODE APP_MANIFEST_CODE_STATE
+pnpm run check-state
+unset APP_REPOSITORY
+```
+
+Johannes must then install the App on **only `schickling/ptg`**. The provider
+seals the private key into PTG's `mergemaster-check-publisher` environment
+secret `MERGEMASTER_APP_PRIVATE_KEY`. The callback code, private key and
+minted App tokens are secret; never paste them into commands, logs, git or
+state. `ptg.integrationId` (the App ID, not installation ID), `ptg.slug`,
+pending manifest/state and the secret's destination name are non-secret
+metadata. Retain the existing state root and back it up only after the
+post-registration state check succeeds.
+
+#### Observed consumer state and future binding contract
+
+Read-only GitHub inspection on 2026-11-16 found **no active required
+publisher to copy from Factory**:
+
+- Factory's `.github/workflows/mergemaster.yml` runs only on `pull_request`,
+  with job name `mergemaster-report (non-required)`. It evaluates
+  `gate --check graph-full-check` but does not mint an App token or post an
+  App check. Its report explicitly leaves validation and required checks
+  unchanged. Its BASE-controlled trusted-login allowlist is read from
+  `.github/workflows/graph.yml`; that is not an IaC App allowlist.
+- Factory's `.mergemaster/lanes.json` defines `graph-full-check`.
+- `GET /repos/schickling/factory/rulesets/24605830` returned this relevant
+  excerpt for active `protect-main` (no `required_status_checks`, hence no
+  required check-name or App-ID binding):
+
+  ```json
+  {
+    "id": 24605830,
+    "name": "protect-main",
+    "enforcement": "active",
+    "conditions": {"ref_name": {"exclude": [], "include": ["refs/heads/main"]}},
+    "rules": [
+      {"type": "pull_request"},
+      {"type": "non_fast_forward"},
+      {"type": "deletion"}
+    ]
+  }
+  ```
+
+  Only the `type` fields of the rules are excerpted above.
+- PTG's ruleset list was `[]`, and reading `.mergemaster` returned HTTP 404.
+  No existing PTG lane/check name or publisher App ID was observed.
+
+The reusable publisher's exact check-name contract is in
+`genie/generic-evidence.ts`: `genericEvidenceRequiredJob({ check, ... })`
+sets `env.CHECK = check`, and Python `finalize()` posts
+`POST /repos/{owner}/{repository}/check-runs` with
+`{"name": os.environ["CHECK"], "head_sha": head, ...}` using `APP_TOKEN`.
+Thus the Factory lane would publish **`graph-full-check`**, not
+`generic-evidence-publisher` or the informational report job name.
+
+For PTG, use **`ptg-full-check`** as the future consumer lane/publisher
+contract; this is a new contract, not a claim about an existing PTG workflow.
+The PTG owner must enroll its BASE-controlled lane/environment/signer policy,
+keep independent unprivileged validation, and use
+`genericEvidenceRequiredJob({ check: 'ptg-full-check', ... })` on
+`pull_request_target`, with job environment `mergemaster-check-publisher`.
+Supply a SHA-pinned `actions/create-github-app-token` step with
+`app-id: <ptg.integrationId>`,
+`private-key: ${{ secrets.MERGEMASTER_APP_PRIVATE_KEY }}`,
+`owner: schickling`, and `repositories: ptg`. Never use `GITHUB_TOKEN` as the
+check publisher or require the informational reporter.
+
+Only after registration, installation and a successful publisher run, the
+PTG ruleset owner should add this rule to its main-branch ruleset, replacing
+the symbolic App ID below with the **numeric `ptg.integrationId`**:
+
+```text
+{
+  "type": "required_status_checks",
+  "parameters": {
+    "required_status_checks": [
+      {"context": "ptg-full-check", "integration_id": <ptg.integrationId>}
+    ],
+    "strict_required_status_checks_policy": true
+  }
+}
+```
+
+Factory's analogous future binding is `context: graph-full-check` with
+`integration_id: <graph.integrationId>`; there is no observed numeric binding
+to reuse. Consumer workflow/policy and ruleset changes belong in their
+respective repositories, not this stack. Adding PTG needs no publisher
+allowlist or operator change in mergemaster beyond the repository entry.
+None of the apply/consent/installation/ruleset steps above run as part of
+the offline test suite.
