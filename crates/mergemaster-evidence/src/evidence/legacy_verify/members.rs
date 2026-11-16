@@ -1,4 +1,4 @@
-//! No-log member verification. Shadow-log support is a separate pre-C1 surface.
+//! Member verification with optional advisory shadow-log metadata.
 use super::{
     Failure,
     candidates::Levels,
@@ -18,13 +18,15 @@ use std::collections::BTreeMap;
 pub enum Refusal {
     /// Preparation errors and uncaught exceptions retain their original provenance.
     Verification(Failure),
-    Uncovered(Uncovered),
+    Uncovered(Box<Uncovered>),
 }
 #[derive(Debug)]
 pub struct Uncovered {
     pub failure: Failure,
     pub missing: BTreeMap<String, &'static str>,
     pub members: usize,
+    pub keys: BTreeMap<String, Option<String>>,
+    pub log: Option<super::members_log_view::View>,
 }
 /// Original selected records in sorted crate order, with each crate's exact key.
 pub struct Covered<T = Retained> {
@@ -41,24 +43,20 @@ impl<T> Covered<T> {
 mod aggregate;
 pub use aggregate::{Aggregate, View};
 /// Keys precede the standalone allowance; one judgment shares its LaneOnce and
-/// one collector shares its record budget across all members. No log_keys API.
+/// one collector shares its record budget across all members.
 pub fn verified<P: Provider>(
     q: &Request<'_>,
     policy_base: Option<&str>,
     settings: Settings<'_>,
     judgment: &mut CheckJudgment<'_, P>,
     prefer: Levels<'_>,
+    log: Option<super::log_view::Request<'_>>,
 ) -> Result<Aggregate, Refusal> {
-    let members = Members::read(q.repo, q.tree, policy_base).map_err(|e| {
-        Refusal::Verification(Failure {
-            reason: e.reason,
-            detail: e.detail,
-            origin: e.origin,
-            attempts: None,
-        })
-    })?;
+    let log = log.filter(|log| !log.keys.as_os_str().is_empty());
+    let members = Members::read(q.repo, q.tree, policy_base)
+        .map_err(|e| Refusal::Verification(policy_failure(e)))?;
     let mut collector = CandidateCollector::for_check();
-    collect(members.into_sorted(), |name, key, needs_tests| {
+    let outcome = collect(members.into_sorted(), |name, key, needs_tests| {
         configured::retained(
             &mut collector,
             &Request {
@@ -73,16 +71,62 @@ pub fn verified<P: Provider>(
             judgment,
             prefer,
         )
-    })
-    .and_then(|covered| {
-        let events = match settings {
-            Settings::Policy(rules) => rules.header.events.as_deref(),
-            Settings::Unconfigured(_) => None,
-        };
-        covered
-            .aggregate(q.check, events)
-            .map_err(Refusal::Verification)
-    })
+    });
+    match outcome {
+        Ok(covered) => {
+            let events = match settings {
+                Settings::Policy(rules) => rules.header.events.as_deref(),
+                Settings::Unconfigured(_) => None,
+            };
+            let mut aggregate = covered
+                .aggregate(q.check, events)
+                .map_err(Refusal::Verification)?;
+            if let Some(log) = log {
+                aggregate.shadow(q, log).map_err(Refusal::Verification)?;
+            }
+            Ok(aggregate)
+        }
+        Err(Refusal::Uncovered(mut e)) => {
+            if let Some(log) = log {
+                let members = e
+                    .keys
+                    .iter()
+                    .map(|(name, key)| {
+                        (
+                            name.clone(),
+                            super::members_log_view::Member {
+                                key: key.as_deref(),
+                                chosen: None,
+                                observed: None,
+                            },
+                        )
+                    })
+                    .collect();
+                e.log = Some(
+                    super::members_log_view::read(
+                        q.repo,
+                        log.keys,
+                        q.tree,
+                        q.check.text(),
+                        &members,
+                        log.now_micros,
+                        600,
+                    )
+                    .map_err(|e| Refusal::Verification(policy_failure(e)))?,
+                );
+            }
+            Err(Refusal::Uncovered(e))
+        }
+        Err(e) => Err(e),
+    }
+}
+fn policy_failure(e: crate::evidence::legacy_policy::PolicyError) -> Failure {
+    Failure {
+        reason: e.reason,
+        detail: e.detail,
+        origin: e.origin,
+        attempts: None,
+    }
 }
 fn collect<T>(
     members: Vec<(String, Option<String>, bool)>,
@@ -91,9 +135,11 @@ fn collect<T>(
     let count = members.len();
     let mut entries = Vec::with_capacity(count);
     let mut missing = BTreeMap::new();
+    let mut keys = BTreeMap::new();
     for (name, key, needs_tests) in members {
         let Some(key) = key else {
-            missing.insert(name, "no_key");
+            missing.insert(name.clone(), "no_key");
+            keys.insert(name, None);
             continue;
         };
         match judge(&name, &key, needs_tests) {
@@ -102,7 +148,8 @@ fn collect<T>(
                 if error.origin == ErrorOrigin::Failure
                     && error.reason != "record-budget-exceeded" =>
             {
-                missing.insert(name, error.reason);
+                missing.insert(name.clone(), error.reason);
+                keys.insert(name, Some(key));
             }
             Err(error) => return Err(Refusal::Verification(error)),
         }
@@ -110,6 +157,7 @@ fn collect<T>(
     if missing.is_empty() {
         return Ok(Covered { entries });
     }
+    keys.extend(entries.into_iter().map(|(name, key, _)| (name, Some(key))));
     let mut detail = format!(
         "{} of {count} crates have no satisfying note for their key: ",
         missing.len(),
@@ -126,7 +174,7 @@ fn collect<T>(
     if missing.len() > 12 {
         detail.push_str(" ...");
     }
-    Err(Refusal::Uncovered(Uncovered {
+    Err(Refusal::Uncovered(Box::new(Uncovered {
         failure: Failure {
             reason: "crate_uncovered",
             detail: detail.into(),
@@ -135,7 +183,9 @@ fn collect<T>(
         },
         missing,
         members: count,
-    }))
+        keys,
+        log: None,
+    })))
 }
 
 #[cfg(test)]

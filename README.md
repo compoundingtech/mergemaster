@@ -969,7 +969,10 @@ SHA1/SHA256 fixtures compare the entire view with Python, including clock edges
 and input-key indexes. `members_log_view::read` adds sorted per-member key reads,
 deduplicated missing counts, first-five unlogged summaries and oldest readable
 time. Invalid times clear the summary before mixed naive/aware times can raise
-Python's exact TypeError. Success/failure overlays and CLI wiring remain separate.
+Python's exact TypeError. `members::verified` accepts optional log keys and overlays
+the full member view on success or uncovered refusal, retaining every original key
+and using no chosen records on refusal. Preparation errors/exceptions stay unadorned.
+Single-check overlays and CLI wiring remain separate.
 Member times remain lossless code points through parsing, lexical tie-breaking
 and the JSON field writer, including lone-surrogate ISO date/time separators.
 Log readers preserve lossless check names through comparisons and filesystem

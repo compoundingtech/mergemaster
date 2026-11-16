@@ -244,6 +244,7 @@ print(json.dumps(cases))
             Settings::Policy(&rules),
             &mut judgment,
             Levels::Utf8(&[]),
+            None,
         )
         .err()
         .expect("several retained members must exceed the shared record budget");
