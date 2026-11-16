@@ -1392,9 +1392,11 @@ does not submit the manifest. The loopback redirect
 `http://127.0.0.1:8787/github-app-callback` carries the one-time `code` and
 `state`; a refused connection is harmless because those values remain in the
 address bar. Compare state to `graph.state` and complete within one hour.
-Read the code through a trusted secret-input path, not a literal shell command
-or a committed env file; then, with `APP_MANIFEST_CODE` and
-`APP_MANIFEST_CODE_STATE` exported in that same operator shell:
+Callback-code capture is **agent-driven via delegated consent**: use
+`/sk-http-capture` with Johannes's MacBook egress and `op-proxy` for secret
+handling, never human copying/pasting or code entry. The agent passes
+`APP_MANIFEST_CODE` and `APP_MANIFEST_CODE_STATE` into that same operator
+shell through the approved secret path, without logging values:
 
 ```sh
 pnpm run deploy
@@ -1502,15 +1504,21 @@ Alchemy CLI with `--import ./register.mjs`; `register.mjs` only registers the
 Oxc TypeScript loader, not the GitHub App. There is no separate App-register
 CLI command.
 
-**Human consent:** Johannes must submit the **`ptg.manifestHtml` form** in
-his authenticated GitHub owner browser session and approve creating the
-private `PTG Evidence` App. Opening the form action URL without its POST body
-does not submit the manifest. On the redirect to
-`http://127.0.0.1:8787/github-app-callback`, compare `state` with `ptg.state`;
-the connection may be refused without losing the address-bar callback.
-Within one hour, provide the one-use callback `code` and matching `state`
-through trusted secret input as `APP_MANIFEST_CODE` and
-`APP_MANIFEST_CODE_STATE` in the same operator shell, then run:
+**Human consent:** Johannes's role is only to give browser consent for the
+**`ptg.manifestHtml` form** creating the private `PTG Evidence` App, and later
+for its installation on only `schickling/ptg`. The agent prepares the form in
+the delegated browser session; the form POST is required, not merely opening
+its action URL.
+
+**Callback-code capture: agent-driven via delegated consent.** The agent
+uses `/sk-http-capture` on Johannes's MacBook egress, with `op-proxy` for
+secret handling. It captures the redirect to
+`http://127.0.0.1:8787/github-app-callback`, compares `state` with `ptg.state`,
+and completes conversion within one hour. A refused loopback connection does
+not lose the address-bar callback. Never ask Johannes to copy, paste or enter
+the code. The agent supplies the one-use `code` and matching `state` as
+`APP_MANIFEST_CODE` and `APP_MANIFEST_CODE_STATE` through the approved secret
+path in the same operator shell, without exposing values, then runs:
 
 ```sh
 pnpm run deploy
@@ -1570,11 +1578,15 @@ sets `env.CHECK = check`, and Python `finalize()` posts
 Thus the Factory lane would publish **`graph-full-check`**, not
 `generic-evidence-publisher` or the informational report job name.
 
-For PTG, use **`ptg-full-check`** as the future consumer lane/publisher
-contract; this is a new contract, not a claim about an existing PTG workflow.
+For PTG, **the required contexts are exactly the `required_evidence` lane IDs
+in PTG's BASE `.mergemaster/lanes.json`** (planned: **`ptg-check`**,
+**`ptg-e2e`**, as specified by Johannes), each bound to
+`integration_id` = the **PTG Evidence App ID** (`ptg.integrationId`).
+These planned IDs were not observed in the live API inspection above; the
+BASE lane policy is authoritative when enrolling the consumer.
 The PTG owner must enroll its BASE-controlled lane/environment/signer policy,
 keep independent unprivileged validation, and use
-`genericEvidenceRequiredJob({ check: 'ptg-full-check', ... })` on
+`genericEvidenceRequiredJob({ check: laneId, ... })` for each required lane on
 `pull_request_target`, with job environment `mergemaster-check-publisher`.
 Supply a SHA-pinned `actions/create-github-app-token` step with
 `app-id: <ptg.integrationId>`,
@@ -1582,16 +1594,19 @@ Supply a SHA-pinned `actions/create-github-app-token` step with
 `owner: schickling`, and `repositories: ptg`. Never use `GITHUB_TOKEN` as the
 check publisher or require the informational reporter.
 
-Only after registration, installation and a successful publisher run, the
-PTG ruleset owner should add this rule to its main-branch ruleset, replacing
-the symbolic App ID below with the **numeric `ptg.integrationId`**:
+Only after registration, installation and successful publisher runs for
+every required lane, the PTG ruleset owner should add this rule to its
+main-branch ruleset. Match the contexts to BASE's `required_evidence` lane IDs
+at apply time; the planned shape is below. Replace the symbolic App ID with
+the **numeric `ptg.integrationId`**:
 
 ```text
 {
   "type": "required_status_checks",
   "parameters": {
     "required_status_checks": [
-      {"context": "ptg-full-check", "integration_id": <ptg.integrationId>}
+      {"context": "ptg-check", "integration_id": <ptg.integrationId>},
+      {"context": "ptg-e2e", "integration_id": <ptg.integrationId>}
     ],
     "strict_required_status_checks_policy": true
   }
