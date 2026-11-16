@@ -410,7 +410,7 @@ fn linked_inputs_refuse_dangling_roots_linked_ancestors_and_aliases() {
 
 #[cfg(unix)]
 #[test]
-fn symlink_inputs_are_remeasured_and_cannot_reach_scratch_or_tracked_files() {
+fn symlink_inputs_are_remeasured_and_cannot_reach_scratch_or_unmeasured_paths() {
     use mergemaster_evidence::{
         evidence::workspace::{tree_digest_v2, verify},
         gate::config::Artifact,
@@ -439,9 +439,95 @@ fn symlink_inputs_are_remeasured_and_cannot_reach_scratch_or_tracked_files() {
     fs::write(modules.join("input"), "changed").unwrap();
     assert!(verify(repo.path(), head.trim(), &lane, false).is_err());
     fs::write(modules.join("input"), "bytes").unwrap();
-    for target in ["../output", "../tools/check", "../../escape"] {
+    for target in ["../output", "../../escape"] {
         fs::remove_file(modules.join("link")).unwrap();
         symlink(target, modules.join("link")).unwrap();
         assert!(verify(repo.path(), head.trim(), &lane, false).is_err());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn workspace_links_may_reach_verified_tracked_siblings_but_not_unmeasured_paths() {
+    use mergemaster_evidence::{
+        evidence::workspace::{tree_digest_v2, verify},
+        gate::config::Artifact,
+    };
+    use std::os::unix::fs::symlink;
+    let repo = fixture();
+    for package in ["core", "other"] {
+        let directory = repo.path().join("packages").join(package);
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(directory.join("index.js"), "same bytes").unwrap();
+    }
+    fs::write(
+        repo.path().join(".gitignore"),
+        "node_modules/\npackages/ignored/\n",
+    )
+    .unwrap();
+    git(repo.path(), &["add", "."]);
+    git(
+        repo.path(),
+        &["commit", "-q", "-m", "tracked workspace packages"],
+    );
+    let head = git(repo.path(), &["rev-parse", "HEAD"]);
+    let modules = repo.path().join("node_modules");
+    fs::create_dir_all(modules.join("@workspace")).unwrap();
+    let link = modules.join("@workspace/core");
+    symlink("../../packages/core", &link).unwrap();
+    let module_root = fs::canonicalize(&modules).unwrap();
+    let tracked_root = fs::canonicalize(repo.path().join("packages")).unwrap();
+    let digest = || tree_digest_v2(&modules, &[module_root.clone(), tracked_root.clone()]).unwrap();
+    let original = digest();
+    let mut lane = lane();
+    lane.inputs.insert(
+        "node_modules".into(),
+        Artifact {
+            name: "workspace modules".into(),
+            identity: format!("tree-sha256-v2:{original}"),
+        },
+    );
+    verify(repo.path(), head.trim(), &lane, true).unwrap();
+    verify(repo.path(), head.trim(), &lane, false).unwrap();
+    fs::remove_file(&link).unwrap();
+    symlink("../../packages/other", &link).unwrap();
+    assert_ne!(digest(), original);
+    assert!(verify(repo.path(), head.trim(), &lane, false).is_err());
+    lane.inputs.get_mut("node_modules").unwrap().identity = format!("tree-sha256-v2:{}", digest());
+    verify(repo.path(), head.trim(), &lane, false).unwrap();
+    // Tracked files, as well as directory prefixes, are valid endpoints.
+    fs::remove_file(&link).unwrap();
+    symlink("../../packages/core/index.js", &link).unwrap();
+    lane.inputs.get_mut("node_modules").unwrap().identity = format!("tree-sha256-v2:{}", digest());
+    verify(repo.path(), head.trim(), &lane, false).unwrap();
+    fs::write(repo.path().join("packages/core/index.js"), "dirty").unwrap();
+    assert!(verify(repo.path(), head.trim(), &lane, false).is_err());
+    fs::write(repo.path().join("packages/core/index.js"), "same bytes").unwrap();
+    for target in ["packages/untracked", "packages/ignored"] {
+        fs::create_dir(repo.path().join(target)).unwrap();
+    }
+    for target in [
+        "packages/untracked",
+        "packages/ignored",
+        ".git",
+        ".git/config",
+    ] {
+        fs::remove_file(&link).unwrap();
+        symlink(format!("../../{target}"), &link).unwrap();
+        // Bind the attack link's actual digest, so refusal must be containment,
+        // not an incidental identity mismatch.
+        let roots = [
+            module_root.clone(),
+            fs::canonicalize(repo.path().join(target)).unwrap(),
+        ];
+        lane.inputs.get_mut("node_modules").unwrap().identity = format!(
+            "tree-sha256-v2:{}",
+            tree_digest_v2(&modules, &roots).unwrap()
+        );
+        let error = verify(repo.path(), head.trim(), &lane, false).unwrap_err();
+        assert!(
+            error.to_string().contains("symlink escapes"),
+            "{target}: {error}"
+        );
     }
 }

@@ -1126,9 +1126,13 @@ Opt in to `tree-sha256-v2:` for measured symlink inputs. It hashes compact JSON
 directories, and adds kind `symlink`. A symlink row's digest is lowercase SHA-256
 of its raw target bytes, not its destination's bytes. Descendant symlinks are
 recorded but not traversed; their canonical destinations must lie within the
-same or another declared measured tree input, never scratch. Dangling links,
-cycles, destinations outside those canonical measured roots, and special entries
-are refused.
+same or another declared measured tree input, or name a tracked file or a
+directory prefix of tracked files in the verified-clean checkout. This permits
+pnpm workspace links into tracked sibling packages: their actual tracked bytes
+are already checked against committed blobs by both wrapper and signer.
+Ignored/untracked destinations, scratch, Git metadata and checkout escapes
+are not authorized by this tracked-path rule. Dangling links, cycles and
+special entries remain refused.
 
 The declared v2 tree root itself may be an absolute- or relative-target symlink
 to a directory. Its raw target is hashed as the `symlink` row at path `""`, and
