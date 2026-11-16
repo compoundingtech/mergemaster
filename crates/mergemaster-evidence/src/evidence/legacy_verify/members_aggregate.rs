@@ -40,14 +40,15 @@ impl Covered {
             .entries
             .first()
             .ok_or_else(super::super::invalid_statement_failure)?;
-        let mut oldest_time = first.2.facts(check)?.moment_micros;
+        let check = check.codepoints();
+        let mut oldest_time = first.2.facts_points(&check)?.moment_micros;
         let (mut oldest, mut weakest, mut attempts, mut inputs_match) = (0, 0, 0, false);
         let mut last_events = policy_events;
         for (index, (_, _, note)) in self.entries.iter().enumerate() {
             let time = if index == 0 {
                 oldest_time
             } else {
-                note.facts(check)?.moment_micros
+                note.facts_points(&check)?.moment_micros
             };
             if time < oldest_time {
                 oldest_time = time;

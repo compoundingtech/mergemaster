@@ -30,6 +30,19 @@ for runner in ['wrapper','wrapper\ud800','github:','github:\ud800','github:\ufff
     try: expected = v['judge'](('record',statement,'agent/alice'))
     except v['Failure'] as failure: expected = dict(reason=failure.reason,attempts=failure.extra['attempts'],detail=list(map(ord,failure.detail)))
     cases.append(dict(policy=policy,raw=json.dumps(statement),expected=expected))
+# Valid policy ingress can omit a recognized runner's kind; unknown runners
+# reach the same explicit refusal. Neither case may use a default kind or skip.
+for runner in ['nix', 'github:owner/repo/job', 'unknown']:
+    policy = json.dumps(dict(version=1,checks=dict(check=dict(trust_levels=['agent'],kinds=dict(wrapper=dict(command=['true']))))))
+    v['rules'] = v['policy_rules'](policy,'check','owner/repo')
+    statement = dict(predicate=dict(tier='full',observed_at='2026-01-01T00:00:00Z',observed=dict(runner=runner,checks=dict(check=dict(exit_code=0,command=['true'])))))
+    try:
+        v['judge'](('record',statement,'agent/alice'))
+        raise AssertionError('unsupported kind was accepted')
+    except v['Failure'] as failure:
+        assert (failure.reason,failure.detail,failure.extra['attempts']) == ('unsupported_kind',f'runner {runner!r} is not one of ',7)
+        expected = dict(reason=failure.reason,attempts=failure.extra['attempts'],detail=list(map(ord,failure.detail)))
+    cases.append(dict(policy=policy,raw=json.dumps(statement),expected=expected))
 def loose(runner, tier, code, kinds, levels, prefix, principal='agent/alice'):
     v['rules'] = None
     statement = dict(predicate=dict(tier=tier,observed_at='2026-01-01T00:00:00Z',observed=dict(runner=runner,inputs={'i':'part'},checks=dict(check=dict(exit_code=code,command=['true'])))))
@@ -59,7 +72,7 @@ print(json.dumps(cases))
         String::from_utf8_lossy(&output.stderr)
     );
     let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(cases.len(), 465);
+    assert_eq!(cases.len(), 468);
     for case in cases {
         let doc = super::super::statement_document::Document::from_bytes(
             case["raw"].as_str().unwrap().as_bytes(),

@@ -110,17 +110,22 @@ fn collect<T>(
     if missing.is_empty() {
         return Ok(Covered { entries });
     }
-    let shown = missing
-        .iter()
-        .take(12)
-        .map(|(name, reason)| format!("{name} ({reason})"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let detail = format!(
-        "{} of {count} crates have no satisfying note for their key: {shown}{}",
+    let mut detail = format!(
+        "{} of {count} crates have no satisfying note for their key: ",
         missing.len(),
-        if missing.len() > 12 { " ..." } else { "" }
     );
+    for (index, (name, reason)) in missing.iter().take(12).enumerate() {
+        if index != 0 {
+            detail.push_str(", ");
+        }
+        detail.push_str(name);
+        detail.push_str(" (");
+        detail.push_str(reason);
+        detail.push(')');
+    }
+    if missing.len() > 12 {
+        detail.push_str(" ...");
+    }
     Err(Refusal::Uncovered(Uncovered {
         failure: Failure {
             reason: "crate_uncovered",
