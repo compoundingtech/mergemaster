@@ -1,0 +1,49 @@
+name: Evidence reconcile
+
+on:
+  schedule:
+    - cron: '2-57/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: Enrolled owner/repository (omit for all)
+        required: false
+        type: string
+      pr:
+        description: Open PR number (optionally restricted by repo)
+        required: false
+        type: string
+
+# Used only to bootstrap the pinned public verifier, never consumer publication.
+permissions:
+  contents: read
+  attestations: read
+
+concurrency:
+  group: evidence-reconcile
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: mergemaster-check-publisher
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/heads/main
+          persist-credentials: false
+      - name: Reconcile enrolled evidence checks
+        env:
+          MERGEMASTER_APP_ID: ${{ vars.MERGEMASTER_APP_ID }}
+          MERGEMASTER_APP_PRIVATE_KEY: ${{ secrets.MERGEMASTER_APP_PRIVATE_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          RECONCILE_REPO: ${{ inputs.repo }}
+          RECONCILE_PR: ${{ inputs.pr }}
+        shell: bash
+        run: |
+          args=()
+          if [[ -n "$RECONCILE_REPO" ]]; then args+=(--repo "$RECONCILE_REPO"); fi
+          if [[ -n "$RECONCILE_PR" ]]; then args+=(--pr "$RECONCILE_PR"); fi
+          python3 reconciler/main.py "${args[@]}"

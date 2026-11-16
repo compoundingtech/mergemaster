@@ -93,6 +93,16 @@
             python3 -B "$src/tests/oracle_scripts.py"
             touch "$out"
           '';
+          evidence-reconciler = pkgs.runCommand "mergemaster-evidence-reconciler" {
+            nativeBuildInputs = [ pkgs.python3 ];
+            src = pkgs.lib.cleanSource self;
+          } ''
+            cp -r "$src" source
+            chmod -R u+w source
+            cd source
+            python3 -B tests/test-evidence-reconcile.py
+            touch "$out"
+          '';
           fmt = pkgs.runCommand "mergemaster-fmt" {
             nativeBuildInputs = [ pkgs.cargo pkgs.rustfmt ];
             src = pkgs.lib.cleanSource self;
