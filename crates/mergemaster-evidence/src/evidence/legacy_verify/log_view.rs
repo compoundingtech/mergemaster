@@ -13,6 +13,27 @@ pub struct View {
     pub log_age_s: Option<i64>,
     pub log_missing: Option<usize>,
 }
+impl View {
+    pub fn write_fields<W: std::fmt::Write>(
+        &self,
+        o: &mut crate::evidence::legacy_output::Object<'_, W>,
+    ) -> std::fmt::Result {
+        o.field_text("log", |w| w.text(self.log))?;
+        o.field_text("log_head", |w| match &self.log_head {
+            Some(s) => w.text(s),
+            None => w.null(),
+        })?;
+        o.field_text("log_age_s", |w| match self.log_age_s {
+            Some(n) => w.integer(i128::from(n)),
+            None => w.null(),
+        })?;
+        o.field_text("log_missing", |w| match self.log_missing {
+            Some(n) => w.integer(n as i128),
+            None => w.null(),
+        })?;
+        Ok(())
+    }
+}
 
 pub(super) fn refs(repo: &Path, prefixes: &[String]) -> Result<BTreeSet<String>, PolicyError> {
     let mut found = BTreeSet::new();
