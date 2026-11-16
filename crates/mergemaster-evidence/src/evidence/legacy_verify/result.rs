@@ -141,6 +141,102 @@ impl<'a> Satisfied<'a> {
         narrowed_event_iter(self.check_events, self.level_events)
     }
 }
+
+/// Only selection metadata is owned separately; signed fields stay in the
+/// original Arc<Document> and are borrowed again when an aggregate is emitted.
+pub struct Retained {
+    record: super::trust::TrustedCandidate,
+    selection: Selection,
+}
+pub(super) struct Selection {
+    attempts: usize,
+    policy: bool,
+    max_age_s: Option<Seconds>,
+    enforce: bool,
+    r#match: &'static str,
+    source_inputs: Option<String>,
+    sample_one_in: u64,
+    events: Option<Vec<String>>,
+    decided_by: Option<String>,
+    skipped_newer: Option<Vec<String>>,
+}
+impl Selection {
+    pub(super) fn capture(view: &Satisfied<'_>) -> Self {
+        Self {
+            attempts: view.attempts,
+            policy: view.policy,
+            max_age_s: view.max_age_s.as_deref().cloned(),
+            enforce: view.enforce,
+            r#match: view.r#match,
+            source_inputs: view.source_inputs.map(str::to_owned),
+            sample_one_in: view.sample_one_in,
+            events: view
+                .events()
+                .map(|events| events.map(str::to_owned).collect()),
+            decided_by: view.decided_by.map(str::to_owned),
+            skipped_newer: view.skipped_newer.map(<[String]>::to_vec),
+        }
+    }
+}
+impl Retained {
+    pub(super) fn new(record: super::trust::TrustedCandidate, selection: Selection) -> Self {
+        Self { record, selection }
+    }
+    pub fn record(&self) -> &super::trust::TrustedCandidate {
+        &self.record
+    }
+    pub fn facts(&self, check: CheckName<'_>) -> Result<DocumentFacts<'_>, Failure> {
+        DocumentFacts::for_check(
+            &self.record.candidate.statement,
+            &check.codepoints(),
+            &self.record.principal,
+        )
+        .ok_or_else(super::invalid_statement_failure)
+    }
+    /// Reborrow a complete successful dictionary without serializing/reparsing.
+    /// The caller supplies the same target/check used to select this record.
+    pub fn with_view<T>(
+        &self,
+        tree: &str,
+        check: CheckName<'_>,
+        emit: impl FnOnce(&Satisfied<'_>) -> T,
+    ) -> Result<T, Failure> {
+        let facts = self.facts(check)?;
+        let doc = &*self.record.candidate.statement;
+        let matched_tree = (|| {
+            let subject = array(field(doc, doc.root(), "subject")?)?;
+            let digest = field(doc, doc.try_node(*subject.first()?)?, "digest")?;
+            string(field(doc, digest, "gitTree")?)
+        })()
+        .ok_or_else(super::invalid_statement_failure)?;
+        let selection = &self.selection;
+        Ok(emit(&Satisfied {
+            satisfied: true,
+            tree,
+            check,
+            record: &self.record.candidate.commit,
+            kind: kind_of_text(TextRef::Points(facts.runner))
+                .ok_or_else(super::invalid_statement_failure)?,
+            signer: &self.record.principal,
+            trust_level: facts.level(),
+            tier: facts.tier,
+            observed_at: facts.observed_at,
+            attempts: selection.attempts,
+            policy: selection.policy,
+            max_age_s: selection.max_age_s.as_ref().map(Cow::Borrowed),
+            enforce: selection.enforce,
+            r#match: selection.r#match,
+            matched_tree,
+            source_inputs: selection.source_inputs.as_deref(),
+            sample_one_in: selection.sample_one_in,
+            decided_by: selection.decided_by.as_deref(),
+            skipped_newer: selection.skipped_newer.as_deref(),
+            facts: &facts,
+            check_events: selection.events.as_deref(),
+            level_events: None,
+        }))
+    }
+}
 #[cfg(test)]
 #[path = "result_tests.rs"]
 mod tests;

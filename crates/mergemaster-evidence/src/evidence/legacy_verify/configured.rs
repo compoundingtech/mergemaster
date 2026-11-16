@@ -121,11 +121,36 @@ pub fn verified<T, P: Provider>(
     prefer: Levels<'_>,
     emit: impl FnOnce(&super::result::Satisfied<'_>, &TrustedCandidate) -> T,
 ) -> Result<T, Failure> {
+    selected_record(q, settings, judgment, prefer, emit).map(|(value, _)| value)
+}
+
+/// Retain the selected original document and typed metadata for aggregation.
+/// Ownership moves after the borrowed view is consumed; no JSON bridge or
+/// duplicate statement/principal allocation is needed.
+pub fn retained<P: Provider>(
+    q: &Request<'_>,
+    settings: Settings<'_>,
+    judgment: &mut CheckJudgment<'_, P>,
+    prefer: Levels<'_>,
+) -> Result<super::result::Retained, Failure> {
+    selected_record(q, settings, judgment, prefer, |view, _| {
+        super::result::Selection::capture(view)
+    })
+    .map(|(selection, record)| super::result::Retained::new(record, selection))
+}
+
+fn selected_record<T, P: Provider>(
+    q: &Request<'_>,
+    settings: Settings<'_>,
+    judgment: &mut CheckJudgment<'_, P>,
+    prefer: Levels<'_>,
+    emit: impl FnOnce(&super::result::Satisfied<'_>, &TrustedCandidate) -> T,
+) -> Result<(T, TrustedCandidate), Failure> {
     let inputs = match settings {
         Settings::Policy(rules) => rules.header.inputs.as_deref(),
         Settings::Unconfigured(_) => None,
     };
-    let gathered = candidates(
+    let mut gathered = candidates(
         &mut CandidateCollector::for_check(),
         &Request { inputs, ..*q },
     )?;
@@ -150,7 +175,8 @@ pub fn verified<T, P: Provider>(
         gathered.input_key.as_deref(),
     )
     .map_err(|_| super::invalid_statement_failure())?;
-    Ok(emit(&view, &gathered.records[original]))
+    let value = emit(&view, &gathered.records[original]);
+    Ok((value, gathered.records.swap_remove(original)))
 }
 
 /// Configured required-check selection with bound-file reads from the candidate tree.
