@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Share one check-owned record collector across legacy member verification, refusing aggregate record-budget exhaustion instead of resetting the budget for each retained member.
 - Verify legacy members in sorted crate order with shared lazy-lane state, retaining original records and complete uncovered metadata while propagating uncaught exceptions globally.
 - Hide retained legacy record and selection fields from callers; expose immutable original-record access and complete borrowed views instead of mutable trust metadata.
 - Compute the legacy combined member key with streaming SHA-1 for oracle parity only, not for security.
