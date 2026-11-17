@@ -118,7 +118,14 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
         !signer.is_empty() && !signer[0].is_empty() && signer.iter().all(|arg| !arg.contains('\0')),
         "invalid signer argv"
     );
-    super::workspace::verify(&repo, &head, lane, true)?;
+    let toolchain = measure_toolchain(
+        &repo,
+        &policy.environment,
+        &args.config,
+        &args.command,
+        lane,
+    )?;
+    super::workspace::verify(&repo, &head, lane, true, Some(&toolchain))?;
     let mut inputs = config::expected_inputs(
         &repo,
         &head,
@@ -127,14 +134,7 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
         &policy.environment,
         &policy.environment_bytes,
     )?;
-    let (toolchain_claims, executable) = measure_toolchain(
-        &repo,
-        &policy.environment,
-        &args.config,
-        &args.command,
-        lane,
-    )?;
-    inputs.extend(toolchain_claims);
+    inputs.extend(toolchain.claims);
     let nix_check =
         super::signing::derivation(&repo, &head, lane, &policy.environment, &args.config)?;
     let mut execution = if args.reuse { "reused" } else { "rebuild" };
@@ -187,7 +187,7 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     } else {
         execute(
             &repo,
-            executable.as_deref(),
+            toolchain.executable.as_deref(),
             &command,
             &output_file,
             git_tool,
@@ -217,14 +217,14 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
             &blob,
         ],
     )?;
-    super::workspace::verify(&repo, &head, lane, false)?;
-    let (closures, executed) =
+    let after_toolchain =
         measure_toolchain(&repo, &policy.environment, &args.config, &command, lane)?;
-    super::signing::verify_toolchain_claims(&closures, &inputs)?;
+    super::signing::verify_toolchain_claims(&after_toolchain.claims, &inputs)?;
     ensure!(
-        executed == executable,
+        after_toolchain.executable == toolchain.executable,
         "Nix executable changed during execution"
     );
+    super::workspace::verify(&repo, &head, lane, false, Some(&after_toolchain))?;
     let after = config::expected_inputs(
         &repo,
         &head,
@@ -309,7 +309,19 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
         git::text(&repo, &["cat-file", "-t", &response.record])? == "commit",
         "signer record is not a commit"
     );
-    super::workspace::verify(&repo, &head, lane, false)?;
+    let publication_toolchain = measure_toolchain(
+        &repo,
+        &policy.environment,
+        &args.config,
+        &request.command,
+        lane,
+    )?;
+    super::signing::verify_toolchain_claims(&publication_toolchain.claims, &request.inputs)?;
+    ensure!(
+        publication_toolchain.executable == toolchain.executable,
+        "Nix executable changed during signing"
+    );
+    super::workspace::verify(&repo, &head, lane, false, Some(&publication_toolchain))?;
     git::git(&repo, &["update-ref", &response.note_ref, &response.record])?;
     // Publication deliberately targets origin, never an argv/HEAD-provided remote.
     // Local file transport supports bare integration fixtures; SSH remains normal account auth.
