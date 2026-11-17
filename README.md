@@ -833,11 +833,13 @@ Library-only invariant refusals have no Python counterpart: manually constructed
 malformed validated-record primitives return `error` / Failure with
 `invalid validated statement` (no attempts). These states are unreachable through
 statement ingress.
-The TOML manifest parser has an approved resource-dependent divergence:
-CPython 3.14.7 tomllib raises `RecursionError` for nested arrays and inline tables
-at about depth 495, depending on interpreter stack and caller depth. Rust accepts
-these values using an iterative parser and iterative drop; a full-document fixture
-parses 100,000 nested array/inline-table pairs. `MAX_KEY_PARTS=1000` remains exact.
+Approved fail-closed TOML resource divergence (#257): Rust checks the 1,048,576
+source-byte cap before allocating/parsing, and rejects combined array/inline-table
+depth above 256 using an iterative parser. These bounds are stricter than CPython
+3.14.7 (first `RecursionError` at 498 arrays / 332 inline tables). Resource errors
+are typed Rust errors, mapped at manifest ingress to ordinary Failure/error with
+the existing `<manifest path>: ` prefix. They do not imitate Python exceptions.
+`MAX_KEY_PARTS=1000` and its actual Python exception path remain exact.
 Full-document tomllib comparisons also cover dotted-key/header flag timing and a
 1000-part header followed by a 1000-part key, preserving all 2000 nested parts.
 `crate_inputs_text` preserves Python's strict UTF-8 decode diagnostics and POSIX

@@ -8,6 +8,7 @@ pub enum ErrorKind {
     Decode,
     Recursion,
     Value,
+    Resource(Resource),
 }
 impl ErrorKind {
     pub fn class(self) -> &'static str {
@@ -15,6 +16,7 @@ impl ErrorKind {
             Self::Decode => "TOMLDecodeError",
             Self::Recursion => "RecursionError",
             Self::Value => "ValueError",
+            Self::Resource(_) => "error",
         }
     }
 }
@@ -45,6 +47,31 @@ impl fmt::Display for Error {
     }
 }
 impl std::error::Error for Error {}
+
+/// Approved fail-closed Rust limits, not Python exception classes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Resource {
+    SourceBytes,
+    ContainerDepth,
+    Nodes,
+}
+impl Resource {
+    pub(super) fn error(self) -> Error {
+        Error {
+            kind: ErrorKind::Resource(self),
+            message: match self {
+                Self::SourceBytes => "TOML source exceeds 1048576 bytes",
+                Self::ContainerDepth => "TOML container depth exceeds 256",
+                Self::Nodes => "TOML node count exceeds 262144",
+            }
+            .into(),
+            position: 0,
+            line: 0,
+            column: 0,
+            at_end: false,
+        }
+    }
+}
 
 /// The CRLF-normalized source used by every TOML parser stage.
 #[derive(Debug)]

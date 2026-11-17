@@ -1,8 +1,5 @@
-//! Array and inline-table nesting is iterative and unbounded (subject to memory).
-//! Approved, labelled resource-dependent divergence: CPython 3.14.7 tomllib raises
-//! RecursionError at nesting depths that depend on the interpreter stack; Rust
-//! does not emulate a fixed recursion boundary. MAX_KEY_PARTS=1000 remains exact
-//! (see toml_keys.rs) and is not part of this divergence.
+//! Iterative arrays/inline tables with an approved combined depth bound of 256.
+//! This fail-closed Rust guard is stricter than CPython's recursion boundary.
 use super::{
     Error, Repr, Source, TextRef, Value,
     nested::NestedDict,
@@ -49,6 +46,9 @@ impl Source {
         let mut pos = position;
         let mut stack = Vec::new();
         loop {
+            if matches!(self.at(pos), Some('[' | '{')) && stack.len() >= 256 {
+                return Err(super::Resource::ContainerDepth.error());
+            }
             let mut value = match self.at(pos) {
                 Some('\'' | '"') => {
                     let (end, text) = self.string(pos)?;
