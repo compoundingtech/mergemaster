@@ -5,7 +5,12 @@ use crate::gate::{
 };
 use anyhow::{Context, Result, ensure};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeSet, fs, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::{Path, PathBuf},
+    rc::Rc,
+};
 
 fn overlaps(a: &str, b: &str) -> bool {
     a == b
@@ -93,6 +98,8 @@ pub fn tree_digest(root: &Path) -> Result<String> {
 /// complete reachable subtrees must be authorized. Verify also permits clean tracked paths.
 /// Supply declared root paths without canonicalizing their final components, so
 /// their individually measured root links can also authorize cross-root hops.
+/// Standalone callers must independently measure every supplied authority root:
+/// descendant links bind raw targets, not the contents reached in another root.
 pub fn tree_digest_v2(root: &Path, measured_roots: &[std::path::PathBuf]) -> Result<String> {
     digest_tree(root, Some(measured_roots), None, &[])
 }
@@ -105,15 +112,72 @@ struct Reachability {
     complete: [BTreeSet<std::path::PathBuf>; 2],
     #[cfg(test)]
     expansions: [std::collections::BTreeMap<std::path::PathBuf, usize>; 2],
+    entries: BTreeMap<PathBuf, ObservedEntry>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ObservedEntry {
+    Directory(Rc<[PathBuf]>),
+    File(bool),
+    Link(PathBuf),
 }
 
 impl Reachability {
     fn bind_root(&mut self, path: &Path) -> Result<()> {
-        if fs::symlink_metadata(path)?.file_type().is_symlink() {
-            self.bound_roots.insert(root_location(path)?);
+        let location = root_location(path)?;
+        if fs::symlink_metadata(&location)?.file_type().is_symlink() {
+            self.bound_roots.insert(location.clone());
+            self.observe(&location, ObservedEntry::Link(fs::read_link(&location)?))?;
         }
         Ok(())
     }
+
+    fn observe(&mut self, path: &Path, entry: ObservedEntry) -> Result<()> {
+        if let Some(previous) = self.entries.get(path) {
+            ensure!(
+                previous == &entry,
+                "workspace entry changed during observation: {}",
+                path.display()
+            );
+        } else {
+            self.entries.insert(path.to_owned(), entry);
+        }
+        Ok(())
+    }
+
+    fn unchanged(&self) -> Result<()> {
+        for (path, entry) in &self.entries {
+            ensure!(
+                &observe_entry(path)? == entry,
+                "workspace entry changed during observation: {}",
+                path.display()
+            );
+        }
+        Ok(())
+    }
+}
+
+fn observe_entry(path: &Path) -> Result<ObservedEntry> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() {
+        return Ok(ObservedEntry::Link(fs::read_link(path)?));
+    }
+    if metadata.is_dir() {
+        let mut children = fs::read_dir(path)?
+            .map(|entry| Ok(entry?.path()))
+            .collect::<std::io::Result<Vec<_>>>()?;
+        children.sort_unstable();
+        return Ok(ObservedEntry::Directory(children.into()));
+    }
+    ensure!(metadata.is_file(), "unsupported workspace entry");
+    #[cfg(unix)]
+    let executable = {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    };
+    #[cfg(not(unix))]
+    let executable = false;
+    Ok(ObservedEntry::File(executable))
 }
 
 fn root_location(path: &Path) -> Result<std::path::PathBuf> {
@@ -162,7 +226,7 @@ fn resolve_links(
     measured_roots: &[std::path::PathBuf],
     tracked: &mut Option<(&Path, &BTreeSet<String>)>,
     closure_roots: &[std::path::PathBuf],
-    bound_roots: &BTreeSet<std::path::PathBuf>,
+    state: &mut Reachability,
 ) -> Result<std::path::PathBuf> {
     use std::path::{Component, PathBuf};
     // Initial ancestors are checked by contained(); only target paths need hop-by-hop resolution.
@@ -194,7 +258,7 @@ fn resolve_links(
                 continue;
             }
             ensure!(
-                bound_roots.contains(&resolved)
+                state.bound_roots.contains(&resolved)
                     || authorized(&resolved, measured_roots, *tracked, false),
                 "workspace symlink escapes through unmeasured intermediate link: {}",
                 resolved.display()
@@ -205,6 +269,7 @@ fn resolve_links(
                 "cyclic workspace symlink or excessive link chain"
             );
             let target = fs::read_link(&resolved)?;
+            state.observe(&resolved, ObservedEntry::Link(target.clone()))?;
             let mut next = if target.is_absolute() {
                 target
             } else {
@@ -227,16 +292,10 @@ fn reachable(
     tracked: Option<(&Path, &BTreeSet<String>)>,
     closure_roots: &[std::path::PathBuf],
     state: &mut Reachability,
-) -> Result<()> {
+) -> Result<PathBuf> {
     let mut tracked = tracked;
-    let resolved = resolve_links(
-        path,
-        measured_roots,
-        &mut tracked,
-        closure_roots,
-        &state.bound_roots,
-    )?;
-    let meta = fs::metadata(path)?;
+    let resolved = resolve_links(path, measured_roots, &mut tracked, closure_roots, state)?;
+    let meta = fs::symlink_metadata(&resolved)?;
     let authorized = authorized(&resolved, measured_roots, tracked, meta.is_dir());
     ensure!(
         authorized,
@@ -248,31 +307,37 @@ fn reachable(
         "unsupported workspace entry"
     );
     let mode = usize::from(tracked.is_some());
-    if !meta.is_dir() || state.complete[mode].contains(&resolved) {
-        return Ok(());
+    if meta.is_dir() && state.complete[mode].contains(&resolved) {
+        return Ok(resolved);
     }
     // Directory dependency cycles are safe co-inductively: this mode is already
     // validating every physical child. Nonterminating link chains fail in resolve_links.
-    if !state.active[mode].insert(resolved.clone()) {
-        return Ok(());
+    if meta.is_dir() && !state.active[mode].insert(resolved.clone()) {
+        return Ok(resolved);
+    }
+    state.observe(&resolved, observe_entry(&resolved)?)?;
+    if !meta.is_dir() {
+        return Ok(resolved);
     }
     #[cfg(test)]
     {
         *state.expansions[mode].entry(resolved.clone()).or_default() += 1;
     }
     // A tracked directory prefix only permits traversal, never its untracked children.
-    for entry in fs::read_dir(&resolved)? {
-        reachable(
-            &entry?.path(),
-            measured_roots,
-            tracked,
-            closure_roots,
-            state,
-        )?;
+    let Some(ObservedEntry::Directory(children)) = state.entries.get(&resolved) else {
+        anyhow::bail!(
+            "workspace entry changed during observation: {}",
+            resolved.display()
+        );
+    };
+    // Retain the validated child list while recursion adds other graph entries.
+    let children = Rc::clone(children);
+    for child in children.iter() {
+        reachable(child, measured_roots, tracked, closure_roots, state)?;
     }
     state.active[mode].remove(&resolved);
-    state.complete[mode].insert(resolved);
-    Ok(())
+    state.complete[mode].insert(resolved.clone());
+    Ok(resolved)
 }
 
 fn digest_tree(
@@ -282,7 +347,7 @@ fn digest_tree(
     closure_roots: &[std::path::PathBuf],
 ) -> Result<String> {
     let Some(roots) = measured_roots else {
-        return digest_rows(root, None);
+        return digest_rows(root);
     };
     let canonical_roots = roots
         .iter()
@@ -293,43 +358,105 @@ fn digest_tree(
     for declared_root in roots {
         state.bind_root(declared_root)?;
     }
-    reachable(root, &canonical_roots, tracked, closure_roots, &mut state)?;
-    digest_rows(root, Some(&canonical_roots))
+    let resolved = reachable(root, &canonical_roots, tracked, closure_roots, &mut state)?;
+    let digest = digest_validated(root, &resolved, &state)?;
+    state.unchanged()?;
+    for (declared, canonical) in roots.iter().zip(&canonical_roots) {
+        ensure!(
+            fs::canonicalize(declared)? == *canonical,
+            "workspace authority root changed during observation"
+        );
+    }
+    Ok(digest)
 }
 
-fn digest_rows(root: &Path, measured_roots: Option<&[std::path::PathBuf]>) -> Result<String> {
+// Hash only the recorded graph, never re-discover a link's destination while hashing.
+fn digest_validated(root: &Path, resolved: &Path, state: &Reachability) -> Result<String> {
     fn walk(
-        root: &Path,
         path: &Path,
-        measured_roots: Option<&[std::path::PathBuf]>,
+        name: &Path,
+        state: &Reachability,
         rows: &mut Vec<(String, String, String)>,
     ) -> Result<()> {
+        let entry = state
+            .entries
+            .get(path)
+            .context("unvalidated workspace entry")?;
+        // In particular, reread every link target immediately before its digest row.
+        ensure!(
+            &observe_entry(path)? == entry,
+            "workspace entry changed during measurement: {}",
+            path.display()
+        );
+        let relative = name
+            .to_str()
+            .context("non UTF-8 materialization")?
+            .to_owned();
+        match entry {
+            ObservedEntry::Link(target) => rows.push((
+                relative,
+                "symlink".into(),
+                hex::encode(Sha256::digest(target.as_os_str().as_encoded_bytes())),
+            )),
+            ObservedEntry::File(executable) => rows.push((
+                relative,
+                if *executable { "executable" } else { "file" }.into(),
+                super::signing::hash_file(path)?,
+            )),
+            ObservedEntry::Directory(children) => {
+                rows.push((relative, "directory".into(), String::new()));
+                for child in children.iter() {
+                    walk(
+                        child,
+                        &name.join(child.file_name().context("workspace child without name")?),
+                        state,
+                        rows,
+                    )?;
+                }
+            }
+        }
+        Ok(())
+    }
+    let location = root_location(root)?;
+    let entry = state
+        .entries
+        .get(resolved)
+        .context("unvalidated workspace root")?;
+    let ObservedEntry::Directory(children) = entry else {
+        anyhow::bail!("tree artifact must be a directory");
+    };
+    let mut rows = Vec::new();
+    if matches!(state.entries.get(&location), Some(ObservedEntry::Link(_))) {
+        walk(&location, Path::new(""), state, &mut rows)?;
+        // A root link binds its target and the resolved directory's children, not
+        // an extra directory row. This preserves the existing v2 preimage.
+        for child in children.iter() {
+            walk(
+                child,
+                Path::new(child.file_name().context("workspace child without name")?),
+                state,
+                &mut rows,
+            )?;
+        }
+    } else {
+        walk(resolved, Path::new(""), state, &mut rows)?;
+    }
+    rows.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(hex::encode(Sha256::digest(serde_json::to_vec(&(2, rows))?)))
+}
+
+fn digest_rows(root: &Path) -> Result<String> {
+    fn walk(root: &Path, path: &Path, rows: &mut Vec<(String, String, String)>) -> Result<()> {
         let meta = fs::symlink_metadata(path)?;
         let name = path
             .strip_prefix(root)?
             .to_str()
             .context("non UTF-8 materialization")?
             .to_owned();
-        if meta.file_type().is_symlink() {
-            let measured_roots = measured_roots.context("materialized input contains symlink")?;
-            let target = fs::read_link(path)?;
-            let is_root = path == root;
-            rows.push((
-                name,
-                "symlink".into(),
-                hex::encode(Sha256::digest(target.as_os_str().as_encoded_bytes())),
-            ));
-            if is_root {
-                ensure!(
-                    fs::metadata(path)?.is_dir(),
-                    "linked tree root must be a directory"
-                );
-                for entry in fs::read_dir(path)? {
-                    walk(root, &entry?.path(), Some(measured_roots), rows)?;
-                }
-            }
-            return Ok(());
-        }
+        ensure!(
+            !meta.file_type().is_symlink(),
+            "materialized input contains symlink"
+        );
         let kind = if meta.is_dir() {
             "directory"
         } else {
@@ -356,27 +483,20 @@ fn digest_rows(root: &Path, measured_roots: Option<&[std::path::PathBuf]>) -> Re
         rows.push((name, kind.into(), digest));
         if meta.is_dir() {
             for entry in fs::read_dir(path)? {
-                walk(root, &entry?.path(), measured_roots, rows)?;
+                walk(root, &entry?.path(), rows)?;
             }
         }
         Ok(())
     }
     ensure!(
-        if measured_roots.is_some() {
-            fs::metadata(root)?.is_dir()
-        } else {
-            fs::symlink_metadata(root)?.is_dir()
-        },
+        fs::symlink_metadata(root)?.is_dir(),
         "tree artifact must be a directory"
     );
 
     let mut rows = Vec::new();
-    walk(root, root, measured_roots, &mut rows)?;
+    walk(root, root, &mut rows)?;
     rows.sort_by(|a, b| a.0.cmp(&b.0));
-    let version = if measured_roots.is_some() { 2 } else { 1 };
-    Ok(hex::encode(Sha256::digest(serde_json::to_vec(&(
-        version, rows,
-    ))?)))
+    Ok(hex::encode(Sha256::digest(serde_json::to_vec(&(1, rows))?)))
 }
 
 /// Enumerate filesystem entries too: Git status can omit empty directories and ignored descendants.
@@ -447,14 +567,18 @@ pub fn verify(
     for root in &lane.scratch {
         contained(repo, root, false)?;
     }
-    let mut measured_roots = lane
+    let declared_tree_roots: Vec<_> = lane
         .inputs
         .iter()
         .filter(|(_, artifact)| {
             artifact.identity.starts_with("tree-sha256:")
                 || artifact.identity.starts_with("tree-sha256-v2:")
         })
-        .map(|(root, _)| fs::canonicalize(repo.join(root)))
+        .map(|(root, _)| repo.join(root))
+        .collect();
+    let mut measured_roots = declared_tree_roots
+        .iter()
+        .map(fs::canonicalize)
         .collect::<std::io::Result<Vec<_>>>()?;
     let canonical_repo = fs::canonicalize(repo)?;
     for (index, root) in measured_roots.iter().enumerate() {
@@ -494,14 +618,14 @@ pub fn verify(
         let actual = if artifact.identity.starts_with("tree-sha256:") {
             tree_digest(&path)?
         } else if artifact.identity.starts_with("tree-sha256-v2:") {
-            reachable(
+            let resolved = reachable(
                 &path,
                 &measured_roots,
                 Some((&canonical_repo, &files)),
                 toolchain.map_or(&[], |measurement| measurement.nix_roots.as_slice()),
                 &mut reachability,
             )?;
-            digest_rows(&path, Some(&measured_roots))?
+            digest_validated(&path, &resolved, &reachability)?
         } else {
             ensure!(
                 fs::symlink_metadata(&path)?.is_file(),
@@ -512,6 +636,15 @@ pub fn verify(
         ensure!(
             artifact.identity.rsplit(':').next() == Some(actual.as_str()),
             "materialized input identity mismatch: {root}"
+        );
+    }
+    // Includes bridges and reachable directories omitted from digest rows, and
+    // roots cached by an earlier input in this same observation.
+    reachability.unchanged()?;
+    for (declared, canonical) in declared_tree_roots.iter().zip(&measured_roots) {
+        ensure!(
+            fs::canonicalize(declared)? == *canonical,
+            "workspace authority root changed during observation"
         );
     }
     let roots: Vec<_> = lane
@@ -714,5 +847,246 @@ mod tests {
             tracked,
             false
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn root_retarget_between_validation_and_hashing_is_refused() {
+        use std::os::unix::fs::symlink;
+        let fixture = tempfile::tempdir().unwrap();
+        let base = fs::canonicalize(fixture.path()).unwrap();
+        let first = base.join("first");
+        let second = base.join("second");
+        let root = base.join("root");
+        fs::create_dir(&first).unwrap();
+        fs::create_dir(&second).unwrap();
+        fs::write(first.join("file"), "first").unwrap();
+        fs::write(second.join("file"), "second").unwrap();
+        symlink(&first, &root).unwrap();
+        let mut state = Reachability::default();
+        state.bind_root(&root).unwrap();
+        let resolved = reachable(&root, &[first, second.clone()], None, &[], &mut state).unwrap();
+        fs::remove_file(&root).unwrap();
+        symlink(second, &root).unwrap();
+        let error = digest_validated(&root, &resolved, &state).unwrap_err();
+        assert!(
+            error.to_string().contains("changed during measurement"),
+            "{error}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn authorized_bridge_retarget_during_observation_is_refused() {
+        use std::os::unix::fs::symlink;
+        let fixture = tempfile::tempdir().unwrap();
+        let base = fs::canonicalize(fixture.path()).unwrap();
+        let modules = base.join("modules");
+        let authority = base.join("authority");
+        fs::create_dir(&modules).unwrap();
+        fs::create_dir(&authority).unwrap();
+        for name in ["first", "second"] {
+            fs::write(authority.join(name), name).unwrap();
+        }
+        let bridge = authority.join("bridge");
+        symlink("first", &bridge).unwrap();
+        symlink(&bridge, modules.join("dependency")).unwrap();
+        let mut state = Reachability::default();
+        let resolved = reachable(
+            &modules,
+            &[modules.clone(), authority],
+            None,
+            &[],
+            &mut state,
+        )
+        .unwrap();
+        // This bridge has no digest row in modules: it must still be bound to
+        // the validated graph, even when both old and new endpoints are authorized.
+        fs::remove_file(&bridge).unwrap();
+        symlink("second", &bridge).unwrap();
+        digest_validated(&modules, &resolved, &state).unwrap();
+        let error = state.unchanged().unwrap_err();
+        assert!(
+            error.to_string().contains("changed during observation"),
+            "{error}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cached_dependency_cycle_mutation_during_observation_is_refused() {
+        use std::os::unix::fs::symlink;
+        let fixture = tempfile::tempdir().unwrap();
+        let base = fs::canonicalize(fixture.path()).unwrap();
+        let first = base.join("first");
+        let second = base.join("second");
+        fs::create_dir(&first).unwrap();
+        fs::create_dir(&second).unwrap();
+        symlink(&second, first.join("next")).unwrap();
+        symlink(&first, second.join("next")).unwrap();
+        let roots = [first.clone(), second.clone()];
+        let mut state = Reachability::default();
+        let resolved = reachable(&first, &roots, None, &[], &mut state).unwrap();
+        fs::remove_file(second.join("next")).unwrap();
+        symlink("next", second.join("next")).unwrap();
+        // A cache hit is not a new authorization of the mutated graph.
+        reachable(&first, &roots, None, &[], &mut state).unwrap();
+        digest_validated(&first, &resolved, &state).unwrap();
+        assert!(
+            state
+                .unchanged()
+                .unwrap_err()
+                .to_string()
+                .contains("changed")
+        );
+        assert!(tree_digest_v2(&first, &roots).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn link_chain_limit_accepts_40_hops_and_refuses_41() {
+        use std::os::unix::fs::symlink;
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(fixture.path()).unwrap();
+        fs::write(root.join("file"), "content").unwrap();
+        for index in 0..40 {
+            let target = if index == 39 {
+                "file".into()
+            } else {
+                format!("link{}", index + 1)
+            };
+            symlink(target, root.join(format!("link{index}"))).unwrap();
+        }
+        tree_digest_v2(&root, std::slice::from_ref(&root)).unwrap();
+        fs::remove_file(root.join("link39")).unwrap();
+        symlink("link40", root.join("link39")).unwrap();
+        symlink("file", root.join("link40")).unwrap();
+        let error = tree_digest_v2(&root, std::slice::from_ref(&root)).unwrap_err();
+        assert!(
+            error.to_string().contains("excessive link chain"),
+            "{error}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn closure_parent_components_cannot_escape_to_tracked_authority() {
+        use std::os::unix::fs::symlink;
+        let fixture = tempfile::tempdir().unwrap();
+        let repo = fs::canonicalize(fixture.path()).unwrap();
+        let modules = repo.join("modules");
+        let member = repo.join("store/member");
+        fs::create_dir(&modules).unwrap();
+        fs::create_dir_all(member.join("bin")).unwrap();
+        fs::write(repo.join("helper"), "tracked but not closure-authorized").unwrap();
+        symlink("../../../helper", member.join("bin/helper")).unwrap();
+        symlink(&member, modules.join("package")).unwrap();
+        let roots = [modules.clone(), member.clone()];
+        let files = BTreeSet::from(["helper".into()]);
+        let error =
+            digest_tree(&modules, Some(&roots), Some((&repo, &files)), &[member]).unwrap_err();
+        assert!(error.to_string().contains("symlink escapes"), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn alternating_tracked_closure_and_measured_chains_keep_restricted_mode() {
+        use std::os::unix::fs::symlink;
+        let fixture = tempfile::tempdir().unwrap();
+        let repo = fs::canonicalize(fixture.path()).unwrap();
+        let modules = repo.join("modules");
+        let measured = repo.join("measured");
+        let member = repo.join("store/member");
+        fs::create_dir(&modules).unwrap();
+        fs::create_dir(&measured).unwrap();
+        fs::create_dir_all(&member).unwrap();
+        fs::write(member.join("helper"), "authorized").unwrap();
+        fs::write(repo.join("helper"), "tracked").unwrap();
+        symlink(member.join("next"), repo.join("bridge")).unwrap();
+        symlink(measured.join("return"), member.join("next")).unwrap();
+        symlink(member.join("helper"), measured.join("return")).unwrap();
+        symlink(repo.join("bridge"), modules.join("dependency")).unwrap();
+        let files = BTreeSet::from(["bridge".into(), "helper".into()]);
+        let roots = [modules.clone(), measured.clone(), member.clone()];
+        digest_tree(
+            &modules,
+            Some(&roots),
+            Some((&repo, &files)),
+            std::slice::from_ref(&member),
+        )
+        .unwrap();
+        fs::remove_file(measured.join("return")).unwrap();
+        symlink(repo.join("helper"), measured.join("return")).unwrap();
+        let error =
+            digest_tree(&modules, Some(&roots), Some((&repo, &files)), &[member]).unwrap_err();
+        assert!(error.to_string().contains("symlink escapes"), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cache_mode_switch_after_closure_does_not_reuse_tracked_authority() {
+        use std::os::unix::fs::symlink;
+        let fixture = tempfile::tempdir().unwrap();
+        let repo = fs::canonicalize(fixture.path()).unwrap();
+        let modules = repo.join("modules");
+        let member = repo.join("store/member");
+        fs::create_dir(&modules).unwrap();
+        fs::create_dir_all(&member).unwrap();
+        fs::write(repo.join("helper"), "tracked").unwrap();
+        symlink(repo.join("helper"), modules.join("dependency")).unwrap();
+        symlink(&modules, member.join("return")).unwrap();
+        let roots = [modules.clone(), member.clone()];
+        let files = BTreeSet::from(["helper".into()]);
+        let mut state = Reachability::default();
+        reachable(
+            &modules,
+            &roots,
+            Some((&repo, &files)),
+            std::slice::from_ref(&member),
+            &mut state,
+        )
+        .unwrap();
+        // Closure traversal must expand modules again without tracked authority.
+        let error = reachable(
+            &member,
+            &roots,
+            Some((&repo, &files)),
+            std::slice::from_ref(&member),
+            &mut state,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("symlink escapes"), "{error}");
+        assert_eq!(state.expansions[0].get(&modules), Some(&1));
+        assert_eq!(state.expansions[1].get(&modules), Some(&1));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn validated_graph_preserves_v2_linked_and_physical_root_preimages() {
+        use std::os::unix::fs::symlink;
+        let fixture = tempfile::tempdir().unwrap();
+        let base = fs::canonicalize(fixture.path()).unwrap();
+        let physical = base.join("physical");
+        fs::create_dir(&physical).unwrap();
+        fs::write(physical.join("file"), "content").unwrap();
+        symlink("file", physical.join("alias")).unwrap();
+        let linked = base.join("linked");
+        symlink("physical", &linked).unwrap();
+        let hash = |bytes: &[u8]| hex::encode(Sha256::digest(bytes));
+        for (root, kind, value) in [
+            (&physical, "directory", String::new()),
+            (&linked, "symlink", hash(b"physical")),
+        ] {
+            let rows = [
+                ("", kind, value),
+                ("alias", "symlink", hash(b"file")),
+                ("file", "file", hash(b"content")),
+            ];
+            let expected = hash(&serde_json::to_vec(&(2, rows)).unwrap());
+            assert_eq!(
+                tree_digest_v2(root, std::slice::from_ref(&linked)).unwrap(),
+                expected
+            );
+        }
     }
 }

@@ -1147,6 +1147,13 @@ no additional directory row at `""`. Thus both root retargeting and changes to
 the resolved tree affect the identity; a root link is not merely a target-string
 measurement.
 
+Each v2 observation records the validated graph's directory entries, entry kinds
+and raw link targets. Hashing follows that recorded graph, rereads digest-row link
+targets, and refuses changes to any recorded entry before completing the observation,
+including intermediate bridge links and cached dependency cycles.
+Standalone `tree_digest_v2` callers must independently measure every supplied
+authority root; merely supplying a root does not measure its contents.
+
 There is no blanket Nix-store exemption. Only the independently remeasured
 closures of the current system's BASE environment runtime and dependencies
 authorize Nix destinations; a caller-supplied closure receipt cannot authorize
@@ -1205,6 +1212,10 @@ The signed input `nix_closure_sha256:<artifact-identity>` is SHA-256 of compact
 JSON `[path,narHash]` tuples sorted by path, with SHA-256 NAR hashes. Closure
 differences refuse signing. Existing SHA-256/Git artifact records remain valid;
 the object-only gate does not invoke Nix or provision artifacts.
+The `narHash` values come from Nix's registered metadata, trusting the Nix store;
+they are not freshly recomputed NAR byte hashes by the workspace walker. A garbage
+collection that removes a required closure member during an observation causes
+refusal rather than authorizing a missing path.
 
 Non-derivation lanes preserve PATH-based wrapping for bare commands and checkout-relative
 execution for relative commands by default. Set `"direct_exec": true` on a BASE lane to opt
