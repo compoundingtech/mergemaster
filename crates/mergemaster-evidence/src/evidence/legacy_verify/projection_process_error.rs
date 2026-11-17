@@ -1,8 +1,13 @@
 //! Python subprocess diagnostics for the legacy projection transport.
-use super::{python_repr::Repr, value_inputs::TextRef};
+use super::python_repr::Repr;
+use crate::evidence::legacy_policy::normalized_text::NormalizedText;
 use std::{ffi::OsStr, io, os::unix::ffi::OsStrExt, process::Command, time::Duration};
 
-fn repr(value: &OsStr) -> String {
+/// POSIX filesystem decoding, shared by process diagnostics and CLI ingress.
+pub fn decode(value: &OsStr) -> NormalizedText {
+    if let Some(value) = value.to_str() {
+        return value.into();
+    }
     let mut bytes = value.as_bytes();
     let mut points = Vec::new();
     while !bytes.is_empty() {
@@ -20,7 +25,10 @@ fn repr(value: &OsStr) -> String {
             }
         }
     }
-    Repr(TextRef::Points(&points)).to_string()
+    NormalizedText::from_points(&points)
+}
+fn repr(value: &OsStr) -> String {
+    Repr(decode(value).borrowed()).to_string()
 }
 pub fn diagnostic(
     command: &Command,

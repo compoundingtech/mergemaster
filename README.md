@@ -534,6 +534,11 @@ Approved ANSI-styling divergence: Rust help, usage and errors are always uncolor
 independent of TTY, FORCE_COLOR, NO_COLOR and TERM. Python 3.14 `_colorize.can_colorize`
 may add ANSI SGR styling; stripping only those sequences yields identical bytes.
 Non-TTY and NO_COLOR output, streams and exit codes remain exact. No CLI is wired.
+`cli_adapter` decodes raw POSIX argv with surrogateescape, returns successful
+namespaces without reparsing, and routes parser exits through the safe sink.
+It resolves formatter width from positive Python-integer COLUMNS, original stdout
+terminal columns, then 80. Its fixed program name is `evidence-verify`: an approved
+divergence only when Python's argv[0] basename differs. No binary entry is wired.
 Approved terminal/log output divergence (#245): `terminal_sink::value` applies
 unbounded Python-repr-style escaping to C0, DEL, C1, lone surrogates and every
 backslash, without repr quotes. `RenderedHelp::write_terminal` escapes only
