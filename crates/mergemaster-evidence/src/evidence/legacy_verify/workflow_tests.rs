@@ -68,6 +68,10 @@ fn selected_workflow_bytes_and_failures_match_oracle() {
     ] {
         cases.push((wrap(invalid), "z".into()));
     }
+    for length in [59, 60, 61] {
+        let line = format!("  \t\u{1f}'\\\x07{} \t\u{a0}\n", "🦀".repeat(length - 3));
+        cases.push((wrap(&line), "z".into()));
+    }
     for ending in [
         "\n", "\r\n", "\r", "\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\u{85}", "\u{2028}",
         "\u{2029}",
@@ -90,7 +94,9 @@ fn selected_workflow_bytes_and_failures_match_oracle() {
         .map(|(text, job)| {
             workflow_job(text, job)
                 .map(|bytes| json!({"hex":bytes.map(hex::encode)}))
-                .unwrap_or_else(|e| json!({"reason":e.reason}))
+                .unwrap_or_else(
+                    |e| json!({"reason":e.reason,"detail":e.detail.to_string(),"origin":"Failure"}),
+                )
         })
         .collect();
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE")
@@ -104,7 +110,7 @@ for text, job in json.loads(sys.argv[2]):
         selected = o['workflow_job'](text,job)
         results.append(dict(hex=selected.hex() if selected is not None else None))
     except o['Failure'] as e:
-        results.append(dict(reason=e.reason))
+        results.append(dict(reason=e.reason,detail=str(e),origin='Failure'))
 print(json.dumps(results))
 "#;
     let output = std::process::Command::new("python3")

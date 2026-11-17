@@ -131,6 +131,7 @@ pub fn verified<T, P: Provider>(
         emit,
     )
     .map(|(value, _)| value)
+    .map_err(|e| e.failure)
 }
 
 /// Retain the selected original document and typed metadata for aggregation.
@@ -148,6 +149,42 @@ pub fn retained<P: Provider>(
         super::result::Selection::capture(view)
     })
     .map(|(selection, record)| super::result::Retained::new(record, selection))
+    .map_err(|e| e.failure)
+}
+
+/// Complete selection refusal, before optional shadow-log decoration.
+#[derive(Debug)]
+pub struct Refusal {
+    pub failure: Failure,
+    pub decided_by: Option<String>,
+    pub skipped_newer: Option<Vec<String>>,
+}
+impl From<Failure> for Box<Refusal> {
+    fn from(failure: Failure) -> Self {
+        Box::new(Refusal {
+            failure,
+            decided_by: None,
+            skipped_newer: None,
+        })
+    }
+}
+/// Preserve ordering metadata that the simpler verified/retained APIs discard.
+/// This standalone single-check entry point owns its collector budget.
+pub fn retained_detailed<P: Provider>(
+    q: &Request<'_>,
+    settings: Settings<'_>,
+    judgment: &mut CheckJudgment<'_, P>,
+    prefer: Levels<'_>,
+) -> Result<super::result::Retained, Box<Refusal>> {
+    selected_record(
+        &mut CandidateCollector::for_check(),
+        q,
+        settings,
+        judgment,
+        prefer,
+        |view, _| super::result::Selection::capture(view),
+    )
+    .map(|(selection, record)| super::result::Retained::new(record, selection))
 }
 
 fn selected_record<T, P: Provider>(
@@ -157,7 +194,7 @@ fn selected_record<T, P: Provider>(
     judgment: &mut CheckJudgment<'_, P>,
     prefer: Levels<'_>,
     emit: impl FnOnce(&super::result::Satisfied<'_>, &TrustedCandidate) -> T,
-) -> Result<(T, TrustedCandidate), Failure> {
+) -> Result<(T, TrustedCandidate), Box<Refusal>> {
     let inputs = match settings {
         Settings::Policy(rules) => rules.header.inputs.as_deref(),
         Settings::Unconfigured(_) => None,
@@ -170,7 +207,20 @@ fn selected_record<T, P: Provider>(
         Settings::Unconfigured(options) => Prepared::unconfigured(options, records),
     };
     let decision = judgment.select(&prepared, q.check, prefer);
-    let selected = decision.result?;
+    let selected = decision.result.map_err(|failure| {
+        Box::new(Refusal {
+            failure,
+            decided_by: decision
+                .walk
+                .decided_by
+                .and_then(|i| prepared.candidates.get(i))
+                .map(|c| c.commit.to_owned()),
+            skipped_newer: decision
+                .walk
+                .decided_by
+                .map(|_| decision.walk.skipped_newer.clone()),
+        })
+    })?;
     let original = record_position(&gathered.records, prepared.candidates[selected.0].commit)?;
     let decision = super::ordering::Decision {
         result: Ok(selected),

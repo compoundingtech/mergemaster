@@ -791,6 +791,9 @@ discards earlier successes; production uses the same reached-judgment SystemCloc
 Joined rules-absent parity tests use actual SHA-1/SHA-256 trees, SSH-signed notes,
 signature partition and Git blob reads through selection/result conversion, including
 Unix non-UTF-8 binding paths, lossless keys, skips/preferences and refusals.
+`configured::retained_detailed` also retains the complete deciding-record and
+skipped-newer metadata on selection refusals; preparation failures have neither.
+The simpler retained/verified interfaces intentionally return only the failure.
 `legacy_policy::check_names` enumerates sorted lossless policy names and selects entries
 by borrowed code points, including lone surrogates. It shares the existing root/entry
 parser without adding statement byte/depth caps; raw string controls are refused,
@@ -919,11 +922,16 @@ Lane discovery uses the gate's sanitized Git command and rejects malformed or
 unterminated ls-tree rows; shared subprocess timeout/output bounds remain open.
 `workflow::workflow_job` selects exact generated-workflow text and transitive
 job dependencies; it follows the legacy layout contract, not general YAML.
+Workflow refusals name the missing dependency, or quote the stripped offending
+line's first 60 code points with Python repr, rather than a generic layout error.
 `selection_json::select_json` preserves legacy integer JSON selections. Selected
 floats, JSON extensions and nesting above 127 containers refuse with named
 `input-selection-*` reasons; extension diagnostics identify the token and byte offset.
 `selection::selected` resolves the preferred `.fractal`/legacy `.st` layout at
 the supplied Git tree and reads strict UTF-8 there, never from the checkout.
+Malformed JSON (including integer digit-limit refusal) reports the unquoted
+resolved file path followed by ` is not JSON`; invalid UTF-8 reports ` is not text`.
+Selection/projection oracle failures compare complete diagnostic text, not just reason.
 Selected blobs above 16 MiB refuse with `error` before decoding or selection.
 `projection::project` computes legacy reduced Git-tree keys, retaining raw names,
 symlink/gitlink modes and canonical selector entries; empty projections have no key. Selected reads require full tree OIDs.

@@ -211,17 +211,29 @@ fn content_and_layout_match_oracle_at_each_tree() {
     write("plain.json", br#"{"selected":{"z":1,"a":2}}"#);
     write("bad.json", b"not JSON");
     write("invalid.json", b"\xff");
+    write(
+        "long 'é.json",
+        format!("{{\"selected\":{}}}", "9".repeat(4301)).as_bytes(),
+    );
     write("workflow.yml",b"name: CI\njobs:\n  build:\n    runs-on: linux\n  test:\n    needs: build\n    runs-on: linux\n");
+    write(
+        "missing-workflow.yml",
+        b"jobs:\n  test:\n    needs: missing\n",
+    );
+    write(
+        "bad-workflow.yml",
+        "jobs:\n  '\u{7}🦀: bad \t\u{a0}\n".as_bytes(),
+    );
     run(&["add", "."]);
     let legacy = run(&["write-tree"]);
     for item in ["plain.json::selected", "workflow.yml::jobs.test"] {
         let path = item.split_once("::").unwrap().0;
         let size = std::fs::read(repo.join(path)).unwrap().len();
+        let failure = selected_content_limit(repo, &legacy, item, size - 1).unwrap_err();
+        assert_eq!(failure.reason, "error");
         assert_eq!(
-            selected_content_limit(repo, &legacy, item, size - 1)
-                .unwrap_err()
-                .reason,
-            "error"
+            failure.detail.to_string(),
+            format!("Git output exceeds {} bytes", size - 1)
         );
         assert_eq!(
             selected_content_limit(repo, &legacy, item, size).unwrap(),
@@ -255,8 +267,11 @@ fn content_and_layout_match_oracle_at_each_tree() {
         "missing.json::selected",
         "bad.json::selected",
         "invalid.json::selected",
+        "long 'é.json::selected",
         "workflow.yml::jobs.test",
         "workflow.yml::jobs.absent",
+        "missing-workflow.yml::jobs.test",
+        "bad-workflow.yml::jobs.test",
         "plain.json::selected::extra",
         ".st/inputs.json",
     ];
@@ -267,11 +282,15 @@ fn content_and_layout_match_oracle_at_each_tree() {
             cases.push(json!([tree, item]));
             let path = match selector_item(repo, tree, item) {
                 Ok(path) => json!({"path":path}),
-                Err(e) => json!({"reason":e.reason}),
+                Err(e) => {
+                    json!({"reason":e.reason,"detail":e.detail.to_string(),"origin":"Failure"})
+                }
             };
             let encode = |result: Result<Option<Vec<u8>>, PolicyError>| match result {
                 Ok(bytes) => json!({"hex":bytes.map(hex::encode)}),
-                Err(e) => json!({"reason":e.reason}),
+                Err(e) => {
+                    json!({"reason":e.reason,"detail":e.detail.to_string(),"origin":"Failure"})
+                }
             };
             actual.push(json!([
                 path,
@@ -293,7 +312,7 @@ for tree,item in json.loads(sys.argv[3]):
             value=o[name](sys.argv[2],tree,item)
             row.append(dict(path=value) if name=='selector_item' else dict(hex=value.hex() if value is not None else None))
         except o['Failure'] as e:
-            row.append(dict(reason=e.reason))
+            row.append(dict(reason=e.reason,detail=str(e),origin='Failure'))
     results.append(row)
 print(json.dumps(results))
 "#;

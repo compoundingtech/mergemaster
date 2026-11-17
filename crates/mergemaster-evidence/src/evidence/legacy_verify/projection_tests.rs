@@ -23,11 +23,26 @@ fn projection_matches_oracle_for_raw_modes_layout_and_selectors() {
         ("src-extra", b"extra\n"),
         ("run", b"#!/bin/sh\n"),
         (".st/inputs.json", br#"{"selected":{"ok":1},"other":0}"#),
+        ("bad.json", b"not JSON"),
+        ("invalid.json", b"\xff"),
+        (
+            "missing-workflow.yml",
+            b"jobs:\n  test:\n    needs: missing\n",
+        ),
+        (
+            "bad-workflow.yml",
+            "jobs:\n  '\u{7}🦀: bad \t\u{a0}\n".as_bytes(),
+        ),
     ] {
         let path = repo.join(name);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, bytes).unwrap();
     }
+    std::fs::write(
+        repo.join("long 'é.json"),
+        format!("{{\"selected\":{}}}", "9".repeat(4301)),
+    )
+    .unwrap();
     std::fs::set_permissions(repo.join("run"), std::fs::Permissions::from_mode(0o755)).unwrap();
     symlink("src/a", repo.join("link")).unwrap();
     std::fs::write(
@@ -94,6 +109,11 @@ fn projection_matches_oracle_for_raw_modes_layout_and_selectors() {
         vec![".st/inputs.json::missing"],
         vec![".", ".st/inputs.json::selected"],
         vec!["src", ".st/inputs.json::selected"],
+        vec!["bad.json::selected"],
+        vec!["invalid.json::selected"],
+        vec!["long 'é.json::selected"],
+        vec!["missing-workflow.yml::jobs.test"],
+        vec!["bad-workflow.yml::jobs.test"],
     ];
     let mut cases = Vec::new();
     let mut actual = Vec::new();
@@ -104,11 +124,15 @@ fn projection_matches_oracle_for_raw_modes_layout_and_selectors() {
             cases.push(json!([tree, paths]));
             actual.push(match project(repo, tree, &paths) {
                 Ok(key) => json!({"key":key}),
-                Err(e) => json!({"reason":e.reason}),
+                Err(e) => {
+                    json!({"reason":e.reason,"detail":e.detail.to_string(),"origin":"Failure"})
+                }
             });
             no_lazy.push(match project_with_fetch(repo, tree, &paths, true) {
                 Ok(key) => json!({"key":key}),
-                Err(e) => json!({"reason":e.reason}),
+                Err(e) => {
+                    json!({"reason":e.reason,"detail":e.detail.to_string(),"origin":"Failure"})
+                }
             });
         }
     }
@@ -120,7 +144,7 @@ o=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify')
 results=[]
 for tree,paths in json.loads(sys.argv[3]):
     try: results.append(dict(key=o['project'](sys.argv[2],tree,paths)))
-    except o['Failure'] as e: results.append(dict(reason=e.reason))
+    except o['Failure'] as e: results.append(dict(reason=e.reason,detail=str(e),origin='Failure'))
 print(json.dumps(results))
 "#;
     let output = std::process::Command::new("python3")

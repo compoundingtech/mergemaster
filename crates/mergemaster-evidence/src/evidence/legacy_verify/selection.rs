@@ -149,11 +149,15 @@ pub(super) fn selected_content_with<'a>(
         ],
         max_bytes,
     )?;
-    let text = std::str::from_utf8(&shown).map_err(error)?;
+    let text = std::str::from_utf8(&shown).map_err(|_| PolicyError {
+        origin: ErrorOrigin::Failure,
+        reason: "error",
+        detail: NormalizedText::around("", path, " is not text"),
+    })?;
     if let Some(job) = selector.strip_prefix("jobs.") {
         workflow_job(text, job)
     } else {
-        select_json(text, selector)
+        select_json(text, path, selector)
     }
 }
 #[cfg(test)]
