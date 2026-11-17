@@ -227,16 +227,21 @@ fn provisioned_artifacts<'a>(
     )
 }
 
-/// Independently measure provisioned artifacts and bind execution to Nix closure bytes.
-/// Returns the closure claims and, when execution is bound, the canonical executable
-/// inside a measured closure; the wrapper executes exactly that path.
+/// Independently measured toolchain state, including the only authorized Nix link roots.
+pub struct ToolchainMeasurement {
+    pub claims: BTreeMap<String, String>,
+    pub executable: Option<PathBuf>,
+    pub(super) nix_roots: Vec<PathBuf>,
+}
+
+/// Measure provisioned artifacts and bind execution and workspace links to Nix closure bytes.
 pub fn measure_toolchain(
     repo: &Path,
     environment: &config::Environment,
     path: &Path,
     command: &[String],
     lane: &config::Lane,
-) -> Result<(BTreeMap<String, String>, Option<PathBuf>)> {
+) -> Result<ToolchainMeasurement> {
     let config = configuration(path, repo)?;
     if lane.direct_exec {
         let head = git::text(repo, &["rev-parse", "HEAD"])?;
@@ -259,6 +264,7 @@ pub fn measure_toolchain(
             .any(|a| a.identity.starts_with("nix:"));
     let nix = needs_nix.then(|| find_tool(&config, "nix")).transpose()?;
     let mut claims = BTreeMap::new();
+    let mut nix_roots = Vec::new();
     let bind_execution = lane.nix_check.is_none()
         && (lane.direct_exec
             || command
@@ -282,6 +288,7 @@ pub fn measure_toolchain(
                 format!("nix_closure_sha256:{}", artifact.identity),
                 super::nix::digest(&closure)?,
             );
+            nix_roots.extend(closure.keys().map(PathBuf::from));
             if executable
                 .as_ref()
                 .is_some_and(|exe| inside_closure(exe, closure.keys()))
@@ -306,7 +313,11 @@ pub fn measure_toolchain(
             executed_artifact.context("missing executable artifact")?,
         );
     }
-    Ok((claims, executable))
+    Ok(ToolchainMeasurement {
+        claims,
+        executable,
+        nix_roots,
+    })
 }
 
 /// The signer and post-launch wrapper require every independently measured claim,
@@ -595,7 +606,6 @@ pub fn run_worker(args: SignArgs) -> Result<()> {
         .lanes
         .get(&request.check)
         .context("unknown lane")?;
-    super::workspace::verify(&request.repo, &request.head, lane, false)?;
     let nix_check = derivation(
         &request.repo,
         &request.head,
@@ -638,14 +648,15 @@ pub fn run_worker(args: SignArgs) -> Result<()> {
             "command differs from BASE lane"
         );
     }
-    let (closures, _) = measure_toolchain(
+    let toolchain = measure_toolchain(
         &request.repo,
         &policy.environment,
         &args.config,
         &request.command,
         lane,
     )?;
-    verify_toolchain_claims(&closures, &request.inputs)?;
+    verify_toolchain_claims(&toolchain.claims, &request.inputs)?;
+    super::workspace::verify(&request.repo, &request.head, lane, false, Some(&toolchain))?;
     let expected = config::expected_inputs(
         &request.repo,
         &request.head,
@@ -745,7 +756,32 @@ pub fn run_worker(args: SignArgs) -> Result<()> {
             &note_ref,
         ],
     )?;
-    super::workspace::verify(&request.repo, &request.head, lane, false)?;
+    let Fact::Tests { checks, inputs, .. } = &statement.predicate.fact else {
+        anyhow::bail!("signer statement is not a test observation");
+    };
+    let check = checks
+        .values()
+        .next()
+        .context("missing signer statement check")?;
+    let after_toolchain = measure_toolchain(
+        &request.repo,
+        &policy.environment,
+        &args.config,
+        &check.command,
+        lane,
+    )?;
+    verify_toolchain_claims(&after_toolchain.claims, inputs)?;
+    ensure!(
+        after_toolchain.executable == toolchain.executable,
+        "Nix executable changed during signing"
+    );
+    super::workspace::verify(
+        &request.repo,
+        &request.head,
+        lane,
+        false,
+        Some(&after_toolchain),
+    )?;
     println!(
         "{}",
         serde_json::to_string(&Response {
@@ -773,6 +809,56 @@ fn source_import(mut child: git::deadline::GitChild, input: &[u8]) -> Result<()>
 #[cfg(test)]
 mod hardening_tests {
     use super::*;
+
+    #[test]
+    fn signing_pack_deadline_export_is_reaped_before_import_spawn() {
+        use std::time::Duration;
+        let mut export = Command::new("python3");
+        export.args(["-c",
+            "import os,sys;assert sys.stdin.buffer.read()==b'revision\\n';sys.stdout.buffer.write(str(os.getpid()).encode()+b'\\npack-body')"
+        ]).stdin(Stdio::piped());
+        let child = git::deadline::GitChild::with_stdio(
+            &mut export,
+            Duration::from_secs(5),
+            Stdio::piped(),
+            Stdio::inherit(),
+        )
+        .unwrap();
+        let bytes = source_export(child, b"revision\n").unwrap();
+        let split = bytes.iter().position(|b| *b == b'\n').unwrap();
+        let pid: i32 = std::str::from_utf8(&bytes[..split])
+            .unwrap()
+            .parse()
+            .unwrap();
+        let mut status = 0;
+        // SAFETY: status is writable; WNOHANG cannot block; pid is our export child.
+        assert_eq!(
+            unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) },
+            -1
+        );
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ECHILD)
+        );
+        let mut import = Command::new("python3");
+        import
+            .args([
+                "-c",
+                r"
+import sys
+assert sys.stdin.buffer.read()==b'pack-body'
+",
+            ])
+            .stdin(Stdio::piped());
+        let child = git::deadline::GitChild::with_stdio(
+            &mut import,
+            Duration::from_secs(5),
+            Stdio::null(),
+            Stdio::inherit(),
+        )
+        .unwrap();
+        source_import(child, &bytes[split + 1..]).unwrap();
+    }
 
     #[test]
     fn signing_pack_deadlines_preserve_export_import_and_refusals() {

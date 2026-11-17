@@ -42,7 +42,8 @@ impl<T> Covered<T> {
 #[path = "members_aggregate.rs"]
 mod aggregate;
 pub use aggregate::{Aggregate, View};
-/// Keys precede the standalone allowance; one judgment shares its LaneOnce across members.
+/// Keys precede the standalone allowance; one judgment shares its LaneOnce and
+/// one collector shares its record budget across all members.
 pub fn verified<P: Provider>(
     q: &Request<'_>,
     policy_base: Option<&str>,
@@ -74,8 +75,10 @@ pub fn verified_with_transport<P: Provider>(
     let log = log.filter(|log| !log.keys.as_os_str().is_empty());
     let members = Members::read(q.repo, q.tree, policy_base)
         .map_err(|e| Refusal::Verification(policy_failure(e)))?;
+    let mut collector = transport.collector();
     let outcome = collect(members.into_sorted(), |name, key, needs_tests| {
-        configured::retained_with_transport(
+        configured::retained(
+            &mut collector,
             &Request {
                 crate_key: Some(CrateBinding {
                     name: TextRef::Str(name),
@@ -87,9 +90,7 @@ pub fn verified_with_transport<P: Provider>(
             settings,
             judgment,
             prefer,
-            transport,
         )
-        .map_err(|e| e.failure)
     });
     match outcome {
         Ok(covered) => {
@@ -163,7 +164,10 @@ fn collect<T>(
         };
         match judge(&name, &key, needs_tests) {
             Ok(note) => entries.push((name, key, note)),
-            Err(error) if error.origin == ErrorOrigin::Failure => {
+            Err(error)
+                if error.origin == ErrorOrigin::Failure
+                    && error.reason != "record-budget-exceeded" =>
+            {
                 missing.insert(name.clone(), error.reason);
                 keys.insert(name, Some(key));
             }
