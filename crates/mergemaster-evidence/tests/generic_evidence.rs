@@ -324,6 +324,69 @@ fn materialized_modules_and_empty_scratch_are_lane_bound_end_to_end() {
     assert_eq!(fs::read(&f.counter).unwrap(), b"x");
 }
 
+#[cfg(unix)]
+#[test]
+fn measured_symlink_modules_sign_and_verify_without_materializations() {
+    use mergemaster_evidence::evidence::workspace::tree_digest_v2;
+    use std::os::unix::fs::symlink;
+
+    for absolute in [false, true] {
+        let mut f =
+            materialized_fixture("cat node_modules/pkg/index.js > .build/result; printf ok");
+        f.write(
+            ".gitignore",
+            "node_modules\ndependencies\n.build/\nignored/\n",
+        );
+        let external_modules = f.root.path().join("modules");
+        let external_dependencies = f.root.path().join("dependencies");
+        fs::create_dir_all(external_dependencies.join("pkg")).unwrap();
+        fs::write(
+            external_dependencies.join("pkg/index.js"),
+            "external package\n",
+        )
+        .unwrap();
+        symlink("../dependencies/pkg", external_modules.join("pkg")).unwrap();
+        fs::remove_dir_all(f.repo.join("node_modules")).unwrap();
+        let modules_target = if absolute {
+            fs::canonicalize(&external_modules).unwrap()
+        } else {
+            "../modules".into()
+        };
+        symlink(modules_target, f.repo.join("node_modules")).unwrap();
+        symlink(&external_dependencies, f.repo.join("dependencies")).unwrap();
+        let roots = vec![f.repo.join("node_modules"), f.repo.join("dependencies")];
+        let mut policy: Value =
+            serde_json::from_slice(&fs::read(f.repo.join(".mergemaster/lanes.json")).unwrap())
+                .unwrap();
+        for root in ["node_modules", "dependencies"] {
+            let digest = tree_digest_v2(&f.repo.join(root), &roots).unwrap();
+            policy["lanes"][CHECK]["inputs"][root] =
+                json!({"name":root,"identity":format!("tree-sha256-v2:{digest}")});
+        }
+        f.write(".mergemaster/lanes.json", policy.to_string());
+        f.base = f.commit();
+        f.head = f.base.clone();
+        let output = f.wrap(None, None);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            fs::read(f.repo.join(".build/result")).unwrap(),
+            b"external package\n"
+        );
+        // Both verifiers consume committed declarations and signed evidence only.
+        fs::remove_file(f.repo.join("node_modules")).unwrap();
+        fs::remove_file(f.repo.join("dependencies")).unwrap();
+        fs::remove_dir_all(external_modules).unwrap();
+        fs::remove_dir_all(external_dependencies).unwrap();
+        fs::remove_dir_all(f.repo.join(".build")).unwrap();
+        assert_eq!(f.gate()["decision"], "skip");
+        assert!(f.python().status.success());
+    }
+}
+
 #[test]
 fn undeclared_inputs_mutations_and_signer_time_tampering_refuse() {
     for case in [
