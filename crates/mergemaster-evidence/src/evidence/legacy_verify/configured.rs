@@ -24,7 +24,7 @@ pub enum Transport {
     Cli,
 }
 impl Transport {
-    fn collector(self) -> CandidateCollector {
+    pub(super) fn collector(self) -> CandidateCollector {
         match self {
             Self::Native => CandidateCollector::for_check(),
             Self::Cli => CandidateCollector::for_cli_check(),
@@ -148,21 +148,30 @@ pub fn verified<T, P: Provider>(
     prefer: Levels<'_>,
     emit: impl FnOnce(&super::result::Satisfied<'_>, &TrustedCandidate) -> T,
 ) -> Result<T, Failure> {
-    selected_record(q, settings, judgment, prefer, emit)
-        .map(|(value, _)| value)
-        .map_err(|e| e.failure)
+    selected_record(
+        &mut CandidateCollector::for_check(),
+        q,
+        settings,
+        judgment,
+        prefer,
+        emit,
+    )
+    .map(|(value, _)| value)
+    .map_err(|e| e.failure)
 }
 
 /// Retain the selected original document and typed metadata for aggregation.
 /// Ownership moves after the borrowed view is consumed; no JSON bridge or
-/// duplicate statement/principal allocation is needed.
+/// duplicate statement/principal allocation is needed. Reuse the check-owned
+/// collector across members so retained documents remain charged to one budget.
 pub fn retained<P: Provider>(
+    collector: &mut CandidateCollector,
     q: &Request<'_>,
     settings: Settings<'_>,
     judgment: &mut CheckJudgment<'_, P>,
     prefer: Levels<'_>,
 ) -> Result<super::result::Retained, Failure> {
-    selected_record(q, settings, judgment, prefer, |view, _| {
+    selected_record(collector, q, settings, judgment, prefer, |view, _| {
         super::result::Selection::capture(view)
     })
     .map(|(selection, record)| super::result::Retained::new(record, selection))
@@ -188,6 +197,7 @@ impl From<Failure> for Box<Refusal> {
     }
 }
 /// Preserve ordering metadata that the simpler verified/retained APIs discard.
+/// This standalone single-check entry point owns its collector budget.
 pub fn retained_detailed<P: Provider>(
     q: &Request<'_>,
     settings: Settings<'_>,
@@ -197,6 +207,8 @@ pub fn retained_detailed<P: Provider>(
     retained_with_transport(q, settings, judgment, prefer, Transport::Native)
 }
 
+/// Standalone selection owns a budget for the chosen transport; member
+/// aggregation instead passes its shared collector to `retained`.
 pub fn retained_with_transport<P: Provider>(
     q: &Request<'_>,
     settings: Settings<'_>,
@@ -204,9 +216,14 @@ pub fn retained_with_transport<P: Provider>(
     prefer: Levels<'_>,
     transport: Transport,
 ) -> Result<super::result::Retained, Box<Refusal>> {
-    selected_record_with_transport(q, settings, judgment, prefer, transport, |view, _| {
-        super::result::Selection::capture(view)
-    })
+    selected_record(
+        &mut transport.collector(),
+        q,
+        settings,
+        judgment,
+        prefer,
+        |view, _| super::result::Selection::capture(view),
+    )
     .map(|(selection, record)| super::result::Retained::new(record, selection))
 }
 /// Single-check verify(): prepare the advisory input key before verification.
@@ -289,28 +306,18 @@ fn log_failure(e: PolicyError) -> Failure {
 }
 
 fn selected_record<T, P: Provider>(
+    collector: &mut CandidateCollector,
     q: &Request<'_>,
     settings: Settings<'_>,
     judgment: &mut CheckJudgment<'_, P>,
     prefer: Levels<'_>,
-    emit: impl FnOnce(&super::result::Satisfied<'_>, &TrustedCandidate) -> T,
-) -> Result<(T, TrustedCandidate), Box<Refusal>> {
-    selected_record_with_transport(q, settings, judgment, prefer, Transport::Native, emit)
-}
-
-fn selected_record_with_transport<T, P: Provider>(
-    q: &Request<'_>,
-    settings: Settings<'_>,
-    judgment: &mut CheckJudgment<'_, P>,
-    prefer: Levels<'_>,
-    transport: Transport,
     emit: impl FnOnce(&super::result::Satisfied<'_>, &TrustedCandidate) -> T,
 ) -> Result<(T, TrustedCandidate), Box<Refusal>> {
     let inputs = match settings {
         Settings::Policy(rules) => rules.header.inputs.as_deref(),
         Settings::Unconfigured(_) => None,
     };
-    let mut gathered = candidates(&mut transport.collector(), &Request { inputs, ..*q })?;
+    let mut gathered = candidates(collector, &Request { inputs, ..*q })?;
     let check = q.check.codepoints();
     let records = document_candidates(&gathered.records, &check)?;
     let prepared = match settings {

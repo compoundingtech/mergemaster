@@ -38,6 +38,8 @@
           version = cargoVersion;
           src = pkgs.lib.cleanSource self;
           cargoLock.lockFile = ./Cargo.lock;
+          cargoBuildFlags = [ "--package" "mergemaster-evidence" ];
+          cargoTestFlags = [ "--package" "mergemaster-evidence" ];
           nativeCheckInputs = [ pkgs.git pkgs.openssh pkgs.openssl pkgs.coreutils pkgs.python3 ];
           preCheck = ''
             export HOME="$TMPDIR/home"
@@ -52,6 +54,32 @@
             platforms = systems;
           };
         };
+      reconcilerFor = system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+          runtimeTools = [ pkgs.git pkgs.gh pkgs.openssh pkgs.gnupg ];
+        in pkgs.rustPlatform.buildRustPackage {
+          pname = "mergemaster-reconciler";
+          version = (builtins.fromTOML (builtins.readFile ./crates/mergemaster-reconciler/Cargo.toml)).package.version;
+          src = pkgs.lib.cleanSource self;
+          cargoLock.lockFile = ./Cargo.lock;
+          cargoBuildFlags = [ "--package" "mergemaster-reconciler" ];
+          cargoTestFlags = [ "--package" "mergemaster-reconciler" ];
+          nativeBuildInputs = [ pkgs.makeWrapper ];
+          # Exercise the production subprocess boundary with the wrapper's tools.
+          nativeCheckInputs = [ pkgs.openssl ] ++ runtimeTools;
+          doCheck = false;
+          postInstall = ''
+            wrapProgram "$out/bin/mergemaster-reconciler" \
+              --prefix PATH : ${pkgs.lib.makeBinPath runtimeTools}
+          '';
+          meta = {
+            description = "BASE-authorized GitHub evidence check reconciliation";
+            license = pkgs.lib.licenses.mit;
+            mainProgram = "mergemaster-reconciler";
+            platforms = systems;
+          };
+        };
     in {
       packages = forAllSystems (system:
         let
@@ -59,6 +87,7 @@
           cc = pkgs.pkgsStatic.stdenv.cc;
         in {
           default = packageFor system;
+          evidence-reconciler = reconcilerFor system;
           # Native musl headers/libs plus compiler/binutils wrappers, never host glibc.
           release-musl-toolchain = pkgs.runCommand "mergemaster-musl-toolchain" {} ''
             mkdir -p "$out/bin"
@@ -93,6 +122,9 @@
             python3 -B "$src/tests/oracle_scripts.py"
             touch "$out"
           '';
+          evidence-reconciler = (reconcilerFor system).overrideAttrs (_: {
+            doCheck = true;
+          });
           fmt = pkgs.runCommand "mergemaster-fmt" {
             nativeBuildInputs = [ pkgs.cargo pkgs.rustfmt ];
             src = pkgs.lib.cleanSource self;
