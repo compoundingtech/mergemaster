@@ -539,6 +539,10 @@ namespaces without reparsing, and routes parser exits through the safe sink.
 It resolves formatter width from positive Python-integer COLUMNS, original stdout
 terminal columns, then 80. Its fixed program name is `evidence-verify`: an approved
 divergence only when Python's argv[0] basename differs. No binary entry is wired.
+`ParsedArguments::preflight` applies main's ordered validation directly to that
+namespace before any I/O. Kinds and level-list validation retain lossless strings;
+presence, truthiness, repeated stores/appends and unbounded integer positivity
+are not narrowed through serde or a second parser.
 Approved terminal/log output divergence (#245): `terminal_sink::value` applies
 unbounded Python-repr-style escaping to C0, DEL, C1, lone surrogates and every
 backslash, without repr quotes. `RenderedHelp::write_terminal` escapes only

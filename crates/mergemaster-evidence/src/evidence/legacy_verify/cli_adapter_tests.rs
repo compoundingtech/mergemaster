@@ -29,6 +29,15 @@ fn subprocess_driver() {
             std::process::exit(i32::from(exit.code));
         }
         Ok(parsed) => {
+            if std::env::var_os("MM_PREFLIGHT_ONLY").is_some() {
+                match parsed.preflight() {
+                    Ok(()) => std::process::exit(0),
+                    Err(message) => {
+                        writeln!(std::io::stderr(), "{message}").unwrap();
+                        std::process::exit(2);
+                    }
+                }
+            }
             let values: Vec<Vec<Vec<u32>>> = parsed
                 .values
                 .iter()
@@ -107,6 +116,65 @@ print(json.dumps(rows))
             std::fs::read(root.path().join("stderr")).unwrap(),
             stderr,
             "{columns} {argv:?}"
+        );
+    }
+}
+#[test]
+fn ordered_preflight_subprocess_matches_pinned_main() {
+    let script = r#"
+import ast,json,os,pathlib,subprocess,sys
+assert sys.version_info[:3]==(3,14,7)
+source="""import ast,os,pathlib,runpy,sys
+p=pathlib.Path(os.environ['MERGEMASTER_PYTHON_PARITY_ORACLE']);p=p/'scripts/evidence-verify' if p.is_dir() else p
+v=runpy.run_path(str(p));m=ast.parse(p.read_text());f=next(n for n in m.body if isinstance(n,ast.FunctionDef) and n.name=='main')
+f.body=f.body[:next(i for i,n in enumerate(f.body) if isinstance(n,ast.Assign) and ast.unparse(n.targets[0])=='keyfile')]+[ast.Return(value=ast.Constant(value=0))]
+exec(compile(ast.fix_missing_locations(ast.Module(body=[f],type_ignores=[])),str(p),'exec'),v)
+sys.argv[0]='evidence-verify';sys.exit(v['main'](sys.argv[1:]))
+"""
+base=['--tree','a'*40,'--check','x','--keys','keyfile']
+variants=[[],['--command','[]'],['--command','[1]'],['--kinds',chr(0xdcff)],['--kinds',',nix,,observed,'],['--trust-levels',chr(0xdcff)],['--trust-levels',','],['--prefer-levels',chr(0xdcff)],['--prefer-levels',chr(0xdcff),'--members'],['--policy-from',''],['--lane-base',''],['--max-age','0'],['--max-age','9'*4300],['--bind-input','=x'],['--bind-input','x='],['--bind-input','x=y=z'],['--require-all']]
+variants += [a+b for i,a in enumerate(variants[1:]) for b in variants[i+2:]]
+rows=[]
+for extra in variants:
+ argv=base+extra;env=dict(os.environ,NO_COLOR='1');env.pop('FORCE_COLOR',None)
+ done=subprocess.run([sys.executable,'-c',source,*argv],capture_output=True,env=env)
+ rows.append([[list(os.fsencode(s)) for s in argv],list(done.stdout),list(done.stderr),done.returncode])
+print(json.dumps(rows))
+"#;
+    let output = Command::new("python3")
+        .args(["-c", script])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    type OracleRow = (Vec<Vec<u8>>, Vec<u8>, Vec<u8>, i32);
+    let rows: Vec<OracleRow> = serde_json::from_slice(&output.stdout).unwrap();
+    for (argv, stdout, stderr, code) in rows {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("argv"), serde_json::to_vec(&argv).unwrap()).unwrap();
+        let done = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "evidence::legacy_verify::cli_adapter::tests::subprocess_driver",
+                "--nocapture",
+            ])
+            .env("MM_ADAPTER_DRIVER", root.path())
+            .env("MM_PREFLIGHT_ONLY", "1")
+            .output()
+            .unwrap();
+        assert_eq!(done.status.code(), Some(code), "{argv:?}");
+        assert_eq!(
+            std::fs::read(root.path().join("stdout")).unwrap(),
+            stdout,
+            "{argv:?}"
+        );
+        assert_eq!(
+            std::fs::read(root.path().join("stderr")).unwrap(),
+            stderr,
+            "{argv:?}"
         );
     }
 }
