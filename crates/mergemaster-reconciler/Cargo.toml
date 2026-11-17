@@ -1,0 +1,17 @@
+[package]
+name = "mergemaster-reconciler"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+clap = { version = "4", features = ["derive", "env"] }
+jsonwebtoken = { version = "11.1", features = ["aws_lc_rs"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+tempfile = "3"
+
+[lints.rust]
+unsafe_code = "forbid"
