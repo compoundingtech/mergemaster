@@ -2975,7 +2975,12 @@ raise SystemExit(subprocess.run([git] + args).returncode)
             let outputs = f.root.path().join("outputs");
             let result = f.gate(&["--github-output", outputs.to_str().unwrap()]);
             assert!(!result.status.success(), "{evidence}/{reference}");
-            assert!(String::from_utf8_lossy(&result.stderr).contains("refs changed"));
+            assert!(
+                String::from_utf8_lossy(&result.stderr).contains("refs changed"),
+                "{evidence}/{reference}: status={}\nstderr:\n{}",
+                result.status,
+                String::from_utf8_lossy(&result.stderr),
+            );
             assert!(result.stdout.is_empty());
             assert!(!outputs.exists() || fs::read(outputs).unwrap().is_empty());
         }
