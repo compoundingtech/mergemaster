@@ -41,6 +41,7 @@ pub mod members;
 pub mod members_log_view;
 pub mod ordering;
 pub mod paths_project;
+pub mod policy_loader;
 pub mod prefix;
 pub mod projection;
 pub mod projection_capture;
