@@ -7,9 +7,10 @@ use crate::{
     evidence::legacy_policy::PolicyError,
     gate::git::deadline::{CaptureSink, GitChild, Stream},
 };
-use std::process::{Command, ExitStatus};
+use std::process::{Command, ExitStatus, Output};
 struct Capture {
     stdout: Vec<u8>,
+    stderr: Option<Vec<u8>>,
     resource: SourceResource,
 }
 enum Error {
@@ -23,22 +24,29 @@ impl From<std::io::Error> for Error {
 }
 impl CaptureSink for Capture {
     type Error = Error;
-    type Output = Option<Vec<u8>>;
+    type Output = Output;
     fn push(&mut self, stream: Stream, bytes: &[u8]) -> Result<(), Error> {
-        // The oracle captures stderr but show() never consumes it.
-        if matches!(stream, Stream::Stdout) {
-            let retained = bytes
+        let retained = match stream {
+            Stream::Stdout => Some(&mut self.stdout),
+            Stream::Stderr => self.stderr.as_mut(),
+        };
+        if let Some(retained) = retained {
+            let length = bytes
                 .len()
-                .min((SOURCE_BYTES + 1).saturating_sub(self.stdout.len()));
-            self.stdout.extend_from_slice(&bytes[..retained]);
-            if self.stdout.len() > SOURCE_BYTES {
+                .min((SOURCE_BYTES + 1).saturating_sub(retained.len()));
+            retained.extend_from_slice(&bytes[..length]);
+            if retained.len() > SOURCE_BYTES {
                 return Err(Error::Resource(self.resource.clone()));
             }
         }
         Ok(())
     }
     fn finish(self, status: ExitStatus) -> Self::Output {
-        status.success().then_some(self.stdout)
+        Output {
+            status,
+            stdout: self.stdout,
+            stderr: self.stderr.unwrap_or_default(),
+        }
     }
     fn context(self, error: Error) -> Error {
         error
@@ -48,11 +56,19 @@ pub(super) fn read(
     command: &mut Command,
     resource: SourceResource,
 ) -> Result<Option<Vec<u8>>, PolicyError> {
+    metadata(command, resource, false).map(|out| out.status.success().then_some(out.stdout))
+}
+pub(super) fn metadata(
+    command: &mut Command,
+    resource: SourceResource,
+    stderr: bool,
+) -> Result<Output, PolicyError> {
     GitChild::capture_without_timeout(
         command,
         None,
         Capture {
             stdout: Vec::new(),
+            stderr: stderr.then(Vec::new),
             resource,
         },
     )

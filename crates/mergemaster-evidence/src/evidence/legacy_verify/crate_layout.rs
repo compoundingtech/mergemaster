@@ -36,13 +36,16 @@ impl TreeSource<'_> {
                 Repr(TextRef::Str(member))
             )));
         }
-        let listing = self.git(&[
-            "ls-tree",
-            "-d",
-            "--name-only",
-            self.tree,
-            &member[..member.len() - 1],
-        ])?;
+        let listing = self.git(
+            &[
+                "ls-tree",
+                "-d",
+                "--name-only",
+                self.tree,
+                &member[..member.len() - 1],
+            ],
+            false,
+        )?;
         let text = utf8(&listing.stdout).map_err(|e| ops::exception("UnicodeDecodeError", e))?;
         let mut names: Vec<_> = text
             .split([

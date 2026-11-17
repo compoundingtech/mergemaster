@@ -997,6 +997,12 @@ The exchange's 60-second deadline matches that same line; update-index stdout is
 The shared nonblocking collector also has an explicit no-timeout entry for
 rust-test-keys source reads. Source overflow cancels/reaps the direct child
 without waiting for EOF from descendants holding inherited pipe descriptors.
+`TreeSource::git` bounds workspace/configuration metadata stdout to 1 MiB,
+and configuration stderr to 1 MiB; overflow kills and reaps the child and
+returns Failure/error `{exact revision argument} exceeds 1048576 bytes`.
+This approved RawBlob resource divergence also applies to nonzero configuration
+stderr, never emitting a truncated diagnostic. Wildcard member stderr is ignored.
+These rust-test-keys reads retain inherited Git settings and no timeout.
 `log_transport::read` separately ports shadow-log `no_lazy`: inherited environment,
 fixed SSH Git settings, no lazy fetch/replacements, LC_ALL=C and a 60-second deadline.
 Nonzero Git status is data; stdout is uncapped and stderr is drained/discarded.
