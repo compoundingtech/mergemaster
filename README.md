@@ -1156,6 +1156,10 @@ and cached dependency cycles. V2 observation is explicitly refused on non-Unix
 platforms, where this directory-identity binding is unavailable.
 Standalone `tree_digest_v2` callers must independently measure every supplied
 authority root; merely supplying a root does not measure its contents.
+The original requested root lookup is also bound, including ancestor aliases and
+their link chains, rather than only its canonical endpoint. Leaf files bind
+content and the executable bit by path; transient changes restored between
+checks (ABA) are not detected.
 
 There is no blanket Nix-store exemption. Only the independently remeasured
 closures of the current system's BASE environment runtime and dependencies

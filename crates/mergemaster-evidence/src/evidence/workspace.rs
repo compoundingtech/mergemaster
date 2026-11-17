@@ -116,6 +116,7 @@ struct Reachability {
     expansions: [std::collections::BTreeMap<std::path::PathBuf, usize>; 2],
     entries: BTreeMap<PathBuf, ObservedEntry>,
     lookup_directories: BTreeMap<PathBuf, DirectoryIdentity>,
+    root_lookups: BTreeMap<PathBuf, PathBuf>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -188,6 +189,25 @@ fn run_entry_observation_hook(path: &Path) {
 
 impl Reachability {
     fn bind_root(&mut self, path: &Path) -> Result<()> {
+        // Bind the caller's lexical lookup too: canonicalizing its parent would
+        // otherwise erase ancestor aliases before reachability validation.
+        let requested = std::path::absolute(path)?;
+        let resolved = resolve_links(
+            &requested,
+            &[],
+            &mut None,
+            &[],
+            self,
+            LookupPurpose::RootBinding,
+        )?;
+        if let Some(previous) = self.root_lookups.get(&requested) {
+            ensure!(
+                previous == &resolved,
+                "workspace root lookup changed during observation"
+            );
+        } else {
+            self.root_lookups.insert(requested, resolved);
+        }
         let location = root_location(path)?;
         if fs::symlink_metadata(&location)?.file_type().is_symlink() {
             self.bound_roots.insert(location);
@@ -236,6 +256,13 @@ impl Reachability {
                 &observe_entry(path)? == entry,
                 "workspace entry changed during observation: {}",
                 path.display()
+            );
+        }
+        for (requested, resolved) in &self.root_lookups {
+            ensure!(
+                fs::canonicalize(requested)? == *resolved,
+                "workspace root lookup changed during observation: {}",
+                requested.display()
             );
         }
         Ok(())
@@ -305,6 +332,13 @@ fn authorized(
         })
 }
 
+#[derive(Clone, Copy)]
+enum LookupPurpose {
+    // Capture the caller's original lookup without granting link authority.
+    RootBinding,
+    Reachability,
+}
+
 // Resolve target components explicitly: canonicalize alone hides unmeasured bridge links.
 fn resolve_links(
     path: &Path,
@@ -312,10 +346,15 @@ fn resolve_links(
     tracked: &mut Option<(&Path, &BTreeSet<String>)>,
     closure_roots: &[std::path::PathBuf],
     state: &mut Reachability,
+    purpose: LookupPurpose,
 ) -> Result<std::path::PathBuf> {
     use std::path::{Component, PathBuf};
-    // Initial ancestors are checked by contained(); only target paths need hop-by-hop resolution.
-    let mut pending = root_location(path)?;
+    let mut pending = match purpose {
+        LookupPurpose::RootBinding => std::path::absolute(path)?,
+        // Workspace ancestors are constrained by contained(); binding separately
+        // preserves the full requested lookup, including standalone root aliases.
+        LookupPurpose::Reachability => root_location(path)?,
+    };
     let mut hops = 0;
     loop {
         let mut resolved = PathBuf::new();
@@ -346,7 +385,8 @@ fn resolve_links(
                 continue;
             }
             ensure!(
-                state.bound_roots.contains(&resolved)
+                matches!(purpose, LookupPurpose::RootBinding)
+                    || state.bound_roots.contains(&resolved)
                     || authorized(&resolved, measured_roots, *tracked, false),
                 "workspace symlink escapes through unmeasured intermediate link: {}",
                 resolved.display()
@@ -382,7 +422,14 @@ fn reachable(
     state: &mut Reachability,
 ) -> Result<PathBuf> {
     let mut tracked = tracked;
-    let resolved = resolve_links(path, measured_roots, &mut tracked, closure_roots, state)?;
+    let resolved = resolve_links(
+        path,
+        measured_roots,
+        &mut tracked,
+        closure_roots,
+        state,
+        LookupPurpose::Reachability,
+    )?;
     let meta = fs::symlink_metadata(&resolved)?;
     let authorized = authorized(&resolved, measured_roots, tracked, meta.is_dir());
     ensure!(
@@ -1373,6 +1420,43 @@ mod tests {
             error.to_string().contains("lookup directory changed"),
             "{error}"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn standalone_root_ancestor_alias_retarget_is_refused() {
+        use std::os::unix::fs::symlink;
+        let fixture = tempfile::tempdir().unwrap();
+        let base = fs::canonicalize(fixture.path()).unwrap();
+        let real = base.join("real");
+        let outside = base.join("outside");
+        let alias = base.join("alias");
+        fs::create_dir_all(real.join("tree")).unwrap();
+        fs::create_dir_all(outside.join("tree")).unwrap();
+        fs::write(real.join("tree/leaf"), "authorized").unwrap();
+        fs::write(outside.join("tree/leaf"), "unmeasured").unwrap();
+        symlink(&real, &alias).unwrap();
+        let requested = alias.join("tree");
+        let roots = [real.clone()];
+        tree_digest_v2(&requested, &roots).unwrap();
+        BEFORE_ENTRY_OBSERVATION.with(|slot| {
+            *slot.borrow_mut() = Some((
+                real.join("tree/leaf"),
+                Box::new(move || {
+                    fs::remove_file(&alias).unwrap();
+                    symlink(outside, alias).unwrap();
+                }),
+            ));
+        });
+        // The resolved graph remains intact; only the original requested lookup
+        // changes. Canonical authority-root and physical-directory checks alone
+        // cannot detect this retarget.
+        let error = tree_digest_v2(&requested, &roots).unwrap_err();
+        assert!(
+            error.to_string().contains("changed during observation"),
+            "{error}"
+        );
+        BEFORE_ENTRY_OBSERVATION.with(|slot| assert!(slot.borrow().is_none()));
     }
 
     #[cfg(not(unix))]
