@@ -14,6 +14,7 @@ use std::{collections::BTreeSet, path::Path};
 
 fn error(detail: impl ToString) -> PolicyError {
     PolicyError {
+        resource: None,
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason: "error",
         detail: detail.to_string().into(),
@@ -225,6 +226,7 @@ pub fn lane_for<'a>(
         };
         if here.is_none() || here != super::lane_entry::canonical(text, check)? {
             return Err(PolicyError {
+                resource: None,
                 origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                 reason: "definition_changed",
                 detail: NormalizedText::around(

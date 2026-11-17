@@ -112,6 +112,7 @@ print(json.dumps(cases))
             self.calls.push(key.clone());
             if self.case["error"] == true {
                 return Err(PolicyError {
+                    resource: None,
                     origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                     reason: "record-budget-exceeded",
                     detail: "fixture transport refused".into(),
@@ -119,6 +120,7 @@ print(json.dumps(cases))
             }
             if self.case["exception"] == true {
                 return Err(PolicyError {
+                    resource: None,
                     origin: crate::evidence::legacy_policy::ErrorOrigin::Exception {
                         class: "OverflowError",
                     },
@@ -262,6 +264,7 @@ print(json.dumps(cases))
     impl Provider for FailingLane {
         fn level_lane(&mut self) -> Result<Option<&LaneDefinition>, PolicyError> {
             Err(PolicyError {
+                resource: None,
                 origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
                 reason: "error",
                 detail: "lane provider refused".into(),

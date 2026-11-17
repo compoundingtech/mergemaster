@@ -19,6 +19,7 @@ use std::{
 };
 fn error(detail: impl ToString) -> PolicyError {
     PolicyError {
+        resource: None,
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason: "error",
         detail: detail.to_string().into(),
@@ -26,6 +27,7 @@ fn error(detail: impl ToString) -> PolicyError {
 }
 fn embedded_null() -> PolicyError {
     PolicyError {
+        resource: None,
         origin: crate::evidence::legacy_policy::ErrorOrigin::Exception {
             class: "ValueError",
         },

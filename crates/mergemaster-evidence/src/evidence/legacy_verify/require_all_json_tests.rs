@@ -106,6 +106,7 @@ print(json.dumps(dict(cases=cases,errors=errors)))
     assert_eq!(fixtures["errors"].as_array().unwrap().len(), 3);
     for fixture in fixtures["errors"].as_array().unwrap() {
         let error = PolicyError {
+            resource: None,
             origin: if fixture["exception"] == true {
                 crate::evidence::legacy_policy::ErrorOrigin::Exception {
                     class: "OverflowError",

@@ -820,13 +820,16 @@ empty arrays/objects. Byte-statement and record APIs return `statement-too-deep`
 above that depth. This is a deterministic, fail-closed guard before the owned
 cache port: Python's end-to-end deepcopy fails at interpreter-dependent depths.
 Depth does not bound arena node count; the 1 MiB statement-byte cap bounds nodes.
-The uncapped `Document::from_text` API returns only syntax or integer-limit errors;
-policy ingress uses it, so impossible decoding/depth errors have no diagnostic arm.
-Approved resource-dependent policy JSON divergence: Rust accepts unbounded nesting
-through this iterative parser where CPython `json.loads` raises `RecursionError`
-at a depth dependent on interpreter stack and caller depth; Rust does not emulate
-a fixed recursion boundary. This applies to policy JSON as well as the input JSON
-noted below, not to the bounded statement ingress.
+The uncapped general-purpose `Document::from_text` API remains separate from policy
+ingress. Approved fail-closed policy-JSON resource divergence: `from_policy_text`,
+used inside `PolicyDocument::parse` and name enumeration, checks 1,048,576 source
+bytes before Tokens allocation, combined object/array depth 256 (including root
+and empty containers), and 262,144 nodes before value allocation (including
+overwritten duplicates). These bounds are stricter than CPython's resource-dependent
+`RecursionError`, replacing the prior unbounded-policy-JSON label. Typed resource
+causes survive in `PolicyError.resource`, with ordinary Failure/error and no prefix.
+Text-taking `check_names::selected` and `require_all::require_all` cannot bypass them.
+The separate input-JSON divergence below and bounded statement ingress are unchanged.
 Lane-file `check_names` fields retain their serde-value domain; this caveat is
 limited to the lane domain and does not narrow lossless policy JSON check names.
 Library-only invariant refusals have no Python counterpart: manually constructed

@@ -9,6 +9,7 @@ use crate::evidence::{
 pub const MAX_CONTAINERS: usize = 127;
 fn refusal(reason: &'static str) -> PolicyError {
     PolicyError {
+        resource: None,
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason,
         detail: format!("legacy lane canonicalization refused: {reason}").into(),

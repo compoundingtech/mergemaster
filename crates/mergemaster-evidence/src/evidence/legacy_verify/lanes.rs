@@ -20,12 +20,14 @@ impl LaneRules {
     pub fn parse<'a>(text: &str, lane: impl Into<CheckName<'a>>) -> Result<Self, PolicyError> {
         let lane = lane.into();
         let error = |suffix: &str| PolicyError {
+            resource: None,
             origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
             reason: "error",
             detail: NormalizedText::around("lane ", lane.text(), suffix),
         };
         let shape = || error(" needs argv and definition_paths, and nothing unknown");
         let entry = lane.lane_entry(text)?.ok_or_else(|| PolicyError {
+            resource: None,
             origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
             reason: "no_lane",
             detail: NormalizedText::around("the lane file has no entry for ", lane.text(), ""),

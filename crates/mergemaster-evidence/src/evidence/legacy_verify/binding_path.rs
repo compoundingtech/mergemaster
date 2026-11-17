@@ -56,6 +56,7 @@ pub(super) fn encode(
                 )
             };
             return Err(PolicyError {
+                resource: None,
                 origin: ErrorOrigin::Exception {
                     class: "UnicodeEncodeError",
                 },

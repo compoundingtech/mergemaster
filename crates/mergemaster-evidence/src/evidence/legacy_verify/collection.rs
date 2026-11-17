@@ -85,6 +85,7 @@ pub fn signed_for_crate(doc: &Document, binding: CrateBinding<'_>) -> Result<boo
 }
 fn test_count_error(detail: String) -> PolicyError {
     PolicyError {
+        resource: None,
         origin: crate::evidence::legacy_policy::ErrorOrigin::Exception {
             class: "ValueError",
         },

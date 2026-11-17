@@ -62,6 +62,7 @@ print(json.dumps(cases))
             origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         };
         let policy = PolicyError {
+            resource: None,
             origin: failure.origin,
             reason: failure.reason,
             detail: failure.detail,

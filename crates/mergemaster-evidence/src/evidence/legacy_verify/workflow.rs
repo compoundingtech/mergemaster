@@ -85,6 +85,7 @@ pub fn workflow_job<'a>(
 ) -> Result<Option<Vec<u8>>, PolicyError> {
     let job = job.into();
     let error = |detail: String| PolicyError {
+        resource: None,
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
         reason: "error",
         detail: detail.into(),

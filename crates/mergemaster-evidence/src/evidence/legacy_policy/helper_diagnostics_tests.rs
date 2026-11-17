@@ -122,9 +122,8 @@ print(json.dumps(cases))
 }
 
 #[test]
-fn full_policy_consumers_are_stack_safe_at_five_million_depth() {
-    // Explicit divergence: Python's resource-dependent RecursionError around
-    // depth 51.9k is not reproduced. Policy ingress keeps Rust's prior acceptance.
+fn policy_text_helpers_enforce_resource_bounds() {
+    // Approved fail-closed policy-JSON bounds supersede unbounded policy ingress.
     for depth in [128, 129, 256, 257, 5_000_000] {
         let ignored = format!("{}0{}", "[".repeat(depth - 2), "]".repeat(depth - 2));
         let text = serde_json::json!({"version":1,"checks":{"ignored":"DEPTH",
@@ -134,6 +133,19 @@ fn full_policy_consumers_are_stack_safe_at_five_million_depth() {
         }}}}})
         .to_string()
         .replacen("\"DEPTH\"", &ignored, 1);
+        if depth > 256 {
+            let resource = if text.len() > 1_048_576 {
+                PolicyResource::SourceBytes
+            } else {
+                PolicyResource::ContainerDepth
+            };
+            let error = check_names::selected(&text, &[99, 104, 101, 99, 107]).unwrap_err();
+            assert_eq!(error.resource, Some(resource));
+            assert_eq!(error.origin, ErrorOrigin::Failure);
+            assert_eq!(error.reason, "error");
+            assert_eq!(error.detail.to_string(), resource.message());
+            continue;
+        }
         let names = check_names::sorted(&text).unwrap();
         assert_eq!(
             names,
@@ -154,7 +166,7 @@ fn full_policy_consumers_are_stack_safe_at_five_million_depth() {
 }
 
 #[test]
-fn selected_payload_at_five_million_depth_is_stack_safe() {
+fn selected_payload_preserves_explicit_unbounded_document_api() {
     let template = serde_json::json!({"version":1,"checks":{"check":{
         "trust_levels":["agent"],"kinds":{"wrapper":{"command":"DEPTH"}}
     }}})
@@ -181,16 +193,12 @@ fn selected_payload_at_five_million_depth_is_stack_safe() {
     .unwrap_err();
     assert_eq!(error, expected);
     drop(document);
-    let header = PolicyDocument::parse(&text, "check")
-        .unwrap()
-        .into_header()
-        .unwrap();
-    assert_eq!(header.trust_levels, ["agent"]);
-    let error = PolicyDocument::parse(&text, "check")
-        .unwrap()
-        .into_rules("org/repo")
-        .unwrap_err();
-    assert_eq!(error, expected);
+    let error = PolicyDocument::parse(&text, "check").unwrap_err();
+    assert_eq!(error.resource, Some(PolicyResource::SourceBytes));
+    assert_eq!(
+        error.detail.to_string(),
+        PolicyResource::SourceBytes.message()
+    );
 }
 
 #[test]
