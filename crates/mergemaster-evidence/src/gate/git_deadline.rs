@@ -316,7 +316,7 @@ fn capture_read<S: CaptureSink>(
     reader: &mut impl Read,
     sink: &mut S,
     stream: Stream,
-    #[cfg(test)] deadline: &mut Instant,
+    #[cfg(test)] deadline: &mut Option<Instant>,
 ) -> Result<bool, S::Error> {
     let mut buffer = [0; 64 * 1024];
     match reader.read(&mut buffer) {
@@ -327,7 +327,7 @@ fn capture_read<S: CaptureSink>(
             if stream == Stream::Stderr
                 && tests::EXPIRE_AFTER_STDERR.with(|flag| flag.replace(false))
             {
-                *deadline = Instant::now();
+                *deadline = Some(Instant::now());
             }
             Ok(false)
         }
