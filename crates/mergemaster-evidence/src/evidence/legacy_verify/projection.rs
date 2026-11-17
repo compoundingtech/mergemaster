@@ -116,6 +116,13 @@ pub(super) fn read_git(
 ) -> Result<Vec<u8>, PolicyError> {
     input_git(repo, args, &[], None, ExpectedOutput::Bytes(limit))
 }
+pub(super) fn read_git_source(
+    repo: &Path,
+    args: &[impl AsRef<OsStr>],
+    resource: super::source_resource::SourceResource,
+) -> Result<Vec<u8>, PolicyError> {
+    input_git(repo, args, &[], None, ExpectedOutput::Source(resource))
+}
 pub fn project(
     repo: &Path,
     tree: &str,

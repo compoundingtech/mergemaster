@@ -1,7 +1,12 @@
 //! Oracle config lookup for CLI reads, without native OID validation.
 use super::{
-    binding_path::encode, crate_inputs_text::utf8, crate_manifest_ops::exception,
-    projection::read_git, value_inputs::TextRef,
+    binding_path::encode,
+    crate_inputs_text::utf8,
+    crate_manifest_ops::exception,
+    projection::{read_git, read_git_source},
+    source_resource::SourceResource,
+    statement_document::PolicyResource,
+    value_inputs::TextRef,
 };
 use crate::evidence::legacy_policy::{ErrorOrigin, PolicyError, normalized_text::NormalizedText};
 use std::{
@@ -50,23 +55,43 @@ pub fn path(
     })
 }
 pub fn blob(repo: &Path, revision: TextRef<'_>, legacy: &str) -> Result<Vec<u8>, PolicyError> {
+    document_blob(repo, revision, legacy, None)
+}
+pub(super) fn document_blob(
+    repo: &Path,
+    revision: TextRef<'_>,
+    legacy: &str,
+    resource: Option<SourceResource>,
+) -> Result<Vec<u8>, PolicyError> {
     let path = path(repo, revision, legacy)?;
     let mut object = OsString::from_vec(encode(revision, 0, true)?.into_owned());
     object.push(":");
     object.push(path.as_deref().unwrap_or(legacy));
-    read_git(
+    let resource = resource.unwrap_or_else(|| {
+        SourceResource::RawBlob(super::projection_process_error::decode(&object))
+    });
+    read_git_source(
         repo,
         &[OsStr::new("show"), OsStr::new("--end-of-options"), &object],
-        usize::MAX,
+        resource,
     )
 }
 pub fn lanes(repo: &Path, revision: TextRef<'_>) -> Result<String, PolicyError> {
-    let result = blob(repo, revision, ".st/required-lanes.json").and_then(|bytes| {
+    let result = document_blob(
+        repo,
+        revision,
+        ".st/required-lanes.json",
+        Some(SourceResource::LaneJson(PolicyResource::SourceBytes)),
+    )
+    .and_then(|bytes| {
         utf8(&bytes)
             .map(str::to_owned)
             .map_err(|m| exception("UnicodeDecodeError", m))
     });
     result.map_err(|e| {
+        if e.resource.is_some() {
+            return e;
+        }
         if e.origin == ErrorOrigin::Failure
             || e.origin
                 == (ErrorOrigin::Exception {
@@ -89,6 +114,9 @@ pub fn lanes(repo: &Path, revision: TextRef<'_>) -> Result<String, PolicyError> 
     })
 }
 
+#[cfg(test)]
+#[path = "config_capture_tests.rs"]
+mod capture_tests;
 #[cfg(test)]
 #[path = "cli_config_tests.rs"]
 mod tests;

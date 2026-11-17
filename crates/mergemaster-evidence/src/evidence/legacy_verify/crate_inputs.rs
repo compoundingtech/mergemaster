@@ -37,16 +37,18 @@ impl TreeSource<'_> {
     }
     pub fn resolve(&self) -> Result<String, PolicyError> {
         let expression = format!("{}^{{tree}}", self.tree);
-        let out = self.git(&["rev-parse", "--verify", "--end-of-options", &expression])?;
-        if !out.status.success() {
-            return Err(failure(format!("{} is not a tree", self.tree)));
-        }
-        Ok(String::from_utf8_lossy(&out.stdout).trim().into())
+        let mut command = self.command(&["rev-parse", "--verify", "--end-of-options", &expression]);
+        let bytes = super::manifest_capture::read(
+            &mut command,
+            SourceResource::RawBlob(expression.into()),
+        )?
+        .ok_or_else(|| failure(format!("{} is not a tree", self.tree)))?;
+        Ok(String::from_utf8_lossy(&bytes).trim().into())
     }
     pub fn show(&self, path: &str) -> Result<Option<Vec<u8>>, PolicyError> {
         let arg = format!("{}:{path}", self.tree);
-        let out = self.git(&["cat-file", "blob", &arg])?;
-        Ok(out.status.success().then_some(out.stdout))
+        let mut command = self.command(&["cat-file", "blob", &arg]);
+        super::manifest_capture::read(&mut command, SourceResource::RawBlob(arg.into()))
     }
     pub fn config_path(&self, legacy: &str) -> Result<Option<String>, PolicyError> {
         let preferred = legacy.replacen(".st/", ".fractal/", 1);
@@ -122,3 +124,6 @@ mod capture_tests;
 #[cfg(test)]
 #[path = "crate_inputs_tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "tree_read_capture_tests.rs"]
+mod tree_capture_tests;
