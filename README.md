@@ -823,6 +823,9 @@ and borrow the same input/runner guards. Placeholder replacement preserves code 
 strictly decodes UTF-8, then invokes `PolicyDocument`. This is the first production
 caller; the C1 loader precedes any CLI/dispatch wiring. Inherited `.fractal` preference
 and exact Git argv are retained for unresolved revisions as well as full OIDs.
+`cli_config` shares that inherited config-path/blob transport with policy ingress.
+CLI lane-file reads preserve strict UTF-8, exact no-readable-lane refusals and
+unresolved revisions; native lane discovery and its OID guards remain unchanged.
 Invalid bytes/config-read Failures map to `no_policy`; a UTF-8 BOM decodes and is
 refused by JSON instead. Real-Git SHA1/SHA256 oracle cases bind invalid bytes, BOM,
 NaN, negative zero, overflowing floats and Infinity acceptance/refusal text.
@@ -854,8 +857,8 @@ overwritten duplicates). These bounds are stricter than CPython's resource-depen
 causes survive in `PolicyError.resource`, with ordinary Failure/error and no prefix.
 Text-taking `check_names::selected` and `require_all::require_all` cannot bypass them.
 The separate input-JSON divergence below and bounded statement ingress are unchanged.
-Lane-file `check_names` fields retain their serde-value domain; this caveat is
-limited to the lane domain and does not narrow lossless policy JSON check names.
+Native-library lane-file `check_names` fields retain their serde-value domain.
+This caveat does not authorize narrowing the CLI's lossless lane-file surface.
 Library-only invariant refusals have no Python counterpart: manually constructed
 malformed validated-record primitives return `error` / Failure with
 `invalid validated statement` (no attempts). These states are unreachable through
