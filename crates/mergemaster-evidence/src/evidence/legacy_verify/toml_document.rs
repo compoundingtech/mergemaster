@@ -12,6 +12,7 @@ pub fn parse(text: &str) -> Result<Table, Error> {
         return Err(super::Resource::SourceBytes.error());
     }
     let source = Source::new(text);
+    source.charge_node()?; // Root table, before its allocation.
     let mut out = NestedDict::default();
     let mut flags = Flags::default();
     let mut header = Vec::new();
@@ -67,14 +68,14 @@ impl Source {
             }
             flags.unset_all(&key);
             flags.set(&key, Flag::ExplicitNest, false);
-            out.append_nest(&key)
+            out.append_nest_charged(&key, &mut || self.charge_node())?
                 .ok_or_else(|| self.error("Cannot overwrite a value", pos))?;
         } else {
             if flags.is(&key, Flag::ExplicitNest) || flags.is(&key, Flag::Frozen) {
                 return Err(self.error(format!("Cannot declare {} twice", KeyRepr(&key)), pos));
             }
             flags.set(&key, Flag::ExplicitNest, false);
-            out.nest(&key, true)
+            out.nest_charged(&key, true, &mut || self.charge_node())?
                 .ok_or_else(|| self.error("Cannot overwrite a value", pos))?;
         }
         let close = if array { "]]" } else { "]" };
@@ -119,7 +120,7 @@ impl Source {
             ));
         }
         let nest = out
-            .nest(parent, true)
+            .nest_charged(parent, true, &mut || self.charge_node())?
             .ok_or_else(|| self.error("Cannot overwrite a value", pos))?;
         if absolute.last().is_some_and(|stem| nest.contains_key(stem)) {
             return Err(self.error("Cannot overwrite a value", pos));

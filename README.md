@@ -834,8 +834,10 @@ malformed validated-record primitives return `error` / Failure with
 `invalid validated statement` (no attempts). These states are unreachable through
 statement ingress.
 Approved fail-closed TOML resource divergence (#257): Rust checks the 1,048,576
-source-byte cap before allocating/parsing, and rejects combined array/inline-table
-depth above 256 using an iterative parser. These bounds are stricter than CPython
+source-byte cap before allocating/parsing, rejects combined array/inline-table
+depth above 256, and charges at most 262,144 nodes before allocation (including
+the root, implicit namespace tables, containers and scalars). These bounds are
+stricter than CPython
 3.14.7 (first `RecursionError` at 498 arrays / 332 inline tables). Resource errors
 are typed Rust errors, mapped at manifest ingress to ordinary Failure/error with
 the existing `<manifest path>: ` prefix. They do not imitate Python exceptions.
