@@ -11,12 +11,13 @@ use std::{
     time::Duration,
 };
 const STDERR_LIMIT: usize = 1024 * 1024;
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub enum ExpectedOutput {
     Sha1,
     Sha256,
     Discard,
     Bytes(usize),
+    Source(super::source_resource::SourceResource),
 }
 use super::projection_oid::{ObjectId, space};
 struct ProjectionCapture<'a> {
@@ -28,10 +29,13 @@ struct ProjectionCapture<'a> {
     stderr: VecDeque<u8>,
     overflow: bool,
 }
-struct ProcessError(io::Error, bool);
+enum ProcessError {
+    Io(io::Error, bool),
+    Resource(super::source_resource::SourceResource),
+}
 impl From<io::Error> for ProcessError {
     fn from(error: io::Error) -> Self {
-        Self(error, false)
+        Self::Io(error, false)
     }
 }
 impl CaptureSink for ProjectionCapture<'_> {
@@ -39,11 +43,19 @@ impl CaptureSink for ProjectionCapture<'_> {
     type Output = Result<Vec<u8>, PolicyError>;
     fn push(&mut self, stream: Stream, bytes: &[u8]) -> Result<(), ProcessError> {
         match stream {
-            Stream::Stdout => match self.expected {
+            Stream::Stdout => match &self.expected {
                 ExpectedOutput::Bytes(limit) => {
                     let retained = bytes.len().min(limit.saturating_sub(self.bytes.len()));
                     self.stdout_overflow |= retained != bytes.len();
                     self.bytes.extend_from_slice(&bytes[..retained]);
+                }
+                ExpectedOutput::Source(resource) => {
+                    let bound = super::source_resource::SOURCE_BYTES + 1;
+                    let retained = bytes.len().min(bound.saturating_sub(self.bytes.len()));
+                    self.bytes.extend_from_slice(&bytes[..retained]);
+                    if self.bytes.len() > super::source_resource::SOURCE_BYTES {
+                        return Err(ProcessError::Resource(resource.clone()));
+                    }
                 }
                 ExpectedOutput::Discard => {}
                 ExpectedOutput::Sha1 | ExpectedOutput::Sha256 => self.stdout.push(bytes),
@@ -81,6 +93,7 @@ impl CaptureSink for ProjectionCapture<'_> {
             ExpectedOutput::Sha1 => 40,
             ExpectedOutput::Sha256 => 64,
             ExpectedOutput::Discard => return Ok(Vec::new()),
+            ExpectedOutput::Source(_) => return Ok(self.bytes),
             ExpectedOutput::Bytes(limit) => {
                 return if self.stdout_overflow {
                     Err(failure(format!("Git output exceeds {limit} bytes")))
@@ -98,7 +111,9 @@ impl CaptureSink for ProjectionCapture<'_> {
     }
 
     fn context(self, mut error: ProcessError) -> ProcessError {
-        error.1 = true;
+        if let ProcessError::Io(_, spawned) = &mut error {
+            *spawned = true;
+        }
         error
     }
 }
@@ -118,12 +133,15 @@ pub fn exchange(
         stderr: VecDeque::new(),
         overflow: false,
     };
-    GitChild::capture_with_sink(command, Some(bytes), timeout, sink).map_err(|error| {
-        failure(format!(
-            "git {operation}: {}",
-            super::projection_process_error::diagnostic(command, &error.0, error.1, timeout)
-        ))
-    })?
+    GitChild::capture_with_sink(command, Some(bytes), timeout, sink).map_err(
+        |error| match error {
+            ProcessError::Resource(resource) => resource.into_error(),
+            ProcessError::Io(error, spawned) => failure(format!(
+                "git {operation}: {}",
+                super::projection_process_error::diagnostic(command, &error, spawned, timeout)
+            )),
+        },
+    )?
 }
 #[cfg(test)]
 #[path = "projection_capture_tests.rs"]

@@ -329,7 +329,12 @@ print(json.dumps(rows))
             );
             let error =
                 crate::evidence::legacy_policy::check_names::selected(raw, &[120]).unwrap_err();
-            assert_eq!(error.resource, Some(resource));
+            assert_eq!(
+                error.resource,
+                Some(crate::evidence::legacy_policy::SourceResource::PolicyJson(
+                    resource
+                ))
+            );
             assert_eq!(
                 error.origin,
                 crate::evidence::legacy_policy::ErrorOrigin::Failure

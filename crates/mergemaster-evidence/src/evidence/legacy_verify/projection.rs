@@ -220,7 +220,7 @@ pub(super) fn project_with_fetch(
                 &["hash-object", "--stdin"],
                 &bytes,
                 None,
-                expected,
+                expected.clone(),
                 no_lazy_fetch,
             )?)
             .map_err(error)?;
