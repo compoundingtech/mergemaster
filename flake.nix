@@ -24,6 +24,7 @@
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
+      cargoVersion = (builtins.fromTOML (builtins.readFile ./crates/mergemaster-evidence/Cargo.toml)).package.version;
       scriptInputs = pkgs: with pkgs; [
         effect-utils.packages.${pkgs.stdenv.hostPlatform.system}.genie
         (python3.withPackages (packages: [ packages.pyyaml ])) git openssh openssl bash coreutils findutils gnugrep gnused gawk nix
@@ -34,9 +35,11 @@
         let pkgs = import nixpkgs { inherit system; };
         in pkgs.rustPlatform.buildRustPackage {
           pname = "mergemaster";
-          version = "0.8.0";
+          version = cargoVersion;
           src = pkgs.lib.cleanSource self;
           cargoLock.lockFile = ./Cargo.lock;
+          cargoBuildFlags = [ "--package" "mergemaster-evidence" ];
+          cargoTestFlags = [ "--package" "mergemaster-evidence" ];
           nativeCheckInputs = [ pkgs.git pkgs.openssh pkgs.openssl pkgs.coreutils pkgs.python3 ];
           preCheck = ''
             export HOME="$TMPDIR/home"
@@ -51,6 +54,32 @@
             platforms = systems;
           };
         };
+      reconcilerFor = system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+          runtimeTools = [ pkgs.git pkgs.gh pkgs.openssh pkgs.gnupg ];
+        in pkgs.rustPlatform.buildRustPackage {
+          pname = "mergemaster-reconciler";
+          version = (builtins.fromTOML (builtins.readFile ./crates/mergemaster-reconciler/Cargo.toml)).package.version;
+          src = pkgs.lib.cleanSource self;
+          cargoLock.lockFile = ./Cargo.lock;
+          cargoBuildFlags = [ "--package" "mergemaster-reconciler" ];
+          cargoTestFlags = [ "--package" "mergemaster-reconciler" ];
+          nativeBuildInputs = [ pkgs.makeWrapper ];
+          # Exercise the production subprocess boundary with the wrapper's tools.
+          nativeCheckInputs = [ pkgs.openssl ] ++ runtimeTools;
+          doCheck = false;
+          postInstall = ''
+            wrapProgram "$out/bin/mergemaster-reconciler" \
+              --prefix PATH : ${pkgs.lib.makeBinPath runtimeTools}
+          '';
+          meta = {
+            description = "BASE-authorized GitHub evidence check reconciliation";
+            license = pkgs.lib.licenses.mit;
+            mainProgram = "mergemaster-reconciler";
+            platforms = systems;
+          };
+        };
     in {
       packages = forAllSystems (system:
         let
@@ -58,6 +87,7 @@
           cc = pkgs.pkgsStatic.stdenv.cc;
         in {
           default = packageFor system;
+          evidence-reconciler = reconcilerFor system;
           # Native musl headers/libs plus compiler/binutils wrappers, never host glibc.
           release-musl-toolchain = pkgs.runCommand "mergemaster-musl-toolchain" {} ''
             mkdir -p "$out/bin"
@@ -68,6 +98,13 @@
       checks = forAllSystems (system:
         let pkgs = import nixpkgs { inherit system; };
         in {
+          package-version =
+            let package = packageFor system;
+            in assert package.version == cargoVersion;
+            pkgs.runCommand "mergemaster-package-version" {} ''
+              test "$(${pkgs.lib.getExe package} --version)" = "mergemaster ${cargoVersion}"
+              touch "$out"
+            '';
           evidence = (packageFor system).overrideAttrs (_: {
             doCheck = true;
             MERGEMASTER_PYTHON_ORACLE = "${python-oracle}";
@@ -85,6 +122,9 @@
             python3 -B "$src/tests/oracle_scripts.py"
             touch "$out"
           '';
+          evidence-reconciler = (reconcilerFor system).overrideAttrs (_: {
+            doCheck = true;
+          });
           fmt = pkgs.runCommand "mergemaster-fmt" {
             nativeBuildInputs = [ pkgs.cargo pkgs.rustfmt ];
             src = pkgs.lib.cleanSource self;
