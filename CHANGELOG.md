@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Bind v2 input hashing to the validated reachable graph and refuse observed link, entry-kind or directory-membership changes, including retargeted bridges and cached cycles; retain digest preimages and existing evidence verification.
+- Recheck the presence of all measured Nix closure members at the end of each workspace observation, including members not reached by workspace links; refuse members lost to GC without claiming to pin the store after observation.
 
 ## [0.9.0] - 2026-11-17
 

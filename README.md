@@ -1213,9 +1213,11 @@ JSON `[path,narHash]` tuples sorted by path, with SHA-256 NAR hashes. Closure
 differences refuse signing. Existing SHA-256/Git artifact records remain valid;
 the object-only gate does not invoke Nix or provision artifacts.
 The `narHash` values come from Nix's registered metadata, trusting the Nix store;
-they are not freshly recomputed NAR byte hashes by the workspace walker. A garbage
-collection that removes a required closure member during an observation causes
-refusal rather than authorizing a missing path.
+they are not freshly recomputed NAR byte hashes by the workspace walker. Every
+closure member, including members not reached by workspace links, must still
+exist at the end of each workspace observation: GC that removes a member before
+that final presence check causes refusal. Observations do not hold GC roots or
+guarantee member availability after the check completes.
 
 Non-derivation lanes preserve PATH-based wrapping for bare commands and checkout-relative
 execution for relative commands by default. Set `"direct_exec": true` on a BASE lane to opt

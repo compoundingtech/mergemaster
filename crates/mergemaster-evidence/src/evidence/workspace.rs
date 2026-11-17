@@ -122,12 +122,35 @@ enum ObservedEntry {
     Link(PathBuf),
 }
 
+#[cfg(test)]
+type EntryObservationHook = (PathBuf, Box<dyn FnOnce()>);
+
+#[cfg(test)]
+thread_local! {
+    static BEFORE_ENTRY_OBSERVATION: std::cell::RefCell<Option<EntryObservationHook>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn run_entry_observation_hook(path: &Path) {
+    let hook = BEFORE_ENTRY_OBSERVATION.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if slot.as_ref().is_some_and(|(expected, _)| expected == path) {
+            slot.take()
+        } else {
+            None
+        }
+    });
+    if let Some((_, run)) = hook {
+        run();
+    }
+}
+
 impl Reachability {
     fn bind_root(&mut self, path: &Path) -> Result<()> {
         let location = root_location(path)?;
         if fs::symlink_metadata(&location)?.file_type().is_symlink() {
-            self.bound_roots.insert(location.clone());
-            self.observe(&location, ObservedEntry::Link(fs::read_link(&location)?))?;
+            self.bound_roots.insert(location);
         }
         Ok(())
     }
@@ -315,7 +338,21 @@ fn reachable(
     if meta.is_dir() && !state.active[mode].insert(resolved.clone()) {
         return Ok(resolved);
     }
-    state.observe(&resolved, observe_entry(&resolved)?)?;
+    #[cfg(test)]
+    run_entry_observation_hook(&resolved);
+    let entry = observe_entry(&resolved)?;
+    // Only resolve_links may record links. A new link here has never had its
+    // destination authorized, even if its path was previously a regular entry.
+    ensure!(
+        match &entry {
+            ObservedEntry::Directory(_) => meta.is_dir(),
+            ObservedEntry::File(_) => meta.is_file(),
+            ObservedEntry::Link(_) => false,
+        },
+        "workspace entry kind changed during observation: {}",
+        resolved.display()
+    );
+    state.observe(&resolved, entry)?;
     if !meta.is_dir() {
         return Ok(resolved);
     }
@@ -674,6 +711,9 @@ pub fn verify(
             );
         }
         scratch_tree(&path)?;
+    }
+    if let Some(toolchain) = toolchain {
+        super::nix::require_members(toolchain.nix_roots.iter().map(PathBuf::as_path))?;
     }
     Ok(())
 }
@@ -1087,6 +1127,54 @@ mod tests {
                 tree_digest_v2(root, std::slice::from_ref(&linked)).unwrap(),
                 expected
             );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn entry_kind_swap_after_authorization_cannot_record_an_unresolved_link() {
+        use std::os::unix::fs::symlink;
+        for directory in [false, true] {
+            for destination in ["outside", "dangling", "cycle"] {
+                let fixture = tempfile::tempdir().unwrap();
+                let base = fs::canonicalize(fixture.path()).unwrap();
+                let root = base.join("inputs");
+                fs::create_dir(&root).unwrap();
+                fs::write(base.join("outside"), "unmeasured").unwrap();
+                let entry = root.join("entry");
+                if directory {
+                    fs::create_dir(&entry).unwrap();
+                } else {
+                    fs::write(&entry, "authorized regular file").unwrap();
+                }
+                let target = match destination {
+                    "outside" => base.join("outside"),
+                    "dangling" => base.join("missing"),
+                    _ => entry.clone(),
+                };
+                let replaced = entry.clone();
+                BEFORE_ENTRY_OBSERVATION.with(|slot| {
+                    *slot.borrow_mut() = Some((
+                        entry,
+                        Box::new(move || {
+                            if directory {
+                                fs::remove_dir(&replaced).unwrap();
+                            } else {
+                                fs::remove_file(&replaced).unwrap();
+                            }
+                            symlink(target, replaced).unwrap();
+                        }),
+                    ));
+                });
+                let error = tree_digest_v2(&root, std::slice::from_ref(&root)).unwrap_err();
+                assert!(
+                    error
+                        .to_string()
+                        .contains("entry kind changed during observation"),
+                    "{directory}/{destination}: {error}"
+                );
+                BEFORE_ENTRY_OBSERVATION.with(|slot| assert!(slot.borrow().is_none()));
+            }
         }
     }
 }
