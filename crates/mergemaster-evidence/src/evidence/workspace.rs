@@ -100,6 +100,8 @@ pub fn tree_digest(root: &Path) -> Result<String> {
 /// their individually measured root links can also authorize cross-root hops.
 /// Standalone callers must independently measure every supplied authority root:
 /// descendant links bind raw targets, not the contents reached in another root.
+/// V2 observation requires Unix directory device/inode identities and is refused
+/// explicitly on non-Unix platforms.
 pub fn tree_digest_v2(root: &Path, measured_roots: &[std::path::PathBuf]) -> Result<String> {
     digest_tree(root, Some(measured_roots), None, &[])
 }
@@ -113,6 +115,7 @@ struct Reachability {
     #[cfg(test)]
     expansions: [std::collections::BTreeMap<std::path::PathBuf, usize>; 2],
     entries: BTreeMap<PathBuf, ObservedEntry>,
+    lookup_directories: BTreeMap<PathBuf, DirectoryIdentity>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -120,6 +123,43 @@ enum ObservedEntry {
     Directory(Rc<[PathBuf]>),
     File(bool),
     Link(PathBuf),
+}
+
+// Lookup ancestors need identity binding, not a listing of unrelated siblings.
+#[derive(Debug, PartialEq, Eq)]
+struct DirectoryIdentity {
+    #[cfg(unix)]
+    device: u64,
+    #[cfg(unix)]
+    inode: u64,
+}
+
+impl DirectoryIdentity {
+    fn read(metadata: &fs::Metadata) -> Result<Self> {
+        require_v2_platform()?;
+        ensure!(
+            metadata.is_dir(),
+            "workspace lookup component is not a directory"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            Ok(Self {
+                device: metadata.dev(),
+                inode: metadata.ino(),
+            })
+        }
+        #[cfg(not(unix))]
+        unreachable!("non-Unix v2 observation is refused above")
+    }
+}
+
+fn require_v2_platform() -> Result<()> {
+    ensure!(
+        cfg!(unix),
+        "v2 workspace observation requires Unix directory device/inode identities"
+    );
+    Ok(())
 }
 
 #[cfg(test)]
@@ -168,7 +208,29 @@ impl Reachability {
         Ok(())
     }
 
+    fn observe_lookup_directory(&mut self, path: &Path, metadata: &fs::Metadata) -> Result<()> {
+        let identity = DirectoryIdentity::read(metadata)?;
+        if let Some(previous) = self.lookup_directories.get(path) {
+            ensure!(
+                previous == &identity,
+                "workspace lookup directory changed during observation: {}",
+                path.display()
+            );
+        } else {
+            self.lookup_directories.insert(path.to_owned(), identity);
+        }
+        Ok(())
+    }
+
     fn unchanged(&self) -> Result<()> {
+        for (path, identity) in &self.lookup_directories {
+            let metadata = fs::symlink_metadata(path)?;
+            ensure!(
+                metadata.is_dir() && DirectoryIdentity::read(&metadata)? == *identity,
+                "workspace lookup directory changed during observation: {}",
+                path.display()
+            );
+        }
         for (path, entry) in &self.entries {
             ensure!(
                 &observe_entry(path)? == entry,
@@ -278,6 +340,9 @@ fn resolve_links(
             let meta =
                 fs::symlink_metadata(&resolved).context("dangling or cyclic workspace symlink")?;
             if !meta.file_type().is_symlink() {
+                if meta.is_dir() {
+                    state.observe_lookup_directory(&resolved, &meta)?;
+                }
                 continue;
             }
             ensure!(
@@ -386,6 +451,7 @@ fn digest_tree(
     let Some(roots) = measured_roots else {
         return digest_rows(root);
     };
+    require_v2_platform()?;
     let canonical_roots = roots
         .iter()
         .map(fs::canonicalize)
@@ -397,13 +463,13 @@ fn digest_tree(
     }
     let resolved = reachable(root, &canonical_roots, tracked, closure_roots, &mut state)?;
     let digest = digest_validated(root, &resolved, &state)?;
-    state.unchanged()?;
     for (declared, canonical) in roots.iter().zip(&canonical_roots) {
         ensure!(
             fs::canonicalize(declared)? == *canonical,
             "workspace authority root changed during observation"
         );
     }
+    state.unchanged()?;
     Ok(digest)
 }
 
@@ -594,6 +660,13 @@ pub fn verify(
     toolchain: Option<&super::signing::ToolchainMeasurement>,
 ) -> Result<()> {
     let files = declarations(repo, head, lane)?;
+    if lane
+        .inputs
+        .values()
+        .any(|artifact| artifact.identity.starts_with("tree-sha256-v2:"))
+    {
+        require_v2_platform()?;
+    }
     ensure!(
         git::text(repo, &["rev-parse", "HEAD"])? == head && super::signing::tracked_clean(repo)?,
         "workspace differs from exact committed HEAD"
@@ -677,13 +750,13 @@ pub fn verify(
     }
     // Includes bridges and reachable directories omitted from digest rows, and
     // roots cached by an earlier input in this same observation.
-    reachability.unchanged()?;
     for (declared, canonical) in declared_tree_roots.iter().zip(&measured_roots) {
         ensure!(
             fs::canonicalize(declared)? == *canonical,
             "workspace authority root changed during observation"
         );
     }
+    reachability.unchanged()?;
     let roots: Vec<_> = lane
         .inputs
         .keys()
@@ -1176,5 +1249,137 @@ mod tests {
                 BEFORE_ENTRY_OBSERVATION.with(|slot| assert!(slot.borrow().is_none()));
             }
         }
+    }
+    #[cfg(unix)]
+    #[test]
+    fn ancestor_directory_substitution_after_resolution_is_refused() {
+        use std::os::unix::fs::symlink;
+        for measured_destination in [false, true] {
+            let fixture = tempfile::tempdir().unwrap();
+            let base = fs::canonicalize(fixture.path()).unwrap();
+            let root = base.join("root");
+            let authority = base.join("authority");
+            let ancestor = authority.join("ancestor");
+            let destination = base.join("destination");
+            fs::create_dir(&root).unwrap();
+            fs::create_dir_all(&ancestor).unwrap();
+            fs::create_dir(&destination).unwrap();
+            fs::write(ancestor.join("leaf"), "original").unwrap();
+            fs::write(destination.join("leaf"), "substituted").unwrap();
+            symlink(ancestor.join("leaf"), root.join("link")).unwrap();
+            let mut roots = vec![root.clone(), authority];
+            if measured_destination {
+                roots.push(destination.clone());
+            }
+            BEFORE_ENTRY_OBSERVATION.with(|slot| {
+                *slot.borrow_mut() = Some((
+                    ancestor.join("leaf"),
+                    Box::new(move || {
+                        fs::rename(&ancestor, base.join("original")).unwrap();
+                        symlink(destination, ancestor).unwrap();
+                    }),
+                ));
+            });
+            let error = tree_digest_v2(&root, &roots).unwrap_err();
+            assert!(
+                error.to_string().contains("lookup directory changed"),
+                "{measured_destination}: {error}"
+            );
+            BEFORE_ENTRY_OBSERVATION.with(|slot| assert!(slot.borrow().is_none()));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn earlier_legacy_tree_cannot_hide_later_v2_ancestor_substitution() {
+        use std::os::unix::fs::symlink;
+        let fixture = tempfile::tempdir().unwrap();
+        let repo = fs::canonicalize(fixture.path()).unwrap();
+        git::git(&repo, &["init", "-q"]).unwrap();
+        git::git(
+            &repo,
+            &[
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "base",
+            ],
+        )
+        .unwrap();
+        let head = git::text(&repo, &["rev-parse", "HEAD"]).unwrap();
+        let legacy = repo.join("a-legacy");
+        let ancestor = legacy.join("ancestor");
+        let v2 = repo.join("z-v2");
+        let destination = repo.join("outside");
+        fs::create_dir_all(&ancestor).unwrap();
+        fs::create_dir(&v2).unwrap();
+        fs::create_dir(&destination).unwrap();
+        fs::write(ancestor.join("leaf"), "original").unwrap();
+        fs::write(destination.join("leaf"), "substituted").unwrap();
+        symlink(ancestor.join("leaf"), v2.join("link")).unwrap();
+        let roots = [legacy.clone(), v2.clone()];
+        let legacy_digest = tree_digest(&legacy).unwrap();
+        let v2_digest = tree_digest_v2(&v2, &roots).unwrap();
+        let lane: Lane = serde_json::from_value(serde_json::json!({
+            "argv":["check"], "definition_paths":["tools"],
+            "trust_levels":["agent"], "mode":"required_evidence", "events":["pull_request"],
+            "environment":{"manifest":"environment.json","paths":["tools"]},
+            "protected_edits":"reject", "remediation_argv":["check"],
+            "inputs":{
+                "a-legacy":{"name":"legacy","identity":format!("tree-sha256:{legacy_digest}")},
+                "outside":{"name":"destination","identity":format!("tree-sha256:{}", tree_digest(&destination).unwrap())},
+                "z-v2":{"name":"v2","identity":format!("tree-sha256-v2:{v2_digest}")}
+            }
+        })).unwrap();
+        verify(&repo, &head, &lane, false, None).unwrap();
+        BEFORE_ENTRY_OBSERVATION.with(|slot| {
+            *slot.borrow_mut() = Some((
+                ancestor.join("leaf"),
+                Box::new(move || {
+                    fs::rename(&ancestor, legacy.join("original")).unwrap();
+                    symlink(destination, ancestor).unwrap();
+                }),
+            ));
+        });
+        let error = verify(&repo, &head, &lane, false, None).unwrap_err();
+        assert!(
+            error.to_string().contains("lookup directory changed"),
+            "{error}"
+        );
+        BEFORE_ENTRY_OBSERVATION.with(|slot| assert!(slot.borrow().is_none()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replacing_lookup_directory_with_another_directory_is_refused() {
+        let fixture = tempfile::tempdir().unwrap();
+        let base = fs::canonicalize(fixture.path()).unwrap();
+        let root = base.join("root");
+        fs::create_dir(&root).unwrap();
+        let mut state = Reachability::default();
+        state
+            .observe_lookup_directory(&root, &fs::symlink_metadata(&root).unwrap())
+            .unwrap();
+        fs::rename(&root, base.join("original")).unwrap();
+        fs::create_dir(&root).unwrap();
+        let error = state.unchanged().unwrap_err();
+        assert!(
+            error.to_string().contains("lookup directory changed"),
+            "{error}"
+        );
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn v2_observation_explicitly_refuses_non_unix() {
+        let fixture = tempfile::tempdir().unwrap();
+        let error = tree_digest_v2(fixture.path(), &[]).unwrap_err();
+        assert!(error.to_string().contains("requires Unix"), "{error}");
     }
 }

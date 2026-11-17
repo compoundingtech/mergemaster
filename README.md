@@ -1148,9 +1148,12 @@ the resolved tree affect the identity; a root link is not merely a target-string
 measurement.
 
 Each v2 observation records the validated graph's directory entries, entry kinds
-and raw link targets. Hashing follows that recorded graph, rereads digest-row link
-targets, and refuses changes to any recorded entry before completing the observation,
-including intermediate bridge links and cached dependency cycles.
+and raw link targets, plus the kind and Unix device/inode identity of every
+physical directory lookup component. Hashing follows that recorded graph,
+rereads digest-row link targets, and refuses changes before completing the
+observation, including ancestor directory substitutions, intermediate bridge links
+and cached dependency cycles. V2 observation is explicitly refused on non-Unix
+platforms, where this directory-identity binding is unavailable.
 Standalone `tree_digest_v2` callers must independently measure every supplied
 authority root; merely supplying a root does not measure its contents.
 
