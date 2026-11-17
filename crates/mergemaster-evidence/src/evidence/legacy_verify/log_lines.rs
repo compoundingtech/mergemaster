@@ -24,9 +24,12 @@ pub fn read<'a>(
             "embedded null byte",
         ));
     }
-    let path = path.into();
+    let original_path = path.into();
     let check = check.into();
-    let path = encode(path, head.chars().count() + 1, true)?;
+    let path = encode(original_path, head.chars().count() + 1, true)?;
+    let resource = crate::evidence::legacy_policy::normalized_text::NormalizedText::concat(
+        [head.into(), ":".into(), original_path].into_iter(),
+    );
     let mut name = Vec::with_capacity(head.len() + 1 + path.len());
     name.extend_from_slice(head.as_bytes());
     name.push(b':');
@@ -38,6 +41,7 @@ pub fn read<'a>(
             OsStr::new("blob"),
             OsStr::from_bytes(&name),
         ],
+        super::source_resource::SourceResource::RawBlob(resource),
     )?;
     if !out.status.success() {
         return Ok(BTreeSet::new());

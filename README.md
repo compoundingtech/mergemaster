@@ -1008,7 +1008,9 @@ approved 1 MiB RawBlob capture: exact revision for lookup metadata, exact
 `base:path` for allowance bytes, with their existing verifier Git transport.
 `log_transport::read` separately ports shadow-log `no_lazy`: inherited environment,
 fixed SSH Git settings, no lazy fetch/replacements, LC_ALL=C and a 60-second deadline.
-Nonzero Git status is data; stdout is uncapped and stderr is drained/discarded.
+Nonzero Git status is data except source overflow; stdout has the approved 1 MiB
+RawBlob capture budget, using exact `head:path`, revision expression or head.
+Overflow stops/kills/reaps at limit + 1. Stderr remains drained/discarded.
 Spawn/NUL/timeout exceptions retain Python class and text with no operation prefix.
 `log_lines::read` reads record IDs after the last GC marker, with replacement
 UTF-8 decoding and Python line/word whitespace. Real-Git SHA1/SHA256 oracle

@@ -21,6 +21,7 @@ pub struct SelectedSources {
     pub verifier: Vec<u8>,
     pub inputs_from: String,
 }
+/// AcceptedSource must be bounded before any production caller is added.
 pub struct AcceptedSource<'a> {
     pub repo: &'a Path,
     pub base: &'a str,
