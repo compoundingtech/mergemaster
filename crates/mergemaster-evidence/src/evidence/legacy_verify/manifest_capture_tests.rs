@@ -82,3 +82,36 @@ print(json.dumps(dict(rows=rows,errors=errors)))
         );
     }
 }
+#[test]
+fn source_overflow_cancels_without_waiting_for_descendant_pipe_eof() {
+    let root = tempfile::tempdir().unwrap();
+    let pid = root.path().join("descendant");
+    let mut command = Command::new("python3");
+    command
+        .args([
+            "-c",
+            r"
+import os,pathlib,subprocess,sys
+child=subprocess.Popen([sys.executable,'-c','import signal;signal.alarm(10);signal.pause()'])
+pathlib.Path(sys.argv[1]).write_text(str(child.pid))
+os.write(1,b'x'*1048577)
+",
+        ])
+        .arg(&pid);
+    let started = std::time::Instant::now();
+    let result = super::super::manifest_capture::read(
+        &mut command,
+        SourceResource::RawBlob("HEAD:file".into()),
+    );
+    // Terminate the fixture descendant, not a production process group.
+    let pid: i32 = std::fs::read_to_string(pid).unwrap().parse().unwrap();
+    Command::new("kill")
+        .args(["-KILL", &pid.to_string()])
+        .status()
+        .unwrap();
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    assert_eq!(
+        result.unwrap_err().resource,
+        Some(SourceResource::RawBlob("HEAD:file".into()))
+    );
+}

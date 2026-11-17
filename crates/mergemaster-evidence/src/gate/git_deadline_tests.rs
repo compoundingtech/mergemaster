@@ -38,7 +38,7 @@ fn normal_exit_collects_output_and_reaps() {
 fn expired_wait_kills_and_reaps_without_sleeping() {
     let mut child = paused();
     let pid = child.child.id();
-    child.deadline = Instant::now();
+    child.deadline = Some(Instant::now());
     assert_eq!(child.wait().unwrap_err().kind(), io::ErrorKind::TimedOut);
     assert_reaped(pid);
 }
@@ -57,8 +57,8 @@ fn full_stdin_pipe_refuses_a_blocked_writer_at_the_same_deadline() {
         }
     }
     let expired = Instant::now();
-    input.deadline = expired;
-    child.deadline = expired;
+    input.deadline = Some(expired);
+    child.deadline = Some(expired);
     assert_eq!(
         input.write(b"blocked").unwrap_err().kind(),
         io::ErrorKind::TimedOut
@@ -79,7 +79,7 @@ fn expired_read_does_not_wait_for_a_pipe_held_elsewhere() {
     let pid = child.child.id();
     let (reader, _held_open) = std::os::unix::net::UnixStream::pair().unwrap();
     let mut pipe = child.pipe(reader).unwrap();
-    pipe.deadline = Instant::now();
+    pipe.deadline = Some(Instant::now());
     assert_eq!(
         pipe.read(&mut [0]).unwrap_err().kind(),
         io::ErrorKind::TimedOut
@@ -184,7 +184,7 @@ fn pidfd_final_wait_expires_after_pipe_eof_and_reaps() {
     let mut child = GitChild::spawn(&mut command).unwrap();
     let pid = child.child.id();
     assert_eq!(child.stdout().unwrap().read(&mut [0]).unwrap(), 0);
-    child.deadline = Instant::now() + Duration::from_millis(20);
+    child.deadline = Some(Instant::now() + Duration::from_millis(20));
     assert_eq!(child.wait().unwrap_err().kind(), io::ErrorKind::TimedOut);
     assert_reaped(pid);
 }
@@ -222,7 +222,7 @@ fn pidfd_readiness_timeout_leaves_cancellation_to_the_owner() {
     let mut child = paused();
     let pid = child.child.id();
     assert_eq!(
-        wait_ready(pid, Instant::now() + Duration::from_millis(20))
+        wait_ready(pid, Some(Instant::now() + Duration::from_millis(20)))
             .unwrap_err()
             .kind(),
         io::ErrorKind::TimedOut
