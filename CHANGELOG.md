@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## [0.9.0] - 2026-11-17
+
+- Add shared Evidence App IaC and numeric-repository enrollment declarations, with central exact-main key storage rather than consumer App secrets. Registration, installation consent and deployment remain explicit operator actions. (#310)
+- Add the central Rust evidence reconciler: scheduled and manual sweeps verify independently BASE-pinned evidence and recheck live PR/base/head identity before publishing checks with repository-scoped installation tokens. (#317)
 - Preserve exact declared input-root link locations as explicit cross-root hop authority, separately from canonical measured endpoints; require standalone callers to supply the original declared root paths.
 - Resolve v2 link targets component by component and require authority for every intermediate link; accept fully validated workspace dependency cycles while rejecting nonterminating link chains, and use logarithmic tracked-directory prefix lookups.
 - Constrain nested links reachable through measured Nix closure directories to authorized closure members and measured input roots, including cross-member links, while retaining v1/v2 digest bytes and evidence verification.
