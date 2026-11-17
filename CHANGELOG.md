@@ -2,8 +2,20 @@
 
 ## Unreleased
 
+## [0.9.0] - 2026-11-17
+
+- Add shared Evidence App IaC and numeric-repository enrollment declarations, with central exact-main key storage rather than consumer App secrets. Registration, installation consent and deployment remain explicit operator actions. (#310)
+- Add the central Rust evidence reconciler: scheduled and manual sweeps verify independently BASE-pinned evidence and recheck live PR/base/head identity before publishing checks with repository-scoped installation tokens. (#317)
+- Preserve exact declared input-root link locations as explicit cross-root hop authority, separately from canonical measured endpoints; require standalone callers to supply the original declared root paths.
+- Resolve v2 link targets component by component and require authority for every intermediate link; accept fully validated workspace dependency cycles while rejecting nonterminating link chains, and use logarithmic tracked-directory prefix lookups.
+- Constrain nested links reachable through measured Nix closure directories to authorized closure members and measured input roots, including cross-member links, while retaining v1/v2 digest bytes and evidence verification.
+- Share v2 link reachability validation across an entire workspace observation, expanding each canonical directory once per tracked-authority mode even across chained and shared inputs.
+- Validate every reachable descendant of v2 workspace directory links, refusing nested escapes, reachable scratch paths and nonterminating link chains without changing digest preimages.
+- Admit v2 workspace input links into independently remeasured closures of BASE environment Nix artifacts, binding every workspace observation to the original toolchain claims; keep arbitrary store paths, dangling links and scratch symlinks forbidden.
+- Add opt-in `tree-sha256-v2` measured inputs: hash root symlink targets and resolved contents, and bind descendant link targets within declared measured trees or the verified-clean tracked checkout; retain legacy tree digests, scratch restrictions and evidence compatibility, with no blanket Nix-store exemption.
 - Reuse borrowed check codepoints across member aggregation and stream uncovered summaries without temporary per-member formatted strings or joined buffers.
 - Aggregate legacy member successes from original records: oldest metadata, weakest trust, maximum attempts, any input match, narrowed events and combined sampling key, with escaped sorted crate output.
+- Share one check-owned record collector across legacy member verification, refusing aggregate record-budget exhaustion instead of resetting the budget for each retained member.
 - Verify legacy members in sorted crate order with shared lazy-lane state, retaining original records and complete uncovered metadata while propagating uncaught exceptions globally.
 - Hide retained legacy record and selection fields from callers; expose immutable original-record access and complete borrowed views instead of mutable trust metadata.
 - Compute the legacy combined member key with streaming SHA-1 for oracle parity only, not for security.
@@ -11,14 +23,18 @@
 - Add the library-only paths project dictionary with lossless comma splitting, shared literal-path validation and escaped JSON output.
 - Preserve ordered legacy CLI preflight diagnostics in a library-only validator; production argument parsing and policy loading remain unwired.
 - Decode Rust legacy skip policies from their original JSON text with lossless codepoint identities and wide positive-integer age limits; retain lazy age-overflow errors and remove the serde-value conversion bridge.
+- Use the pinned Python interpreter for the noisy fsmonitor projection test so its hook executes inside Nix check sandboxes without `/usr/bin/env`.
+- Derive the Nix package version from the Rust crate's Cargo manifest and check the packaged CLI's version against it, preventing release metadata drift.
 - Accept borrowed lossless JSON/workflow selector names in the Rust legacy projection library, preserving parse-before-lookup refusals and existing scalar callers.
 - Read selected legacy projection content with lossless filesystem paths and selector names, retaining lazy missing-path behavior and exact subprocess encoding refusals.
 - Resolve lossless legacy configuration selector identities with strict returned-name decoding and unchanged preferred-layout ordering.
 - Carry lossless declared paths through legacy projection, collection and prefix requests, preserving strict exclusions, selected index names and lazy whole-tree filesystem encoding.
+- Preserve per-argument filesystem encoding and embedded-NUL refusal order in legacy projection, including repository arguments before projection, selected-content and configuration-selector paths.
 - Compose per-crate legacy source-input keys from selected committed inputs, declared dependency paths and Git projection; preserve tree-first resolution and ordered unknown-crate refusals.
 - Retain exact Python UnicodeDecodeError diagnostics for legacy JSON byte decoding, without changing callers that treat invalid encoding as an absent statement.
 - Add lossless, uncapped JSON byte preflight with exact uncaught Python decode, JSON syntax and integer-limit exceptions for accepted-base source selection.
 - Preserve complete Python errno exception subclasses and lossless filename diagnostics at legacy source filesystem boundaries, sharing projection's errno formatter.
+- Map legacy source `ENOTCAPABLE` errors to Python's `PermissionError` on every platform defining it in pinned libc: FreeBSD, Apple platforms and WASI.
 - Resolve accepted-base Rust test tools and inputs before historical bootstrap, refusing missing judged-base artifacts and malformed selected configuration without candidate fallback.
 - Read the legacy verifier's standalone accepted-base no-tests allowance with exact missing, malformed and strict UTF-8 behavior, independently of the crate-inputs schema.
 - Replace Linux Git final-wait sleep polling with pidfd readiness under the unchanged absolute deadline and direct-child cleanup contract; Linux >= 5.3 is required.

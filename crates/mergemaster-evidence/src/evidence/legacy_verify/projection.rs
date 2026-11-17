@@ -25,18 +25,28 @@ fn error(detail: impl ToString) -> PolicyError {
         detail: detail.to_string().into(),
     }
 }
+fn embedded_null() -> PolicyError {
+    PolicyError {
+        resource: None,
+        origin: crate::evidence::legacy_policy::ErrorOrigin::Exception {
+            class: "ValueError",
+        },
+        reason: "error",
+        detail: "embedded null byte".into(),
+    }
+}
+pub(super) fn check_repo_argument(repo: &Path) -> Result<(), PolicyError> {
+    // Unix Path already carries filesystem-encoded bytes, including surrogateescape.
+    if repo.as_os_str().as_bytes().contains(&0) {
+        return Err(embedded_null());
+    }
+    Ok(())
+}
 fn projection_command(repo: &Path, args: &[impl AsRef<OsStr>]) -> Result<Command, PolicyError> {
     if repo.as_os_str().as_bytes().contains(&0)
         || args.iter().any(|arg| arg.as_ref().as_bytes().contains(&0))
     {
-        return Err(PolicyError {
-            resource: None,
-            origin: crate::evidence::legacy_policy::ErrorOrigin::Exception {
-                class: "ValueError",
-            },
-            reason: "error",
-            detail: "embedded null byte".into(),
-        });
+        return Err(embedded_null());
     }
     let mut cmd = Command::new("git");
     cmd.arg("-C")
@@ -152,7 +162,7 @@ pub(super) fn project_with_fetch(
         .iter()
         .filter(|p| p.borrowed().split_once("::").is_some())
     {
-        if let Some(item) = selector_item_with(tree, path, read)? {
+        if let Some(item) = selector_item_with(repo, tree, path, read)? {
             chosen.insert(item);
         }
     }
@@ -162,12 +172,19 @@ pub(super) fn project_with_fetch(
     }
     let mut entries = BTreeSet::new();
     if !plain.is_empty() {
+        check_repo_argument(repo)?;
         let encoded = if whole {
             Vec::new()
         } else {
             plain
                 .iter()
-                .map(|p| super::binding_path::encode(*p, 0, true))
+                .map(|p| {
+                    let encoded = super::binding_path::encode(*p, 0, true)?;
+                    if encoded.contains(&0) {
+                        return Err(embedded_null());
+                    }
+                    Ok(encoded)
+                })
                 .collect::<Result<Vec<_>, _>>()?
         };
         let mut args: Vec<&OsStr> = ["ls-tree", "-r", "-z", "--full-tree", tree]
@@ -197,7 +214,7 @@ pub(super) fn project_with_fetch(
         index_bytes.push(0);
     }
     for item in chosen {
-        if let Some(bytes) = selected_content_with(tree, &item, 16 * 1024 * 1024, read)? {
+        if let Some(bytes) = selected_content_with(repo, tree, &item, 16 * 1024 * 1024, read)? {
             let blob = String::from_utf8(input_git_with_fetch(
                 repo,
                 &["hash-object", "--stdin"],

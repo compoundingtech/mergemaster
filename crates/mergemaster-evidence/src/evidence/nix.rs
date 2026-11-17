@@ -4,6 +4,11 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::Path, process::Command};
 
+// Store-name prefixes are not membership: paths must be inside an exact measured member.
+pub(super) fn contains(path: &Path, roots: &[std::path::PathBuf]) -> bool {
+    roots.iter().any(|root| path.starts_with(root))
+}
+
 fn closure(bytes: &[u8], root: &str) -> Result<BTreeMap<String, String>> {
     let value: serde_json::Value = serde_json::from_slice(bytes)?;
     let mut paths = BTreeMap::new();
