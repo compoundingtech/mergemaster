@@ -60,7 +60,8 @@ write('tool-pin.json', {'version': 1, 'repository': 'compoundingtech/mergemaster
 root = node.parents[1]
 assert str(root).startswith('/nix/store/')
 identity = 'nix:' + str(root)
-system = f'{platform.machine()}-linux'
+architecture = {'arm64': 'aarch64'}.get(platform.machine(), platform.machine())
+system = f'{architecture}-{"darwin" if platform.system() == "Darwin" else "linux"}'
 write('environment.json', {'version': 1, 'systems': {system: {
     'runtime': {'name': 'node', 'identity': identity},
     'dependencies': {'modules': {'name': 'modules', 'identity': 'git:' + dep_commit}}}}})
@@ -125,7 +126,6 @@ if a.derivation:
     (repo / 'builder.cjs').write_text('const fs=require("node:fs"); const value=require(process.env.src+"/node_modules/fixture"); '
         'console.error("RUN_BUILDER_START"); let acc=0; for(let i=0;i<20000000000;i++) acc=(acc+i)|0; console.error("RUN_BUILDER_FINISH "+acc); '
         'fs.writeFileSync(process.env.TMPDIR+"/scratch",String(value)); fs.writeFileSync(process.env.out,String(value));\n')
-    system = f'{platform.machine()}-linux'
     (repo / 'flake.nix').write_text('{ outputs = { self }: { checks.' + system + '.marker = builtins.derivation { '
         'name = "mergemaster-proof-' + hashlib.sha256(str(work).encode()).hexdigest()[:12] + '"; '
         'system = "' + system + '"; builder = builtins.appendContext "' + str(node) + '" { "' + str(root) +
@@ -230,6 +230,121 @@ if a.derivation:
     git('commit', '-qm', 'Hostile flake preferences')
     assert run(wrap, ok=False).returncode != 0
     print('PASS derivation cold/racing rebuild, argv mismatch, reused freshness refusal, non-deterministic refusal')
+
+def workspace_closure_proof():
+    # Reuse the real provisioned Node/Nix artifacts above, never synthetic closure authority.
+    modules = repo / 'node_modules'
+    shutil.copytree(deps / 'fixture', modules / 'fixture')
+    link = modules / 'runtime'
+    link.symlink_to(node)
+    output = repo / '.build'
+    (repo / '.gitignore').write_text('node_modules/\n.devenv/\n.build/\n')
+    (repo / 'workspace.cjs').write_text(
+        'const fs=require("node:fs"); const value=require("./node_modules/fixture"); '
+        'if(value!==42 || fs.realpathSync("node_modules/runtime")!==process.execPath) process.exit(1); '
+        'fs.writeFileSync(".build/output",String(value)); console.log("PASS measured closure link");\n')
+
+    def tree_identity(path):
+        # The documented v2 preimage: descendant links bind raw targets, not traversals;
+        # a linked root additionally measures its complete resolved directory.
+        rows = []
+
+        def visit(entry):
+            name = entry.relative_to(path).as_posix() if entry != path else ''
+            if entry.is_symlink():
+                rows.append([name, 'symlink', hashlib.sha256(os.fsencode(os.readlink(entry))).hexdigest()])
+                if entry != path:
+                    return
+            elif entry.is_dir():
+                rows.append([name, 'directory', ''])
+            else:
+                assert entry.is_file(), entry
+                rows.append([name, 'executable' if entry.stat().st_mode & 0o111 else 'file',
+                             hashlib.sha256(entry.read_bytes()).hexdigest()])
+                return
+            for child in entry.iterdir():
+                visit(child)
+
+        visit(path)
+        rows.sort(key=lambda row: row[0].encode())
+        return 'tree-sha256-v2:' + hashlib.sha256(json.dumps([2, rows], separators=(',', ':')).encode()).hexdigest()
+
+    environment = {'version': 1, 'systems': {system: {
+        'runtime': {'name': 'node', 'identity': identity}, 'dependencies': {}}}}
+    write('environment.json', environment)
+    configuration['toolchain'] = {'runtime': str(root), 'dependencies': {}}
+    config.write_text(json.dumps(configuration))
+    command = [str(node), 'workspace.cjs']
+    policy = {'version': 1, 'pull_request': {'same_repository': True,
+        'authors': {'mode': 'none'}, 'base_relation': 'ancestor'}, 'protected_paths': [], 'lanes': {'node': {
+            'argv': command, 'definition_paths': ['workspace.cjs'], 'trust_levels': ['agent'],
+            'mode': 'required_evidence', 'events': ['pull_request'],
+            'environment': {'manifest': '.mergemaster/environment.json', 'paths': ['workspace.cjs']},
+            'protected_edits': 'reject', 'remediation_argv': ['mergemaster', 'evidence', 'wrap'],
+            'inputs': {'node_modules': {'name': 'modules', 'identity': tree_identity(modules)}},
+            'scratch': ['.build']}}}
+
+    def commit_policy():
+        write('lanes.json', policy)
+        git('add', '.')
+        git('commit', '-qm', 'BASE measured closure workspace')
+        base = git('rev-parse', 'HEAD')
+        git('update-ref', 'refs/heads/gate-base', base)
+        (repo / 'candidate').write_text(base + '\n')
+        git('add', 'candidate')
+        git('commit', '-qm', 'Workspace candidate')
+        head = git('rev-parse', 'HEAD')
+        return base, head, [binary, 'evidence', 'wrap', '--check', 'node', '--base', base,
+                            '--config', config, '--signer', json.dumps(signer), '--', *command]
+
+    base, head, wrap = commit_policy()
+    result = run(wrap)
+    assert (output / 'output').read_text() == '42'
+    decision = json.loads(run([binary, 'gate', '--check', 'node', '--base', base,
+                               '--head', head, '--format', 'json']).stdout)
+    assert decision['decision'] == 'skip', decision
+    statement = json.loads(git('show', decision['record'] + ':' + git('rev-parse', head + '^{tree}')))
+    inputs = statement['predicate']['observed']['inputs']
+    inputs[closure_key] = '0' * 64
+    request = {'version': 1, 'repo': str(repo), 'base': base, 'head': head, 'check': 'node',
+               'command': command, 'exit_code': 0, 'output': base64.b64encode(result.stdout).decode(), 'inputs': inputs}
+    refused = run(signer, ok=False, input=json.dumps(request).encode())
+    assert refused.returncode != 0 and b'closure digest mismatch' in refused.stderr, refused.stderr
+    shutil.rmtree(output)
+    closure = json.loads(run([nix, '--extra-experimental-features', 'nix-command',
+                              'path-info', '--recursive', '--json', root]).stdout)
+    closure_paths = set(closure) if isinstance(closure, dict) else {entry['path'] for entry in closure}
+    assert str(nix.parents[1]) not in closure_paths, 'Nix must be outside the declared Node closure'
+    for target, diagnostic in [(nix, b'workspace symlink escapes measured inputs'),
+                               (root / 'missing-workspace-target', b'dangling or cyclic workspace symlink')]:
+        link.unlink()
+        link.symlink_to(target)
+        refused = run(wrap, ok=False)
+        assert refused.returncode != 0 and diagnostic in refused.stderr, refused.stderr
+    link.unlink()
+    link.symlink_to(node)
+    (modules / 'fixture/index.js').write_text('module.exports = 43;\n')
+    refused = run(wrap, ok=False)
+    assert refused.returncode != 0 and b'materialized input identity mismatch' in refused.stderr, refused.stderr
+    shutil.copyfile(deps / 'fixture/index.js', modules / 'fixture/index.js')
+    profile = repo / '.devenv/profile'
+    profile.parent.mkdir()
+    profile.symlink_to(node.parent, target_is_directory=True)
+    policy['lanes']['node']['inputs']['.devenv/profile'] = {'name': 'profile', 'identity': tree_identity(profile)}
+    base, head, wrap = commit_policy()
+    run(wrap)
+    decision = json.loads(run([binary, 'gate', '--check', 'node', '--base', base,
+                               '--head', head, '--format', 'json']).stdout)
+    assert decision['decision'] == 'skip', decision
+    shutil.rmtree(output)
+    profile.unlink()
+    profile.symlink_to(str(node.parent) + '/.', target_is_directory=True)
+    refused = run(wrap, ok=False)
+    assert refused.returncode != 0 and b'materialized input identity mismatch' in refused.stderr, refused.stderr
+    print('PASS v2 closure descendant and measured profile root; unmeasured store, dangling, mutation and forged closure refusal')
+
+
+workspace_closure_proof()
 key.unlink()
 config.unlink()
 print('PASS real Nix closure, node_modules input, scratch output, gate skip, independent signer mismatch refusal')
