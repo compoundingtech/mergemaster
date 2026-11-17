@@ -14,7 +14,7 @@ import { encodeState } from 'alchemy/State/StateEncoding'
 import { scratchStack, toEffect } from 'alchemy/Test/Core'
 import { Effect, Layer, Schema } from 'effect'
 import { test } from 'node:test'
-import { resources, publisherEnvironment, publisherPrivateKey } from './stack.ts'
+import { resources, publisher, publisherEnvironment, publisherPrivateKey } from './stack.ts'
 import { checkState } from './state.mjs'
 
 const encode = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))
@@ -29,9 +29,9 @@ test('env-sourced callback code never enters planned or created App state', asyn
   publicKey[0] = 9 // Curve25519 base point; no secret-key dependency is needed by this sink fixture.
   let conversions = 0
   let writes = 0
-  const secretRoot = `/repos/schickling/factory/environments/${publisherEnvironment}/secrets`
-  const metadata = { id: 123, slug: 'factory-evidence', owner: { login: 'schickling' },
-    permissions: { checks: 'write', metadata: 'read' }, events: [] }
+  const secretRoot = `/repos/${publisher.keyOwner}/${publisher.keyRepository}/environments/${publisherEnvironment}/secrets`
+  const metadata = { id: 123, slug: 'mergemaster-evidence', owner: { login: publisher.owner },
+    permissions: { checks: 'write', contents: 'read', pull_requests: 'read', metadata: 'read' }, events: [] }
   const server = createServer((request, response) => {
     const path = (request.url ?? '').replace(/^\/api/, '')
     response.setHeader('content-type', 'application/json')
@@ -50,7 +50,7 @@ test('env-sourced callback code never enters planned or created App state', asyn
       writes++
       response.statusCode = 201
       response.end('{}')
-    } else if (request.method === 'GET' && path === '/apps/factory-evidence') {
+    } else if (request.method === 'GET' && path === '/apps/mergemaster-evidence') {
       response.end(encode(metadata))
     } else {
       response.statusCode = 404
@@ -84,7 +84,7 @@ test('env-sourced callback code never enters planned or created App state', asyn
     const stack = scratchStack(options, 'RepositoryCheckPublishers')
     const persisted = Effect.gen(function* () {
       const store = yield* yield* State
-      return yield* store.get({ stack: stack.name, stage: stack.stage, fqn: 'graph-publisher-app' })
+      return yield* store.get({ stack: stack.name, stage: stack.stage, fqn: 'publisher-app' })
     }).pipe(Effect.provide(stack.state))
     const pending = await Effect.runPromise(toEffect(Effect.gen(function* () {
       yield* stack.deploy(resources())
@@ -96,9 +96,9 @@ test('env-sourced callback code never enters planned or created App state', asyn
     process.env.APP_MANIFEST_CODE_STATE = pending.attr.state
     // Match two operator invocations: Alchemy snapshots the shell configuration per run.
     const rows = await Effect.runPromise(toEffect(Effect.gen(function* () {
-      const program = resources({ graph: { state: process.env.APP_MANIFEST_CODE_STATE } })
+      const program = resources({ state: process.env.APP_MANIFEST_CODE_STATE })
       const plan = yield* stack.plan(program)
-      const app = plan.resources['graph-publisher-app']
+      const app = plan.resources['publisher-app']
       assert.ok(app?.action === 'update')
       assert.deepEqual(app.props.conversion, { state: pending.attr.state })
       assert.ok(!encode(encodeState(app.props)).includes(code))
