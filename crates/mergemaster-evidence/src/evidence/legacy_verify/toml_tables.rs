@@ -23,6 +23,15 @@ struct Node {
     nested: BTreeMap<String, Node>,
 }
 
+impl Drop for Node {
+    fn drop(&mut self) {
+        let mut pending: Vec<_> = std::mem::take(&mut self.nested).into_values().collect();
+        while let Some(mut node) = pending.pop() {
+            pending.extend(std::mem::take(&mut node.nested).into_values());
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Flags {
     flags: BTreeMap<String, Node>,
@@ -40,6 +49,10 @@ impl Flags {
         }
     }
 
+    /// Remove every flag in the subtree at `key`.
+    ///
+    /// An empty path deliberately does nothing. Python raises `IndexError`,
+    /// but the parser never produces an empty key.
     pub fn unset_all(&mut self, key: &[String]) {
         let Some((stem, parent)) = key.split_last() else {
             return;
@@ -54,6 +67,10 @@ impl Flags {
         cont.remove(stem);
     }
 
+    /// Set a flag at `key`, optionally applying it recursively.
+    ///
+    /// An empty path deliberately does nothing. Python raises `IndexError`,
+    /// but the parser never produces an empty key.
     pub fn set(&mut self, key: &[String], flag: Flag, recursive: bool) {
         let Some((stem, parent)) = key.split_last() else {
             return;

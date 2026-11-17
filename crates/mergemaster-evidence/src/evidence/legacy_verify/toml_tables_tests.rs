@@ -91,3 +91,19 @@ print(json.dumps(dict(keys=keys,flags=flags)))
     assert!(!flags.is(&[], Flag::Frozen));
     assert!(!flags.is(&[], Flag::ExplicitNest));
 }
+
+#[test]
+fn deep_flag_subtree_removal_and_drop_do_not_recurse() {
+    let key = vec![String::from("part"); 100_000];
+    let mut flags = Flags::default();
+    flags.set(&key, Flag::Frozen, true);
+    assert!(flags.is(&key, Flag::Frozen));
+    flags.unset_all(&key[..2]);
+    assert!(!flags.is(&key, Flag::Frozen));
+    drop(flags);
+
+    let mut flags = Flags::default();
+    flags.set(&key, Flag::ExplicitNest, false);
+    assert!(flags.is(&key, Flag::ExplicitNest));
+    drop(flags);
+}
