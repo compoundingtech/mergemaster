@@ -1,0 +1,26 @@
+{
+  "source": "Read-only GitHub API observations, 2026-11-16; only identity fields retained. Tests mutate copies for negative cases. Tokens/check-run responses are test-only, never recorded credentials.",
+  "repository": {
+    "id": 1398595057,
+    "full_name": "schickling/factory",
+    "default_branch": "main"
+  },
+  "pull": {
+    "number": 998,
+    "state": "open",
+    "user": {"login": "schickling-assistant"},
+    "head": {
+      "sha": "d243a1a6fbfb6578a36845cbbd3337bd94ea23f3",
+      "repo": {"id": 1398595057, "full_name": "schickling/factory"}
+    },
+    "base": {
+      "ref": "main",
+      "sha": "489139a72ea21e50fc28856d8a81ca216076fade",
+      "repo": {"id": 1398595057, "full_name": "schickling/factory"}
+    }
+  },
+  "base_ref": {
+    "ref": "refs/heads/main",
+    "object": {"type": "commit", "sha": "489139a72ea21e50fc28856d8a81ca216076fade"}
+  }
+}
