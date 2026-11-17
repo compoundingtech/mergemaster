@@ -53,6 +53,19 @@ fn closure(bytes: &[u8], root: &str) -> Result<BTreeMap<String, String>> {
     Ok(paths)
 }
 
+// Reused at closure measurement and at the end of each workspace observation:
+// members not traversed by workspace links can still disappear during GC.
+pub(super) fn require_members<'a>(paths: impl IntoIterator<Item = &'a Path>) -> Result<()> {
+    for path in paths {
+        ensure!(
+            path.exists(),
+            "missing Nix closure member: {}",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
 pub fn measure(nix: &Path, root: &str) -> Result<BTreeMap<String, String>> {
     ensure!(
         crate::gate::config::nix_store_path(root),
@@ -81,9 +94,7 @@ pub fn measure(nix: &Path, root: &str) -> Result<BTreeMap<String, String>> {
         "Nix artifact is missing or invalid: {root}"
     );
     let paths = closure(&output.stdout, root)?;
-    for path in paths.keys() {
-        ensure!(Path::new(path).exists(), "missing Nix closure member");
-    }
+    require_members(paths.keys().map(|path| Path::new(path.as_str())))?;
     Ok(paths)
 }
 
@@ -120,5 +131,22 @@ mod tests {
         let changed =
             BTreeMap::from([(a.to_owned(), format!("sha256-{}", STANDARD.encode([1; 32])))]);
         assert_ne!(digest(&parsed).unwrap(), digest(&changed).unwrap());
+    }
+
+    #[test]
+    fn closure_member_presence_check_includes_unreached_members() {
+        let fixture = tempfile::tempdir().unwrap();
+        let reached = fixture.path().join("reached");
+        let unreached = fixture.path().join("unreached");
+        std::fs::create_dir(&reached).unwrap();
+        std::fs::create_dir(&unreached).unwrap();
+        require_members([reached.as_path(), unreached.as_path()]).unwrap();
+        std::fs::remove_dir(&unreached).unwrap();
+        let error = require_members([reached.as_path(), unreached.as_path()]).unwrap_err();
+        assert!(
+            error.to_string().contains("missing Nix closure member"),
+            "{error}"
+        );
+        assert!(error.to_string().contains("unreached"), "{error}");
     }
 }

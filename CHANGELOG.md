@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Bind v2 input hashing to the validated reachable graph and refuse observed link, entry-kind or directory-membership changes, including retargeted bridges and cached cycles; retain digest preimages and existing evidence verification.
+- Bind physical v2 lookup directories to their Unix device/inode identities, refusing ancestor substitutions even through previously measured legacy trees; explicitly refuse v2 observation on non-Unix platforms.
+- Bind the full requested v2 root lookup, including ancestor aliases and their link chains, and recheck its canonical resolution after hashing.
+- Recheck the presence of all measured Nix closure members at the end of each workspace observation, including members not reached by workspace links; refuse members lost to GC without claiming to pin the store after observation.
+
 ## [0.9.0] - 2026-11-17
 
 - Add shared Evidence App IaC and numeric-repository enrollment declarations, with central exact-main key storage rather than consumer App secrets. Registration, installation consent and deployment remain explicit operator actions. (#310)

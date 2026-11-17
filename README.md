@@ -1172,6 +1172,20 @@ no additional directory row at `""`. Thus both root retargeting and changes to
 the resolved tree affect the identity; a root link is not merely a target-string
 measurement.
 
+Each v2 observation records the validated graph's directory entries, entry kinds
+and raw link targets, plus the kind and Unix device/inode identity of every
+physical directory lookup component. Hashing follows that recorded graph,
+rereads digest-row link targets, and refuses changes before completing the
+observation, including ancestor directory substitutions, intermediate bridge links
+and cached dependency cycles. V2 observation is explicitly refused on non-Unix
+platforms, where this directory-identity binding is unavailable.
+Standalone `tree_digest_v2` callers must independently measure every supplied
+authority root; merely supplying a root does not measure its contents.
+The original requested root lookup is also bound, including ancestor aliases and
+their link chains, rather than only its canonical endpoint. Leaf files bind
+content and the executable bit by path; transient changes restored between
+checks (ABA) are not detected.
+
 There is no blanket Nix-store exemption. Only the independently remeasured
 closures of the current system's BASE environment runtime and dependencies
 authorize Nix destinations; a caller-supplied closure receipt cannot authorize
@@ -1230,6 +1244,12 @@ The signed input `nix_closure_sha256:<artifact-identity>` is SHA-256 of compact
 JSON `[path,narHash]` tuples sorted by path, with SHA-256 NAR hashes. Closure
 differences refuse signing. Existing SHA-256/Git artifact records remain valid;
 the object-only gate does not invoke Nix or provision artifacts.
+The `narHash` values come from Nix's registered metadata, trusting the Nix store;
+they are not freshly recomputed NAR byte hashes by the workspace walker. Every
+closure member, including members not reached by workspace links, must still
+exist at the end of each workspace observation: GC that removes a member before
+that final presence check causes refusal. Observations do not hold GC roots or
+guarantee member availability after the check completes.
 
 Non-derivation lanes preserve PATH-based wrapping for bare commands and checkout-relative
 execution for relative commands by default. Set `"direct_exec": true` on a BASE lane to opt
