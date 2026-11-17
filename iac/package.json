@@ -2,7 +2,7 @@
   "name": "@mergemaster/check-publisher-infrastructure",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@12.15.0",
+  "packageManager": "pnpm@12.17.0",
   "scripts": {
     "test": "node --import ./register.mjs --test stack.test.ts state.test.mjs manifest-code.test.ts",
     "plan": "node operator.mjs plan --config alchemy.run.ts --stage production",

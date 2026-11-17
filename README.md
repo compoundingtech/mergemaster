@@ -1107,6 +1107,8 @@ Explicit `configured::Transport::Cli` joins select that collector for detailed
 single-check selection/log overlays and member aggregation; native wrappers keep
 their defaults. `required_git_cli` also selects the CLI hash provider, and
 `require_all_cli` uses CLI lane resolution and required-check collection.
+Member aggregation creates one collector in the selected transport before its
+member loop; retained records share that check-wide budget, and exhaustion aborts.
 These library joins do not install a binary dispatch or prepare CLI tempfiles.
 Pinned selector stress coverage includes empty keys and dotted empty selectors,
 64/96 repeated declarations, and preferred/legacy aliases resolving to one
@@ -1369,21 +1371,77 @@ BASE lanes may declare materialized workspace `inputs` and writable `scratch`:
 
 ```json
 "inputs": {
-  "node_modules": {"name": "locked modules", "identity": "tree-sha256:<64 lowercase hex>"}
+  "node_modules": {"name": "locked modules", "identity": "tree-sha256-v2:<64 lowercase hex>"},
+  "repos/dependency": {"name": "dependency tree", "identity": "tree-sha256-v2:<64 lowercase hex>"}
 },
 "scratch": [".build"]
 ```
 
 These are lane fields in `lanes.json`, not operator configuration. Provision inputs
-before wrapping; the wrapper does not download or install them. `sha256:` binds a
-regular file's bytes. `tree-sha256:` binds a directory: SHA-256 of compact JSON
-`[1, rows]`, with rows `[relative_path, kind, digest]` sorted by UTF-8 path bytes.
-The root row has path `""`; kinds are `directory`, `file`, or `executable` (any
-execute bit). Directory digests are `""`; file digests are lowercase SHA-256.
-Empty directories are included. Symlinks and special entries are refused.
+before wrapping; the wrapper does not download or install them. In this consumer
+shape, both dependency trees are measured inputs; only `.build` is writable scratch.
+Do not classify dependencies as scratch to bypass measurement.
+
+`sha256:` binds a regular file's bytes. The legacy `tree-sha256:` identity is
+unchanged: it requires a physical directory root and refuses all symlinks and
+special entries, preserving its exact v1 digest and refusal behavior. Its digest
+is SHA-256 of compact JSON `[1, rows]`, with rows `[relative_path, kind, digest]`
+sorted by UTF-8 path bytes. The root row has path `""`; kinds are `directory`,
+`file`, or `executable` (any execute bit). Directory digests are `""`; file
+digests are lowercase SHA-256. Empty directories are included.
+
+Opt in to `tree-sha256-v2:` for measured symlink inputs. It hashes compact JSON
+`[2, rows]`, retaining the same sorted row format, regular-file modes and empty
+directories, and adds kind `symlink`. A symlink row's digest is lowercase SHA-256
+of its raw target bytes, not its destination's bytes. Descendant symlinks are
+recorded but not traversed; their canonical destinations must lie within the
+same or another declared measured tree input, name a tracked file or a directory
+prefix of tracked files in the verified-clean checkout, or lie within a registered
+closure root of a BASE environment `nix:` artifact independently remeasured by
+the observer. Tracked sibling package links are safe because both wrapper and
+signer already check their actual tracked bytes against committed blobs.
+Ignored/untracked destinations, scratch, Git metadata and checkout escapes are
+not authorized by the tracked-path rule. Dangling links, cycles and special
+entries remain refused.
+
+The declared v2 tree root itself may be an absolute- or relative-target symlink
+to a directory. Its raw target is hashed as the `symlink` row at path `""`, and
+the resolved directory's full contents are measured under that root. There is
+no additional directory row at `""`. Thus both root retargeting and changes to
+the resolved tree affect the identity; a root link is not merely a target-string
+measurement.
+
+Each v2 observation records the validated graph's directory entries, entry kinds
+and raw link targets, plus the kind and Unix device/inode identity of every
+physical directory lookup component. Hashing follows that recorded graph,
+rereads digest-row link targets, and refuses changes before completing the
+observation, including ancestor directory substitutions, intermediate bridge links
+and cached dependency cycles. V2 observation is explicitly refused on non-Unix
+platforms, where this directory-identity binding is unavailable.
+Standalone `tree_digest_v2` callers must independently measure every supplied
+authority root; merely supplying a root does not measure its contents.
+The original requested root lookup is also bound, including ancestor aliases and
+their link chains, rather than only its canonical endpoint. Leaf files bind
+content and the executable bit by path; transient changes restored between
+checks (ABA) are not detected.
+
+There is no blanket Nix-store exemption. Only the independently remeasured
+closures of the current system's BASE environment runtime and dependencies
+authorize Nix destinations; a caller-supplied closure receipt cannot authorize
+links, and an unrelated `/nix/store` path is refused. The wrapper and signer
+remeasure these closures at each workspace observation and require their claims
+to match the initial wrapper inputs or signing request.
+`.devenv/profile` must still be declared as a measured input (or be within one,
+such as `.devenv`); a linked input root binds its raw target and resolved contents
+as described above. Declaring `.devenv` does not implicitly authorize arbitrary
+external trees. Mutable runtime links such as `.devenv/run` into `/tmp` remain
+refused unless their destinations are separately declared measured trees.
+Putting `.devenv` in scratch does not authorize any symlinks.
 
 Roots must be literal repository-relative paths without trailing slashes. They
 cannot overlap each other, tracked files (including ancestors), or Git metadata.
+Canonical measured roots also cannot physically overlap each other, encompass
+the repository, or alias tracked paths or scratch.
 Root ancestors cannot be symlinks. Scratch must start absent or empty; the wrapper
 creates it before execution. Only scratch may acquire output; its descendants
 must remain regular files/directories. Every other ignored or untracked entry,
@@ -1399,6 +1457,9 @@ preserved). The object-only verifier recomputes this digest from BASE policy;
 it never requires materializations in its checkout. With both declarations
 absent or empty, Lane serialization and expected inputs remain unchanged, so
 v0.1 evidence stays verifiable.
+
+The new tree identity does not change the workspace-binding v2 declaration
+format or object-only verification of existing v2 evidence.
 
 The signing key must also be account-owned, mode 0600 and outside the consumer
 checkout. An optional `path` field supplies a trusted executable search path;
@@ -1422,6 +1483,12 @@ The signed input `nix_closure_sha256:<artifact-identity>` is SHA-256 of compact
 JSON `[path,narHash]` tuples sorted by path, with SHA-256 NAR hashes. Closure
 differences refuse signing. Existing SHA-256/Git artifact records remain valid;
 the object-only gate does not invoke Nix or provision artifacts.
+The `narHash` values come from Nix's registered metadata, trusting the Nix store;
+they are not freshly recomputed NAR byte hashes by the workspace walker. Every
+closure member, including members not reached by workspace links, must still
+exist at the end of each workspace observation: GC that removes a member before
+that final presence check causes refusal. Observations do not hold GC roots or
+guarantee member availability after the check completes.
 
 Non-derivation lanes preserve PATH-based wrapping for bare commands and checkout-relative
 execution for relative commands by default. Set `"direct_exec": true` on a BASE lane to opt
@@ -1651,136 +1718,205 @@ nix develop -c python3 tests/test-graph-proof.py \
   --binary "$package/bin/mergemaster" --work-dir /absolute/new/proof-directory
 ```
 
-## Repository check-publisher infrastructure
+## Shared evidence-publisher infrastructure
 
-`iac/alchemy.run.ts` owns one private, user-owned GitHub App per entry in
-`iac/stack.ts`. The Graph entry targets `schickling/factory`, whose
-default branch is `main`. Its App requests only `checks: write` (GitHub adds
-`metadata: read`), has no events or active webhook, and has no author allowlist.
-The Graph repository owns its ruleset and consumer workflows; this stack
-does not declare a ruleset or run candidate code.
+`iac/stack.ts` declares one private, schickling-owned `Mergemaster Evidence`
+GitHub App. `iac/consumers.json` is the shared enrollment allowlist consumed by
+the stack and the central reconciler: each entry records a stable consumer ID,
+owner, repository, numeric GitHub repository ID and default branch. Initial
+consumers are `schickling/factory` (`graph`) and `schickling/ptg` (`ptg`).
+Repository names alone are not enrollment identity.
 
-The environment `mergemaster-check-publisher` permits only the exact `main`
-branch, not all protected branches. The App provider seals the private key
-directly into that environment's `MERGEMASTER_APP_PRIVATE_KEY` Actions secret.
-There is deliberately no separate `GitHub.Secret` resource: neither a PEM
-input nor a PEM output belongs in Alchemy state. Deployment credentials need
-repository administration/environment and Actions-secret access; these are
-separate from the new App's checks-only runtime credential. Private-repository
-environment support requires a compatible GitHub plan.
+The App requests `checks: write`, `contents: read` and `pull_requests: read`
+(GitHub adds `metadata: read`), with no events. There is one shared App
+registration and owner approval, not a registration per consumer. Selected-repo
+installation consent is a separate necessary step: one installation on the
+schickling account can select both enrolled repositories. Adding another
+repository requires enrollment and installation consent, not another App
+registration. Registration and installation are not one API action.
+Organization consumers would require a public App registration and their own
+installation consent.
 
-### Operator manifest registration
+The provider seals the private key **only** into
+`compoundingtech/mergemaster`'s `mergemaster-check-publisher` environment as
+`MERGEMASTER_APP_PRIVATE_KEY`. That environment permits only the exact `main`
+branch. The stack creates no consumer environments, and consumers receive
+neither the App key nor an installation token. No private key or callback code
+enters resource props, outputs or state. The single-sink provider cannot fan
+out the private key, by design.
 
-The isolated IaC package uses pnpm 12.15.0, the fleet pin from the composed
-effect-utils `nix/pnpm.nix`, with its own `iac/pnpm-lock.yaml`.
-Node 24.20.0 is used in hosted CI. The pinned effect-utils source is composed
-through `megarepo.lock`; pnpm's `file:` dependency installs the unpublished
-provider with its dependencies, rather than linking an uninstalled checkout.
-The small Oxc loader uses Alchemy's own runtime tooling to load that
-provider's TypeScript without building effect-utils.
+The central GitHub-hosted reconciler in `compoundingtech/mergemaster` polls
+enrolled repositories every five minutes; `workflow_dispatch` provides manual
+repair. It reads and verifies evidence before publishing checks on the
+corresponding PR head. Its installation tokens are scoped to one enrolled
+repository with only the App permissions above. Consumer PR jobs do not run
+privileged publication or choose arbitrary installations, repositories or
+heads for a token broker. Local evidence signing and signer trust are
+unchanged: the App publishes verified results; it does not sign local evidence.
+
+### Offline infrastructure checks
+
+The isolated package uses pnpm 12.17.0 and the pinned effect-utils provider:
 
 ```sh
 mr apply --worktree-mode commit --only effect-utils
 cd iac
 pnpm install --frozen-lockfile --ignore-scripts
-pnpm test                       # offline; no GitHub credentials or mutation
-umask 077
-pnpm run plan                   # review before deploying
-pnpm run deploy                 # first deployment: pending manifest, not an App
+pnpm test
 ```
 
-Only an operator with delegated owner consent may continue. Submit the
-`graph.manifestHtml` form from the pending output in the owner's authenticated
-browser session. The form POST is required; navigating to its action URL alone
-does not submit the manifest. The loopback redirect
-`http://127.0.0.1:8787/github-app-callback` carries the one-time `code` and
-`state`; a refused connection is harmless because those values remain in the
-address bar. Compare state to `graph.state` and complete within one hour.
-Read the code through a trusted secret-input path, not a literal shell command
-or a committed env file; then, with `APP_MANIFEST_CODE` and
-`APP_MANIFEST_CODE_STATE` exported in that same operator shell:
+The plan test runs the real Alchemy planner with offline providers that reject
+mutation. It asserts one App, only the central exact-main key environment,
+the requested permissions and the non-secret enrollment outputs. The manifest
+conversion regression uses only a loopback HTTP fixture and proves a single
+private-key sink write, no callback code in state, and secret-free outputs.
+These tests do not change a live App, installation, environment, secret,
+ruleset or check run.
+
+### Registration, installation and runtime configuration
+
+The shared App has not been registered. No deploy or live mutation was run for
+this change; source declarations and offline fixtures are not evidence of a live
+registration, installation or working reconciler.
+
+Use the protected operator state with `pnpm run plan` / `pnpm run deploy`
+only during an approved deployment. `MERGEMASTER_IAC_STATE_DIR` must name an
+absolute, external directory, with 0700 directories and 0600 files. The operator
+wrappers check state before and after execution; `pnpm run check-state`
+also checks it explicitly. Registered App deletion fails closed.
+
+For registration, pending output provides `publisher.manifestHtml`,
+`publisher.state` and `publisher.expiresAt`. Submit the manifest for the shared
+owner approval. Pass its returned one-use callback code through
+`APP_MANIFEST_CODE`, with the matching pending state in
+`APP_MANIFEST_CODE_STATE`, for the conversion deploy.
+`ManifestCodes.fromEnv('APP_MANIFEST_CODE')` keeps the code out of durable
+inputs. There are no per-consumer registration inputs. The code and private key
+are secret; never put them in arguments, logs, chat or git.
+
+After registration, `publisher.integrationId` and `publisher.slug` are public
+outputs. Follow `installation.url` and grant installation access to **only**
+the selected repositories listed in `installation.repositories`. The output
+reports `consent-required`, not an assertion that installation has occurred.
+`consumers.<id>` exposes only owner, repository, numeric repository ID and
+default branch, matching the enrollment allowlist. App IDs and installation
+IDs are different identifiers.
+
+Set the **public repository Actions variable** `MERGEMASTER_APP_ID` in
+`compoundingtech/mergemaster` to the registered `publisher.integrationId`.
+The central workflow reads that variable and the environment-scoped
+`MERGEMASTER_APP_PRIVATE_KEY` secret; do not put the private key in a variable
+or copy it to consumers. Installation consent and runtime configuration must
+be complete before enabling central publication.
+
+Consumer required-check contexts remain their BASE `required_evidence` lane
+IDs. After installation and successful central publication, bind every required
+lane context to the same `integration_id = publisher.integrationId`; do not
+substitute consumer IDs, lane display names or installation IDs. App binding
+rejects checks from other Apps, not forged checks from someone holding this
+same App's key or a checks-write installation token. A leaked scoped token
+lasts at most one hour; a leaked App private key can mint tokens for every
+installation regardless of the originally requested token scope.
+
+### Scheduled verification and repair
+
+`.github/workflows/evidence-reconcile.yml` builds the `evidence-reconciler` flake
+package and runs `mergemaster-reconciler` on a GitHub-hosted Ubuntu runner every
+five minutes (`2-57/5 * * * *`) and accepts
+manual `workflow_dispatch`. Both paths are restricted to `main`, use the central
+`mergemaster-check-publisher` environment and share one concurrency group.
+No fleet host, webhook receiver, consumer dispatch credential or consumer App
+secret is required. Scheduling is best effort: GitHub can delay or drop a run;
+the next successful sweep revisits current open PRs and durable evidence.
+
+The runtime is a separate Rust binary crate, `crates/mergemaster-reconciler`.
+Polling, GitHub credentials and publication stay outside the evidence verifier's
+CLI/trust core: the reconciler still invokes the independently BASE-pinned
+verifier release. It reuses the workspace's `jsonwebtoken`/AWS-LC RS256 and serde
+dependency graph, and the existing trusted `gh` HTTP transport convention for
+API and provenance calls. No new HTTP library or crypto implementation is added.
+The flake package supplies its Git/SSH/GPG/GitHub CLI runtime tools; `scripts/`
+remains the unchanged parity-oracle surface. Local signing keys never enter
+Actions.
+The restricted child `PATH` includes independently resolved Git, GitHub CLI and
+`ssh-keygen` directories, so the pinned verifier can validate SSH-signed evidence
+without searching the BASE checkout or caller-controlled paths. The reconciler
+flake check exercises this production subprocess adapter against a real
+ephemeral SSH-signed Git commit using the package wrapper's runtime tool set.
+
+`iac/consumers.json` is the reconciler's sole enrollment allowlist, compiled into
+the binary. Unknown dispatch repositories are rejected. For each enrolled
+numeric repository ID, the reconciler discovers that App's installation and
+requires `repository_selection: selected`; an all-repositories installation
+fails closed before token minting. It mints a token with exactly one enrolled
+`repository_ids` entry and `checks: write`, `contents: read`, `pull_requests: read`.
+Both the token response and its paginated installation repository listing must
+expose exactly that enrolled repository; unexpected IDs or names fail closed
+before verification or publication. Live repository/account identity is also
+checked before using the token.
+
+This does not prove that the installation contains no other selected repository:
+GitHub's installation repository listing reflects the token's narrowed scope.
+An extra selected repository outside that scope is not detectable with the
+App JWT and these least-privilege tokens. Detecting it would require broader
+credentials; the reconciler deliberately does not mint an unscoped token.
+Enrollment remains the authority for every token and publication target.
+
+For each same-repository open PR, it observes the live target branch, reads
+the required lane list and verifier pin from that accepted BASE, fetches HEAD
+and evidence refs as data, and checks out **only BASE**. The BASE-pinned release
+must match its SHA-256 and GitHub attestation source revision and release
+workflow. That existing verifier reads the BASE-controlled policy and signer
+keys and decides whether signed evidence authorizes each required lane.
+Candidate source is never run and no fallback build is performed.
+
+The synthesized verifier event contains authenticated PR/repository/base
+observations, not dispatch-supplied conclusions. Central workflow actor metadata
+is retained rather than inventing the original PR event actor. Fork PRs remain
+unsupported, as with the existing generic publisher. Policies needing hosted
+approval/check evidence fail closed: this reconciler does not collect hosted
+evidence or request the unapproved `actions: read` App grant.
+
+Immediately before publishing, the reconciler rechecks the live PR, HEAD and
+accepted base. Success requires the verifier's exact lane/base/head identity,
+`skip` with `satisfied` or `reused`, and a non-report-only successful process.
+Missing or invalid verification is never success. Existing check runs matching
+the lane name, HEAD and shared App are updated with `PATCH`; only a missing run
+is created. Historical matching duplicates are repaired together. This is
+serialized single-workflow reconciliation, not a claim that GitHub provides an
+atomic external-ID uniqueness constraint for arbitrary concurrent publishers.
+
+After registration, installation and runtime configuration, an authorized
+operator can request an immediate current-state repair:
 
 ```sh
-pnpm run deploy
-unset APP_MANIFEST_CODE APP_MANIFEST_CODE_STATE
+gh workflow run evidence-reconcile.yml --repo compoundingtech/mergemaster \
+  --ref main -f repo=schickling/factory -f pr=123
 ```
 
-The apply-time `ManifestCodes.fromEnv('APP_MANIFEST_CODE')` source reads the
-code and its companion `APP_MANIFEST_CODE_STATE` only during conversion;
-planning and provider construction never read the code. Only
-`conversion.state` enters resource inputs: that token is non-secret because
-it is already a pending output and part of the manifest form. The provider
-fix ends the callback-code-in-state exception: the code is never a resource
-input, durable state value or stack output, so no purge deploy is required.
-After successful registration, run `pnpm run check-state` before backup.
+Omit either filter to expand within the enrollment allowlist; omitting both
+reconciles every enrolled repository's open PRs. Unknown repository names and
+nonpositive PR numbers fail closed. A re-run/backfill recomputes current
+HEAD/BASE and evidence; it never replays an old caller's success claim.
+Local signing continues independently during publisher outages, and signed
+notes remain in the consumer's origin until a subsequent sweep can verify them.
 
-Install the App on **only** `schickling/factory`. Registered outputs
-are `graph.status`, `graph.integrationId`, and `graph.slug`. Pending outputs
-are `graph.status`, `graph.manifestHtml`, `graph.state`, and `graph.expiresAt`;
-there is no integration ID until registration succeeds. Give
-`graph.integrationId` (the App ID, not an installation ID) to the Graph
-ruleset owner for the required `graph-full-check` integration binding.
-
-The base-only publisher is `genericEvidenceRequiredJob` from
-`genie/generic-evidence.ts`, running on `pull_request_target`; the independent
-unprivileged `validate` workflow remains `.github/workflows/validate.yml`.
-Its consumer must set job `environment: 'mergemaster-check-publisher'` and
-supply `appTokenStep` using a SHA-pinned `actions/create-github-app-token`:
-`app-id` is the exported integration ID, `private-key` is
-`${{ secrets.MERGEMASTER_APP_PRIVATE_KEY }}`, `owner` is `schickling`, and
-`repositories` is `factory`. The fragment assigns step ID `app-token`
-and consumes its `token` output; it never falls back to `GITHUB_TOKEN`.
-There were no pre-existing environment or secret names in the generic
-fragment; the names above are this stack's explicit consumer contract.
-
-### Interim: local operator state and operator apply
-
-The interim exception covers **App bootstrap only**: local operator state and
-operator-run deploy, because the manifest consent flow cannot run in CI.
-When the Effect-utils Manager's program remote state backend lands (due
-2026-11-12), this stack moves to that backend and to CI-applied plan plus
-drift detection on `main`, no later than **2026-11-19**.
-
-`MERGEMASTER_IAC_STATE_DIR` configures the absolute state root, defaulting to
-`${XDG_STATE_HOME:-$HOME/.local/state}/mergemaster/iac`; Alchemy stores its
-state under that root's `state/` subdirectory. The root must be outside the
-repository checkout, including through symlink aliases. The supported
-`AlchemyContext` directory injection is scoped to `localState()` only;
-other runtime artifacts retain Alchemy's defaults. Local state is accepted
-because it contains no private key and a registered App can be recovered
-with adopt-by-slug if state is lost.
-
-Use the documented `pnpm run plan` and `pnpm run deploy` commands: they set
-umask 077 and check the state tree before and after the CLI exits. Directories
-must be 0700, regular files 0600; symlinks and looser modes fail closed,
-without silently changing existing permissions. After every deploy, run
-`pnpm run check-state`: it must find **no** PEM/`-----BEGIN`/private-key value
-markers, `conversion.code` properties or `__redacted__` values anywhere in the
-state tree. Secret destination names such as `MERGEMASTER_APP_PRIVATE_KEY`
-are non-secret metadata, not key values; the scanner permits those names
-and never prints matched contents.
-
-Take the state backup only after a successful registration (status registered
-with an integrationId) and a clean state check; keep it protected until
-migration. Legacy state containing callback codes must be cleaned without
-printing them before strict checks permit plan/deploy or backup.
+Offline runtime tests use reduced recorded API identity fixtures and synthetic
+credential/check responses; no live writes or recorded secrets are involved:
 
 ```sh
-pnpm run check-state
-state_dir="${MERGEMASTER_IAC_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/mergemaster/iac}"
-backup_dir="${state_dir}.backup-$(date -u +%Y%m%dT%H%M%SZ)"
-install -d -m 0700 "$backup_dir"
-cp -a "$state_dir/." "$backup_dir/"
+nix build .#evidence-reconciler
+nix build .#checks.x86_64-linux.evidence-reconciler
 ```
 
-Retain the same state root across both manifest deployments. Lost pending
-state cannot be recovered by adoption before an App exists. CI runs offline
-tests only during the bootstrap exception. Do not create preview stages
-for these long-lived Apps. Permission/event drift is a typed
-hard error. Registered destruction fails closed: uninstall/delete in the
-owner UI; the stack never automatically orphans an App or destroys its key.
-After ambiguous conversion failure, do not replay the one-use code: inspect
-the owner UI, revoke/rotate and reseed the same secret through a trusted
-secret-management path, then use `APP_ADOPT_SLUG` with `pnpm run deploy` and
-unset it afterward. `APP_REPOSITORY` selects the entry for conversion/adoption
-(default `graph`); adding future repositories requires one table entry each.
+The same suite is wired into CI and `nix flake check`. It covers enrollment and
+token scoping, BASE-only authorization reads, release provenance, exact verifier
+identity, stale HEAD/base refusal, existing-check updates and workflow key
+isolation.
+
+Consumers retain their unprivileged validation and optional informational
+reporters; central publication needs no consumer App environment or key.
+The legacy `genericEvidenceRequiredJob` adapter is not used by this reconciler.
+Retiring that adapter and updating any separately pinned consumer-generated
+workflows is a separate consumer rollout; do not configure its old privileged
+job as a required check or provision a consumer key for this central setup.
