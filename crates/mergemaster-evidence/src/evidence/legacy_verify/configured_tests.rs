@@ -179,6 +179,7 @@ print(json.dumps(cases))
             ),
         ] {
             let joined = retained(
+                &mut CandidateCollector::for_check(),
                 &Request {
                     crate_key: binding,
                     ..q

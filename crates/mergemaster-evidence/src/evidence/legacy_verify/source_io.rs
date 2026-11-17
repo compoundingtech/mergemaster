@@ -18,7 +18,8 @@ fn class(errno: Option<i32>) -> &'static str {
         EINPROGRESS, EINTR, EISDIR, ENOENT, ENOTDIR, EPERM, EPIPE, ESHUTDOWN, ESRCH, ETIMEDOUT,
         EWOULDBLOCK,
     };
-    #[cfg(target_os = "freebsd")]
+    // libc 0.2.191 defines ENOTCAPABLE on FreeBSD, Apple platforms and WASI.
+    #[cfg(any(target_os = "freebsd", target_vendor = "apple", target_os = "wasi"))]
     if errno == Some(libc::ENOTCAPABLE) {
         return "PermissionError";
     }
@@ -44,6 +45,20 @@ fn class(errno: Option<i32>) -> &'static str {
 mod tests {
     use super::*;
     use serde_json::Value;
+    #[cfg(any(target_os = "freebsd", target_vendor = "apple", target_os = "wasi"))]
+    #[test]
+    fn not_capable_is_permission_error() {
+        let actual = error(
+            OsStr::new("source"),
+            &io::Error::from_raw_os_error(libc::ENOTCAPABLE),
+        );
+        assert_eq!(
+            actual.origin,
+            crate::evidence::legacy_policy::ErrorOrigin::Exception {
+                class: "PermissionError"
+            }
+        );
+    }
     #[test]
     fn errno_subclasses_and_filename_repr_match_pinned_python() {
         let script = r#"
