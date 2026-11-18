@@ -4,6 +4,7 @@
 
 - Add the hidden `legacy-evidence-verify` entry before clap, composing complete project, require-all and ordinary verification with lossless argv, exact wire exits and real-binary pinned-oracle comparisons; unported ci_inputs helper requests fail closed.
 - Skip the Linux search-only working-directory regression when the effective UID is root, which bypasses the permission restriction needed to exercise O_PATH.
+- Add opt-in signed `OWNER/NAME` repository binding to `evidence wrap`, independently enforced signer repository allowlists, and exact expected-repository verification; retain historical unbound v1 evidence until consumers opt in.
 - Bind v2 input hashing to the validated reachable graph and refuse observed link, entry-kind or directory-membership changes, including retargeted bridges and cached cycles; retain digest preimages and existing evidence verification.
 - Bind physical v2 lookup directories to their Unix device/inode identities, refusing ancestor substitutions even through previously measured legacy trees; explicitly refuse v2 observation on non-Unix platforms.
 - Bind the full requested v2 root lookup, including ancestor aliases and their link chains, and recheck its canonical resolution after hashing.

@@ -556,6 +556,7 @@ pub fn ci_statements(
             chrono::DateTime::parse_from_rfc3339(observed_at)?;
             let observed_bytes = serde_json::to_vec(job)?;
             Ok(Statement {
+                repository: None,
                 statement_type: STATEMENT_TYPE.into(),
                 subject: vec![Subject {
                     name: receipt.source.clone(),

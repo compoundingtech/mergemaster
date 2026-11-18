@@ -18,6 +18,9 @@ pub struct WrapArgs {
     pub check: String,
     #[arg(long)]
     pub base: String,
+    /// Optional signed repository identity, exactly owner/name.
+    #[arg(long)]
+    pub repository: Option<String>,
     /// Explicit JSON argv; no repository-provided signer or secret-manager fallback.
     #[arg(long)]
     pub signer: String,
@@ -93,6 +96,9 @@ fn execute(
 }
 
 pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
+    if let Some(repository) = args.repository.as_deref() {
+        super::validate_repository(repository)?;
+    }
     let cwd = std::env::current_dir()?;
     let repo = fs::canonicalize(git::text(&cwd, &["rev-parse", "--show-toplevel"])?)?;
     // Relative argv has the same meaning as the BASE lane only at the repository root.
@@ -254,6 +260,7 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     let request = Request {
         version: 1,
         repo: repo.clone(),
+        repository: args.repository.clone(),
         base: args.base.clone(),
         head: head.clone(),
         check: args.check.clone(),

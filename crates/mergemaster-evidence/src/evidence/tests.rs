@@ -20,6 +20,7 @@ fn command(program: &str, args: &[&str]) {
 
 fn policy() -> Policy {
     Policy {
+        repository: None,
         version: 1,
         risk_class: "daemon".into(),
         required_checks: BTreeSet::from(["unit-tests".into()]),
@@ -140,6 +141,7 @@ impl Fixture {
 
     fn statement(&self, fact: Fact) -> Statement {
         Statement {
+            repository: None,
             statement_type: STATEMENT_TYPE.into(),
             subject: vec![Subject {
                 name: self.head.clone(),
@@ -202,6 +204,71 @@ impl Fixture {
             &self.trusted,
             &policy(),
         )
+    }
+}
+
+#[test]
+fn repository_binding_is_optional_but_expected_identity_is_fail_closed() {
+    let f = Fixture::new();
+    let unbound = f.tests("fixture-runner", 0);
+    let bytes = serde_json::to_vec(&unbound).unwrap();
+    assert!(
+        serde_json::from_slice::<serde_json::Value>(&bytes)
+            .unwrap()
+            .get("repository")
+            .is_none()
+    );
+    let decoded: Statement = serde_json::from_slice(&bytes).unwrap();
+    assert!(decoded.repository.is_none());
+    assert!(decoded.matches_repository(None));
+    assert!(!decoded.matches_repository(Some("owner/repo")));
+
+    for test_repository in [None, Some("owner/other"), Some("owner/repo")] {
+        let f = Fixture::new();
+        let mut test = f.tests("fixture-runner", 0);
+        test.repository = test_repository.map(str::to_owned);
+        let id = f.put(&test);
+        for review_repository in [None, Some("owner/other"), Some("owner/repo")] {
+            let mut review = f.review(vec![id.clone()], Verdict::GO);
+            review.repository = review_repository.map(str::to_owned);
+            f.put(&review);
+            let mut p = policy();
+            p.repository = Some("owner/repo".into());
+            let accepted =
+                verify(f.repo(), &f.head, &f.base, "fixture-change", &f.trusted, &p).is_ok();
+            assert_eq!(
+                accepted,
+                test_repository == Some("owner/repo") && review_repository == Some("owner/repo")
+            );
+        }
+        assert!(f.verify(&f.head, &f.base).is_ok());
+    }
+}
+
+#[test]
+fn repository_identity_is_literal_and_not_a_path_or_git_object() {
+    for valid in [
+        "compoundingtech/factory",
+        "schickling/ptg",
+        "Owner/repo.name-1_2",
+    ] {
+        validate_repository(valid).unwrap();
+    }
+    for invalid in [
+        "",
+        "owner",
+        "/repo",
+        "owner/",
+        "owner/repo/extra",
+        "../repo",
+        "owner/..",
+        "owner/.",
+        "https://github.com/owner/repo",
+        "owner/repo\n",
+        "owner/é",
+        "a".repeat(40).as_str(),
+    ] {
+        assert!(validate_repository(invalid).is_err(), "{invalid:?}");
     }
 }
 
