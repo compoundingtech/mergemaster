@@ -978,6 +978,10 @@ hardening is unchanged; this primitive does not wire CLI dispatch.
 checks (3f-3a), with `statement-too-large` distinct from malformed-record refusal.
 Missing subjects are allowed without lazy fetch. `records::RecordCache`
 is constructed per candidate/check with `for_check`, with exact repo/commit/optional-tree keys.
+`records::read_statement_cli` separately injects oracle transport; native/cache defaults stay unchanged.
+Listing/statement/commit keep existing 1 MiB caps/texts with early abort; only the subject probe sets no-lazy-fetch.
+Approved fail-closed divergence: subject output above 128 bytes aborts with `Git output exceeds 128 bytes`; Python would compare oversized output with the tree.
+Ordinary Git Failure means absent; successful invalid UTF-8 raises Python's UnicodeDecodeError.
 Immutable `Arc` documents are interned per repo/commit; member hits are free and errors uncached.
 Observed records already flow through the lossless `Document`, cached `Arc<Document>`
 and borrowed `DocumentFacts`; no serde-value conversion intervenes. Real SHA-1/SHA-256

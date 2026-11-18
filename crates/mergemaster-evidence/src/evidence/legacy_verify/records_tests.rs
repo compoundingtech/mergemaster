@@ -87,9 +87,15 @@ print(json.dumps(dict(records=cases,cache=cached)))
         String::from_utf8_lossy(&output.stderr)
     );
     let cases: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    for case in cases["records"].as_array().unwrap() {
+    for (case, transport) in cases["records"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|case| [Transport::Native, Transport::Cli].map(|transport| (case, transport)))
+    {
         let tree = case["tree"].as_str();
-        let actual = read_statement(
+        let actual = read_with(
+            transport,
             Path::new(case["repo"].as_str().unwrap()),
             case["commit"].as_str().unwrap(),
             tree,

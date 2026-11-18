@@ -1,19 +1,17 @@
 //! Record structure and subject binding only; signature trust is a separate gate.
 use super::{
+    record_transport::Transport,
     statement::{MAX_STATEMENT_BYTES, array, field, statement_of, string},
     statement_document::Document,
 };
-use crate::{
-    evidence::{legacy_policy::PolicyError, oid},
-    gate::git::git_bounded,
-};
+use crate::evidence::{legacy_policy::PolicyError, oid};
 use indexmap::{Equivalent, IndexMap};
 use std::{
     ffi::{OsStr, OsString},
     path::Path,
     sync::Arc,
 };
-fn error(detail: impl ToString) -> PolicyError {
+pub(super) fn error(detail: impl ToString) -> PolicyError {
     PolicyError {
         resource: None,
         origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
@@ -39,13 +37,30 @@ pub fn read_statement(
     commit: &str,
     tree: Option<&str>,
 ) -> Result<Option<Document>, PolicyError> {
-    oid(commit).map_err(error)?;
-    let listing = git_bounded(
+    read_with(Transport::Native, repo, commit, tree)
+}
+/// Oracle inherited transport and early-aborting capture, not native Git.
+pub fn read_statement_cli(
+    repo: &Path,
+    commit: &str,
+    tree: Option<&str>,
+) -> Result<Option<Document>, PolicyError> {
+    read_with(Transport::Cli, repo, commit, tree)
+}
+fn read_with(
+    transport: Transport,
+    repo: &Path,
+    commit: &str,
+    tree: Option<&str>,
+) -> Result<Option<Document>, PolicyError> {
+    if transport == Transport::Native {
+        oid(commit).map_err(error)?;
+    }
+    let listing = transport.read(
         repo,
         &["ls-tree", "-r", "-z", "--end-of-options", commit],
         MAX_STATEMENT_BYTES,
-    )
-    .map_err(error)?;
+    )?;
     let mut rows = listing.split(|b| *b == 0).filter(|v| !v.is_empty());
     let Some(row) = rows.next() else {
         return Ok(None);
@@ -53,7 +68,12 @@ pub fn read_statement(
     if rows.next().is_some() {
         return Ok(None);
     }
-    let entry = std::str::from_utf8(row).map_err(error)?;
+    let entry = if transport == Transport::Cli {
+        super::crate_inputs_text::utf8(row)
+            .map_err(|e| super::crate_manifest_ops::exception("UnicodeDecodeError", e))?
+    } else {
+        std::str::from_utf8(row).map_err(error)?
+    };
     let Some((meta, path)) = entry.split_once('\t') else {
         return Ok(None);
     };
@@ -66,38 +86,37 @@ pub fn read_statement(
     if oid(blob_id).is_err() || oid(path).is_err() || tree.is_some_and(|t| t != path) {
         return Ok(None);
     }
-    let size =
-        git_bounded(repo, &["cat-file", "-s", "--end-of-options", blob_id], 64).map_err(error)?;
-    let size: u64 = std::str::from_utf8(&size)
-        .map_err(error)?
-        .trim()
-        .parse()
-        .map_err(error)?;
-    if size > MAX_STATEMENT_BYTES as u64 {
-        return Err(PolicyError {
-            resource: None,
-            origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
-            reason: "statement-too-large",
-            detail: format!("record statement exceeds {MAX_STATEMENT_BYTES} bytes").into(),
-        });
+    if transport == Transport::Native {
+        let size = transport.read(repo, &["cat-file", "-s", "--end-of-options", blob_id], 64)?;
+        let size: u64 = std::str::from_utf8(&size)
+            .map_err(error)?
+            .trim()
+            .parse()
+            .map_err(error)?;
+        if size > MAX_STATEMENT_BYTES as u64 {
+            return Err(PolicyError {
+                resource: None,
+                origin: crate::evidence::legacy_policy::ErrorOrigin::Failure,
+                reason: "statement-too-large",
+                detail: format!("record statement exceeds {MAX_STATEMENT_BYTES} bytes").into(),
+            });
+        }
     }
-    // Check object size first for a distinct diagnostic; bound capture independently.
-    let blob = git_bounded(
+    // Native checks declared object size first; CLI checks while capturing bytes.
+    let blob = transport.read(
         repo,
         &["cat-file", "blob", "--end-of-options", blob_id],
         MAX_STATEMENT_BYTES,
-    )
-    .map_err(error)?;
+    )?;
     let Some(doc) = statement_of(&blob, path)? else {
         return Ok(None);
     };
     let subject = validated_subject(&doc)?;
-    let raw = git_bounded(
+    let raw = transport.read(
         repo,
         &["cat-file", "commit", "--end-of-options", commit],
         MAX_STATEMENT_BYTES,
-    )
-    .map_err(error)?;
+    )?;
     let end = raw
         .windows(2)
         .position(|p| p == b"\n\n")
@@ -113,21 +132,21 @@ pub fn read_statement(
         return Ok(None);
     }
     // A missing subject is allowed in shallow/partial stores, never lazily fetched.
-    // Oracle parity (evidence-verify:758-762): every probe failure counts as absent,
-    // not only missing objects. Tighten Python and Rust together after cutover.
-    let present = git_bounded(
-        repo,
-        &[
-            "rev-parse",
-            "--verify",
-            "--quiet",
-            "--end-of-options",
-            &format!("{subject}^{{tree}}"),
-        ],
-        128,
-    )
-    .ok();
-    if present.is_some_and(|v| v.strip_suffix(b"\n").unwrap_or(&v) != path.as_bytes()) {
+    // Ordinary Git failures mean absent; CLI cap errors and decode errors abort.
+    let present = transport.subject(repo, &format!("{subject}^{{tree}}"))?;
+    let mismatch = if transport == Transport::Cli {
+        present
+            .as_deref()
+            .map(|v| {
+                super::crate_inputs_text::utf8(v)
+                    .map_err(|e| super::crate_manifest_ops::exception("UnicodeDecodeError", e))
+            })
+            .transpose()?
+            .is_some_and(|v| v.trim_matches(super::projection_oid::space) != path)
+    } else {
+        present.is_some_and(|v| v.strip_suffix(b"\n").unwrap_or(&v) != path.as_bytes())
+    };
+    if mismatch {
         return Ok(None);
     }
     Ok(Some(doc))
