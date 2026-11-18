@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add the hidden `legacy-evidence-verify` entry before clap, composing complete project, require-all and ordinary verification with lossless argv, exact wire exits and real-binary pinned-oracle comparisons; unported ci_inputs helper requests fail closed.
+- Skip the Linux search-only working-directory regression when the effective UID is root, which bypasses the permission restriction needed to exercise O_PATH.
 - Bind v2 input hashing to the validated reachable graph and refuse observed link, entry-kind or directory-membership changes, including retargeted bridges and cached cycles; retain digest preimages and existing evidence verification.
 - Bind physical v2 lookup directories to their Unix device/inode identities, refusing ancestor substitutions even through previously measured legacy trees; explicitly refuse v2 observation on non-Unix platforms.
 - Bind the full requested v2 root lookup, including ancestor aliases and their link chains, and recheck its canonical resolution after hashing.
@@ -26,7 +28,7 @@
 - Compute the legacy combined member key with streaming SHA-1 for oracle parity only, not for security.
 - Retain original selected legacy records and typed selection metadata for member aggregation without a JSON conversion bridge.
 - Add the library-only paths project dictionary with lossless comma splitting, shared literal-path validation and escaped JSON output.
-- Preserve ordered legacy CLI preflight diagnostics in a library-only validator; production argument parsing and policy loading remain unwired.
+- Preserve ordered legacy CLI preflight diagnostics before policy loading and other I/O.
 - Decode Rust legacy skip policies from their original JSON text with lossless codepoint identities and wide positive-integer age limits; retain lazy age-overflow errors and remove the serde-value conversion bridge.
 - Use the pinned Python interpreter for the noisy fsmonitor projection test so its hook executes inside Nix check sandboxes without `/usr/bin/env`.
 - Derive the Nix package version from the Rust crate's Cargo manifest and check the packaged CLI's version against it, preventing release metadata drift.

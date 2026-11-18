@@ -100,7 +100,7 @@ fn subprocess_driver() {
                             Err(error) => cli_dispatch::refusal(&parsed, &error).unwrap(),
                         }
                     }
-                    Ok(tree) if std::env::var_os("MM_PROJECT_ONLY").is_some() => {
+                    Ok(tree) => {
                         match cli_dispatch::project(repo, &tree, &parsed, |project| {
                             let mut stdout = String::new();
                             crate::evidence::legacy_output::write(&mut stdout, |w| {
@@ -118,11 +118,6 @@ fn subprocess_driver() {
                             Err(error) => cli_dispatch::refusal(&parsed, &error).unwrap(),
                         }
                     }
-                    Ok(tree) => Exit {
-                        stdout: format!("{{\n  \"tree\": \"{tree}\"\n}}\n"),
-                        stderr: String::new(),
-                        code: 0,
-                    },
                     Err(error) => cli_dispatch::refusal(&parsed, &error).unwrap(),
                 };
                 std::io::stdout().write_all(exit.stdout.as_bytes()).unwrap();

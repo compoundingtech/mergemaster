@@ -1,7 +1,7 @@
 #[test]
 fn ordinary_paths_match_complete_original_subprocess() {
     let script = r#"
-import datetime,hashlib,json,os,pathlib,runpy,shutil,subprocess,sys
+import datetime,hashlib,json,math,os,pathlib,re,runpy,shutil,subprocess,sys
 parent=pathlib.Path(sys.argv[1]);rows=[];oracle=parent/'oracle';oracle.mkdir();p=oracle/'evidence-verify'
 shutil.copyfile(pathlib.Path(os.environ['MERGEMASTER_PYTHON_ORACLE'])/'scripts/evidence-verify',p);shutil.copyfile(sys.argv[2],oracle/'rust-test-keys');v=runpy.run_path(str(p))
 signer=parent/'signer';subprocess.run(['ssh-keygen','-q','-t','ed25519','-N','','-f',str(signer)],check=True)
@@ -39,6 +39,22 @@ for fmt in ['sha1','sha256']:
     if not extra:assert result['satisfied'],result
     if extra==['--members'] and policy_args:assert result['satisfied'] and result['members']==2,result
     rows.append([[list(os.fsencode(s)) for s in argv],list(done.stdout),list(done.stderr),done.returncode])
+  if sys.argv[3]:
+   for asof in [datetime.datetime(1970,1,1,tzinfo=datetime.timezone.utc),datetime.datetime.now(datetime.timezone.utc)]:
+    head=git('-c','gpg.format=ssh','-c','user.signingkey='+str(signer),'commit-tree','-S',empty,data=('as_of='+asof.isoformat()).encode());git('update-ref',v['LOG_REF'],head)
+    for extra in [[],['--policy-from',accepted,'--repository','org'],['--policy-from',accepted,'--repository','org','--members']]:
+     argv=['--repo',str(repo),'--tree',tree,'--check','x','--keys',str(keys),'--log-keys',str(logs),*extra]
+     before=datetime.datetime.now(datetime.timezone.utc)
+     expected=subprocess.run([sys.executable,'-I',str(p),*argv],capture_output=True)
+     actual=subprocess.run([sys.argv[3],'legacy-evidence-verify',*argv],capture_output=True)
+     after=datetime.datetime.now(datetime.timezone.utc)
+     for done in [expected,actual]:
+      value=json.loads(done.stdout);assert value['satisfied'] and value['log_head']==head,value
+      assert math.floor((before-asof).total_seconds()) <= value['log_age_s'] <= math.floor((after-asof).total_seconds()),value
+      assert done.stdout.endswith(b'\n')
+     def normalize(data):return re.sub(rb'("log_age_s": )-?\d+',rb'\g<1>0',data)
+     assert (normalize(actual.stdout),actual.stderr,actual.returncode)==(normalize(expected.stdout),expected.stderr,expected.returncode),(actual,expected)
+   git('update-ref',v['LOG_REF'],log)
   for mode in ['ordinary','project','required']:
    for revision in ['-x','--output=f']:
     argv=['--repo',str(repo),'--tree','HEAD','--policy-from='+revision,'--repository','org']+(['--require-all','--keys',str(keys)] if mode=='required' else ['--check','x']+(['--project'] if mode=='project' else ['--keys',str(keys)]))
@@ -54,6 +70,7 @@ print(json.dumps(rows))
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../tests/fixtures/fractal/scripts/rust-test-keys"),
         )
+        .arg(option_env!("CARGO_BIN_EXE_mergemaster").unwrap_or(""))
         .output()
         .unwrap();
     assert!(

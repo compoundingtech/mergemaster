@@ -197,5 +197,10 @@ fn non_linux_git_search_only_cwd_matches_python() {
 #[cfg(any(target_os = "linux", target_os = "android"))]
 #[test]
 fn linux_git_search_only_cwd_uses_o_path() {
+    // Root bypasses the read restriction, so this would not exercise O_PATH.
+    // SAFETY: geteuid has no preconditions and does not mutate process state.
+    if unsafe { libc::geteuid() } == 0 {
+        return;
+    }
     assert_search_only_cwd_matches_python();
 }
