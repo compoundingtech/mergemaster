@@ -1,9 +1,6 @@
 use super::*;
 use serde_json::json;
-use std::{
-    io::Write,
-    process::{Command, Stdio},
-};
+use std::{io::Write, process::Stdio};
 fn snapshot(value: &Value) -> serde_json::Value {
     match value {
         Value::String(s) => json!(["str", s]),
@@ -106,7 +103,7 @@ print(json.dumps(cases))
         std::fs::read_to_string(root.join("Cargo.toml")).unwrap(),
         std::fs::read_to_string(root.join("crates/mergemaster-evidence/Cargo.toml")).unwrap(),
     ];
-    let mut child = Command::new("python3")
+    let mut child = crate::pinned_python::command()
         .args(["-c", script])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

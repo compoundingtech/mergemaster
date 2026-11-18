@@ -66,7 +66,7 @@ rows=[]
 for columns in ['80','20','0','-1','garbage','  +９_０  ']:
  for argv in cases:
   env=dict(os.environ,COLUMNS=columns,NO_COLOR='1'); env.pop('FORCE_COLOR',None)
-  done=subprocess.run([sys.executable,str(p),*argv],env=env,capture_output=True)
+  done=subprocess.run([sys.executable,'-I',str(p),*argv],env=env,capture_output=True)
   # Approved #245 interpolation divergence: only this raw-byte unknown argument needs escaping.
   err=done.stderr.replace(b'--unknown\xff',b'--unknown\\udcff')
   rows.append([columns,[list(os.fsencode(s)) for s in argv],list(done.stdout),list(err),done.returncode])
@@ -82,7 +82,7 @@ for argv in [['--tree','a'*40],['--revision','HEAD','--check',chr(0xdcff),'--run
  rows.append(['80',[list(os.fsencode(s)) for s in argv],list(json.dumps(values,separators=(',',':')).encode()),[],0])
 print(json.dumps(rows))
 "#;
-    let output = Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .output()
         .unwrap();
@@ -137,11 +137,11 @@ variants += [a+b for i,a in enumerate(variants[1:]) for b in variants[i+2:]]
 rows=[]
 for extra in variants:
  argv=base+extra;env=dict(os.environ,NO_COLOR='1');env.pop('FORCE_COLOR',None)
- done=subprocess.run([sys.executable,'-c',source,*argv],capture_output=True,env=env)
+ done=subprocess.run([sys.executable,'-I','-c',source,*argv],capture_output=True,env=env)
  rows.append([[list(os.fsencode(s)) for s in argv],list(done.stdout),list(done.stderr),done.returncode])
 print(json.dumps(rows))
 "#;
-    let output = Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .output()
         .unwrap();

@@ -1,4 +1,6 @@
 //! Offline CLI contract: transporting/importing evidence needs no daemon or signing key.
+#[path = "../src/pinned_python.rs"]
+mod pinned_python;
 use mergemaster_evidence::evidence::{
     self, Check, Fact, Observation, Policy, Statement, Subject, TrustTier, Verdict,
 };
@@ -886,8 +888,8 @@ os.execv(os.environ['FIXTURE_REAL_GIT'],[os.environ['FIXTURE_REAL_GIT'],*args])
 fn immutable_wrapper_record_matches_oracle_even_when_shallow() {
     let oracle = std::env::var_os("MERGEMASTER_PYTHON_ORACLE")
         .expect("MERGEMASTER_PYTHON_ORACLE must be set; run tests in nix develop");
-    let output = Command::new("python3")
-        .args(["-I", "-B", "-c", LEGACY_RECORD_DRIVER])
+    let output = pinned_python::command()
+        .args(["-B", "-c", LEGACY_RECORD_DRIVER])
         .arg(env!("CARGO_BIN_EXE_mergemaster"))
         .arg(oracle)
         .arg(

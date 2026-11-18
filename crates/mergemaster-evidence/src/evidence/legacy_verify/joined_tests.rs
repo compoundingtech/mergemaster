@@ -14,8 +14,7 @@ use std::{
     process::Command,
 };
 
-fn command(program: &str, home: &Path) -> Command {
-    let mut command = Command::new(program);
+fn command(mut command: Command, home: &Path) -> Command {
     command
         .env_clear()
         .env("PATH", std::env::var_os("PATH").unwrap())
@@ -87,7 +86,7 @@ print(json.dumps(cases))
 "#;
     let oracle = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
     let root = tempfile::tempdir().unwrap();
-    let output = command("python3", root.path())
+    let output = command(crate::pinned_python::command(), root.path())
         .args(["-c", script, &oracle])
         .arg(root.path())
         .output()
@@ -119,7 +118,7 @@ print(json.dumps(cases))
                 .push(hex::encode(path.as_os_str().as_bytes()));
             let mut object = OsString::from(format!("{}:", self.tree));
             object.push(path.as_os_str());
-            let output = command("git", self.home)
+            let output = command(Command::new("git"), self.home)
                 .arg("-C")
                 .arg(self.repo)
                 .args(["cat-file", "blob"])

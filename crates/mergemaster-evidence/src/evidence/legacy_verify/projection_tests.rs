@@ -344,7 +344,7 @@ fn successful_noisy_fsmonitor_matches_projection_oracle() {
     std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
     git(repo, &["config", "core.fsmonitor", hook.to_str().unwrap()]).unwrap();
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap();
-    let output = Command::new("python3").args([
+    let output = crate::pinned_python::command().args([
         "-c", "import runpy,sys; o=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify');print(o['project'](sys.argv[2],sys.argv[3],['wanted']))",
         &root, repo.to_str().unwrap(), tree.trim(),
     ]).output().unwrap();
@@ -370,7 +370,7 @@ fn projection_timeout_uses_oracle_full_argv_and_caller_cwd() {
     let repo = Path::new("relative-repository");
     let mut command = projection_command(repo, &["hash-object", "--stdin"]).unwrap();
     assert!(command.get_current_dir().is_none());
-    let oracle = Command::new("python3").args(["-c", "import subprocess; print('git hash-object: '+str(subprocess.TimeoutExpired(['git','-C','relative-repository','-c','gpg.format=ssh','-c','gpg.ssh.program=ssh-keygen','-c','commit.gpgSign=false','hash-object','--stdin'],0)))"]).output().unwrap();
+    let oracle = crate::pinned_python::command().args(["-c", "import subprocess; print('git hash-object: '+str(subprocess.TimeoutExpired(['git','-C','relative-repository','-c','gpg.format=ssh','-c','gpg.ssh.program=ssh-keygen','-c','commit.gpgSign=false','hash-object','--stdin'],0)))"]).output().unwrap();
     assert!(oracle.status.success());
     let failure = projection_capture::exchange(
         &mut command,
@@ -422,7 +422,7 @@ fn alternate_objects_cover_listing_config_resolution_and_selected_blob() {
     let tree = tree.trim();
     let objects = source.join(".git/objects");
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap();
-    let oracle = Command::new("python3")
+    let oracle = crate::pinned_python::command()
         .args(["-c", "import runpy,sys;o=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify');print(o['project'](sys.argv[2],sys.argv[3],['wanted','.st/inputs.json::selected']))",
             &root, repo.to_str().unwrap(), tree])
         .env("GIT_ALTERNATE_OBJECT_DIRECTORIES", &objects)
@@ -450,7 +450,7 @@ fn alternate_objects_cover_listing_config_resolution_and_selected_blob() {
 #[test]
 fn read_timeouts_preserve_exact_oracle_command_strings() {
     let tree = "a".repeat(40);
-    let output = Command::new("python3")
+    let output = crate::pinned_python::command()
         .args([
             "-c",
             r#"
@@ -502,7 +502,7 @@ fn embedded_nul_refusals_and_whole_tree_laziness_match_oracle() {
         vec!["!a\0b"],
     ];
     let tree = "a".repeat(40);
-    let output = Command::new("python3")
+    let output = crate::pinned_python::command()
         .args([
             "-c",
             r#"
@@ -578,7 +578,7 @@ for paths in cases:
  out.append(dict(paths=[list(map(ord,p)) for p in paths],result=result))
 print(json.dumps(dict(tree=tree,cases=out)))
 "#;
-    let output = Command::new("python3")
+    let output = crate::pinned_python::command()
         .args([
             "-c",
             script,

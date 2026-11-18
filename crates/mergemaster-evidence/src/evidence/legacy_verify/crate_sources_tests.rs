@@ -54,7 +54,7 @@ print(json.dumps(cases))
     let repo = tempfile::tempdir().unwrap();
     let script_path =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/st-test");
-    let out = Command::new("python3")
+    let out = crate::pinned_python::command()
         .args(["-c", script])
         .arg(script_path)
         .arg(repo.path())
@@ -104,7 +104,7 @@ import json
 samples=[b'\x1c\xff\xed\xa0\x80\xf0\x9f\x1f', ('\u2003'+('é🦀'*250)+'\x1c').encode(), b'\xef\xbb\xbf\0\n']
 print(json.dumps([[list(b),'git show failed: '+b.decode(errors='replace').strip()[-400:]] for b in samples]))
 "#;
-    let out = Command::new("python3")
+    let out = crate::pinned_python::command()
         .args(["-c", script])
         .output()
         .unwrap();

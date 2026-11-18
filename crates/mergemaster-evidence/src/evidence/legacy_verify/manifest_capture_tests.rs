@@ -39,7 +39,7 @@ for permission in [False,True]:
  finally:os.environ['PATH']=old
 print(json.dumps(dict(rows=rows,errors=errors)))
 "#;
-    let out = Command::new("python3")
+    let out = crate::pinned_python::command()
         .args(["-c", script])
         .arg(root.path())
         .output()

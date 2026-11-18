@@ -1,4 +1,6 @@
 //! Generic single-lane gate contracts, using actual Git objects and SSH signatures.
+#[path = "../src/pinned_python.rs"]
+mod pinned_python;
 use mergemaster_evidence::gate::config::{expected_inputs, load};
 use serde_json::{Value, json};
 use sha2::Digest;
@@ -103,7 +105,12 @@ impl Fixture {
     }
 
     fn command(&self, program: impl AsRef<std::ffi::OsStr>) -> Command {
-        let mut command = Command::new(program);
+        self.configured(Command::new(program))
+    }
+    fn oracle_command(&self) -> Command {
+        self.configured(pinned_python::command())
+    }
+    fn configured(&self, mut command: Command) -> Command {
         command
             .env_clear()
             .env("PATH", std::env::var_os("PATH").unwrap())
@@ -367,7 +374,7 @@ print((root / name).read_text())
             ),
         )
         .unwrap();
-        self.command("python3")
+        self.oracle_command()
             .arg(script)
             .args(["--repo"])
             .arg(&self.repo)
@@ -408,7 +415,7 @@ print((root / name).read_text())
         // Isolate selection from digest derivation: Rust's compact-JSON lane
         // digest differs from legacy --lane-from. The oracle code is unchanged.
         let output = self
-            .command("python3")
+            .oracle_command()
             .args([
                 "-c",
                 r#"
@@ -2682,7 +2689,7 @@ fn moved_python_signer_produces_a_record_the_generic_gate_accepts() {
     )
     .join("scripts/evidence-sign");
     let mut signer = f
-        .command("python3")
+        .oracle_command()
         .arg(script)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -3547,7 +3554,7 @@ except oracle['Failure'] as failure:
     print(json.dumps(dict(reason=failure.reason, attempts=failure.extra['attempts'])))
 "#;
         let output = f
-            .command("python3")
+            .oracle_command()
             .args([
                 "-c",
                 script,
@@ -3813,7 +3820,7 @@ except OverflowError:
     print(json.dumps(dict(reason='error', attempts=0, exception='OverflowError'))) # absent metadata, normalized transport only
 "#;
         let output = f
-            .command("python3")
+            .oracle_command()
             .args([
                 "-c",
                 script,
@@ -4136,7 +4143,7 @@ except oracle['Failure'] as failure:
 print(json.dumps(dict(result=result,lane_reads=len(reads),blobs=blobs)))
 "#;
         let output = f
-            .command("python3")
+            .oracle_command()
             .args([
                 "-c",
                 script,
@@ -4217,7 +4224,7 @@ add('missing definition',definition=None)
 print(json.dumps(cases))
 "#;
     let output = f
-        .command("python3")
+        .oracle_command()
         .args(["-c", script, &root, f.repo.to_str().unwrap(), &f.tree])
         .output()
         .unwrap();
@@ -4416,7 +4423,7 @@ except o['Failure'] as e:
 print(json.dumps(dict(entries=entries,result=result)))
 "#;
         let output = f
-            .command("python3")
+            .oracle_command()
             .args([
                 "-c",
                 script,
@@ -4464,7 +4471,7 @@ fn legacy_lane_branch_diagnostics_match_pinned_handlers_losslessly() {
     f.write(".st/required-lanes.json", text);
     let accepted = f.commit("empty accepted lanes");
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
-    let output = f.command("python3").args(["-c", r#"
+    let output = f.oracle_command().args(["-c", r#"
 import ast,json,runpy,sys,types
 path=sys.argv[1]+'/scripts/evidence-verify';v=runpy.run_path(path)
 repo,accepted,tree,base=sys.argv[2:]
@@ -4679,7 +4686,7 @@ except o['Failure'] as e:
 print(json.dumps(result))
 "#;
         let output = f
-            .command("python3")
+            .oracle_command()
             .args([
                 "-c",
                 script,
@@ -4743,7 +4750,7 @@ print(json.dumps([[m,h,p.encode('utf-8','surrogateescape').hex()] for m,h,p in
     sorted(o['definition_entries'](sys.argv[2],sys.argv[3],['source.txt']))]))
 "#;
     let expected = f
-        .command("python3")
+        .oracle_command()
         .args(["-c", script, &root, f.repo.to_str().unwrap(), &f.tree])
         .output()
         .unwrap();
@@ -4881,7 +4888,7 @@ print(json.dumps(dict(
     notes=[o['with_note_for'](repo,b,tree) for b in batches])))
 "#;
     let output = f
-        .command("python3")
+        .oracle_command()
         .args([
             "-c",
             script,
@@ -4939,7 +4946,7 @@ fn legacy_tree_record_indexes_match_real_oracle() {
                 .map(|width| legacy_refs(&repo, width).unwrap())
                 .collect();
             let output = f
-                .command("python3")
+                .oracle_command()
                 .args([
                     "-c",
                     r#"
@@ -5108,7 +5115,7 @@ print(json.dumps(dict(path=os.fsencode(sys.argv[4]).hex(),
         let seen = RefCell::new(Vec::new());
         for (index, bytes) in paths.iter().enumerate() {
             let path = Path::new(std::ffi::OsStr::from_bytes(bytes));
-            let output = Command::new(python_executable())
+            let output = pinned_python::command()
                 .args(["-c", script, &oracle])
                 .arg(root.path())
                 .arg(tree)

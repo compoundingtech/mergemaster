@@ -39,7 +39,7 @@ fn stderr_is_bounded_but_only_exit_status_refuses() {
             );
         }
     }
-    let oracle=Command::new("python3").args(["-c","import json; samples=[b'fatal: bad tree\\n',b'warning: first\\nfatal: last\\n',b'\\xff\\xfe fatal\\n',b'\\x1c\\xc2\\x85fatal: unicode\\xc2\\x85\\x1f']; print(json.dumps([[s.hex(),'git write-tree: '+s.decode(errors='replace').strip()] for s in samples]))"]).output().unwrap();
+    let oracle=crate::pinned_python::command().args(["-c","import json; samples=[b'fatal: bad tree\\n',b'warning: first\\nfatal: last\\n',b'\\xff\\xfe fatal\\n',b'\\x1c\\xc2\\x85fatal: unicode\\xc2\\x85\\x1f']; print(json.dumps([[s.hex(),'git write-tree: '+s.decode(errors='replace').strip()] for s in samples]))"]).output().unwrap();
     let cases: Vec<Value> = serde_json::from_slice(&oracle.stdout).unwrap();
     for case in cases {
         let error = run(&oid, ExpectedOutput::Sha1, case[0].as_str().unwrap(), 1, 7).unwrap_err();

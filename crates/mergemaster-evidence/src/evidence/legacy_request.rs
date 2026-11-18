@@ -348,7 +348,7 @@ fn validate_nix(
 #[cfg(test)]
 mod tests {
     use serde_json::Value;
-    use std::{path::PathBuf, process::Command};
+    use std::path::PathBuf;
 
     #[test]
     fn legacy_requests_match_python_validation() {
@@ -357,7 +357,7 @@ mod tests {
                 .expect("MERGEMASTER_PYTHON_ORACLE must be set; run tests in nix develop"),
         )
         .join("scripts/evidence-sign");
-        let output = Command::new("python3").args(["-I", "-B", "-c", r#"
+        let output = crate::pinned_python::command().args(["-B", "-c", r#"
 import copy, importlib.machinery, importlib.util, json, sys
 loader = importlib.machinery.SourceFileLoader('oracle', sys.argv[1])
 spec = importlib.util.spec_from_loader(loader.name, loader)

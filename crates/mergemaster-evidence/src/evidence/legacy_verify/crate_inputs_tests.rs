@@ -1,7 +1,7 @@
 use super::*;
 use serde_json::{Value, json};
 fn python(script: &str, args: &[&std::ffi::OsStr]) -> Vec<Value> {
-    let out = Command::new("python3")
+    let out = crate::pinned_python::command()
         .args(["-c", script])
         .args(args)
         .output()

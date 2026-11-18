@@ -1,5 +1,4 @@
 use super::*;
-use std::process::Command;
 #[test]
 fn log_lines_matches_real_git_bytes_gc_whitespace_and_oid_shapes() {
     let fixture = tempfile::tempdir().unwrap();
@@ -24,7 +23,7 @@ for fmt in ['sha1','sha256']:
  rows.append(dict(repo=str(repo),head=tree,path='absent',check='check',expected=[]))
 print(json.dumps(rows))
 "#;
-    let output = Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .arg(std::env::var("MERGEMASTER_PYTHON_PARITY_ORACLE").unwrap())
         .arg(fixture.path())

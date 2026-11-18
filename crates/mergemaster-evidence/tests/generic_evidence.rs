@@ -1,5 +1,7 @@
 //! Real wrapper -> isolated signer -> origin -> Rust/Python verifier contracts, without Nix.
 #![cfg(unix)]
+#[path = "../src/pinned_python.rs"]
+mod pinned_python;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
@@ -137,7 +139,12 @@ impl Fixture {
         vec![self.runtime.to_str().unwrap().into(), "tools/check".into()]
     }
     fn command(&self, executable: impl AsRef<std::ffi::OsStr>) -> Command {
-        let mut c = Command::new(executable);
+        self.configured(Command::new(executable))
+    }
+    fn oracle_command(&self) -> Command {
+        self.configured(pinned_python::command())
+    }
+    fn configured(&self, mut c: Command) -> Command {
         c.current_dir(&self.repo)
             .env_clear()
             .env("PATH", std::env::var_os("PATH").unwrap())
@@ -226,7 +233,7 @@ impl Fixture {
         ])
     }
     fn python(&self) -> Output {
-        self.command("python3")
+        self.oracle_command()
             .arg(
                 PathBuf::from(
                     std::env::var_os("MERGEMASTER_PYTHON_ORACLE")

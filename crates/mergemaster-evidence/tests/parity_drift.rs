@@ -1,9 +1,11 @@
+#[path = "../src/pinned_python.rs"]
+mod pinned_python;
 #[test]
 fn python_oracle_parity() {
     let root = std::env::var_os("MERGEMASTER_PYTHON_PARITY_ORACLE")
         .expect("MERGEMASTER_PYTHON_PARITY_ORACLE must be set; run tests in nix develop");
-    let status = std::process::Command::new("python3")
-        .args(["-I", "-B", "-c", DRIVER])
+    let status = pinned_python::command()
+        .args(["-B", "-c", DRIVER])
         .arg(root)
         .arg(env!("CARGO_BIN_EXE_mergemaster"))
         .status()
@@ -19,12 +21,18 @@ loader = importlib.machinery.SourceFileLoader('oracle_tests', str(root / 'script
 spec = importlib.util.spec_from_loader(loader.name, loader)
 oracle = importlib.util.module_from_spec(spec)
 loader.exec_module(oracle)
-original = oracle.DriftTest.run_guard
+
+def original(self, *args, raw=False):
+    expected = subprocess.run([sys.executable, '-I', str(root / 'scripts/parity-drift'),
+        '--fractal-repo', str(self.repo), '--provenance', str(self.provenance), *args],
+        env=self.env, capture_output=True, text=True)
+    if not raw and expected.returncode in (0, 1) and expected.stdout:
+        for row in json.loads(expected.stdout)['commits']:
+            self.assertRegex(row, r'^[0-9a-f]{40} [^\r\n]+$')
+    return expected
 
 def compare(self, *args, raw=False):
-    expected = subprocess.run(['python3', str(root / 'scripts/parity-drift'),
-        '--fractal-repo', str(self.repo), '--provenance', str(self.provenance), *args],
-        env=self.env, capture_output=True, text=True) if raw else original(self, *args)
+    expected = original(self, *args, raw=raw)
     actual = subprocess.run([binary, 'parity-drift', '--fractal-repo', str(self.repo),
         '--provenance', str(self.provenance), *args], env=self.env, capture_output=True, text=True)
     self.assertEqual(actual.returncode, expected.returncode, actual.stderr)
