@@ -96,12 +96,23 @@ fn test_count_error(detail: String) -> PolicyError {
 /// One owner per candidate check; reuse across that check's member crates.
 pub struct CandidateCollector {
     cache: RecordCache,
+    cli: bool,
 }
 impl CandidateCollector {
     pub fn for_check() -> Self {
         Self {
             cache: RecordCache::for_check(),
+            cli: false,
         }
+    }
+    pub fn for_cli_check() -> Self {
+        Self {
+            cache: RecordCache::for_cli_check(),
+            cli: true,
+        }
+    }
+    pub(super) fn is_cli(&self) -> bool {
+        self.cli
     }
     /// Return the entire ordered structural candidate set, or abort on any error.
     /// `inputs` is rules.inputs, not an authorization decision. Crate binding wins.
@@ -114,8 +125,17 @@ impl CandidateCollector {
         crate_key: Option<CrateBinding<'_>>,
     ) -> Result<Collected, PolicyError> {
         self.cache.check_budget()?;
-        let legacy = discovery::legacy_refs(repo, tree.len())?;
-        let mut commits: IndexSet<_> = discovery::tree_refs(repo, tree)?.into_iter().collect();
+        let legacy = if self.cli {
+            super::cli_discovery::legacy_refs
+        } else {
+            discovery::legacy_refs
+        }(repo, tree.len())?;
+        let refs = if self.cli {
+            super::cli_discovery::tree_refs
+        } else {
+            discovery::tree_refs
+        }(repo, tree)?;
+        let mut commits: IndexSet<_> = refs.into_iter().collect();
         for commit in &legacy {
             if !commits.contains(commit) {
                 commits.insert(commit.clone());
@@ -123,7 +143,12 @@ impl CandidateCollector {
         }
         let commits: Vec<_> = commits.into_iter().collect();
         let mut mine = IndexMap::new();
-        for commit in discovery::with_note_for(repo, &commits, tree)? {
+        let hits = if self.cli {
+            super::cli_discovery::with_note_for
+        } else {
+            discovery::with_note_for
+        }(repo, &commits, tree)?;
+        for commit in hits {
             if let Some(statement) = self.cache.load(repo, commit, Some(tree))? {
                 mine.insert(commit.to_owned(), statement);
             }
@@ -152,7 +177,12 @@ impl CandidateCollector {
             None
         };
         if let Some(key) = input_key.as_deref() {
-            for commit in discovery::input_refs(repo, check, key)? {
+            let refs = if self.cli {
+                super::cli_discovery::input_refs(repo, check, key)?
+            } else {
+                discovery::input_refs(repo, check, key)?
+            };
+            for commit in refs {
                 if mine.contains_key(&commit) {
                     continue;
                 }

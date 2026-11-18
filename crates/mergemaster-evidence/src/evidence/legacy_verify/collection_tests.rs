@@ -73,10 +73,20 @@ print(json.dumps(results))
         String::from_utf8_lossy(&output.stderr)
     );
     let fixtures: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    for fixture in fixtures.as_array().unwrap() {
+    for (fixture, cli) in fixtures
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|f| [(f, false), (f, true)])
+    {
         let repo = Path::new(fixture["repo"].as_str().unwrap());
         let tree = fixture["tree"].as_str().unwrap();
-        let mut collector = CandidateCollector::for_check();
+        let new_collector = if cli {
+            CandidateCollector::for_cli_check
+        } else {
+            CandidateCollector::for_check
+        };
+        let mut collector = new_collector();
         for call in fixture["calls"].as_array().unwrap() {
             let paths = call["paths"].as_array().map(|a| {
                 a.iter()
@@ -122,7 +132,7 @@ print(json.dumps(results))
             );
         }
         assert!(
-            !CandidateCollector::for_check()
+            !new_collector()
                 .collect(repo, tree, "check", None, None)
                 .unwrap()
                 .records
@@ -130,7 +140,7 @@ print(json.dumps(results))
         );
         let bad_key = fixture["bad"].as_str().unwrap();
         for target in [bad_key, tree] {
-            let error = CandidateCollector::for_check()
+            let error = new_collector()
                 .collect(
                     repo,
                     target,

@@ -142,6 +142,19 @@ print(json.dumps(dict(cases=cases,blobs=blobs)))
             ),
             blob["expected"]
         );
+        let mut cli = CliGitProvider {
+            repo: provider.repo,
+            tree: provider.tree,
+        };
+        assert_eq!(
+            json!(
+                cli.blob_sha256(super::super::judgment::BindingPath::Native(Path::new(
+                    &path
+                )))
+                .unwrap()
+            ),
+            blob["expected"]
+        );
     }
 }
 

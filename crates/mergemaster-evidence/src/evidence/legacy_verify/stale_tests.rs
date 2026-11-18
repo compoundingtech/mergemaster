@@ -58,14 +58,24 @@ print(json.dumps(cases))
         String::from_utf8_lossy(&output.stderr)
     );
     let cases: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    for case in cases.as_array().unwrap() {
+    for (case, cli) in cases
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|c| [(c, false), (c, true)])
+    {
         let commits: Vec<_> = case["commits"]
             .as_array()
             .unwrap()
             .iter()
             .map(|s| s.as_str().unwrap().to_owned())
             .collect();
-        let result = other_trees_have(
+        let read = if cli {
+            other_trees_have_cli
+        } else {
+            other_trees_have
+        };
+        let result = read(
             Path::new(case["repo"].as_str().unwrap()),
             &commits,
             case["tree"].as_str().unwrap(),
