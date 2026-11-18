@@ -190,6 +190,14 @@ impl Fixture {
         self.git(&["rev-parse", "HEAD"])
     }
     fn wrap(&self, signer: Option<Value>, argv: Option<Vec<String>>) -> Output {
+        self.wrap_repository(None, signer, argv)
+    }
+    fn wrap_repository(
+        &self,
+        repository: Option<&str>,
+        signer: Option<Value>,
+        argv: Option<Vec<String>>,
+    ) -> Output {
         let signer = signer.unwrap_or_else(|| {
             json!([
                 env!("CARGO_BIN_EXE_mergemaster"),
@@ -199,11 +207,16 @@ impl Fixture {
                 self.config
             ])
         });
-        self.command(env!("CARGO_BIN_EXE_mergemaster"))
+        let mut command = self.command(env!("CARGO_BIN_EXE_mergemaster"));
+        command
             .args([
                 "evidence", "wrap", "--check", CHECK, "--base", &self.base, "--config",
             ])
-            .arg(&self.config)
+            .arg(&self.config);
+        if let Some(repository) = repository {
+            command.args(["--repository", repository]);
+        }
+        command
             .args(["--signer", &signer.to_string(), "--"])
             .args(argv.unwrap_or_else(|| self.argv()))
             .output()
@@ -437,6 +450,67 @@ fn undeclared_inputs_mutations_and_signer_time_tampering_refuse() {
 }
 
 #[test]
+fn repository_binding_is_signed_and_allowed_by_account_policy() {
+    for restricted in [false, true] {
+        let f = Fixture::new("required_evidence", "printf ok");
+        if restricted {
+            let mut config: Value = serde_json::from_slice(&fs::read(&f.config).unwrap()).unwrap();
+            config["repositories"] = json!(["fixture/repo", "fixture/other"]);
+            fs::write(&f.config, config.to_string()).unwrap();
+        }
+        let output = f.wrap_repository(Some("fixture/repo"), None, None);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(fs::read(&f.counter).unwrap(), b"x");
+        let decision = f.gate();
+        assert_eq!(decision["decision"], "skip");
+        let reference = f.refs();
+        assert_eq!(reference.lines().count(), 1);
+        let record = f.git(&[
+            "show",
+            &format!("{reference}:{}", decision["tree"].as_str().unwrap()),
+        ]);
+        let statement: Value = serde_json::from_str(&record).unwrap();
+        assert_eq!(statement["repository"], "fixture/repo");
+        assert_eq!(statement["predicate"]["observed"]["runner"], "wrapper");
+        assert!(statement["predicate"].get("repository").is_none());
+    }
+}
+
+#[test]
+fn signer_repository_allowlist_refuses_wrong_or_missing_binding() {
+    for repository in [None, Some("fixture/other"), Some("Fixture/repo")] {
+        let f = Fixture::new("required_evidence", "printf ok");
+        let mut config: Value = serde_json::from_slice(&fs::read(&f.config).unwrap()).unwrap();
+        config["repositories"] = json!(["fixture/repo"]);
+        fs::write(&f.config, config.to_string()).unwrap();
+        let output = f.wrap_repository(repository, None, None);
+        assert!(!output.status.success(), "{repository:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("evidence signer refused"), "{stderr}");
+        assert!(stderr.contains("repository"), "{stderr}");
+        assert!(f.refs().is_empty(), "{repository:?}");
+        assert_eq!(fs::read(&f.counter).unwrap(), b"x");
+    }
+}
+
+#[test]
+fn invalid_repository_binding_is_rejected_before_lane_execution() {
+    for repository in ["", "fixture", "/repo", "fixture/", "fixture/repo/extra"] {
+        let f = Fixture::new("required_evidence", "printf ok");
+        let output = f.wrap_repository(Some(repository), None, None);
+        assert!(!output.status.success(), "{repository:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("repository"), "{stderr}");
+        assert!(!f.counter.exists(), "{repository:?}");
+        assert!(f.refs().is_empty(), "{repository:?}");
+    }
+}
+
+#[test]
 fn wrap_sign_publish_skip_and_input_mutation_cannot_reuse_evidence() {
     for mode in ["required_evidence", "optional_fallback"] {
         let mut f = Fixture::new(mode, "printf 'stdout\\n'; printf 'stderr\\377\\n' >&2");
@@ -469,6 +543,10 @@ fn wrap_sign_publish_skip_and_input_mutation_cannot_reuse_evidence() {
         assert!(record.status.success());
         let statement: Value = serde_json::from_slice(&record.stdout).unwrap();
         assert_eq!(statement["predicate"]["observed"]["runner"], "wrapper");
+        assert!(
+            statement.get("repository").is_none(),
+            "legacy wrappers must omit the optional signed repository"
+        );
         let remote = f
             .command("git")
             .args(["--git-dir"])

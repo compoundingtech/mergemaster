@@ -42,6 +42,9 @@ pub const PREDICATE_TYPE: &str = FRACTAL_PREDICATE_TYPE;
 pub struct Statement {
     #[serde(rename = "_type")]
     pub statement_type: String,
+    /// Optional signed logical repository identity, independent of checkout paths.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
     pub subject: Vec<Subject>,
     #[serde(rename = "predicateType")]
     pub predicate_type: String,
@@ -120,6 +123,9 @@ pub enum Verdict {
 #[serde(deny_unknown_fields)]
 pub struct Policy {
     pub version: u32,
+    /// When set, unbound evidence and evidence from other repositories cannot satisfy policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
     pub risk_class: String,
     pub required_checks: BTreeSet<String>,
     pub allowed_tiers: BTreeSet<TrustTier>,
@@ -129,6 +135,9 @@ pub struct Policy {
 
 impl Policy {
     pub fn validate(&self) -> Result<()> {
+        if let Some(repository) = &self.repository {
+            validate_repository(repository)?;
+        }
         ensure!(
             self.version == 1 && self.risk_class == "daemon",
             "unsupported evidence policy version or risk class"
@@ -335,7 +344,30 @@ enum SubjectBinding {
     SubjectAbsent,
 }
 
+/// A literal OWNER/NAME identity; no paths, URLs, whitespace or implicit normalization.
+pub fn validate_repository(repository: &str) -> Result<()> {
+    let component = |part: &str| {
+        !part.is_empty()
+            && part != "."
+            && part != ".."
+            && part
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.'))
+    };
+    ensure!(
+        repository
+            .split_once('/')
+            .is_some_and(|(owner, name)| component(owner) && component(name)),
+        "repository must be OWNER/NAME"
+    );
+    Ok(())
+}
+
 impl Statement {
+    pub fn matches_repository(&self, expected: Option<&str>) -> bool {
+        expected.is_none_or(|expected| self.repository.as_deref() == Some(expected))
+    }
+
     pub fn validate(&self, repo: &Path) -> Result<&str> {
         self.validate_with_subject(repo, SubjectPresence::Required)
             .map(|(tree, _)| tree)
@@ -359,6 +391,9 @@ impl Statement {
             "evidence needs exactly one subject"
         );
         let subject = &self.subject[0];
+        if let Some(repository) = &self.repository {
+            validate_repository(repository)?;
+        }
         oid(&subject.name)?;
         ensure!(subject.digest.len() == 1, "unexpected subject digest");
         let observed_tree = subject
@@ -690,6 +725,7 @@ fn verify_with_subject(
         verify_with_subject(repo, prior_id, trusted_signers, presence)?;
         ensure!(
             prior_binding == binding
+                && prior.repository == statement.repository
                 && prior.predicate.change_id == statement.predicate.change_id
                 && prior.subject[0].name == statement.subject[0].name
                 && prior.subject[0].digest == statement.subject[0].digest,
@@ -809,6 +845,7 @@ pub fn verify(
         // Invalid/untrusted records cannot supply evidence, nor poison unrelated valid ones.
         if let Ok(statement) = verify_record(repo, &id, trusted_signers)
             && statement.predicate.change_id == change_id
+            && statement.matches_repository(policy.repository.as_deref())
         {
             valid.insert(id, statement);
         }
@@ -925,6 +962,7 @@ mod policy_path_tests {
 
     fn policy_bytes(check: &str) -> Vec<u8> {
         serde_json::to_vec(&Policy {
+            repository: None,
             version: 1,
             risk_class: "daemon".into(),
             required_checks: BTreeSet::from([check.into()]),

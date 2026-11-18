@@ -55,6 +55,9 @@ pub enum EvidenceCommand {
     Verify {
         #[arg(long, default_value = ".")]
         repo: PathBuf,
+        /// Require this exact signed OWNER/NAME; missing identities do not match.
+        #[arg(long)]
+        repository: Option<String>,
         /// Verify only this signed notes commit, without evaluating stage policy.
         #[arg(long, conflicts_with_all = ["revision", "base", "change_id"])]
         record: Option<String>,
@@ -107,6 +110,7 @@ pub fn run(args: EvidenceArgs) -> Result<()> {
             repo,
             record: Some(record),
             trusted_signers,
+            repository,
             ..
         } => {
             let (statement, binding) = verify_with_subject(
@@ -115,6 +119,13 @@ pub fn run(args: EvidenceArgs) -> Result<()> {
                 &trusted_signers,
                 SubjectPresence::AllowMissingForInspection,
             )?;
+            if let Some(expected) = repository.as_deref() {
+                validate_repository(expected)?;
+                anyhow::ensure!(
+                    statement.matches_repository(Some(expected)),
+                    "signed repository mismatch or missing"
+                );
+            }
             serde_json::json!({"record":record, "signer":statement.predicate.signer, "tier":statement.predicate.tier, "signature_verified":statement.predicate.tier != TrustTier::Degraded, "subject_binding": binding})
         }
         EvidenceCommand::Verify {
@@ -124,6 +135,7 @@ pub fn run(args: EvidenceArgs) -> Result<()> {
             base,
             change_id,
             trusted_signers,
+            repository,
         } => {
             let revision = revision.context("--revision required for stage verification")?;
             let base = base.context("--base required for stage verification")?;
@@ -131,7 +143,18 @@ pub fn run(args: EvidenceArgs) -> Result<()> {
             let change_id = change_id.context("--change-id required for stage verification")?;
             // Pin aliases such as HEAD once: each source must stay fixed throughout verification.
             let revision = commit(&repo, &revision)?;
-            let policy = load_policy(&repo, &base)?;
+            let mut policy = load_policy(&repo, &base)?;
+            if let Some(expected) = repository {
+                validate_repository(&expected)?;
+                anyhow::ensure!(
+                    policy
+                        .repository
+                        .as_ref()
+                        .is_none_or(|repository| repository == &expected),
+                    "repository conflicts with accepted policy"
+                );
+                policy.repository = Some(expected);
+            }
             serde_json::to_value(verify(
                 &repo,
                 &revision,

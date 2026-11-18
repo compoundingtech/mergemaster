@@ -1328,6 +1328,51 @@ CONFIG="$HOME/.config/mergemaster/evidence-sign.json"
   -- tools/graph check --full
 ```
 
+### Signed repository identity
+
+Pass `--repository compoundingtech/factory` to bind the logical repository to
+the signed statement. The identity is a literal `OWNER/NAME`: each component
+is nonempty ASCII alphanumeric, `-`, `_` or `.`, excluding `.` and `..`.
+Comparison is case-sensitive; URLs, checkout paths and Git remote configuration
+are not identities and are never used to infer one.
+
+The signed JSON statement carries an optional top-level `"repository"` string,
+alongside `_type`, `subject`, `predicateType` and `predicate`. It is covered by
+the record's existing signature, independently of the subject commit/tree and
+input digests. `Request.repo` remains only the local source path;
+`Request.repository` carries the explicit logical identity to the signer.
+This is a repository-bound evidence statement, not an authorization to sign
+arbitrary Git objects. The existing SSH signing namespace remains `git`.
+
+Operator-owned signer configuration may add
+`"repositories": ["compoundingtech/factory", "schickling/ptg"]`.
+The isolated signer independently validates the requested identity and checks
+this exact allowlist before signing. A configured list rejects missing or
+unlisted identities; an empty list denies all requests. Omission retains the
+existing unrestricted signer behavior. This policy authorizes a claimed logical
+identity, not the authenticity of an origin URL: only the verifier's independently
+chosen expected identity prevents cross-repository evidence reuse.
+
+`mergemaster evidence verify --repository OWNER/NAME ...` requires an exact
+signed match, rejecting both missing and different identities. Stage policy
+(`evidence-policy.json`, read from accepted BASE) may set `"repository"` to impose
+the same requirement on every review and cited test. A CLI expectation cannot
+override a conflicting policy identity. Without an expectation, verification
+continues to accept existing unbound records as well as bound records.
+
+This is an additive v1 extension: the predicate URI, observation schema version,
+request/config versions and subject commit/tree semantics are unchanged.
+When no identity is supplied, the new field is omitted, preserving old statement
+bytes and old producer behavior. Updated readers accept historical statements
+and configs without the field. Older strict readers reject newly bound records,
+so upgrade verifiers before enabling producers and signer allowlists, then require
+the expected identity in the consuming verifier/policy. Existing factory/ptg
+lanes need not migrate simultaneously. The legacy verifier independently decodes
+the same signed envelope and permits extra top-level fields; it does not enforce
+this new identity. Its existing `--repository` argument only expands policy
+placeholders and is not an expected signed identity. Legacy consumers must use
+the modern `evidence verify --repository` check when adopting repository binding.
+
 There is no default signer, `st sekrets` call or mandatory `flake.lock`.
 `--signer` is a JSON argv array, never shell source. `--config` is explicit:
 provision it outside the consumer repository as an account-owned regular file

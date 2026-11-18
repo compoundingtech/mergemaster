@@ -28,6 +28,8 @@ pub struct SignArgs {
 pub struct Request {
     pub version: u32,
     pub repo: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
     pub base: String,
     pub head: String,
     pub check: String,
@@ -53,6 +55,8 @@ struct SignConfig {
     ssh_key: PathBuf,
     path: Option<String>,
     toolchain: Measurements,
+    /// Omission preserves unrestricted signing; an empty list denies every repository.
+    repositories: Option<Vec<String>>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -111,6 +115,11 @@ fn configuration(path: &Path, repo: &Path) -> Result<SignConfig> {
         "invalid signer configuration"
     );
     ensure!(config.ssh_key.is_absolute(), "signing key must be absolute");
+    if let Some(repositories) = &config.repositories {
+        for repository in repositories {
+            super::validate_repository(repository)?;
+        }
+    }
     if let Some(path) = config.path.as_deref() {
         ensure!(
             std::env::split_paths(path).all(|dir| dir.is_absolute()),
@@ -583,6 +592,16 @@ pub fn run_worker(args: SignArgs) -> Result<()> {
         "invalid signing request"
     );
     let local = configuration(&args.config, &request.repo)?;
+    if let Some(repository) = &request.repository {
+        super::validate_repository(repository)?;
+    }
+    ensure!(
+        local.repositories.as_ref().is_none_or(|allowed| request
+            .repository
+            .as_ref()
+            .is_some_and(|repository| allowed.contains(repository))),
+        "repository is missing or not allowed by signer configuration"
+    );
     let (trusted_git, trusted_ssh) = tools(&local)?;
     // This hidden entry point is not an escape hatch around the closed launcher:
     // both executables actually selected by PATH must be the configured trusted files.
@@ -715,6 +734,7 @@ pub fn run_worker(args: SignArgs) -> Result<()> {
         &["rev-parse", &format!("{}^{{tree}}", request.head)],
     )?;
     let statement = Statement {
+        repository: request.repository.clone(),
         statement_type: STATEMENT_TYPE.into(),
         predicate_type: PREDICATE_TYPE.into(),
         subject: vec![Subject {
@@ -1162,6 +1182,7 @@ json.dump([signer.unsafe_file(p, types.SimpleNamespace(st_mode=m, st_uid=u)) is 
             );
         }
         let config = SignConfig {
+            repositories: None,
             version: 1,
             signer: "agent/fixture".into(),
             ssh_key: PathBuf::from("/tmp/signing-key"),

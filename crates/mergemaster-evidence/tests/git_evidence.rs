@@ -128,6 +128,7 @@ fn put_show_verify_work_offline_for_tests_review_and_explicit_degraded_tier() {
     let repo = root.path();
     git(repo, &["init", "-q"], b"");
     let policy = Policy {
+        repository: None,
         version: 1,
         risk_class: "daemon".into(),
         required_checks: BTreeSet::from(["unit-tests".into()]),
@@ -170,6 +171,7 @@ fn put_show_verify_work_offline_for_tests_review_and_explicit_degraded_tier() {
     .unwrap();
     let trusted = trusted.to_str().unwrap();
     let mut statement = Statement {
+        repository: None,
         statement_type: evidence::STATEMENT_TYPE.into(),
         predicate_type: evidence::PREDICATE_TYPE.into(),
         subject: vec![Subject {
@@ -217,6 +219,53 @@ fn put_show_verify_work_offline_for_tests_review_and_explicit_degraded_tier() {
         ))["signature_verified"],
         true
     );
+    assert!(
+        !cli(
+            repo,
+            &[
+                "verify",
+                "--record",
+                &tests,
+                "--trusted-signers",
+                trusted,
+                "--repository",
+                "owner/repo"
+            ]
+        )
+        .status
+        .success()
+    );
+    statement.repository = Some("owner/repo".into());
+    let bound = evidence::sign_observation(repo, &statement, &key).unwrap();
+    success(cli(
+        repo,
+        &[
+            "verify",
+            "--record",
+            &bound,
+            "--trusted-signers",
+            trusted,
+            "--repository",
+            "owner/repo",
+        ],
+    ));
+    assert!(
+        !cli(
+            repo,
+            &[
+                "verify",
+                "--record",
+                &bound,
+                "--trusted-signers",
+                trusted,
+                "--repository",
+                "owner/other"
+            ]
+        )
+        .status
+        .success()
+    );
+    statement.repository = None;
     statement.predicate.fact = Fact::Review {
         reviewer: "agent/fixture-reviewer".into(),
         verdict: Verdict::GO,
