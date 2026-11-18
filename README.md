@@ -574,6 +574,9 @@ The legacy clock/input guard takes an explicit clock and preserves future, age,
 required-input, exit-code, command and value-check refusal order.
 `legacy_verify::lanes::LaneRules` validates one selected accepted-base lane,
 preserving optional-field truthiness without reading Git or authorizing evidence.
+`cli_lane_git::definition_entries` separately uses inherited oracle Git and the
+approved 64MiB TreeListing capture, retaining original revision codepoints in
+resource refusals; native lane transport and OID validation remain unchanged.
 The CLI-only `cli_lanes::LaneRules` uses the flat lossless Document instead:
 lane names and argv retain lone surrogates, and optional noniterable falsey
 values raise the oracle TypeError after CI-input validation. Native APIs stay

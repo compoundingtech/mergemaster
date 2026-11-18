@@ -10,6 +10,7 @@ mod binding_path;
 pub mod candidates;
 pub mod cli_adapter;
 pub mod cli_config;
+pub mod cli_lane_git;
 pub mod cli_lanes;
 pub mod cli_validation;
 pub mod collection;
