@@ -15,4 +15,6 @@ pub mod cli_output;
 pub mod evidence;
 pub mod gate;
 pub mod parity_drift;
+#[cfg(test)]
+pub(crate) mod pinned_python;
 mod product_dirs;

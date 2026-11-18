@@ -421,7 +421,7 @@ mod tests {
     #[test]
     fn codepoint_encoder_matches_pinned_python_bytes() {
         let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
-        let output = std::process::Command::new("python3")
+        let output = crate::pinned_python::command()
             .args([
                 "-c",
                 r"

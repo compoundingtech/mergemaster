@@ -201,7 +201,7 @@ for rule in json.loads(sys.argv[2]):
         results.append({'reason': 'error'})
 print(json.dumps(results))
 "#;
-        let output = std::process::Command::new("python3")
+        let output = crate::pinned_python::command()
             .args(["-c", script, &root, &serde_json::to_string(&cases).unwrap()])
             .output()
             .unwrap();
@@ -255,7 +255,7 @@ base = oracle['checked_base_inputs'](rule, 'fixture')
 order, _ = oracle['checked_value_rules'](rule, 'fixture')
 print(json.dumps([list(value.items()) for value in (binds, base, order)]))
 "#;
-        let output = std::process::Command::new("python3")
+        let output = crate::pinned_python::command()
             .args(["-c", script, &root, text])
             .output()
             .unwrap();
@@ -307,7 +307,7 @@ for original, parsed in zip(json.loads(sys.argv[2]), json.loads(sys.argv[3])):
             reasons.append(failure.reason)
 print(json.dumps(reasons))
 "#;
-        let output = std::process::Command::new("python3")
+        let output = crate::pinned_python::command()
             .args([
                 "-c",
                 script,

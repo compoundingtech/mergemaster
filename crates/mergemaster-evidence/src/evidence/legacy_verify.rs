@@ -422,7 +422,7 @@ for rule, inputs, run in json.loads(sys.argv[2]):
         results.append(dict(reason='ValueError'))
 print(json.dumps(results))
 "#;
-        let output = std::process::Command::new("python3")
+        let output = crate::pinned_python::command()
             .args(["-c", script, &root, &serde_json::to_string(&cases).unwrap()])
             .output()
             .unwrap();

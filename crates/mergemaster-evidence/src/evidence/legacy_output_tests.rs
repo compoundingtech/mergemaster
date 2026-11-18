@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn legacy_output_matches_pinned_json_dumps_bytes() {
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
-    let output = std::process::Command::new("python3").args(["-c", r#"
+    let output = crate::pinned_python::command().args(["-c", r#"
 import runpy,sys
 json=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify')['json']
 cases=[{},[],{'z':[], '\ud800😀':[True,False,None,-170141183460469231731687303715884105728,{'empty':{},'s':'quote"\\\n'}]}, [[[]],{}]]
