@@ -96,8 +96,7 @@ fn ignored_input_metadata_has_approved_unbounded_depth() {
     );
     let inputs = Inputs::parse_bytes(text.as_bytes()).unwrap();
     assert_eq!(inputs.no_tests().count(), 0);
-    // CPython 3.14's JSON recursion limit depends on the C stack: Rust always
-    // accepts; CPython may raise RecursionError depending on stack size.
+    // CPython's result is stack-dependent; accept either exact shape or RecursionError.
     let script = r#"
 import json
 s='{"ignored":'+('['*100000)+'0'+(']'*100000)+'}'
@@ -113,7 +112,7 @@ else:
         value=value[0]
     assert type(value) is int and value==0
 "#;
-    let out = std::process::Command::new("python3")
+    let out = crate::pinned_python::command()
         .args(["-c", script])
         .output()
         .unwrap();

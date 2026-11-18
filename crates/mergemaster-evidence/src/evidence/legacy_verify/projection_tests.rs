@@ -666,7 +666,7 @@ except Exception as e:
                  item=[0xd800],exception=type(e).__name__,message=str(e)))
 print(json.dumps(out))
 "#;
-    let output = Command::new("python3")
+    let output = crate::pinned_python::command()
         .args([
             "-c",
             script,
