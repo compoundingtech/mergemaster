@@ -4,10 +4,11 @@ use super::{
     facts::DocumentFacts,
     inputs::{Clock, CurrentTime, check_document_inputs, check_inputs},
     routing::{RecordFacts, Routing, route, route_document},
-    value_inputs::InputSource,
+    value_inputs::{InputMap, InputSource},
 };
 use crate::evidence::legacy_policy::normalized_text::NormalizedText;
 use crate::evidence::legacy_policy::{PolicyError, PolicyRules, level_rules::LaneBinding};
+#[cfg(test)]
 use std::collections::BTreeMap;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
@@ -35,7 +36,7 @@ pub fn judge<'a>(
     policy: &'a PolicyRules,
     record: &RecordFacts<'_>,
     clock: &Clock,
-    run_inputs: &BTreeMap<String, String>,
+    run_inputs: &dyn InputMap,
     lane: Option<&LaneDefinition>,
     provider: &mut impl Provider,
     attempts: usize,
@@ -55,7 +56,7 @@ pub fn judge_document<'a>(
     policy: &'a PolicyRules,
     record: &DocumentFacts<'_>,
     clock: &mut dyn CurrentTime,
-    run_inputs: &BTreeMap<String, String>,
+    run_inputs: &dyn InputMap,
     lane: Option<&LaneDefinition>,
     provider: &mut impl Provider,
     attempts: usize,
@@ -110,7 +111,7 @@ pub fn judge_unconfigured(
 fn judge_source<'a>(
     policy: &'a PolicyRules,
     record: RecordView<'_>,
-    run_inputs: &BTreeMap<String, String>,
+    run_inputs: &dyn InputMap,
     lane: Option<&LaneDefinition>,
     provider: &mut impl Provider,
     attempts: usize,

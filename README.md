@@ -558,6 +558,9 @@ No CLI is wired; these are explicit terminal/log writer surfaces for that bounda
 `value_checks_document` applies that same guard body to a validated input object,
 preserving Python code points (including lone surrogates) in keys and values.
 Private borrowed views avoid converting statements into native String maps.
+`InputMap` carries borrowed run-input lookup through judgments and value guards;
+native `BTreeMap<String, String>` and lossless `ValidatedInputs` share that path.
+The native `value_checks_document` convenience signature retains map inference.
 Event helpers retain signer-level event order when narrowing check permissions
 and identify shard parts only from the configured producer kind and index input.
 Routing requires a signature-verified principal and a validated generic check.
@@ -1026,6 +1029,9 @@ Nonzero overflow refuses with `Git projection stderr exceeds 1048576 bytes`;
 otherwise Python's stderr diagnostic and operation-prefixed process errors survive.
 This is an approved resource divergence: Python has no byte caps at oracle :75.
 The exchange's 60-second deadline matches that same line; update-index stdout is discarded.
+Linux collector fixtures cover signal death, stdout/stderr EOF before delayed exit,
+and broken-pipe cancellation, checking that each direct child is reaped.
+An early-drop fixture checks the same collector-owned `GitChild` boundary.
 Whole project listings, selector configuration listings and selected-content
 existence listings have a separate approved 64 MiB whole-collection cap.
 The shared collector stops at limit + 1, cancels/reaps, and returns typed
