@@ -25,6 +25,14 @@ pub fn check<'a>(args: &ParsedArguments<'a>) -> CheckName<'a> {
 }
 /// Tree syntax precedes project/key preparation, even for an absent repository.
 pub fn resolve_tree(repo: &Path, args: &ParsedArguments<'_>) -> Result<String, PolicyError> {
+    if args
+        .value("--policy-from")
+        .is_some_and(|v| v.points().next() == Some(45))
+    {
+        return Err(super::crate_inputs::failure(
+            "--policy-from must not start with '-'",
+        ));
+    }
     let tree = if let Some(tree) = args.value("--tree") {
         // OID validation is ASCII-only and must not encode a rejected argument.
         if !matches!(tree.points().count(), 40 | 64)
@@ -198,3 +206,7 @@ pub fn required<T>(
 #[cfg(test)]
 #[path = "cli_dispatch_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "cli_ordinary_tests.rs"]
+mod ordinary_tests;
