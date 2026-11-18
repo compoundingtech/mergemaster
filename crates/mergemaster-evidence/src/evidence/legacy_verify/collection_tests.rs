@@ -62,7 +62,7 @@ print(json.dumps(results))
 "#;
     let oracle = std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap();
     let root = tempfile::tempdir().unwrap();
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script, &oracle])
         .arg(root.path())
         .output()
@@ -179,7 +179,7 @@ for inputs in [{},{'crate':'alpha','source_inputs':'key'},{'crate':'alpha','sour
  cases.append(dict(doc=json.dumps(doc),needs=True,expected={'ok':v['signed_for_crate'](doc,'alpha','key',True)}))
 print(json.dumps(cases))
 "#;
-    let out = std::process::Command::new("python3")
+    let out = crate::pinned_python::command()
         .args(["-c", script])
         .arg(std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap())
         .output()

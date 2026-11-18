@@ -57,7 +57,7 @@ for blob in cases:
 print(json.dumps(results))
 "#;
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle required");
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script, &root])
         .output()
         .unwrap();
@@ -175,7 +175,7 @@ fn policy_depth_parameter_preserves_the_statement_default() {
 
 #[test]
 fn json_text_input_never_uses_bytes_encoding_detection() {
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args([
             "-c",
             r#"
@@ -301,7 +301,7 @@ for extra in [0,1]:
   add(raw,'Nodes' if extra else None,262144+extra)
 print(json.dumps(rows))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .arg(std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap())
         .output()

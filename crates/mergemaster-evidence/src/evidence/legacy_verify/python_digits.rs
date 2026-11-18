@@ -26,7 +26,7 @@ mod tests {
     fn every_codepoint_matches_pinned_python_and_generated_assets_are_fresh() {
         let generator = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("src/evidence/legacy_verify/gen_python_digits.py");
-        let checked = std::process::Command::new("python3")
+        let checked = crate::pinned_python::command()
             .arg(generator)
             .arg("--check")
             .output()
@@ -36,7 +36,7 @@ mod tests {
             "{}",
             String::from_utf8_lossy(&checked.stderr)
         );
-        let oracle = std::process::Command::new("python3").args([
+        let oracle = crate::pinned_python::command().args([
             "-c", "import sys,unicodedata as u; assert sys.version_info[:3]==(3,14,7) and u.unidata_version=='16.0.0'; sys.stdout.buffer.write(bytes(u.decimal(chr(p),10 if chr(p).isdigit() else 11) for p in range(0x110000)))",
         ]).output().unwrap();
         assert!(

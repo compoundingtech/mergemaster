@@ -78,7 +78,7 @@ for points in json.load(sys.stdin):
   r.append(dict(error=kind,diagnostic=e.message,complete=str(e)))
 print(json.dumps(r))
 "#;
-    let mut child = std::process::Command::new("python3")
+    let mut child = crate::pinned_python::command()
         .args(["-c", script])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())

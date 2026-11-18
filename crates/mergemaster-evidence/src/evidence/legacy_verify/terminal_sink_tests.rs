@@ -10,7 +10,7 @@ def escape(s): return ''.join(repr(c)[1:-1] if ord(c)<32 or 127<=ord(c)<=159 or 
 samples=[''.join(map(chr,range(256))),''.join(map(chr,range(0xd800,0xe000))),"quotes'\"é🦀\\n",'\0\\\n\ud800'*5000]
 print(json.dumps([dict(points=list(map(ord,s)),expected=escape(s)) for s in samples]))
 "#;
-    let out = std::process::Command::new("python3")
+    let out = crate::pinned_python::command()
         .args(["-c", script])
         .output()
         .unwrap();
@@ -62,7 +62,7 @@ for prog in ['PROG-END','PROG\n\t\x1b[31m\r\x07\x7f\x85\ud800\\END']:
   rows.append(dict(prog=list(map(ord,prog)),argv=[list(map(ord,a)) for a in argv],stdout=streams[0],stderr=streams[1],exit=code))
 print(json.dumps(rows))
 "#;
-    let out = std::process::Command::new("python3")
+    let out = crate::pinned_python::command()
         .args(["-c", script])
         .arg(std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap())
         .output()

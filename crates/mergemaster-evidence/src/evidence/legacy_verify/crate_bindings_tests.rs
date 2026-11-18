@@ -37,7 +37,7 @@ for base in [None,'',*trees,'unknown-base']:
 print(json.dumps(cases))
 "#;
     let repo = tempfile::tempdir().unwrap();
-    let out = std::process::Command::new("python3")
+    let out = crate::pinned_python::command()
         .args(["-c", script])
         .arg(std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap())
         .arg(repo.path())

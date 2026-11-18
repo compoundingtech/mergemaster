@@ -20,7 +20,7 @@ for blob in blobs:
  cases.append([list(blob),expected])
 print(json.dumps(cases))
 "#;
-    let out = std::process::Command::new("python3")
+    let out = crate::pinned_python::command()
         .args(["-c", script])
         .output()
         .unwrap();

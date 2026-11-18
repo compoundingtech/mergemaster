@@ -45,7 +45,7 @@ for principal in ['', 'host', '/alice', 'host/alice/extra']:
 for tier in ['full','test','degraded']: add(tier=tier,runner='wrapper\ud800 owner/repo')
 print(json.dumps(cases))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script, &oracle])
         .output()
         .unwrap();

@@ -159,7 +159,7 @@ for (text, key, _, _), actual in zip(json.loads(sys.argv[3]),json.loads(sys.argv
     results.append(dict(oracle=result,category=category))
 print(json.dumps(results))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args([
             "-c",
             script,

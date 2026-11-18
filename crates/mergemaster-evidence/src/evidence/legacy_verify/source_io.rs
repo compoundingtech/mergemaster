@@ -67,7 +67,7 @@ assert sys.version_info[:3]==(3,14,7)
 numbers=sorted(set(range(256))|set(errno.errorcode))
 print(json.dumps([[n,list(os.fsencode(path)),type(OSError(n,os.strerror(n),path)).__name__,str(OSError(n,os.strerror(n),path))] for n in numbers for path in ["plain", "both'\"quotes", 'raw'+chr(0xdcff), 'é🦀\n']]))
 "#;
-        let out = std::process::Command::new("python3")
+        let out = crate::pinned_python::command()
             .args(["-c", script])
             .output()
             .unwrap();

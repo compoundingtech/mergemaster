@@ -23,7 +23,7 @@ for fmt in ['sha1','sha256']:
    rows.append(dict(repo=str(repo),base=list(map(ord,revision)),policy=json.dumps(policy),size=size,expected=expected))
 print(json.dumps(rows))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .arg(root.path())
         .output()

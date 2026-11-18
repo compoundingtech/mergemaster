@@ -66,7 +66,7 @@ for seed in seeds:
  nests.append(dict(seed=seed,steps=steps))
 print(json.dumps(nests))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .output()
         .unwrap();

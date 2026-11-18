@@ -65,7 +65,7 @@ for name in ['satisfied','tier','kind','level','lazy-error','no-lane','runner','
  cases.append(dict(name=name,policy=policy,raw=json.dumps(raw),principal=principal,expected=expected,wire=wires,calls=calls,samples=samples))
 print(json.dumps(cases))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args([
             "-c",
             script,

@@ -33,7 +33,7 @@ cases.append(dict(tree=tree,check=list(map(ord,args.check)),synthetic=True,expec
 print(json.dumps(cases))
 "#;
     let repo = tempfile::tempdir().unwrap();
-    let out = std::process::Command::new("python3")
+    let out = crate::pinned_python::command()
         .args(["-c", script])
         .arg(std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap())
         .arg(repo.path())
@@ -102,7 +102,7 @@ for fmt in ['sha1','sha256']:
 print(json.dumps(cases))
 "#;
     let repo = tempfile::tempdir().unwrap();
-    let out = std::process::Command::new("python3")
+    let out = crate::pinned_python::command()
         .args(["-c", script])
         .arg(std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap())
         .arg(repo.path())

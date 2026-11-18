@@ -64,7 +64,7 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/src/evidence/legacy_verify/gen_python_printable.py"
         );
-        let result = std::process::Command::new("python3")
+        let result = crate::pinned_python::command()
             .args([generator, "--check"])
             .output()
             .unwrap();
@@ -73,7 +73,7 @@ mod tests {
             "{}",
             String::from_utf8_lossy(&result.stderr)
         );
-        let result = std::process::Command::new("python3").args(["-c", r#"
+        let result = crate::pinned_python::command().args(["-c", r#"
 import itertools,json
 values=[''.join(map(chr,range(0x110000)))]+[''.join(parts) for n in range(5) for parts in itertools.product("'\"\\\n\ta",repeat=n)]
 print(json.dumps([repr(value) for value in values]))

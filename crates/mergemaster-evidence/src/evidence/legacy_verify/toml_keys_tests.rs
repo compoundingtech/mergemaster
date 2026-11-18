@@ -24,7 +24,7 @@ for opener in [chr(34),chr(39),chr(34)*3,chr(39)*3]:
   for extra in range(4): add(opener+body+opener+opener[0]*extra,'string')
 print(json.dumps(cases))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .output()
         .unwrap();

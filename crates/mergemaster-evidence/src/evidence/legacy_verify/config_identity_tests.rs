@@ -24,7 +24,7 @@ for fmt in ['sha1','sha256']:
    rows.append(dict(repo=str(repo),revision=list(map(ord,original)),path=directory+'/other.json',size=size,digest=hashlib.sha256(got).hexdigest()))
 print(json.dumps(rows))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .arg(root.path())
         .output()

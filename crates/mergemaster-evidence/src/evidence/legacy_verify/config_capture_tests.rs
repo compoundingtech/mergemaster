@@ -25,7 +25,7 @@ for fmt in ['sha1','sha256']:
     rows.append(dict(repo=str(repo),tree=tree,operation=operation,legacy=legacy,path=directory+'/'+legacy.split('/')[-1],size=size,digest=hashlib.sha256(got).hexdigest()))
 print(json.dumps(rows))
 "#;
-    let out = std::process::Command::new("python3")
+    let out = crate::pinned_python::command()
         .args(["-c", script])
         .arg(root.path())
         .output()
@@ -122,7 +122,7 @@ for size in [1048576,1048577]:
  assert v['zero_test_crates']('.', 'HEAD~1')==set()
 print(json.dumps(dict(rows=rows,shim=str(shim))))
 "#;
-    let out = std::process::Command::new("python3")
+    let out = crate::pinned_python::command()
         .args(["-c", script])
         .arg(root.path())
         .output()

@@ -22,7 +22,7 @@ for raw in ['',' ', '#plain', '#🦀\n#after', '#🦀\r\n  #next\n', ' \n#commen
    cases.append(dict(raw=raw,mode=mode,pos=pos,expected=expected))
 print(json.dumps(cases))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .output()
         .unwrap();

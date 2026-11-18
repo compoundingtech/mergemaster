@@ -44,7 +44,7 @@ flag_step('unset',('a',))
 flag_step('finalize')
 print(json.dumps(dict(keys=keys,flags=flags)))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .output()
         .unwrap();

@@ -40,7 +40,7 @@ print(json.dumps(fixtures))
 "#;
     let oracle = std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap();
     let root = tempfile::tempdir().unwrap();
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script, &oracle])
         .arg(root.path())
         .output()

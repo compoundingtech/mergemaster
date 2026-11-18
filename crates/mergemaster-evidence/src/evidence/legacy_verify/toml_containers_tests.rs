@@ -30,7 +30,7 @@ for token in samples:
   cases.append(dict(raw=raw,pos=pos,expected=expected))
 print(json.dumps(cases))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .output()
         .unwrap();

@@ -147,7 +147,7 @@ for tree,paths in json.loads(sys.argv[3]):
     except o['Failure'] as e: results.append(dict(reason=e.reason,detail=str(e),origin='Failure'))
 print(json.dumps(results))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args([
             "-c",
             script,

@@ -35,7 +35,7 @@ print(json.dumps(cases))
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
         .join("scripts/evidence-verify");
-    let out = std::process::Command::new("python3")
+    let out = crate::pinned_python::command()
         .args(["-c", script])
         .arg(oracle)
         .output()

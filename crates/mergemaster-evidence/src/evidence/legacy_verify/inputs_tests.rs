@@ -92,7 +92,7 @@ for name in ['\ud800','🦀','']:
     loose('named command '+ascii(name),actual=['wrong'],name=name)
 print(json.dumps(cases))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script, &root])
         .output()
         .unwrap();
@@ -269,7 +269,7 @@ fn normalized_policy_text_preserves_native_command_comparisons() {
 #[test]
 fn policy_out_of_range_float_refusals_match_the_oracle() {
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned Python oracle");
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args([
             "-c",
             r#"

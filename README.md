@@ -901,6 +901,9 @@ core.quotePath C-quoted wildcard names.
 Oracle tests share a lazily resolved Python3.14.7 interpreter, checked once for
 the exact version and optimization level0. Each shared-helper launch uses `-I`
 to ignore Python environment/site overrides; fixture-local assertions remain.
+Record depth fixtures retain their inputs with oracle recursionlimit10000, not
+an asserted stack-dependent497/498 RecursionError boundary. Rust's deterministic
+resource refusals remain unchanged;100k TOML depth rejection is Rust-only.
 `crate_closure` walks normal/dev/build and target-specific path dependencies with
 an explicit stack. Its memoized cycle unions, eager target lookup and lazy
 per-table dependency evaluation preserve the pinned Python walk's ordering.

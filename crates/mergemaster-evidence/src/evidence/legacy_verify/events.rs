@@ -128,7 +128,7 @@ for runner in ('wrapper', 'nix', 'sekrets', 'github:', 'github:job', 'github', '
         actual.append([oracle['kind_of'](runner), oracle['shard_part'](rules, statement), oracle['shard_part'](None, statement)])
 print(json.dumps(actual))
 "#;
-        let output = std::process::Command::new("python3")
+        let output = crate::pinned_python::command()
             .args(["-c", script, &root, policy])
             .output()
             .unwrap();

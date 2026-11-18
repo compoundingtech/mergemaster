@@ -64,7 +64,7 @@ fn lossless_config_resolution_matches_oracle_decode_boundaries() {
             .collect()
     })
     .collect();
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args([
             "-c",
             r#"
@@ -155,7 +155,7 @@ fn lossless_selected_content_matches_real_git_oracle() {
                 .collect()
         })
         .collect();
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args([
             "-c",
             r#"
@@ -316,7 +316,7 @@ for tree,item in json.loads(sys.argv[3]):
     results.append(row)
 print(json.dumps(results))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args([
             "-c",
             script,

@@ -12,7 +12,7 @@ use serde_json::Value;
 #[test]
 fn require_all_json_matches_pinned_aggregation_and_error_envelopes() {
     let oracle = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
-    let output = std::process::Command::new("python3").args(["-c", r#"
+    let output = crate::pinned_python::command().args(["-c", r#"
 import ast,itertools,json,runpy,sys
 path=sys.argv[1]+'/scripts/evidence-verify';v=runpy.run_path(path);cases=[]
 ns=v['require_all'].__globals__

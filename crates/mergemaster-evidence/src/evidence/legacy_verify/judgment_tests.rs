@@ -84,7 +84,7 @@ for label,changes in variants:
     cases[-1]['wire']=wire
 print(json.dumps(cases))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script, &oracle])
         .output()
         .unwrap();
@@ -232,7 +232,7 @@ fn lazy_lane_absence_keeps_the_selected_name() {
         }
     }
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
-    let output = std::process::Command::new("python3").args(["-c", r#"
+    let output = crate::pinned_python::command().args(["-c", r#"
 import ast,json,pathlib,runpy,sys,types
 module=ast.parse((pathlib.Path(sys.argv[1])/'scripts/evidence-verify').read_text())
 raise_=next(n for n in ast.walk(module) if isinstance(n,ast.Raise) and isinstance(n.exc,ast.Call) and len(n.exc.args)>1 and ast.unparse(n.exc.args[1]).startswith("f'no lane definition for check"))

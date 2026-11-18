@@ -51,7 +51,7 @@ fn fixture(bytes: &[u8], status: u8) -> RawBatch {
     fixture_timed(bytes, status, Duration::from_secs(60))
 }
 fn fixture_timed(bytes: &[u8], status: u8, timeout: Duration) -> RawBatch {
-    let mut command = std::process::Command::new("python3");
+    let mut command = crate::pinned_python::command();
     command.args(["-c",
         "import sys;sys.stdin.readline();sys.stdout.buffer.write(bytes.fromhex(sys.argv[1]));sys.stdout.flush();sys.stdin.read();sys.exit(int(sys.argv[2]))",
         &hex::encode(bytes),&status.to_string()]).stdin(Stdio::piped());

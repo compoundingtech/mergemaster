@@ -27,7 +27,7 @@ for count in [1,2,12,13,20]:
   out.append(dict(names=names,mode=mode,result=result))
 print(json.dumps(out))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args([
             "-c",
             script,

@@ -140,7 +140,7 @@ for case in cases:
 print(json.dumps([cases,actual,details]))
 "#;
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script, &root, policy])
         .output()
         .unwrap();

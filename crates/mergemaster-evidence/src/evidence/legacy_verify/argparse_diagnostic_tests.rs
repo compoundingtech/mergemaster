@@ -35,19 +35,19 @@ except Parsed: sys.exit(99)
 rows=[]
 for argv in samples:
  env=dict(os.environ,NO_COLOR='1',TERM='dumb',COLUMNS='80'); env.pop('FORCE_COLOR',None)
- r=subprocess.run([sys.executable,'-c',wrapper,oracle]+argv,env=env,capture_output=True)
+ r=subprocess.run([sys.executable,'-I','-c',wrapper,oracle]+argv,env=env,capture_output=True)
  assert r.returncode in (0,2,99),(argv,r.stderr)
  rows.append(dict(argv=[list(map(ord,s)) for s in argv],parsed=r.returncode==99,stdout=list(r.stdout),stderr=list(r.stderr),exit=r.returncode))
  if argv in ([],['--help']):
   colored=dict(env,FORCE_COLOR='1',TERM='xterm'); colored.pop('NO_COLOR')
-  c=subprocess.run([sys.executable,'-c',wrapper,oracle]+argv,env=colored,capture_output=True)
+  c=subprocess.run([sys.executable,'-I','-c',wrapper,oracle]+argv,env=colored,capture_output=True)
   assert b'\x1b[' in c.stdout+c.stderr
   strip=lambda s:re.sub(rb'\x1b\[[0-9;]*m',b'',s)
   assert (strip(c.stdout),strip(c.stderr),c.returncode)==(r.stdout,r.stderr,r.returncode)
 assert len(rows)==len(samples)
 print(json.dumps(rows))
 "#;
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args(["-c", script])
         .arg(std::env::var("MERGEMASTER_PYTHON_PARITY_ORACLE").unwrap())
         .output()

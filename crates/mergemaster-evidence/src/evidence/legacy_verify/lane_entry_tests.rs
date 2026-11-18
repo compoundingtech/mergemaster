@@ -152,7 +152,7 @@ for texts, rust in zip(json.loads(sys.argv[3]),json.loads(sys.argv[4])):
 print(json.dumps(results))
 "#;
     let texts: Vec<_> = cases.iter().map(|c| &c.0).collect();
-    let output = std::process::Command::new("python3")
+    let output = crate::pinned_python::command()
         .args([
             "-c",
             script,

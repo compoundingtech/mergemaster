@@ -37,7 +37,7 @@ for members in [{},{'a':'a'*40},{'z':'b'*64,'a':'a'*40,'é😀':'c'*40},{'😀':
  cases.append(dict(pairs=sorted(members.items()),joined=joined,expected=expected))
 print(json.dumps(cases))
 "#;
-        let output = std::process::Command::new("python3")
+        let output = crate::pinned_python::command()
             .args(["-c", script])
             .arg(std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap())
             .output()
