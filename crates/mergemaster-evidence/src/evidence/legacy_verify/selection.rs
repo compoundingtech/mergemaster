@@ -1,7 +1,8 @@
 //! Resolve configuration layout and select content from the supplied Git tree only.
 use super::{
-    binding_path::encode, crate_inputs_text::utf8, projection::read_git,
-    selection_json::select_json, value_inputs::TextRef, workflow::workflow_job,
+    binding_path::encode, crate_inputs_text::utf8, projection::read_selection,
+    selection_json::select_json, source_resource::LISTING_BYTES, value_inputs::TextRef,
+    workflow::workflow_job,
 };
 use crate::evidence::legacy_policy::{ErrorOrigin, PolicyError, normalized_text::NormalizedText};
 use std::{ffi::OsStr, os::unix::ffi::OsStrExt, path::Path};
@@ -25,7 +26,9 @@ pub fn selector_item<'a>(
     tree: &str,
     item: impl Into<TextRef<'a>>,
 ) -> Result<Option<NormalizedText>, PolicyError> {
-    selector_item_with(repo, tree, item, |args, limit| read_git(repo, args, limit))
+    selector_item_with(repo, tree, item, |args, limit| {
+        read_selection(repo, tree, args, limit)
+    })
 }
 pub(super) fn selector_item_with<'a>(
     repo: &Path,
@@ -53,7 +56,7 @@ pub(super) fn selector_item_with<'a>(
                 OsStr::from_bytes(&preferred_bytes),
                 OsStr::from_bytes(&legacy_bytes),
             ],
-            usize::MAX,
+            LISTING_BYTES,
         )?;
         let (mut has_preferred, mut has_legacy) = (false, false);
         for row in listing
@@ -113,7 +116,7 @@ fn selected_content_limit<'a>(
     max_bytes: usize,
 ) -> Result<Option<Vec<u8>>, PolicyError> {
     selected_content_with(repo, tree, item, max_bytes, |args, limit| {
-        read_git(repo, args, limit)
+        read_selection(repo, tree, args, limit)
     })
 }
 pub(super) fn selected_content_with<'a>(
@@ -136,7 +139,7 @@ pub(super) fn selected_content_with<'a>(
             OsStr::new("--"),
             OsStr::from_bytes(&encoded),
         ],
-        usize::MAX,
+        LISTING_BYTES,
     )?
     .is_empty()
     {

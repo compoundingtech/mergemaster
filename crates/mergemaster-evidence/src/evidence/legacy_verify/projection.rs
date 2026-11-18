@@ -123,6 +123,23 @@ pub(super) fn read_git_source(
 ) -> Result<Vec<u8>, PolicyError> {
     input_git(repo, args, &[], None, ExpectedOutput::Source(resource))
 }
+pub(super) fn read_selection(
+    repo: &Path,
+    tree: &str,
+    args: &[&OsStr],
+    limit: usize,
+) -> Result<Vec<u8>, PolicyError> {
+    input_git(repo, args, &[], None, selection_output(tree, limit))
+}
+fn selection_output(tree: &str, limit: usize) -> ExpectedOutput {
+    if limit == super::source_resource::LISTING_BYTES {
+        ExpectedOutput::Source(super::source_resource::SourceResource::TreeListing(
+            tree.into(),
+        ))
+    } else {
+        ExpectedOutput::Bytes(limit)
+    }
+}
 pub fn project(
     repo: &Path,
     tree: &str,
@@ -142,7 +159,7 @@ pub(super) fn project_with_fetch(
             args,
             &[],
             None,
-            ExpectedOutput::Bytes(limit),
+            selection_output(tree, limit),
             no_lazy_fetch,
         )
     };
@@ -202,7 +219,10 @@ pub(super) fn project_with_fetch(
             args.push(OsStr::new("--"));
             args.extend(encoded.iter().map(|p| OsStr::from_bytes(p)));
         }
-        parse_entries(&read(&args, usize::MAX)?, &mut entries)?;
+        parse_entries(
+            &read(&args, super::source_resource::LISTING_BYTES)?,
+            &mut entries,
+        )?;
     }
     let mut index_bytes = Vec::new();
     for entry in entries {
@@ -261,6 +281,9 @@ pub(super) fn project_with_fetch(
         String::from_utf8(output).map_err(error)?.trim().to_owned(),
     ))
 }
+#[cfg(test)]
+#[path = "listing_capture_tests.rs"]
+mod listing_capture_tests;
 #[cfg(test)]
 #[path = "projection_tests.rs"]
 mod tests;
