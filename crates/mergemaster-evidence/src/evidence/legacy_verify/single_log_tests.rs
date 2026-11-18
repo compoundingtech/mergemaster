@@ -61,7 +61,10 @@ print(json.dumps(rows))
     );
     let rows: Vec<Value> = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(rows.len(), 24);
-    for row in rows {
+    for (row, transport) in rows
+        .iter()
+        .flat_map(|row| [Transport::Native, Transport::Cli].map(move |mode| (row, mode)))
+    {
         let mut rules = PolicyDocument::parse(row["policy"].as_str().unwrap(), "check")
             .unwrap()
             .into_rules("fixture")
@@ -99,7 +102,7 @@ print(json.dumps(rows))
                 tree: q.tree,
             }),
         };
-        let outcome = verify(
+        let outcome = verify_with_transport(
             &q,
             Settings::Policy(&rules),
             &mut judgment,
@@ -108,6 +111,7 @@ print(json.dumps(rows))
                 keys: Path::new(row["logkeys"].as_str().unwrap()),
                 now_micros: 1_767_225_900_000_000,
             }),
+            transport,
         );
         let actual = match outcome {
             Ok((retained, log)) => {

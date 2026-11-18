@@ -2,7 +2,7 @@
 use super::{
     Failure,
     candidates::Levels,
-    collection::{CandidateCollector, CrateBinding},
+    collection::CrateBinding,
     configured::{self, Settings},
     crate_bindings::Members,
     judgment::Provider,
@@ -52,10 +52,30 @@ pub fn verified<P: Provider>(
     prefer: Levels<'_>,
     log: Option<super::log_view::Request<'_>>,
 ) -> Result<Aggregate, Refusal> {
+    verified_with_transport(
+        q,
+        policy_base,
+        settings,
+        judgment,
+        prefer,
+        log,
+        configured::Transport::Native,
+    )
+}
+
+pub fn verified_with_transport<P: Provider>(
+    q: &Request<'_>,
+    policy_base: Option<&str>,
+    settings: Settings<'_>,
+    judgment: &mut CheckJudgment<'_, P>,
+    prefer: Levels<'_>,
+    log: Option<super::log_view::Request<'_>>,
+    transport: configured::Transport,
+) -> Result<Aggregate, Refusal> {
     let log = log.filter(|log| !log.keys.as_os_str().is_empty());
     let members = Members::read(q.repo, q.tree, policy_base)
         .map_err(|e| Refusal::Verification(policy_failure(e)))?;
-    let mut collector = CandidateCollector::for_check();
+    let mut collector = transport.collector();
     let outcome = collect(members.into_sorted(), |name, key, needs_tests| {
         configured::retained(
             &mut collector,

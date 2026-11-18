@@ -84,7 +84,12 @@ print(json.dumps(dict(cases=cases,blobs=blobs)))
     );
     let fixtures: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(fixtures["cases"].as_array().unwrap().len(), 60);
-    for case in fixtures["cases"].as_array().unwrap() {
+    for (case, required_git) in fixtures["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|case| [super::required_git, super::required_git_cli].map(move |run| (case, run)))
+    {
         let check: Vec<u32> = serde_json::from_value(case["check"].clone()).unwrap();
         let rules = PolicyDocument::parse(case["policy"].as_str().unwrap(), check.as_slice())
             .unwrap()

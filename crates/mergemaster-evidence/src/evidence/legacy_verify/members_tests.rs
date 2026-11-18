@@ -170,7 +170,7 @@ for fmt in ['sha1','sha256']:
 print(json.dumps(cases))
 "#;
     let root = tempfile::tempdir().unwrap();
-    let mut command = std::process::Command::new("python3");
+    let mut command = crate::pinned_python::command();
     crate::gate::git::sanitize(&mut command);
     let output = command
         .env("HOME", root.path())
@@ -199,7 +199,10 @@ print(json.dumps(cases))
     .unwrap()
     .into_rules("fixture")
     .unwrap();
-    for case in cases {
+    for (case, transport) in cases.iter().flat_map(|case| {
+        [configured::Transport::Native, configured::Transport::Cli]
+            .map(move |transport| (case, transport))
+    }) {
         let q = Request {
             repo: Path::new(case["repo"].as_str().unwrap()),
             tree: case["tree"].as_str().unwrap(),
@@ -223,8 +226,7 @@ print(json.dumps(cases))
         // Each member independently fits, with a distinct original document
         // reachable only through its cross-tree source-input index.
         for (name, binding) in members.iter() {
-            let note = configured::retained(
-                &mut CandidateCollector::for_check(),
+            let note = configured::retained_with_transport(
                 &Request {
                     crate_key: binding,
                     ..q
@@ -232,19 +234,21 @@ print(json.dumps(cases))
                 Settings::Policy(&rules),
                 &mut judgment,
                 Levels::Utf8(&[]),
+                transport,
             )
             .unwrap();
             assert_eq!(note.record().candidate.commit, case["records"][name]);
             retained.push(note);
         }
         assert_eq!(retained.len(), 4);
-        let error = verified(
+        let error = verified_with_transport(
             &q,
             Some(q.tree),
             Settings::Policy(&rules),
             &mut judgment,
             Levels::Utf8(&[]),
             None,
+            transport,
         )
         .err()
         .expect("several retained members must exceed the shared record budget");

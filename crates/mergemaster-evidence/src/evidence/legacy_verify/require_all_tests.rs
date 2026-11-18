@@ -132,13 +132,15 @@ print(json.dumps(cases))
             Ok(1_767_225_660_000_000)
         }
     }
-    for case in cases {
+    for (case, transport) in cases.iter().flat_map(|case| {
+        [configured::Transport::Native, configured::Transport::Cli].map(move |mode| (case, mode))
+    }) {
         let run = |policy| {
             let mut sampling = Sampling(0);
             let mut system = SystemClock;
             let injected = case["name"].as_str().unwrap().ends_with("/clock-exception");
             let clock: &mut dyn CurrentTime = if injected { &mut sampling } else { &mut system };
-            let result = with_clock(
+            let result = with_transport(
                 Path::new(case["repo"].as_str().unwrap()),
                 case["tree"].as_str().unwrap(),
                 case["keys"].as_str().unwrap(),
@@ -149,6 +151,7 @@ print(json.dumps(cases))
                     .map(|text| (text, case["base"].as_str().unwrap())),
                 None,
                 clock,
+                transport,
             );
             if injected {
                 assert_eq!(

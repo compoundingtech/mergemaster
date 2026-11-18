@@ -132,7 +132,9 @@ print(json.dumps(cases))
             panic!("no file bindings")
         }
     }
-    for case in &cases {
+    for (case, transport) in cases.iter().flat_map(|case| {
+        [configured::Transport::Native, configured::Transport::Cli].map(move |mode| (case, mode))
+    }) {
         let mut rules = case["policy"].as_str().map(|p| {
             PolicyDocument::parse(p, "check")
                 .unwrap()
@@ -189,7 +191,7 @@ print(json.dumps(cases))
             inputs: None,
             crate_key: None,
         };
-        let actual = match verified(
+        let actual = match verified_with_transport(
             &q,
             case["base"].as_str(),
             settings,
@@ -201,6 +203,7 @@ print(json.dumps(cases))
                     keys: std::path::Path::new(keys),
                     now_micros: 1_767_225_900_000_000,
                 }),
+            transport,
         ) {
             Ok(aggregate) => {
                 let wire = aggregate
