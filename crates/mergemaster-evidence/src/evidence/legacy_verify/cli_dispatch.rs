@@ -9,7 +9,13 @@ use crate::evidence::{
     legacy_output,
     legacy_policy::{PolicyError, check_names::CheckName, normalized_text::NormalizedText},
 };
-use std::{ffi::OsStr, fmt, os::unix::ffi::OsStrExt, path::Path};
+use std::{
+    borrow::Cow,
+    ffi::{OsStr, OsString},
+    fmt,
+    os::unix::ffi::{OsStrExt, OsStringExt},
+    path::Path,
+};
 
 pub fn check<'a>(args: &ParsedArguments<'a>) -> CheckName<'a> {
     match args.value("--check").unwrap_or(TextRef::Str("")) {
@@ -133,6 +139,60 @@ pub fn project<T>(
         rules.as_ref(),
     )?;
     Ok(emit(Project::Paths(project, values)))
+}
+
+/// Filesystem conversion without an eager NUL check: the eventual operation
+/// owns that check, so unused paths and original-main precedence stay lazy.
+pub fn path(text: TextRef<'_>) -> Result<Cow<'_, Path>, PolicyError> {
+    Ok(match encode(text, 0, true)? {
+        Cow::Borrowed(bytes) => Cow::Borrowed(Path::new(OsStr::from_bytes(bytes))),
+        Cow::Owned(bytes) => Cow::Owned(OsString::from_vec(bytes).into()),
+    })
+}
+/// Capture any operation result before closing; an explicit close error wins.
+pub fn with_signers<T>(
+    repo: &Path,
+    args: &ParsedArguments<'_>,
+    operation: impl FnOnce(&Path) -> T,
+) -> Result<T, PolicyError> {
+    let from = args.value("--keys-from").filter(|v| !v.equals(""));
+    let explicit = if from.is_some() {
+        Cow::Borrowed(Path::new(""))
+    } else {
+        path(args.value("--keys").unwrap_or(TextRef::Str("")))?
+    };
+    let keys = super::cli_keys::signers(repo, &explicit, from)?;
+    let result = operation(keys.path());
+    keys.close()?;
+    Ok(result)
+}
+/// Require-all returns before ordinary policy/run-input/log/crate preparation.
+pub fn required<T>(
+    repo: &Path,
+    tree: &str,
+    args: &ParsedArguments<'_>,
+    emit: impl FnOnce(super::require_all::All<'_>) -> T,
+) -> Result<T, PolicyError> {
+    with_signers(repo, args, |keys| {
+        let from = args.value("--lanes-from").filter(|v| !v.equals(""));
+        let lanes = from
+            .map(|from| super::cli_config::lanes(repo, from))
+            .transpose()?;
+        let text = super::policy_loader::read_policy(
+            repo,
+            args.value("--policy-from").unwrap_or(TextRef::Str("")),
+        )?;
+        super::require_all::require_all_cli(
+            repo,
+            tree,
+            keys,
+            &text,
+            args.value("--repository").unwrap_or(TextRef::Str("")),
+            lanes.as_deref().zip(from),
+            args.value("--lane-base"),
+        )
+        .map(emit)
+    })?
 }
 
 #[cfg(test)]
