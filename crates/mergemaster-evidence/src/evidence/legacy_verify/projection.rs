@@ -109,12 +109,16 @@ fn input_git_with_fetch(
         timeout,
     )
 }
-pub(super) fn read_git(
-    repo: &Path,
-    args: &[impl AsRef<OsStr>],
-    limit: usize,
-) -> Result<Vec<u8>, PolicyError> {
-    input_git(repo, args, &[], None, ExpectedOutput::Bytes(limit))
+pub(super) fn read_ref_ids(repo: &Path, prefix: &str) -> Result<BTreeSet<String>, PolicyError> {
+    let mut command = projection_command(
+        repo,
+        &[
+            "for-each-ref",
+            "--format=%(objectname) %(refname)",
+            prefix.trim_end_matches('/'),
+        ],
+    )?;
+    projection_capture::reference_ids(&mut command, prefix, Duration::from_secs(60))
 }
 pub(super) fn read_git_source(
     repo: &Path,

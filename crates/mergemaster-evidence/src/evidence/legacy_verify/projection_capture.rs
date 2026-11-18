@@ -29,6 +29,19 @@ struct ProjectionCapture<'a> {
     stderr: VecDeque<u8>,
     overflow: bool,
 }
+impl<'a> ProjectionCapture<'a> {
+    fn new(operation: &'a str, expected: ExpectedOutput) -> Self {
+        Self {
+            operation,
+            expected,
+            stdout: ObjectId::default(),
+            bytes: Vec::new(),
+            stdout_overflow: false,
+            stderr: VecDeque::new(),
+            overflow: false,
+        }
+    }
+}
 enum ProcessError {
     Io(io::Error, bool),
     Resource(super::source_resource::SourceResource),
@@ -125,25 +138,32 @@ pub fn exchange(
     expected: ExpectedOutput,
     timeout: Duration,
 ) -> Result<Vec<u8>, PolicyError> {
-    let sink = ProjectionCapture {
+    collect(
+        command,
+        bytes,
         operation,
-        expected,
-        stdout: ObjectId::default(),
-        bytes: Vec::new(),
-        stdout_overflow: false,
-        stderr: VecDeque::new(),
-        overflow: false,
-    };
-    GitChild::capture_with_sink(command, Some(bytes), timeout, sink).map_err(
-        |error| match error {
-            ProcessError::Resource(resource) => resource.into_error(),
-            ProcessError::Io(error, spawned) => failure(format!(
-                "git {operation}: {}",
-                super::projection_process_error::diagnostic(command, &error, spawned, timeout)
-            )),
-        },
+        timeout,
+        ProjectionCapture::new(operation, expected),
     )?
 }
+fn collect<S: CaptureSink<Error = ProcessError>>(
+    command: &mut Command,
+    bytes: &[u8],
+    operation: &str,
+    timeout: Duration,
+    sink: S,
+) -> Result<S::Output, PolicyError> {
+    GitChild::capture_with_sink(command, Some(bytes), timeout, sink).map_err(|error| match error {
+        ProcessError::Resource(resource) => resource.into_error(),
+        ProcessError::Io(error, spawned) => failure(format!(
+            "git {operation}: {}",
+            super::projection_process_error::diagnostic(command, &error, spawned, timeout)
+        )),
+    })
+}
+#[path = "projection_refs.rs"]
+mod refs;
+pub(super) use refs::read as reference_ids;
 #[cfg(test)]
 #[path = "projection_capture_tests.rs"]
 mod tests;

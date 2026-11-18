@@ -1006,8 +1006,12 @@ oracle at 67,108,864 and 67,108,865 bytes; only Rust rejects the latter.
 pending bytes, retaining the first Python decode error and its whole-stream
 byte offset. Its split-boundary matrix compares 10,773 pinned-interpreter
 samples, including truncated sequences and malformed bytes after earlier rows.
-This is the decoder prerequisite for stream-only ref enumeration; it does not
-by itself change the ref reader's capture.
+Shadow-log ref enumeration uses this decoder inside the shared cancellable
+collector, with no whole-stream cap or retained listing. Each record retains at
+most `prefix.len() + 129` UTF-8 bytes: longer records cannot match and are
+discarded while strict decoding continues. Python splitlines boundaries and
+Git-failure-before-decode precedence are preserved. Only distinct matching IDs
+are accumulated; a 64 MiB + 1 malformed record is accepted/ignored like Python.
 The shared nonblocking collector also has an explicit no-timeout entry for
 rust-test-keys source reads. Source overflow cancels/reaps the direct child
 without waiting for EOF from descendants holding inherited pipe descriptors.
