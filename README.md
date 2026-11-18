@@ -562,6 +562,10 @@ The member branch deliberately precedes policy loading, matching original main.
 and selects `require_all_cli` before ordinary run/log/crate preparation.
 `with_signers` captures the operation result and explicitly closes its owner;
 close errors override that result, as in original main's finally clause.
+`cli_options` retains ordinary caller restrictions as lossless codepoints after
+preflight: command JSON, ordered comma lists, bindings and unbounded age values.
+Conversion does no filesystem I/O; overflowing ages retain the existing deferred
+timedelta-overflow judgment rather than narrowing argparse's accepted integers.
 No binary intercept or ordinary-verification dispatcher is installed yet.
 Approved terminal/log output divergence (#245): `terminal_sink::value` applies
 unbounded Python-repr-style escaping to C0, DEL, C1, lone surrogates and every
