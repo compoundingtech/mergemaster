@@ -150,12 +150,11 @@ print(json.dumps(cases))
                 policy,
                 "fixture",
                 match transport {
-                    configured::Transport::Native => Lanes::Native(lane_file),
+                    configured::Transport::Native => Lanes::Native(lane_file, None),
                     configured::Transport::Cli => {
-                        Lanes::Cli(lane_file.map(|(text, base)| (text, base.into())))
+                        Lanes::Cli(lane_file.map(|(text, base)| (text, base.into())), None)
                     }
                 },
-                None,
                 clock,
             );
             if injected {
@@ -196,5 +195,41 @@ print(json.dumps(cases))
             }
         };
         assert_eq!(actual, case["expected"], "{}", case["name"]);
+    }
+}
+
+#[test]
+fn require_all_cli_preserves_lossless_lane_base_validation() {
+    let output = crate::pinned_python::command().args(["-c", r#"
+import json,runpy,sys
+v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify');cases=[]
+policy=json.dumps({'version':1,'checks':{'a':{'require':'reject','trust_levels':['agent'],'kinds':{'wrapper':{'command':['true']}}}}})
+for base in ['HEAD','f'*39,'F'*40,'null\0base','\udcff','\ud800']:
+ try:v['require_all']('/absent','0'*40,'/keys',policy,'fixture',('{}','accepted'),base);raise AssertionError('unexpected success')
+ except v['Failure'] as e:cases.append([list(map(ord,base)),e.reason,str(e)])
+print(json.dumps([policy,cases]))
+"#]).arg(std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap()).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let data: Value = serde_json::from_slice(&output.stdout).unwrap();
+    for case in data[1].as_array().unwrap() {
+        let points: Vec<u32> = serde_json::from_value(case[0].clone()).unwrap();
+        let error = require_all_cli(
+            Path::new("/absent"),
+            &"0".repeat(40),
+            Path::new("/keys"),
+            data[0].as_str().unwrap(),
+            "fixture",
+            Some(("{}", "accepted".into())),
+            Some(super::super::value_inputs::TextRef::Points(&points)),
+        )
+        .err()
+        .unwrap();
+        assert_eq!(error.origin, ErrorOrigin::Failure);
+        assert_eq!(error.reason, case[1]);
+        assert_eq!(error.detail.to_string(), case[2]);
     }
 }

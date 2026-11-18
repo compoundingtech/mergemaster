@@ -192,3 +192,68 @@ print(json.dumps(cases))
     }
     assert_eq!(cases.len(), 57);
 }
+
+#[test]
+fn ordered_list_paths_empty_workspaces_and_none_keys_match_oracle() {
+    let repo = tempfile::tempdir().unwrap();
+    let tool = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/fractal/scripts/rust-test-keys");
+    let out = crate::pinned_python::command().args(["-c", r#"
+import json,pathlib,runpy,subprocess,sys
+repo=pathlib.Path(sys.argv[1]);tool=sys.argv[2];v=sys.argv[3]+'/scripts/evidence-verify'
+k=runpy.run_path(tool);project=runpy.run_path(v)['project']
+def git(*args):return subprocess.check_output(['git','-C',str(repo),*args],stderr=subprocess.PIPE).decode().strip()
+def write(path,text):
+ p=repo/path;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(text)
+git('init')
+write('z/Cargo.toml','[package]\nname="z"\n[dependencies]\na={path="../a"}')
+write('a/Cargo.toml','[package]\nname="a"')
+write('z/src/lib.rs','z');write('a/src/lib.rs','a')
+cases=[]
+for name in ['ordered','none','list','empty']:
+ write('Cargo.toml','[workspace]\nmembers='+('[]' if name=='empty' else '["z","a"]'))
+ extra=['!z','!a'] if name=='none' else ([['nested']] if name=='list' else [])
+ write('.st/rust-test-inputs.json',json.dumps({'global':[],'crates':{n:{'extra':extra} for n in ['z','a']}}))
+ git('add','.');tree=git('write-tree')
+ try:
+  result=k['keys'](repo,tree,k['read_inputs'](str(repo),tree),project)
+  expected={'ok':[[n,{'key':key,'paths':paths}] for n,(key,paths) in result.items()]}
+  assert all(isinstance(paths,list) for _,paths in result.values())
+  assert list(result)==([] if name=='empty' else ['z','a'])
+  if name=='none':assert all(key is None for key,_ in result.values())
+  done=subprocess.run([sys.executable,'-I',tool,'--repo',str(repo),'--tree',tree,'--verifier',v,'--json','--paths'],capture_output=True,text=True)
+  assert done.returncode==0 and not done.stderr
+  assert json.loads(done.stdout)=={n:{'key':key,'paths':paths} for n,(key,paths) in result.items()}
+ except Exception as e:
+  assert name=='list' and type(e).__name__=='TypeError'
+  expected={'class':type(e).__name__,'detail':str(e)}
+ cases.append(dict(tree=tree,expected=expected))
+print(json.dumps(cases))
+"#]).arg(repo.path()).arg(tool).arg(std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap()).output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let cases: Vec<Value> = serde_json::from_slice(&out.stdout).unwrap();
+    for case in cases {
+        let source = TreeSource {
+            repo: repo.path(),
+            tree: case["tree"].as_str().unwrap(),
+            no_lazy_fetch: true,
+        };
+        let actual = match source.keys_from(None, &[]) {
+            Ok(keys) => {
+                json!({"ok":keys.into_iter().map(|(n,k)| (n,json!({"key":k.key,"paths":k.paths.iter().map(ToString::to_string).collect::<Vec<_>>()}))).collect::<Vec<_>>()})
+            }
+            Err(e) => {
+                let crate::evidence::legacy_policy::ErrorOrigin::Exception { class } = e.origin
+                else {
+                    panic!("unexpected Failure")
+                };
+                json!({"class":class,"detail":e.detail.to_string()})
+            }
+        };
+        assert_eq!(actual, case["expected"]);
+    }
+}

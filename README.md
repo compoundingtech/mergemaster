@@ -928,6 +928,10 @@ claim. Committed coverage: `crate_layout_tests::layout_and_type_confusion_match_
 asserts all12 approved non-string refusals and compares ordered member pairs for
 all96 cases, including duplicate-name replacement, root prepending and Git's
 core.quotePath C-quoted wildcard names.
+Crate-key oracle fixtures separately preserve insertion order and list-valued
+declared paths, including empty workspaces, all-excluded None keys and nested-list
+TypeError parity. CLI require-all retains lossless lane-base text through its
+validation boundary; the native lane-base interface stays unchanged.
 Oracle tests share a lazily resolved Python3.14.7 interpreter, checked once for
 the exact version and optimization level0. Each shared-helper launch uses `-I`
 to ignore Python environment/site overrides; fixture-local assertions remain.
@@ -1045,6 +1049,10 @@ ordering. Signer temporaries precede config reads; log temporaries follow reads.
 Explicit signer paths use lexical abspath/isfile; absent log config preserves
 explicit log keys. Owners remain alive through verification; explicit signer
 `close` runs after capturing any result, with cleanup errors taking precedence.
+CLI prefix revocations also explicitly close after capturing collection/partition
+results, preserving close-error precedence on both successful and failed paths.
+Shadow-log signature revocations use that same owner and close immediately after
+the signature subprocess, before decoding its result, matching Python's context.
 `raw_batch::RawBatch` provides scanner-specific one-request exchanges, 128-byte headers
 and pre-read 1MiB body limits; explicit finish validates status, errors/drop kill and reap.
 `projection_capture::raw_batch` is the CLI batch prerequisite: one complete request

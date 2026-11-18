@@ -64,10 +64,12 @@ impl TemporaryFile {
             })
     }
     pub fn close(self) -> Result<(), PolicyError> {
-        let path = self.path().to_owned();
-        self.0
-            .close()
-            .map_err(|e| source_io::error(path.as_os_str(), &e))
+        let (file, mut path) = self.0.into_parts();
+        drop(file);
+        // tempfile::close wraps and loses errno; unlink directly for Python parity.
+        // Python marks deletion attempted even when unlink fails: do not retry in Drop.
+        path.disable_cleanup(true);
+        std::fs::remove_file(&path).map_err(|e| source_io::error(path.as_os_str(), &e))
     }
 }
 /// POSIX lexical abspath, including exactly two leading slashes and raw bytes.

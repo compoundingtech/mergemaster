@@ -54,11 +54,14 @@ pub fn candidates(
     q: &Request<'_>,
 ) -> Result<Candidates, Failure> {
     let (groups, legacy, input_key) = {
-        let cli_file;
+        let cli_file = if collector.is_cli() {
+            Some(super::cli_tempfile::TemporaryFile::new("").map_err(phase_error)?)
+        } else {
+            None
+        };
         let native_file;
-        let path = if collector.is_cli() {
-            cli_file = super::cli_tempfile::TemporaryFile::new("").map_err(phase_error)?;
-            cli_file.path().to_owned()
+        let path = if let Some(file) = &cli_file {
+            file.path().to_owned()
         } else {
             native_file = tempfile::NamedTempFile::new()
                 .map_err(|e| failure("error", e.to_string(), None))?;
@@ -73,21 +76,27 @@ pub fn candidates(
             path.to_str()
                 .ok_or_else(|| failure("error", "temporary revocation path is not UTF-8", None))?
         };
-        let collected = collector
-            .collect(q.repo, q.tree, q.check, q.inputs, q.crate_key)
-            .map_err(phase_error)?;
-        let groups = if collector.is_cli() {
-            super::trust::partition_cli(q.repo, collected.records, q.keys, &path)
-        } else {
-            let keys = q
-                .keys
-                .to_str()
-                .ok_or_else(|| super::crate_inputs::failure("allowed signer path is not UTF-8"))
+        let outcome = (|| {
+            let collected = collector
+                .collect(q.repo, q.tree, q.check, q.inputs, q.crate_key)
                 .map_err(phase_error)?;
-            partition(q.repo, collected.records, keys, revocations)
+            let groups = if collector.is_cli() {
+                super::trust::partition_cli(q.repo, collected.records, q.keys, &path)
+            } else {
+                let keys = q
+                    .keys
+                    .to_str()
+                    .ok_or_else(|| super::crate_inputs::failure("allowed signer path is not UTF-8"))
+                    .map_err(phase_error)?;
+                partition(q.repo, collected.records, keys, revocations)
+            }
+            .map_err(phase_error)?;
+            Ok::<_, Failure>((groups, collected.legacy, collected.input_key))
+        })();
+        if let Some(file) = cli_file {
+            file.close().map_err(phase_error)?;
         }
-        .map_err(phase_error)?;
-        (groups, collected.legacy, collected.input_key)
+        outcome?
     }; // Match957-995: revocation file lives through partition, not the miss scan.
     let check = q.check.codepoints();
     let had_trusted = !groups.trusted.is_empty();

@@ -109,8 +109,7 @@ pub fn read<'a>(
         return Ok(view);
     }
     view.log_head = Some(head.to_owned());
-    let revocations =
-        tempfile::NamedTempFile::new().map_err(|e| super::source_io::error(OsStr::new(""), &e))?;
+    let revocations = super::cli_tempfile::TemporaryFile::new("")?;
     let mut allowed = std::ffi::OsString::from("gpg.ssh.allowedSignersFile=");
     allowed.push(keys);
     let mut revoked = std::ffi::OsString::from("gpg.ssh.revocationFile=");
@@ -128,7 +127,9 @@ pub fn read<'a>(
             OsStr::new(head),
         ],
         super::source_resource::SourceResource::RawBlob(head.into()),
-    )?;
+    );
+    revocations.close()?;
+    let out = out?;
     let text = String::from_utf8_lossy(&out.stdout);
     let mut parts = text.trim_matches('\n').splitn(3, '\0');
     let status = parts.next().unwrap_or("");
