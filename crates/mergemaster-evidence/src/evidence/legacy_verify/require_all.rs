@@ -71,12 +71,12 @@ enum Lanes<'a> {
     ),
 }
 /// CLI transport composition, without changing native lane or record defaults.
-pub fn require_all_cli<'a>(
+pub fn require_all_cli<'a, 'r>(
     repo: &Path,
     tree: &'a str,
     keys: &Path,
     policy_text: &str,
-    repository: &str,
+    repository: impl Into<super::value_inputs::TextRef<'r>>,
     lane_file: Option<(&str, super::value_inputs::TextRef<'_>)>,
     lane_base: Option<super::value_inputs::TextRef<'_>>,
 ) -> Result<All<'a>, PolicyError> {
@@ -85,7 +85,7 @@ pub fn require_all_cli<'a>(
         tree,
         keys,
         policy_text,
-        repository,
+        repository.into(),
         Lanes::Cli(lane_file, lane_base),
         &mut SystemClock,
     )
@@ -107,7 +107,7 @@ fn with_clock<'a>(
         tree,
         Path::new(keys),
         policy_text,
-        repository,
+        repository.into(),
         Lanes::Native(lane_file, lane_base),
         clock,
     )
@@ -119,7 +119,7 @@ fn with_transport<'a>(
     tree: &'a str,
     keys: &Path,
     policy_text: &str,
-    repository: &str,
+    repository: super::value_inputs::TextRef<'_>,
     lanes: Lanes<'_>,
     clock: &mut dyn CurrentTime,
 ) -> Result<All<'a>, PolicyError> {
