@@ -1,7 +1,8 @@
 //! Accepted-base rust-test-inputs.json, retained as a lossless document.
 use super::{
     crate_inputs::{INPUTS_PATH, TreeSource, failure, utf8},
-    statement_document::{Document, Node, TextError},
+    source_resource::SourceResource,
+    statement_document::{Document, Node, PolicyTextError, TextError},
     value_inputs::TextRef,
 };
 use crate::evidence::legacy_policy::PolicyError;
@@ -12,10 +13,13 @@ impl Inputs {
     pub fn parse_bytes(bytes: &[u8]) -> Result<Self, PolicyError> {
         let prefix = |error: String| failure(format!("{INPUTS_PATH}: {error}"));
         let text = utf8(bytes).map_err(prefix)?;
-        let document=Document::from_text(text).map_err(|error|prefix(match error {
-            TextError::Syntax(error)=>error.to_string(),
-            TextError::IntegerLimit{digits}=>format!("Exceeds the limit (4300 digits) for integer string conversion: value has {digits} digits; use sys.set_int_max_str_digits() to increase the limit"),
-        }))?;
+        let document = Document::from_crate_inputs_text(text).map_err(|error| match error {
+            PolicyTextError::Resource(_) => SourceResource::CrateInputsNodes.into_error(),
+            PolicyTextError::Text(error) => prefix(match error {
+                TextError::Syntax(error) => error.to_string(),
+                TextError::IntegerLimit { digits } => format!("Exceeds the limit (4300 digits) for integer string conversion: value has {digits} digits; use sys.set_int_max_str_digits() to increase the limit"),
+            }),
+        })?;
         let inputs = Self { document };
         if !matches!(inputs.document.root(), Node::Object(_))
             || inputs

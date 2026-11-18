@@ -894,21 +894,38 @@ Approved acceptance narrowing: a present non-string `package.name` refuses with
 `error` / Failure and `<manifest path>: package.name is not a string`.
 Cargo rejects such manifests; Python's mixed-key collisions, NaN identity and
 sorting behaviour are deliberately not reproduced. This text has no Python-parity
-claim. Oracle evidence: `tmp/crate-shape-oracle/key-identity.json`.
+claim. Committed coverage: `crate_layout_tests::layout_and_type_confusion_match_oracle_except_approved_names`
+asserts all12 approved non-string refusals and compares ordered member pairs for
+all96 cases, including duplicate-name replacement, root prepending and Git's
+core.quotePath C-quoted wildcard names.
 `crate_closure` walks normal/dev/build and target-specific path dependencies with
 an explicit stack. Its memoized cycle unions, eager target lookup and lazy
 per-table dependency evaluation preserve the pinned Python walk's ordering.
+Approved fail-closed closure resources (separate from TOML container depth):
+at most256 uncached active manifests, counting the starting manifest, and1024
+distinct uncached manifests per shared operation cache, charged before reading.
+Cache/cycle hits neither descend nor charge. Typed Failure/error texts are
+`path dependency depth exceeds 256` and `path dependency crate count exceeds 1024`.
+The count bounds memoized reachability to about1M set entries (roughly64–128MiB
+for short paths, plus path-length/allocator variation), not an absolute byte cap;
+4096 crates would permit about16M entries.
 `crate_input_document::Inputs` retains the accepted-base input JSON losslessly,
 validates root/global/crates/no_tests shapes and never downgrades malformed new config.
 Approved resource-dependent divergence: CPython `json.loads` can raise
 `RecursionError` on nested `rust-test-inputs.json`, depending on stack/caller depth;
-Rust uses no fixed bound or emulation. A 100,000-depth ignored-metadata fixture
-accepts in Rust; CPython may raise `RecursionError` depending on stack size, or
-successfully parse the same nested-list shape.
+Rust imposes no depth cap or stack-boundary emulation. A 100,000-depth ignored
+metadata fixture accepts in Rust without assuming a CPython stack boundary.
+Approved fail-closed resource divergence: crate inputs share the policy parser's
+pre-allocation node charge (root, containers, scalars and overwritten duplicates),
+limited to 262144 nodes with typed Failure/error
+`crate inputs JSON node count exceeds 262144`. Limit/+1 shallow oracle cases
+and Rust-only deep boundary cases cover this independently of CPython recursion.
+CPython may accept the same nested shape or raise RecursionError depending on its stack.
 `crate_paths` assembles globals, all member manifests, patches, dependency closures
 and per-crate extras without encoding lossless paths. Unreviewed crates declare `.`.
-Approved diagnostic divergence: mixed non-string path elements that Python refuses
-with hash-seed-dependent sorting text refuse as `error` / Failure with
+Approved class/origin AND diagnostic-text divergence: mixed non-string path
+elements raise Python TypeError / Exception with hash-seed-dependent sorting
+text, but Rust returns `error` / Failure with
 `.st/rust-test-inputs.json: declared path is not a string`; acceptance is unchanged.
 Deterministic iteration/unhashable-element exceptions keep Python's class and text.
 Evidence: `tmp/crate-path-shapes/seed-results.json`.
