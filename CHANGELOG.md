@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [0.10.0] - 2026-11-19
 
 - Add the hidden `legacy-evidence-verify` entry before clap, composing complete project, require-all and ordinary verification with lossless argv, exact wire exits and real-binary pinned-oracle comparisons; unported ci_inputs helper requests fail closed.
 - Skip the Linux search-only working-directory regression when the effective UID is root, which bypasses the permission restriction needed to exercise O_PATH.
