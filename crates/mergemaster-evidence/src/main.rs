@@ -10,7 +10,7 @@
     )
 )]
 use clap::{Parser, Subcommand};
-use std::process::ExitCode;
+use std::{io::Write, process::ExitCode};
 
 #[derive(Parser)]
 #[command(name = "mergemaster", version, about)]
@@ -32,6 +32,22 @@ enum Command {
 }
 
 fn main() -> ExitCode {
+    let mut raw = std::env::args_os().skip(1);
+    if raw.next().is_some_and(|v| v == "legacy-evidence-verify") {
+        let result = mergemaster_evidence::evidence::legacy_verify::cli_dispatch::run(raw)
+            .and_then(|exit| {
+                std::io::stdout().lock().write_all(exit.stdout.as_bytes())?;
+                std::io::stderr().lock().write_all(exit.stderr.as_bytes())?;
+                Ok(exit.code)
+            });
+        return mergemaster_evidence::cli_output::finish(ExitCode::from(match result {
+            Ok(code) => code,
+            Err(error) => {
+                eprintln!("{error:#}");
+                1
+            }
+        }));
+    }
     let result = match Cli::parse().command {
         Command::Evidence(args) => mergemaster_evidence::evidence::cli::run(args),
         Command::Gate(args) => mergemaster_evidence::gate::run(args),

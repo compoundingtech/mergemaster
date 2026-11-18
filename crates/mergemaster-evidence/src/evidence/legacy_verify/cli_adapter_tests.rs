@@ -44,6 +44,7 @@ fn subprocess_driver() {
             if std::env::var_os("MM_TREE_ONLY").is_some()
                 || std::env::var_os("MM_PROJECT_ONLY").is_some()
                 || std::env::var_os("MM_REQUIRED_ONLY").is_some()
+                || std::env::var_os("MM_ORDINARY_ONLY").is_some()
             {
                 use super::super::{binding_path::encode, cli_dispatch};
                 if let Err(message) = parsed.preflight() {
@@ -53,6 +54,31 @@ fn subprocess_driver() {
                 let bytes = encode(parsed.value("--repo").unwrap(), 0, true).unwrap();
                 let repo = std::path::Path::new(std::ffi::OsStr::from_bytes(&bytes));
                 let exit = match cli_dispatch::resolve_tree(repo, &parsed) {
+                    Ok(tree) if std::env::var_os("MM_ORDINARY_ONLY").is_some() => {
+                        let options = super::super::cli_options::Options::read(&parsed).unwrap();
+                        match super::super::cli_ordinary::verify(
+                            repo,
+                            &tree,
+                            &parsed,
+                            options,
+                            |outcome| {
+                                let mut stdout = String::new();
+                                outcome
+                                    .write(&tree, cli_dispatch::check(&parsed), &mut stdout)
+                                    .unwrap()
+                                    .unwrap();
+                                stdout.push('\n');
+                                Exit {
+                                    stdout,
+                                    stderr: String::new(),
+                                    code: u8::from(!outcome.satisfied()),
+                                }
+                            },
+                        ) {
+                            Ok(exit) => exit,
+                            Err(error) => cli_dispatch::refusal(&parsed, &error).unwrap(),
+                        }
+                    }
                     Ok(tree) if std::env::var_os("MM_REQUIRED_ONLY").is_some() => {
                         match cli_dispatch::required(repo, &tree, &parsed, |result| {
                             let code = u8::from(
@@ -74,7 +100,7 @@ fn subprocess_driver() {
                             Err(error) => cli_dispatch::refusal(&parsed, &error).unwrap(),
                         }
                     }
-                    Ok(tree) if std::env::var_os("MM_PROJECT_ONLY").is_some() => {
+                    Ok(tree) => {
                         match cli_dispatch::project(repo, &tree, &parsed, |project| {
                             let mut stdout = String::new();
                             crate::evidence::legacy_output::write(&mut stdout, |w| {
@@ -92,11 +118,6 @@ fn subprocess_driver() {
                             Err(error) => cli_dispatch::refusal(&parsed, &error).unwrap(),
                         }
                     }
-                    Ok(tree) => Exit {
-                        stdout: format!("{{\n  \"tree\": \"{tree}\"\n}}\n"),
-                        stderr: String::new(),
-                        code: 0,
-                    },
                     Err(error) => cli_dispatch::refusal(&parsed, &error).unwrap(),
                 };
                 std::io::stdout().write_all(exit.stdout.as_bytes()).unwrap();

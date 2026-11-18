@@ -1,5 +1,13 @@
 #[path = "../src/pinned_python.rs"]
 mod pinned_python;
+mod cli_dispatch {
+    pub mod tests {
+        include!("../src/evidence/legacy_verify/cli_dispatch_tests.rs");
+    }
+    mod ordinary_tests {
+        include!("../src/evidence/legacy_verify/cli_ordinary_tests.rs");
+    }
+}
 #[test]
 fn python_oracle_parity() {
     let root = std::env::var_os("MERGEMASTER_PYTHON_PARITY_ORACLE")
