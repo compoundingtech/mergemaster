@@ -70,8 +70,19 @@ pub fn read<'a>(
     now_micros: i64,
     max_age: i64,
 ) -> Result<View, PolicyError> {
+    read_at(repo, keys, tree, check, members, Some(now_micros), max_age)
+}
+pub(super) fn read_at<'a>(
+    repo: &Path,
+    keys: &Path,
+    tree: &str,
+    check: impl Into<TextRef<'a>>,
+    members: &BTreeMap<String, Member<'_>>,
+    now_micros: Option<i64>,
+    max_age: i64,
+) -> Result<View, PolicyError> {
     let check = check.into();
-    let head = log_view::read(repo, keys, tree, check, None, None, now_micros, max_age)?;
+    let head = log_view::read_at(repo, keys, tree, check, None, None, now_micros, max_age)?;
     let mut view = View {
         head,
         log_unlogged: None,

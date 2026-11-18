@@ -44,7 +44,12 @@ for fmt in ['sha1','sha256']:
   except v['Failure'] as e: expected=dict(reason=e.reason,detail=list(map(ord,str(e))),extra=e.extra)
   except Exception as e: expected=dict(exception=type(e).__name__,detail=list(map(ord,str(e))))
   if mode in ['fresh','logged','crate-logged']: assert expected['value']['log']==('unlogged_pass' if mode=='fresh' else 'ok'),expected
-  rows.append(dict(repo=str(repo),tree=current,keys=str(keys),logkeys=logkeys,policy=policy,crate=binding,expected=expected,mode=mode))
+  expected_wire=expected.get('value')
+  if expected_wire is None:
+   detail=''.join(map(chr,expected['detail']))
+   expected_wire=dict(satisfied=False,reason=expected.get('reason','error'),check='check',detail=(expected['exception']+': '+detail if 'exception' in expected else detail),**expected.get('extra',{}))
+  expected_wire=json.dumps(expected_wire,indent=2)
+  rows.append(dict(repo=str(repo),tree=current,keys=str(keys),logkeys=logkeys,policy=policy,crate=binding,expected=expected,wire=expected_wire,mode=mode))
 print(json.dumps(rows))
 "#;
     let root = tempfile::tempdir().unwrap();
@@ -109,10 +114,17 @@ print(json.dumps(rows))
             Levels::Utf8(&[]),
             Some(super::super::log_view::Request {
                 keys: Path::new(row["logkeys"].as_str().unwrap()),
-                now_micros: 1_767_225_900_000_000,
+                now_micros: Some(1_767_225_900_000_000),
             }),
             transport,
         );
+        let wrapped = super::super::cli_verified::Outcome::Single(outcome);
+        let mut wire = String::new();
+        wrapped.write(q.tree, q.check, &mut wire).unwrap().unwrap();
+        assert_eq!(wire, row["wire"].as_str().unwrap());
+        let super::super::cli_verified::Outcome::Single(outcome) = wrapped else {
+            unreachable!()
+        };
         let actual = match outcome {
             Ok((retained, log)) => {
                 let mut text = String::new();

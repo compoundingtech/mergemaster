@@ -274,7 +274,7 @@ pub fn verify_with_transport<P: Provider>(
     {
         return outcome.map(|r| (r, None));
     }
-    let view = super::log_view::read(
+    let view = super::log_view::read_at(
         q.repo,
         log.keys,
         q.tree,

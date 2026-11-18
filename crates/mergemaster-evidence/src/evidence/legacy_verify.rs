@@ -22,6 +22,7 @@ pub mod cli_options;
 pub mod cli_signature;
 pub mod cli_tempfile;
 pub mod cli_validation;
+pub mod cli_verified;
 pub mod collection;
 pub mod configured;
 pub mod crate_bindings;

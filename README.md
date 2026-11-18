@@ -566,6 +566,10 @@ close errors override that result, as in original main's finally clause.
 preflight: command JSON, ordered comma lists, bindings and unbounded age values.
 Conversion does no filesystem I/O; overflowing ages retain the existing deferred
 timedelta-overflow judgment rather than narrowing argparse's accepted integers.
+`cli_verified::Outcome` writes complete single/member success and refusal
+dictionaries, including selection, missing-member and shadow-log overlays.
+Log requests may defer the system-clock sample until the readable signed head's
+freshness phase; explicit fixed-clock reader APIs retain their existing behavior.
 No binary intercept or ordinary-verification dispatcher is installed yet.
 Approved terminal/log output divergence (#245): `terminal_sink::value` applies
 unbounded Python-repr-style escaping to C0, DEL, C1, lone surrogates and every

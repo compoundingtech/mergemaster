@@ -123,7 +123,7 @@ pub fn verified_with_transport<P: Provider>(
                     })
                     .collect();
                 e.log = Some(
-                    super::members_log_view::read(
+                    super::members_log_view::read_at(
                         q.repo,
                         log.keys,
                         q.tree,

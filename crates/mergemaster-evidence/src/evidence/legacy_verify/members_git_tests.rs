@@ -96,7 +96,9 @@ for fmt in ['sha1','sha256']:
    if mode=='attempts': assert result['attempts']==3
    if mode=='duplicates': assert result['events']==['merge_group','pull_request','merge_group']
    if mode=='empty-events': assert result['events']==[]
-  cases.append(dict(repo=str(repo),tree=tree,base=base,keys=str(keys),log_keys=shadow,policy=policy,mode=mode,expected=expected,calls=len(calls)))
+  wire=result if 'wire' in expected else dict(satisfied=False,reason=expected.get('reason','error'),check='check',detail=(expected['exception']+': '+expected['detail'] if 'exception' in expected else expected['detail']),**{k:value for k,value in expected.items() if k not in ['reason','detail','exception']})
+  wire=json.dumps(wire,indent=2)
+  cases.append(dict(repo=str(repo),tree=tree,base=base,keys=str(keys),log_keys=shadow,policy=policy,mode=mode,expected=expected,wire=wire,calls=len(calls)))
 print(json.dumps(cases))
 "#;
     let root = tempfile::tempdir().unwrap();
@@ -191,7 +193,7 @@ print(json.dumps(cases))
             inputs: None,
             crate_key: None,
         };
-        let actual = match verified_with_transport(
+        let outcome = verified_with_transport(
             &q,
             case["base"].as_str().map(Into::into),
             settings,
@@ -201,10 +203,18 @@ print(json.dumps(cases))
                 .as_str()
                 .map(|keys| super::super::log_view::Request {
                     keys: std::path::Path::new(keys),
-                    now_micros: 1_767_225_900_000_000,
+                    now_micros: Some(1_767_225_900_000_000),
                 }),
             transport,
-        ) {
+        );
+        let wrapped = super::super::cli_verified::Outcome::Members(outcome);
+        let mut wire = String::new();
+        wrapped.write(q.tree, q.check, &mut wire).unwrap().unwrap();
+        assert_eq!(wire, case["wire"].as_str().unwrap());
+        let super::super::cli_verified::Outcome::Members(outcome) = wrapped else {
+            unreachable!()
+        };
+        let actual = match outcome {
             Ok(aggregate) => {
                 let wire = aggregate
                     .with_view(q.tree, q.check, |view| {
