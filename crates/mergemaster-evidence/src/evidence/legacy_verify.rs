@@ -10,6 +10,7 @@ mod binding_path;
 pub mod candidates;
 pub mod cli_adapter;
 pub mod cli_config;
+pub mod cli_discovery;
 pub mod cli_lane_definition;
 pub mod cli_lane_entry;
 pub mod cli_lane_for;

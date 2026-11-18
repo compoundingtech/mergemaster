@@ -125,14 +125,26 @@ print(json.dumps(dict(records=cases,cache=cached)))
             );
         }
     }
-    for case in cases["cache"].as_array().unwrap() {
+    for (case, cli) in cases["cache"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|case| [false, true].map(|cli| (case, cli)))
+    {
+        let new_cache = || {
+            if cli {
+                RecordCache::for_cli_check()
+            } else {
+                RecordCache::for_check()
+            }
+        };
         let repo = Path::new(case["repo"].as_str().unwrap());
         let good = case["good"].as_str().unwrap();
         let bad = case["bad"].as_str().unwrap();
         let tree = case["tree"].as_str().unwrap();
         let missing = case["missing"].as_str().unwrap();
         budget_boundaries(repo, good, bad);
-        let mut cache = RecordCache::for_check();
+        let mut cache = new_cache();
         let first = cache.load(repo, good, None).unwrap().unwrap();
         let second = cache.load(repo, good, None).unwrap().unwrap();
         assert!(Arc::ptr_eq(&first, &second)); // Shared, immutable ownership.
@@ -184,7 +196,7 @@ print(json.dumps(dict(records=cases,cache=cached)))
             assert_eq!(mixed.unwrap_err().reason, reason); // No partial successful check.
             assert_eq!(cache.values.len(), before);
         }
-        let mut wide = RecordCache::for_check();
+        let mut wide = new_cache();
         for index in 0..3 {
             let name = format!("{}-wide-{index}", case["format"].as_str().unwrap());
             let record = cases["records"]
@@ -207,7 +219,7 @@ print(json.dumps(dict(records=cases,cache=cached)))
             .iter()
             .filter(|c| c["name"].as_str().unwrap().starts_with(&prefix))
             .collect();
-        let mut members = RecordCache::for_check();
+        let mut members = new_cache();
         for member in 0..52 {
             let before = members.remaining_units;
             for record in &records {

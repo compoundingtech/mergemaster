@@ -1,14 +1,13 @@
 //! Incremental strict ref parsing: only potentially matching records are retained.
 use super::*;
 use crate::evidence::legacy_verify::{crate_manifest_ops::exception, log_lines, utf8_stream::Utf8};
-use std::collections::BTreeSet;
-struct Rows<'a> {
+struct Rows<'a, C> {
     prefix: &'a str,
     line: String,
     discarded: bool,
-    found: BTreeSet<String>,
+    found: C,
 }
-impl Rows<'_> {
+impl<C: Extend<String>> Rows<'_, C> {
     fn character(&mut self, character: char) {
         if matches!(
             character,
@@ -39,20 +38,20 @@ impl Rows<'_> {
             && log_lines::oid(id)
             && name.strip_prefix(self.prefix) == Some(id)
         {
-            self.found.insert(id.to_owned());
+            self.found.extend(std::iter::once(id.to_owned()));
         }
         self.discarded = false;
         self.line.clear();
     }
 }
-struct References<'a> {
+struct References<'a, C> {
     capture: ProjectionCapture<'a>,
     decoder: Utf8,
-    rows: Rows<'a>,
+    rows: Rows<'a, C>,
 }
-impl CaptureSink for References<'_> {
+impl<C: Extend<String>> CaptureSink for References<'_, C> {
     type Error = ProcessError;
-    type Output = Result<BTreeSet<String>, PolicyError>;
+    type Output = Result<C, PolicyError>;
     fn push(&mut self, stream: Stream, bytes: &[u8]) -> Result<(), ProcessError> {
         match stream {
             Stream::Stdout => self
@@ -74,11 +73,11 @@ impl CaptureSink for References<'_> {
         self.capture.context(error)
     }
 }
-pub(crate) fn read(
+pub(crate) fn read<C: Default + Extend<String>>(
     command: &mut Command,
     prefix: &str,
     timeout: Duration,
-) -> Result<BTreeSet<String>, PolicyError> {
+) -> Result<C, PolicyError> {
     let capture = ProjectionCapture::new("for-each-ref", ExpectedOutput::Discard);
     collect(
         command,
@@ -92,7 +91,7 @@ pub(crate) fn read(
                 prefix,
                 line: String::new(),
                 discarded: false,
-                found: BTreeSet::new(),
+                found: C::default(),
             },
         },
     )?

@@ -982,6 +982,11 @@ is constructed per candidate/check with `for_check`, with exact repo/commit/opti
 Listing/statement/commit keep existing 1 MiB caps/texts with early abort; only the subject probe sets no-lazy-fetch.
 Approved fail-closed divergence: subject output above 128 bytes aborts with `Git output exceeds 128 bytes`; Python would compare oversized output with the tree.
 Ordinary Git Failure means absent; successful invalid UTF-8 raises Python's UnicodeDecodeError.
+`RecordCache::for_cli_check` fixes the transport for its entire ownership lifetime;
+the original cache/ownership matrix runs in both modes without mixing entries.
+`cli_discovery` uses the same bounded-record streaming ref sink with insertion
+order; existing log callers retain their BTreeSet sorting. Listings stay uncapped
+as streams, without whole-output retention; prefix order and first-seen IDs survive.
 Immutable `Arc` documents are interned per repo/commit; member hits are free and errors uncached.
 Observed records already flow through the lossless `Document`, cached `Arc<Document>`
 and borrowed `DocumentFacts`; no serde-value conversion intervenes. Real SHA-1/SHA-256

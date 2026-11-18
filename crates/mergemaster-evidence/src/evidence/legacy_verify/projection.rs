@@ -113,13 +113,16 @@ fn input_git_with_fetch(
     )
 }
 pub(super) fn read_ref_ids(repo: &Path, prefix: &str) -> Result<BTreeSet<String>, PolicyError> {
+    read_ref_ids_with_pattern(repo, prefix, prefix.trim_end_matches('/'))
+}
+pub(super) fn read_ref_ids_with_pattern<C: Default + Extend<String>>(
+    repo: &Path,
+    prefix: &str,
+    pattern: &str,
+) -> Result<C, PolicyError> {
     let mut command = projection_command(
         repo,
-        &[
-            "for-each-ref",
-            "--format=%(objectname) %(refname)",
-            prefix.trim_end_matches('/'),
-        ],
+        &["for-each-ref", "--format=%(objectname) %(refname)", pattern],
     )?;
     projection_capture::reference_ids(&mut command, prefix, Duration::from_secs(60))
 }
