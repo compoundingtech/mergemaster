@@ -570,6 +570,11 @@ The legacy clock/input guard takes an explicit clock and preserves future, age,
 required-input, exit-code, command and value-check refusal order.
 `legacy_verify::lanes::LaneRules` validates one selected accepted-base lane,
 preserving optional-field truthiness without reading Git or authorizing evidence.
+The CLI-only `cli_lanes::LaneRules` uses the flat lossless Document instead:
+lane names and argv retain lone surrogates, and optional noniterable falsey
+values raise the oracle TypeError after CI-input validation. Native APIs stay
+unchanged. CLI lane JSON shares the approved 1MiB/256-depth/262144-node budget,
+with typed lane-specific resource refusals; no dispatch is wired.
 Legacy definition hashing streams Python-compatible Git-entry/argv bytes,
 including surrogateescaped filenames; native lane hashing remains unchanged.
 Legacy lane-entry parsing preserves integer lexemes and reports unsupported JSON explicitly.
