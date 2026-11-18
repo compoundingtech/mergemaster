@@ -169,3 +169,7 @@ pub(super) fn selected_content_with<'a>(
 #[cfg(test)]
 #[path = "selection_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "selector_stress_tests.rs"]
+mod stress_tests;

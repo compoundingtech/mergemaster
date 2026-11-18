@@ -66,7 +66,7 @@ pub fn require_all<'a>(
 pub fn require_all_cli<'a>(
     repo: &Path,
     tree: &'a str,
-    keys: &str,
+    keys: &Path,
     policy_text: &str,
     repository: &str,
     lane_file: Option<(&str, &str)>,
@@ -99,7 +99,7 @@ fn with_clock<'a>(
     with_transport(
         repo,
         tree,
-        keys,
+        Path::new(keys),
         policy_text,
         repository,
         lane_file,
@@ -113,7 +113,7 @@ fn with_clock<'a>(
 fn with_transport<'a>(
     repo: &Path,
     tree: &'a str,
-    keys: &str,
+    keys: &Path,
     policy_text: &str,
     repository: &str,
     lane_file: Option<(&str, &str)>,

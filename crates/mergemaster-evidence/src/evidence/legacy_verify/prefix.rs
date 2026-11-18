@@ -14,7 +14,7 @@ pub struct Request<'a> {
     pub repo: &'a Path,
     pub tree: &'a str,
     pub check: CheckName<'a>,
-    pub keys: &'a str,
+    pub keys: &'a Path,
     pub inputs: Option<&'a [NormalizedText]>,
     pub crate_key: Option<CrateBinding<'a>>,
 }
@@ -67,9 +67,14 @@ pub fn candidates(
             .collect(q.repo, q.tree, q.check, q.inputs, q.crate_key)
             .map_err(phase_error)?;
         let groups = if collector.is_cli() {
-            super::trust::partition_cli(q.repo, collected.records, Path::new(q.keys), &path)
+            super::trust::partition_cli(q.repo, collected.records, q.keys, &path)
         } else {
-            partition(q.repo, collected.records, q.keys, revocations)
+            let keys = q
+                .keys
+                .to_str()
+                .ok_or_else(|| super::crate_inputs::failure("allowed signer path is not UTF-8"))
+                .map_err(phase_error)?;
+            partition(q.repo, collected.records, keys, revocations)
         }
         .map_err(phase_error)?;
         (groups, collected.legacy, collected.input_key)

@@ -1054,6 +1054,14 @@ their defaults. `required_git_cli` also selects the CLI hash provider, and
 Member aggregation creates one collector in the selected transport before its
 member loop; retained records share that check-wide budget, and exhaustion aborts.
 These library joins do not install a binary dispatch or prepare CLI tempfiles.
+Pinned selector stress coverage includes empty keys and dotted empty selectors,
+64/96 repeated declarations, and preferred/legacy aliases resolving to one
+selected identity, comparing complete selected bytes and projection keys.
+The public prefix request and CLI require-all entry carry signer filenames as
+raw `Path` values. CLI signature partition never narrows them to UTF-8.
+The native partition deliberately refuses newly representable non-UTF-8 signer
+paths as Failure/error `allowed signer path is not UTF-8`; this approved
+native-only fail-closed divergence preserves the native signature API.
 Lane discovery uses the gate's sanitized Git command and rejects malformed or
 unterminated ls-tree rows; shared subprocess timeout/output bounds remain open.
 `workflow::workflow_job` selects exact generated-workflow text and transitive

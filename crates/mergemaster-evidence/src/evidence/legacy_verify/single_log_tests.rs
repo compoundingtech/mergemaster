@@ -83,7 +83,7 @@ print(json.dumps(rows))
             repo: Path::new(row["repo"].as_str().unwrap()),
             tree: row["tree"].as_str().unwrap(),
             check: "check".into(),
-            keys: row["keys"].as_str().unwrap(),
+            keys: Path::new(row["keys"].as_str().unwrap()),
             inputs: None,
             crate_key: row["crate"]
                 .as_array()

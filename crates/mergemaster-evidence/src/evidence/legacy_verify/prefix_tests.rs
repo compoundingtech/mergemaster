@@ -2,7 +2,7 @@ use super::*;
 #[test]
 fn joined_prefix_preserves_precedence_and_propagates_real_limits() {
     let script = r#"
-import ast,json,pathlib,runpy,subprocess,sys,types
+import ast,json,pathlib,runpy,shutil,subprocess,sys,types
 source=pathlib.Path(sys.argv[1]+'/scripts/evidence-verify'); o=runpy.run_path(str(source))
 f=next(n for n in ast.parse(source.read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='verified')
 f.name='prefix'; f.body=[n for n in f.body if n.lineno<=1008]+[ast.Return(ast.Name('with_check',ast.Load()))]
@@ -60,7 +60,9 @@ for fmt in ['sha1','sha256']:
   if name=='budget':
    for i in range(3): record('wide'+str(i),signed=False,layout='notes',wide=True)
    refusal='record-budget-exceeded'
-  try: expected={'records':[c for c,s,p in o['prefix'](str(repo),current,check,str(keys),[])]}
+  raw_keys=str(keys.parent/'allowed-')+chr(0xdcff)
+  shutil.copyfile(keys,raw_keys)
+  try: expected={'records':[c for c,s,p in o['prefix'](str(repo),current,check,raw_keys,[])]}
   except o['Failure'] as e:
    env=dict(o,failure=e,args=types.SimpleNamespace(check=check))
    expected={'reason':e.reason,'detail':list(map(ord,e.detail)),'attempts':e.extra.get('attempts',0),'single':eval(dump('Failure',False),env),'global_':eval(dump('Failure',True),env)}
@@ -102,11 +104,19 @@ print(json.dumps(cases))
         };
         let mut collector = new_collector();
         let check: Vec<u32> = serde_json::from_value(f["check"].clone()).unwrap();
+        use std::os::unix::ffi::OsStrExt;
+        let raw_keys = Path::new(f["keys"].as_str().unwrap())
+            .with_file_name(std::ffi::OsStr::from_bytes(b"allowed-\xff"));
+        std::fs::copy(f["keys"].as_str().unwrap(), &raw_keys).unwrap();
         let q = Request {
             repo: Path::new(f["repo"].as_str().unwrap()),
             tree: f["tree"].as_str().unwrap(),
             check: check.as_slice().into(),
-            keys: f["keys"].as_str().unwrap(),
+            keys: if cli {
+                &raw_keys
+            } else {
+                Path::new(f["keys"].as_str().unwrap())
+            },
             inputs: None,
             crate_key: None,
         };
@@ -120,6 +130,22 @@ print(json.dumps(cases))
                 .unwrap()
                 .is_empty()
             );
+        }
+        if cli && f["refusal"].is_null() {
+            let raw_request = Request {
+                keys: &raw_keys,
+                ..q
+            };
+            let error = match candidates(&mut CandidateCollector::for_check(), &raw_request) {
+                Err(error) => error,
+                Ok(_) => panic!("native raw-key request must refuse"),
+            };
+            assert_eq!(
+                error.origin,
+                crate::evidence::legacy_policy::ErrorOrigin::Failure
+            );
+            assert_eq!(error.reason, "error");
+            assert_eq!(error.detail.to_string(), "allowed signer path is not UTF-8");
         }
         let result = candidates(&mut collector, &q);
         if let Some(reason) = f["refusal"].as_str() {
@@ -177,7 +203,7 @@ fn joined_git_errors_are_not_successful_misses() {
         repo: &missing,
         tree: &"0".repeat(40),
         check: "check".into(),
-        keys: "unused",
+        keys: Path::new("unused"),
         inputs: None,
         crate_key: None,
     };
