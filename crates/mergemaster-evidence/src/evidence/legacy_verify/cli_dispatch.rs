@@ -76,6 +76,65 @@ pub fn refusal(args: &ParsedArguments<'_>, error: &PolicyError) -> Result<Exit, 
     })
 }
 
+pub enum Project<'a> {
+    Members(super::member_project::MemberProject<'a>),
+    Paths(
+        super::paths_project::PathsProject<'a>,
+        Vec<(TextRef<'a>, String)>,
+    ),
+}
+impl Project<'_> {
+    pub fn write_json<'s>(
+        &self,
+        writer: legacy_output::ValueWriter<'s, '_, impl fmt::Write>,
+    ) -> Result<legacy_output::Written<'s>, fmt::Error> {
+        match self {
+            Self::Members(project) => project.write_json(writer),
+            Self::Paths(project, base) => project.write_json_with_base(base, writer),
+        }
+    }
+}
+/// Complete project early-return, before signers, lanes, run inputs or log keys.
+/// The callback borrows policy names, avoiding a self-referential result or clones.
+pub fn project<T>(
+    repo: &Path,
+    tree: &str,
+    args: &ParsedArguments<'_>,
+    emit: impl FnOnce(Project<'_>) -> T,
+) -> Result<T, PolicyError> {
+    if args.value("--members").is_some() {
+        return super::member_project::MemberProject::read(
+            repo,
+            tree,
+            check(args),
+            args.value("--policy-from"),
+        )
+        .map(|project| emit(Project::Members(project)));
+    }
+    let base = args
+        .value("--policy-from")
+        .filter(|p| p.points().next().is_some());
+    let rules = base
+        .map(|base| {
+            super::policy_loader::load(repo, base, check(args))?
+                .into_rules(args.value("--repository").unwrap_or(TextRef::Str("")))
+        })
+        .transpose()?;
+    let project = super::paths_project::PathsProject::read_with_inputs(
+        repo,
+        tree,
+        check(args),
+        args.value("--paths"),
+        rules.as_ref().and_then(|r| r.header.inputs.as_deref()),
+    )?;
+    let values = super::base_input_values::base_input_values(
+        repo,
+        base.unwrap_or(TextRef::Str("")),
+        rules.as_ref(),
+    )?;
+    Ok(emit(Project::Paths(project, values)))
+}
+
 #[cfg(test)]
 #[path = "cli_dispatch_tests.rs"]
 mod tests;
