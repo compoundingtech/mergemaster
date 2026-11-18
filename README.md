@@ -561,6 +561,10 @@ Private borrowed views avoid converting statements into native String maps.
 `InputMap` carries borrowed run-input lookup through judgments and value guards;
 native `BTreeMap<String, String>` and lossless `ValidatedInputs` share that path.
 The native `value_checks_document` convenience signature retains map inference.
+`run_inputs::RunInputs` borrows first-equals CLI pairs and accepted-base hashes,
+retaining first key position with last value wins. Accepted-base values overwrite
+caller claims; callers keep the reader's owned hashes alive for this InputMap view.
+Full unbounded Python repr refusals remain library text, not a raw terminal sink.
 Event helpers retain signer-level event order when narrowing check permissions
 and identify shard parts only from the configured producer kind and index input.
 Routing requires a signature-verified principal and a validated generic check.
@@ -575,6 +579,9 @@ lane names and argv retain lone surrogates, and optional noniterable falsey
 values raise the oracle TypeError after CI-input validation. Native APIs stay
 unchanged. CLI lane JSON shares the approved 1MiB/256-depth/262144-node budget,
 with typed lane-specific resource refusals; no dispatch is wired.
+Pinned boundary cases cover exact-limit/+1 UTF-8 source bytes, mixed/empty
+container depth and node charging (including overwritten duplicates).
+Oracle comparisons explicitly raise its recursion limit, not assert stack depth.
 Legacy definition hashing streams Python-compatible Git-entry/argv bytes,
 including surrogateescaped filenames; native lane hashing remains unchanged.
 Legacy lane-entry parsing preserves integer lexemes and reports unsupported JSON explicitly.
