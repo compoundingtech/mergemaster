@@ -1,24 +1,26 @@
 //! Strict UTF-8 and POSIX operations used by rust-test-keys.
 /// Python str.decode() error text, not Rust's UTF-8 diagnostic.
 pub fn utf8(data: &[u8]) -> Result<&str, String> {
-    std::str::from_utf8(data).map_err(|e| {
-        let start = e.valid_up_to();
-        let len = e.error_len().unwrap_or(data.len() - start);
-        let byte = data.get(start).copied().unwrap_or_default();
-        let reason = if e.error_len().is_none() {
-            "unexpected end of data"
-        } else if !(0xc2..=0xf4).contains(&byte) {
-            "invalid start byte"
-        } else {
-            "invalid continuation byte"
-        };
-        let location = if len == 1 {
-            format!("byte 0x{byte:02x} in position {start}")
-        } else {
-            format!("bytes in position {start}-{}", start + len - 1)
-        };
-        format!("'utf-8' codec can't decode {location}: {reason}")
-    })
+    std::str::from_utf8(data).map_err(|e| utf8_error(data, e, 0))
+}
+pub(super) fn utf8_error(data: &[u8], error: std::str::Utf8Error, offset: u128) -> String {
+    let local = error.valid_up_to();
+    let start = offset + local as u128;
+    let len = error.error_len().unwrap_or(data.len() - local);
+    let byte = data.get(local).copied().unwrap_or_default();
+    let reason = if error.error_len().is_none() {
+        "unexpected end of data"
+    } else if !(0xc2..=0xf4).contains(&byte) {
+        "invalid start byte"
+    } else {
+        "invalid continuation byte"
+    };
+    let location = if len == 1 {
+        format!("byte 0x{byte:02x} in position {start}")
+    } else {
+        format!("bytes in position {start}-{}", start + len as u128 - 1)
+    };
+    format!("'utf-8' codec can't decode {location}: {reason}")
 }
 /// POSIX normpath, including its special exactly-two-leading-slashes rule.
 pub fn normpath(path: &str) -> String {

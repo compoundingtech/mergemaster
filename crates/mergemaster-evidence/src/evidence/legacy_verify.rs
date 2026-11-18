@@ -72,6 +72,7 @@ pub mod statement_tokens;
 pub mod terminal_sink;
 pub mod toml;
 pub mod trust;
+pub mod utf8_stream;
 pub(crate) mod value_inputs;
 pub mod workflow;
 pub mod zero_test_crates;
