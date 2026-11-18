@@ -1034,6 +1034,11 @@ Policy/Git errors abort without returning partial groups. Check selection and
 miss precedence use `prefix::candidates` (996-1008), not final check authorization.
 It owns an EMPTY revocation file like Python957, not caller revocations; never use
 this prefix for an API promising external revocation enforcement.
+The CLI owns its empty revocation file through `cli_tempfile::TemporaryFile`,
+with mode 0600, Python's temporary-directory search order, raw filesystem paths
+and exception provenance. Drop unlinks it on success and early failure; the
+native tempfile/canonicalization path is unchanged. The same owner supports
+the `.keys` and `.log-keys` preparation suffixes before dispatch composition.
 `raw_batch::RawBatch` provides scanner-specific one-request exchanges, 128-byte headers
 and pre-read 1MiB body limits; explicit finish validates status, errors/drop kill and reap.
 `projection_capture::raw_batch` is the CLI batch prerequisite: one complete request
