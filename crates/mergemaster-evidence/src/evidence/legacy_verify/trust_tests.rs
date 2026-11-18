@@ -73,15 +73,19 @@ print(json.dumps(fixtures))
                 })
                 .collect::<Vec<_>>()
         };
-        let groups = partition(repo, candidates(), keys, revocations).unwrap();
-        assert_eq!(
-            serde_json::json!({
-                "trusted":groups.trusted.iter().map(|c| (&c.candidate.commit,&c.principal)).collect::<Vec<_>>(),
-                "untrusted":groups.untrusted.iter().map(|c| (c.reason,&c.commit)).collect::<Vec<_>>(),
-                "degraded":groups.degraded.iter().map(|c| &c.commit).collect::<Vec<_>>()
-            }),
-            f["expected"]
-        );
+        for groups in [
+            partition(repo, candidates(), keys, revocations).unwrap(),
+            partition_cli(repo, candidates(), Path::new(keys), Path::new(revocations)).unwrap(),
+        ] {
+            assert_eq!(
+                serde_json::json!({
+                    "trusted":groups.trusted.iter().map(|c| (&c.candidate.commit,&c.principal)).collect::<Vec<_>>(),
+                    "untrusted":groups.untrusted.iter().map(|c| (c.reason,&c.commit)).collect::<Vec<_>>(),
+                    "degraded":groups.degraded.iter().map(|c| &c.commit).collect::<Vec<_>>()
+                }),
+                f["expected"]
+            );
+        }
         let mut input = candidates();
         input[1].statement = Arc::clone(&input[0].statement);
         assert!(matches!(partition(repo,input,keys,revocations),Err(e) if e.reason=="error"));
