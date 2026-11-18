@@ -516,6 +516,10 @@ then normalize command placeholders and the required-input/binding-key union.
 before returning typed policy rules; raw kind entries are not exposed to callers.
 `legacy_verify::value_checks` judges ranked/base inputs and complete shard results
 without granting signature trust or changing native gate behavior.
+`legacy_verify::base_input_values` reads accepted-base bindings in kind/input order,
+using inherited `no_lazy` Git show transport. Names remain lossless, later writes
+replace values without moving their first position, and nonzero reads mean `absent`.
+Raw blob capture retains the approved 1MiB fail-closed resource divergence.
 `legacy_verify::argparse_options` exposes the pinned verifier's complete ordered
 option metadata: aliases, destinations, actions, defaults, metavars, nargs,
 requiredness and exclusive groups. It is not production CLI dispatch or a loader.
@@ -1024,6 +1028,11 @@ These rust-test-keys reads retain inherited Git settings and no timeout.
 CLI configuration lookup and standalone no-test allowance reads also use the
 approved 1 MiB RawBlob capture: exact revision for lookup metadata, exact
 `base:path` for allowance bytes, with their existing verifier Git transport.
+Generic configuration blob resource identity concatenates the original lossless
+revision and resolved layout path, never decoding re-encoded subprocess argv.
+Real-Git SHA1/SHA256 boundary fixtures preserve adjacent DCC3/DCA9 surrogate
+code points in the complete typed source/detail, although those argv bytes
+resolve the same Git ref as scalar U+00E9.
 `log_transport::read` separately ports shadow-log `no_lazy`: inherited environment,
 fixed SSH Git settings, no lazy fetch/replacements, LC_ALL=C and a 60-second deadline.
 Nonzero Git status is data except source overflow; stdout has the approved 1 MiB
