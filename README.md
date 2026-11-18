@@ -585,6 +585,10 @@ CLI branch-point entry comparison uses bounded flat Documents and iterative
 canonical equivalence, without building JSON strings: object order and integer
 -0 normalize, but bool/int/float and signed float zero remain distinct. It
 retains surrogate names/values and nonfinite metadata; native narrowing stays.
+CLI `cli_lane_for::lane_for` composes those surfaces in oracle order: inherited
+config/rev-parse/definition reads, no_lazy only for merge-base and branch-point
+show. Scalar capture is RawBlob1MiB; branch-point lane text is LaneJson1MiB.
+Original revision/check codepoints survive; no CLI dispatch is wired.
 The CLI-only `cli_lanes::LaneRules` uses the flat lossless Document instead:
 lane names and argv retain lone surrogates, and optional noniterable falsey
 values raise the oracle TypeError after CI-input validation. Native APIs stay
