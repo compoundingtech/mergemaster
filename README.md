@@ -581,6 +581,10 @@ resource refusals; native lane transport and OID validation remain unchanged.
 accepted-base existence/absence checks before candidate reads and exact missing
 path diagnostics. Invalid caller-constructed argv codepoints have a library-only
 invariant guard; parsed CLI rules cannot reach it.
+CLI branch-point entry comparison uses bounded flat Documents and iterative
+canonical equivalence, without building JSON strings: object order and integer
+-0 normalize, but bool/int/float and signed float zero remain distinct. It
+retains surrogate names/values and nonfinite metadata; native narrowing stays.
 The CLI-only `cli_lanes::LaneRules` uses the flat lossless Document instead:
 lane names and argv retain lone surrogates, and optional noniterable falsey
 values raise the oracle TypeError after CI-input validation. Native APIs stay
