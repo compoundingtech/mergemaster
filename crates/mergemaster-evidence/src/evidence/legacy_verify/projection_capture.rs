@@ -201,6 +201,9 @@ pub(super) use refs::read as reference_ids;
 #[path = "projection_notes.rs"]
 mod notes;
 pub(super) use notes::read as note_presence;
+#[path = "projection_batch.rs"]
+mod batch;
+pub use batch::read as raw_batch;
 #[cfg(test)]
 #[path = "projection_capture_tests.rs"]
 mod tests;
