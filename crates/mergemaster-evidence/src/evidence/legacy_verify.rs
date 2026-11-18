@@ -15,6 +15,7 @@ pub mod cli_lane_entry;
 pub mod cli_lane_for;
 pub mod cli_lane_git;
 pub mod cli_lanes;
+pub mod cli_signature;
 pub mod cli_validation;
 pub mod collection;
 pub mod configured;

@@ -25,7 +25,6 @@ struct ProjectionCapture<'a> {
     expected: ExpectedOutput,
     stdout: ObjectId,
     bytes: Vec<u8>,
-    stdout_overflow: bool,
     stderr: VecDeque<u8>,
     overflow: bool,
 }
@@ -36,7 +35,6 @@ impl<'a> ProjectionCapture<'a> {
             expected,
             stdout: ObjectId::default(),
             bytes: Vec::new(),
-            stdout_overflow: false,
             stderr: VecDeque::new(),
             overflow: false,
         }
@@ -45,6 +43,7 @@ impl<'a> ProjectionCapture<'a> {
 enum ProcessError {
     Io(io::Error, bool),
     Resource(super::source_resource::SourceResource),
+    Bytes(usize),
 }
 impl From<io::Error> for ProcessError {
     fn from(error: io::Error) -> Self {
@@ -58,9 +57,12 @@ impl CaptureSink for ProjectionCapture<'_> {
         match stream {
             Stream::Stdout => match &self.expected {
                 ExpectedOutput::Bytes(limit) => {
-                    let retained = bytes.len().min(limit.saturating_sub(self.bytes.len()));
-                    self.stdout_overflow |= retained != bytes.len();
+                    let bound = limit.saturating_add(1);
+                    let retained = bytes.len().min(bound.saturating_sub(self.bytes.len()));
                     self.bytes.extend_from_slice(&bytes[..retained]);
+                    if self.bytes.len() > *limit {
+                        return Err(ProcessError::Bytes(*limit));
+                    }
                 }
                 ExpectedOutput::Source(resource) => {
                     let limit = resource.byte_limit();
@@ -108,13 +110,7 @@ impl CaptureSink for ProjectionCapture<'_> {
             ExpectedOutput::Sha256 => 64,
             ExpectedOutput::Discard => return Ok(Vec::new()),
             ExpectedOutput::Source(_) => return Ok(self.bytes),
-            ExpectedOutput::Bytes(limit) => {
-                return if self.stdout_overflow {
-                    Err(failure(format!("Git output exceeds {limit} bytes")))
-                } else {
-                    Ok(self.bytes)
-                };
-            }
+            ExpectedOutput::Bytes(_) => return Ok(self.bytes),
         };
         self.stdout.finish(width).ok_or_else(|| {
             failure(format!(
@@ -155,6 +151,7 @@ fn collect<S: CaptureSink<Error = ProcessError>>(
 ) -> Result<S::Output, PolicyError> {
     GitChild::capture_with_sink(command, Some(bytes), timeout, sink).map_err(|error| match error {
         ProcessError::Resource(resource) => resource.into_error(),
+        ProcessError::Bytes(limit) => failure(format!("Git output exceeds {limit} bytes")),
         ProcessError::Io(error, spawned) => failure(format!(
             "git {operation}: {}",
             super::projection_process_error::diagnostic(command, &error, spawned, timeout)

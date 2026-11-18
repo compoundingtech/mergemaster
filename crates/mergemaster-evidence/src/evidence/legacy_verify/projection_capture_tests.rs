@@ -78,7 +78,7 @@ fn spawn_and_timeout_keep_python_operation_context() {
 }
 
 #[test]
-fn byte_capture_preserves_binary_and_drains_overflow() {
+fn byte_capture_preserves_binary_and_aborts_overflow() {
     let bytes = vec![0xff; 200_000];
     assert_eq!(
         run(
@@ -98,6 +98,43 @@ fn byte_capture_preserves_binary_and_drains_overflow() {
         "Git output exceeds 17 bytes"
     );
     assert_eq!(run(b"", ExpectedOutput::Bytes(0), "", 0, 0).unwrap(), b"");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn byte_overflow_stops_endless_output_and_reaps_child() {
+    for limit in [0, 17, 16 * 1024 * 1024] {
+        let directory = tempfile::tempdir().unwrap();
+        let pid_path = directory.path().join("pid");
+        let mut command = crate::pinned_python::command();
+        command.args(["-c", "import os,signal,sys;open(sys.argv[1],'w').write(str(os.getpid()));signal.alarm(30)\nwhile True: os.write(1,b'x'*65536)"])
+            .arg(&pid_path).stdin(Stdio::piped());
+        let error = exchange(
+            &mut command,
+            b"",
+            "show",
+            ExpectedOutput::Bytes(limit),
+            Duration::from_secs(60),
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.detail.to_string(),
+            format!("Git output exceeds {limit} bytes")
+        );
+        assert_eq!(error.reason, "error");
+        assert_eq!(error.resource, None);
+        assert_eq!(
+            error.origin,
+            crate::evidence::legacy_policy::ErrorOrigin::Failure
+        );
+        let pid = std::fs::read_to_string(pid_path).unwrap().parse().unwrap();
+        assert_reaped(pid);
+        let exact = vec![b'x'; limit];
+        assert_eq!(
+            run(&exact, ExpectedOutput::Bytes(limit), "", 0, 0).unwrap(),
+            exact
+        );
+    }
 }
 
 #[test]
