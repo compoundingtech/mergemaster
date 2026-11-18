@@ -547,6 +547,13 @@ divergence only when Python's argv[0] basename differs. No binary entry is wired
 namespace before any I/O. Kinds and level-list validation retain lossless strings;
 presence, truthiness, repeated stores/appends and unbounded integer positivity
 are not narrowed through serde or a second parser.
+`cli_dispatch::resolve_tree` adds the original main's tree-resolution boundary;
+its error writer preserves single-check versus require-all envelopes and exits.
+Revision capture uses the shared collector with the existing 1MiB RawBlob
+metadata divergence, original expression identity and owned 60-second deadline.
+These staged composition functions install no binary intercept. They never call
+`AcceptedSource` or `json_bytes::parse`; those outstanding prerequisites remain
+excluded, not silently satisfied.
 Approved terminal/log output divergence (#245): `terminal_sink::value` applies
 unbounded Python-repr-style escaping to C0, DEL, C1, lone surrogates and every
 backslash, without repr quotes. `RenderedHelp::write_terminal` escapes only
