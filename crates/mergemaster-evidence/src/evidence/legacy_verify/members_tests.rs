@@ -221,7 +221,7 @@ print(json.dumps(cases))
                 tree: q.tree,
             }),
         };
-        let members = Members::read(q.repo, q.tree, Some(q.tree)).unwrap();
+        let members = Members::read(q.repo, q.tree, Some(q.tree.into())).unwrap();
         let mut retained = Vec::new();
         // Each member independently fits, with a distinct original document
         // reachable only through its cross-tree source-input index.
@@ -243,7 +243,7 @@ print(json.dumps(cases))
         assert_eq!(retained.len(), 4);
         let error = verified_with_transport(
             &q,
-            Some(q.tree),
+            Some(q.tree.into()),
             Settings::Policy(&rules),
             &mut judgment,
             Levels::Utf8(&[]),

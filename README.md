@@ -1062,6 +1062,10 @@ raw `Path` values. CLI signature partition never narrows them to UTF-8.
 The native partition deliberately refuses newly representable non-UTF-8 signer
 paths as Failure/error `allowed signer path is not UTF-8`; this approved
 native-only fail-closed divergence preserves the native signature API.
+Member/explicit allowance and member-project policy-base carriers retain original
+`TextRef` codepoints through bare rust-test-keys reads and inherited verifier
+reads, preserving surrogateescape argv, original source identities and exception
+offsets. Repository NUL validation precedes later revision conversion.
 Lane discovery uses the gate's sanitized Git command and rejects malformed or
 unterminated ls-tree rows; shared subprocess timeout/output bounds remain open.
 `workflow::workflow_job` selects exact generated-workflow text and transitive

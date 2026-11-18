@@ -174,7 +174,7 @@ print(json.dumps(cases))
         let actual = match member_keys(
             repo.path(),
             case["tree"].as_str().unwrap(),
-            case["base"].as_str(),
+            case["base"].as_str().map(Into::into),
         ) {
             Ok(keys) => {
                 json!({"ok":keys.into_iter().collect::<std::collections::BTreeMap<_, _>>()})

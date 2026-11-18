@@ -5,11 +5,53 @@ use super::{
     statement_document::{Document, Node, PolicyTextError, TextError},
     value_inputs::TextRef,
 };
-use crate::evidence::legacy_policy::PolicyError;
+use crate::evidence::legacy_policy::{PolicyError, normalized_text::NormalizedText};
+use std::{ffi::OsStr, os::unix::ffi::OsStrExt, path::Path, process::Command};
 pub struct Inputs {
     document: Document,
 }
 impl Inputs {
+    /// The rust-test-keys reader: bare inherited Git, no timeout, original revision identity.
+    pub fn read_from(repo: &Path, tree: TextRef<'_>, no_lazy: bool) -> Result<Self, PolicyError> {
+        let preferred = INPUTS_PATH.replacen(".st/", ".fractal/", 1);
+        let out = super::manifest_capture::metadata(
+            &mut source_command(
+                repo,
+                tree,
+                &["ls-tree", "-z", "--full-tree"],
+                &["--", &preferred, INPUTS_PATH],
+                no_lazy,
+            )?,
+            SourceResource::RawBlob(NormalizedText::concat(std::iter::once(tree))),
+            true,
+        )?;
+        let path = super::crate_inputs::configuration(out, tree, INPUTS_PATH)?;
+        let data = match path {
+            Some(path) => {
+                let object =
+                    NormalizedText::concat([tree, ":".into(), path.as_str().into()].into_iter());
+                super::manifest_capture::read(
+                    &mut source_command(
+                        repo,
+                        object.borrowed(),
+                        &["cat-file", "blob"],
+                        &[],
+                        no_lazy,
+                    )?,
+                    SourceResource::RawBlob(object),
+                )?
+            }
+            None => None,
+        };
+        let data = data.ok_or_else(|| {
+            failure(NormalizedText::around(
+                "",
+                tree,
+                ":.st/rust-test-inputs.json is not readable",
+            ))
+        })?;
+        Self::parse_bytes(&data)
+    }
     pub fn parse_bytes(bytes: &[u8]) -> Result<Self, PolicyError> {
         let prefix = |error: String| failure(format!("{INPUTS_PATH}: {error}"));
         let text = utf8(bytes).map_err(prefix)?;
@@ -79,6 +121,35 @@ impl TreeSource<'_> {
             data.ok_or_else(|| failure(format!("{}:{INPUTS_PATH} is not readable", self.tree)))?;
         Inputs::parse_bytes(&data)
     }
+}
+
+fn source_command(
+    repo: &Path,
+    object: TextRef<'_>,
+    before: &[&str],
+    after: &[&str],
+    no_lazy: bool,
+) -> Result<Command, PolicyError> {
+    // Python converts argv in order: repository NUL precedes later encode errors.
+    let nul = || super::crate_manifest_ops::exception("ValueError", "embedded null byte");
+    if repo.as_os_str().as_bytes().contains(&0) {
+        return Err(nul());
+    }
+    let bytes = super::binding_path::encode(object, 0, true)?;
+    if bytes.contains(&0) {
+        return Err(nul());
+    }
+    let mut command = Command::new("git");
+    command
+        .arg("-C")
+        .arg(repo)
+        .args(before)
+        .arg(OsStr::from_bytes(&bytes))
+        .args(after);
+    if no_lazy {
+        command.env("GIT_NO_LAZY_FETCH", "1");
+    }
+    Ok(command)
 }
 #[cfg(test)]
 #[path = "crate_input_document_tests.rs"]

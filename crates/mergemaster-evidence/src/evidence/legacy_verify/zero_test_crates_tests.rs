@@ -58,7 +58,7 @@ print(json.dumps(cases))
     );
     let cases: Vec<Value> = serde_json::from_slice(&out.stdout).unwrap();
     for case in &cases {
-        let actual = match zero_test_crates(repo.path(), case["base"].as_str().unwrap()) {
+        let actual = match zero_test_crates(repo.path(), case["base"].as_str().unwrap().into()) {
             Ok(names) => json!({"ok":names}),
             Err(e) => {
                 use crate::evidence::legacy_policy::ErrorOrigin;

@@ -46,7 +46,7 @@ pub use aggregate::{Aggregate, View};
 /// one collector shares its record budget across all members.
 pub fn verified<P: Provider>(
     q: &Request<'_>,
-    policy_base: Option<&str>,
+    policy_base: Option<TextRef<'_>>,
     settings: Settings<'_>,
     judgment: &mut CheckJudgment<'_, P>,
     prefer: Levels<'_>,
@@ -65,7 +65,7 @@ pub fn verified<P: Provider>(
 
 pub fn verified_with_transport<P: Provider>(
     q: &Request<'_>,
-    policy_base: Option<&str>,
+    policy_base: Option<TextRef<'_>>,
     settings: Settings<'_>,
     judgment: &mut CheckJudgment<'_, P>,
     prefer: Levels<'_>,

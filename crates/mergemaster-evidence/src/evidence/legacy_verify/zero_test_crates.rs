@@ -35,16 +35,32 @@ fn parse(bytes: &[u8]) -> Result<BTreeSet<Vec<u32>>, PolicyError> {
         .collect()
 }
 /// Missing configuration is an empty allowance; malformed preferred bytes never fall back.
-pub fn zero_test_crates(repo: &Path, base: &str) -> Result<BTreeSet<Vec<u32>>, PolicyError> {
+pub fn zero_test_crates(
+    repo: &Path,
+    base: super::value_inputs::TextRef<'_>,
+) -> Result<BTreeSet<Vec<u32>>, PolicyError> {
     // Share exact inherited lookup, including unresolved revision and lossless filename errors.
-    let Some(path) = super::cli_config::path(repo, base.into(), INPUTS)? else {
+    let Some(path) = super::cli_config::path(repo, base, INPUTS)? else {
         return Ok(BTreeSet::new());
     };
-    let spec = format!("{base}:{path}");
+    let spec = crate::evidence::legacy_policy::normalized_text::NormalizedText::concat(
+        [base, ":".into(), path.as_str().into()].into_iter(),
+    );
+    let encoded = super::binding_path::encode(spec.borrowed(), 0, true)?;
+    if encoded.contains(&0) {
+        return Err(super::crate_manifest_ops::exception(
+            "ValueError",
+            "embedded null byte",
+        ));
+    }
     let bytes = read_git_source(
         repo,
-        &["show", "--end-of-options", &spec],
-        SourceResource::RawBlob(spec.clone().into()),
+        &[
+            std::ffi::OsStr::new("show"),
+            std::ffi::OsStr::new("--end-of-options"),
+            std::os::unix::ffi::OsStrExt::from_bytes(encoded.as_ref()),
+        ],
+        SourceResource::RawBlob(spec.clone()),
     )?;
     parse(&bytes)
 }

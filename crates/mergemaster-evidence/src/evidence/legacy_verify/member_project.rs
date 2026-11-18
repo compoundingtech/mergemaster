@@ -20,7 +20,7 @@ impl<'a> MemberProject<'a> {
         repo: &Path,
         tree: &'a str,
         check: CheckName<'a>,
-        policy_base: Option<&str>,
+        policy_base: Option<super::value_inputs::TextRef<'_>>,
     ) -> Result<Self, PolicyError> {
         super::paths_project::validate_tree(tree)?;
         let mut keys = member_keys(repo, tree, policy_base)?;
