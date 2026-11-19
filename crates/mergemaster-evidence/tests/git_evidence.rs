@@ -15,6 +15,9 @@ use std::{
 /// The evidence API also invokes Git in this process. Run the entire test in a child with
 /// explicit tools and private home/state instead of changing the parallel harness's environment.
 fn isolated(test: &str) -> bool {
+    // libtest omits the crate name, both for this standalone target and when
+    // integration.rs includes this file as a module.
+    let (_, test) = test.split_once("::").expect("crate-qualified test path");
     const CHILD: &str = "ST3_GIT_EVIDENCE_ISOLATED_TEST";
     if std::env::var(CHILD).as_deref() == Ok(test) {
         return false;
@@ -119,9 +122,10 @@ fn success(output: std::process::Output) -> serde_json::Value {
 
 #[test]
 fn put_show_verify_work_offline_for_tests_review_and_explicit_degraded_tier() {
-    if isolated(
-        "git_evidence::put_show_verify_work_offline_for_tests_review_and_explicit_degraded_tier",
-    ) {
+    if isolated(concat!(
+        module_path!(),
+        "::put_show_verify_work_offline_for_tests_review_and_explicit_degraded_tier"
+    )) {
         return;
     }
     let root = tempfile::tempdir().unwrap();
@@ -407,9 +411,10 @@ fn put_show_verify_work_offline_for_tests_review_and_explicit_degraded_tier() {
 #[cfg(unix)]
 #[test]
 fn protected_ci_cli_fetches_selectors_and_exports_verified_objects_without_a_key() {
-    if isolated(
-        "git_evidence::protected_ci_cli_fetches_selectors_and_exports_verified_objects_without_a_key",
-    ) {
+    if isolated(concat!(
+        module_path!(),
+        "::protected_ci_cli_fetches_selectors_and_exports_verified_objects_without_a_key"
+    )) {
         return;
     }
     use base64::Engine as _;

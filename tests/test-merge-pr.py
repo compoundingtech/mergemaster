@@ -18,6 +18,7 @@ spec = importlib.util.spec_from_loader(loader.name, loader)
 gate = importlib.util.module_from_spec(spec)
 loader.exec_module(gate)
 HEAD, BASE, MERGE, TREE = ('a' * 40, 'b' * 40, 'c' * 40, 'd' * 40)
+CI_BASE, CI_MERGE = 'e' * 40, 'f' * 40
 REF, SECOND = 'message/1111111111111111', 'message/2222222222222222'
 
 
@@ -34,6 +35,11 @@ class GateTests(unittest.TestCase):
         self.main_tip = BASE
         self.post_parents = f'{BASE} {HEAD}'
         self.post_tree = TREE
+        self.tested_commit = MERGE
+        self.tested_tree = TREE
+        self.diffs = {}
+        self.merge_bases = {}
+        self.other_runs = []
         self.pr = {'state': 'open', 'draft': False, 'mergeable': True, 'base': {'ref': 'main'},
                    'head': {'sha': HEAD}, 'user': {'login': 'shared-bot'}, 'merge_commit_sha': MERGE}
         self.run = {'id': 12, 'head_sha': HEAD, 'pull_requests': [{'number': 376}],
@@ -58,10 +64,12 @@ class GateTests(unittest.TestCase):
                 data = {'check_runs': [self.check]}
             elif path.startswith('actions/workflows/'):
                 data = {'workflow_runs': [self.run]}
+            elif path.startswith('actions/runs?head_sha='):
+                data = {'workflow_runs': [self.run, *self.other_runs]}
             elif path == 'actions/runs/12/logs':
                 buffer = io.BytesIO()
                 with zipfile.ZipFile(buffer, 'w') as archive:
-                    archive.writestr('checks/checkout.txt', f'##[group]Getting Git version info\ncheckout refs/remotes/pull/376/merge\n[command]/usr/bin/git log -1 --format=%H\n2026-01-01T00:00:00Z {MERGE}\n')
+                    archive.writestr('checks/checkout.txt', f'##[group]Getting Git version info\ncheckout refs/remotes/pull/376/merge\n[command]/usr/bin/git log -1 --format=%H\n2026-01-01T00:00:00Z {self.tested_commit}\n')
                 return buffer.getvalue()
             else:
                 raise AssertionError(args)
@@ -76,15 +84,23 @@ class GateTests(unittest.TestCase):
                 return f'{BASE}\trefs/heads/main\n{HEAD}\trefs/pull/376/head\n{MERGE}\trefs/pull/376/merge'
             if args[1] == 'fetch':
                 return ''
+            if args[1] == 'merge-base':
+                return self.merge_bases.get(args[-2:], args[-2])
             if args[1] == 'show':
+                if args[-1] == CI_MERGE:
+                    return f'{CI_BASE} {HEAD}'
                 return self.post_parents if self.merge_calls else f'{BASE} {HEAD}'
             if args[1] == 'merge-tree':
                 return TREE
             if args[1] == 'rev-parse':
                 if args[2] == '--git-common-dir':
                     return self.common.name
+                if args[2] == f'{CI_MERGE}^{{tree}}':
+                    return self.tested_tree
                 return self.post_tree if self.merge_calls else TREE
             if args[1] == 'diff':
+                if args[-2:] in self.diffs:
+                    return self.diffs[args[-2:]]
                 return self.files if args[-2:] == (BASE, HEAD) else ('src/main.rs\0' if self.raced else '')
         raise AssertionError(args)
 
@@ -108,7 +124,7 @@ class GateTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, 2)
         code, output = self.run_gate('--dry-run', '--author-agent', 'agent/other-author')
         self.assertEqual(code, 1)
-        self.assertIn('PRs by other agents: no authenticated author binding yet; merge them manually under review', output)
+        self.assertIn('PRs by other agents: no verified author binding yet; merge them manually under review', output)
 
     def test_author_cannot_supply_second_go(self):
         self.files = '.github/workflows/ci.yml\0'
@@ -248,6 +264,8 @@ class GateTests(unittest.TestCase):
         self.assertIn('GO compoundingtech/mergemaster#N', output.getvalue())
         self.assertIn('first parent is CI base', output.getvalue())
         self.assertNotIn('/home/', output.getvalue())
+        self.assertIn('Fractal message sender (same-uid asserted identity)', output.getvalue())
+        self.assertIn('not a malicious same-uid agent', output.getvalue())
 
     def test_archived_verdicts_are_not_hidden(self):
         row = message(sender='agent/blocker', body=HEAD, index=3, title='NO-GO compoundingtech/mergemaster#376')
@@ -265,6 +283,35 @@ class GateTests(unittest.TestCase):
         self.assertEqual(self.run_gate('--dry-run', '--rerun-reason', ' ')[0], 1)
         self.assertEqual(self.run_gate('--dry-run', '--rerun-reason', 'runner outage')[0], 0)
 
+    def test_rerun_of_any_workflow_requires_reason(self):
+        self.other_runs = [{'head_sha': HEAD, 'run_attempt': 2, 'html_url': 'https://release/13'}]
+        code, output = self.run_gate('--dry-run')
+        self.assertEqual(code, 1)
+        self.assertIn('FAIL workflow-attempts', output)
+        self.assertIn('https://release/13', output)
+        self.assertEqual(self.run_gate('--dry-run', '--rerun-reason', 'release runner outage')[0], 0)
+
+    def test_sensitive_paths_use_three_dot_pr_diff(self):
+        branch_point = '0' * 40
+        self.merge_bases[(BASE, HEAD)] = branch_point
+        self.files = '.github/changed-only-on-main.yml\0'
+        self.diffs[(branch_point, HEAD)] = 'src/pr.rs\0'
+        self.assertEqual(self.run_gate('--dry-run')[0], 0)
+        self.files = 'src/pr.rs\0'
+        self.diffs[(branch_point, HEAD)] = '.github/pr-change.yml\0'
+        code, output = self.run_gate('--dry-run')
+        self.assertEqual(code, 1)
+        self.assertIn('FAIL sensitive-second-go', output)
+
+    def test_overlap_uses_three_dot_pr_side(self):
+        branch_point = '0' * 40
+        self.tested_commit = CI_MERGE
+        self.merge_bases[(CI_BASE, HEAD)] = branch_point
+        self.diffs[(CI_BASE, BASE)] = 'main-only.rs\0'
+        self.diffs[(CI_BASE, HEAD)] = 'main-only.rs\0src/pr.rs\0'
+        self.diffs[(branch_point, HEAD)] = 'src/pr.rs\0'
+        self.assertEqual(self.run_gate('--dry-run')[0], 0)
+
     def test_self_hosted_jobs_refuse(self):
         self.jobs[0]['runner_group_name'] = 'private'
         self.assertEqual(self.run_gate('--dry-run')[0], 1)
@@ -274,6 +321,32 @@ class GateTests(unittest.TestCase):
         code, output = self.run_gate('--dry-run')
         self.assertEqual(code, 1, output)
         self.assertIn('FAIL ci-base-overlap', output)
+
+    def test_ci_tested_tree_must_match_merge_tree_at_ci_base(self):
+        self.tested_commit = CI_MERGE
+        self.tested_tree = HEAD
+        code, output = self.run_gate('--dry-run')
+        self.assertEqual(code, 1)
+        self.assertIn('FAIL ci-base-overlap', output)
+        self.assertIn('differs from local merge-tree', output)
+
+    def test_overlap_uses_pr_changes_from_ci_base_not_current_main(self):
+        self.tested_commit = CI_MERGE
+        self.files = 'src/other.rs\0'
+        self.diffs[(CI_BASE, BASE)] = 'shared.rs\0'
+        self.diffs[(CI_BASE, HEAD)] = 'shared.rs\0src/other.rs\0'
+        code, output = self.run_gate('--dry-run')
+        self.assertEqual(code, 1)
+        self.assertIn("overlap=['shared.rs']", output)
+
+    def test_nonoverlapping_ci_base_advance_is_allowed(self):
+        self.tested_commit = CI_MERGE
+        self.diffs[(CI_BASE, BASE)] = 'unrelated.rs\0'
+        self.diffs[(CI_BASE, HEAD)] = self.files
+        with patch.object(gate, 'merge_tree', wraps=gate.merge_tree) as merges:
+            code, output = self.run_gate('--dry-run')
+        self.assertEqual(code, 0, output)
+        merges.assert_any_call(CI_BASE, HEAD, CI_MERGE)
 
     def test_draft_conflict_closed_and_changed_head_refuse(self):
         for field, value in [('draft', True), ('mergeable', False), ('mergeable', None), ('state', 'closed')]:

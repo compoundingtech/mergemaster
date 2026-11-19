@@ -45,6 +45,10 @@ def changed(base, head):
     return set(git('diff', '--no-renames', '--name-only', '-z', base, head).split('\0')) - {''}
 
 
+def pr_changed(base, head):
+    return changed(git('merge-base', base, head), head)
+
+
 def parents(commit):
     return git('show', '-s', '--format=%P', commit).split()
 
@@ -100,7 +104,7 @@ def verdicts(rows, pr, head):
 
 def approval(ref, latest, messages, pr, head):
     if not re.fullmatch(r'message/[0-9a-f]{16}', ref):
-        raise RuntimeError('GO ref must be an authenticated Fractal message/ID; GitHub comments are informational only')
+        raise RuntimeError('GO ref must be a Fractal message/ID with a Fractal message sender (same-uid asserted identity); GitHub comments are informational only')
     matches = [row for row in messages if row['subject'] == ref]
     if len(matches) != 1:
         raise RuntimeError(f'{ref}: absent or ambiguous in read-only current/archive listings')
@@ -181,7 +185,9 @@ def main(argv=None):
   Send to agent/compoundingtech/mergemaster with subject
   GO compoundingtech/mergemaster#N or NO-GO compoundingtech/mergemaster#N.
   Put the full 40-hex head SHA in the content. GitHub comments are informational:
-  agents share a GitHub login; Fractal authenticates each sender.
+  agents share a GitHub login. Fractal message sender (same-uid asserted identity)
+  is not verified by the server: this gate assumes cooperative agents on
+  these hosts. It prevents mistakes, not a malicious same-uid agent.
 
 Verdict details:
   Read current and archived mailbox listings without marking or consuming mail.
@@ -198,11 +204,13 @@ Verdict details:
   and its sender must still have a latest current-head GO.
 
 Mechanical checks:
-  Compute sensitive paths from base..head, never from a job in the PR's workflow.
+  Compute sensitive paths from base...head, never from a job in the PR's workflow.
   Inspect all exact-head check-runs, including previous attempts.
   Require the latest successful ci.yml PR run and successful GitHub-hosted jobs.
+  Every workflow run at the exact head needs a rerun reason for attempt > 1.
   Derive the tested merge from checkout logs: first parent is CI base, second is
-  approved head. Changes from CI base to main must not overlap PR changed paths.
+  approved head. Verify the tested tree against local merge-tree at that CI base.
+  Intersect changed(CI base, main) with PR changes from CI base...approved head.
   Require open, non-draft, mergeable against main, exact head, merge-ref parents
   (main, head), and tree equality with local git merge-tree --write-tree.
   Recheck refs, verdicts, and readiness before gh pr merge --merge
@@ -213,7 +221,7 @@ Mechanical checks:
   Another writer can still merge between the final main read and the API call;
   post-merge verification catches that window and reports a revert command.
   Only Mergemaster-authored PRs are supported; --author-agent is an explicit
-  author assertion, since the shared GitHub login cannot authenticate agents.
+  author assertion, since the shared GitHub login cannot distinguish agents.
 
 Run from a trusted base checkout, not the PR's copy. Use the agent gh config
 for read-only runs. Dry runs fetch Git objects locally but never write GitHub.
@@ -222,7 +230,7 @@ Tests: python3 tests/test-merge-pr.py
     parser.add_argument('pr', type=int, help='PR number in compoundingtech/mergemaster')
     parser.add_argument('--author-agent', required=True, help='must be agent/compoundingtech/mergemaster; other author agents require manual review')
     parser.add_argument('--go-head', required=True, help='full 40-hex approved head SHA')
-    parser.add_argument('--go-ref', required=True, help='authenticated message/ID naming the first GO')
+    parser.add_argument('--go-ref', required=True, help='message/ID naming the first GO; Fractal message sender (same-uid asserted identity)')
     parser.add_argument('--second-go-ref', help='distinct current-head reviewer GO; required for .github/ or iac/ changes')
     parser.add_argument('--rerun-reason', help='explicit reason required when the CI run attempt is greater than 1')
     parser.add_argument('--dry-run', action='store_true', help='report PASS/FAIL evidence without merging; exit nonzero on refusal')
@@ -243,8 +251,8 @@ def run_gate(args):
         try:
             value = action()
             evidence = value.get('html_url', 'GitHub API response loaded') if isinstance(value, dict) else str(value)
-            if name == 'authenticated-mailbox':
-                evidence = f'{len(value)} authenticated current/archive messages loaded'
+            if name == 'message-mailbox':
+                evidence = f'{len(value)} current/archive messages loaded; Fractal message sender (same-uid asserted identity)'
             elif name == 'latest-verdicts':
                 evidence = str(value)
             results.append((True, name, evidence))
@@ -257,15 +265,15 @@ def run_gate(args):
             raise RuntimeError(evidence)
         return evidence
     check('author-agent', lambda: require(args.author_agent == ACTOR,
-          'PRs by other agents: no authenticated author binding yet; merge them manually under review'
-          if args.author_agent != ACTOR else f'asserted author={ACTOR}; author verdicts excluded'))
+          'PRs by other agents: no verified author binding yet; merge them manually under review'
+          if args.author_agent != ACTOR else f'asserted author={ACTOR}; author GOs excluded'))
     pr = check('pull-request', lambda: api(f'pulls/{args.pr}'))
     check('ready', lambda: require(pr is not None and pr['state'] == 'open' and not pr['draft']
                                   and pr['mergeable'] is True and pr['base']['ref'] == 'main',
                                   f'state={pr and pr.get("state")} draft={pr and pr.get("draft")} mergeable={pr and pr.get("mergeable")} base={pr and pr.get("base", {}).get("ref")}'))
     check('exact-head', lambda: require(bool(SHA.fullmatch(args.go_head)) and pr is not None
                                        and pr['head']['sha'] == args.go_head, f'GO head={args.go_head}; PR head={pr and pr["head"]["sha"]}'))
-    messages = check('authenticated-mailbox', mailbox)
+    messages = check('message-mailbox', mailbox)
     latest = check('latest-verdicts', lambda: verdicts(messages, args.pr, args.go_head))
     reviewer = check('source-go', lambda: approval(args.go_ref, latest, messages, args.pr, args.go_head))
     refs = check('remote-refs', lambda: remote_refs(args.pr))
@@ -277,10 +285,10 @@ def run_gate(args):
         check('merge-parents', lambda: require(head == args.go_head and parents(merge) == [base, head],
                                              f'main={base} head={head} merge={merge} parents={parents(merge)}'))
         tree = check('merge-tree', lambda: merge_tree(base, head, merge))
-        paths = check('changed-files', lambda: sorted(changed(base, head)))
+        paths = check('changed-files', lambda: sorted(pr_changed(base, head)))
     def second_go():
         if paths is None:
-            raise RuntimeError('base..head changed files unavailable')
+            raise RuntimeError('base...head changed files unavailable')
         sensitive = [path for path in paths if path.startswith(('.github/', 'iac/'))]
         if not sensitive:
             return 'no .github/ or iac/ touches in base..head'
@@ -291,7 +299,7 @@ def run_gate(args):
     check('sensitive-second-go', second_go)
     def binding():
         if latest is None:
-            raise RuntimeError('authenticated verdicts unavailable')
+            raise RuntimeError('Fractal message sender (same-uid asserted identity) verdicts unavailable')
         blocked = {sender: verdict[2] for sender, verdict in latest.items() if verdict[0]}
         return require(not blocked, f'latest reviewer verdicts={latest}; NO-GOs={blocked}')
     check('binding-verdicts', binding)
@@ -301,6 +309,17 @@ def run_gate(args):
         return require(bool(rows) and all(row['head_sha'] == args.go_head and row['status'] == 'completed'
                                          and row['conclusion'] in ('success', 'skipped') for row in rows), evidence or 'no exact-head check-runs')
     check('exact-head-check-runs', checks)
+    def attempts():
+        runs = pages(f'actions/runs?head_sha={args.go_head}', 'workflow_runs')
+        reruns = []
+        for run in runs:
+            require(run['head_sha'] == args.go_head and isinstance(run['run_attempt'], int)
+                    and run['run_attempt'] >= 1, f'invalid workflow head/attempt: {run}')
+            if run['run_attempt'] > 1:
+                reruns.append(f'{run["html_url"]} attempt={run["run_attempt"]}')
+        return require(bool(runs) and (not reruns or bool(args.rerun_reason and args.rerun_reason.strip())),
+                       f'{len(runs)} exact-head workflow runs; reruns={reruns}; reason={args.rerun_reason or "not provided"}')
+    check('workflow-attempts', attempts)
     def ci():
         runs = pages(f'actions/workflows/ci.yml/runs?head_sha={args.go_head}&event=pull_request', 'workflow_runs')
         runs = [run for run in runs if run['head_sha'] == args.go_head and any(p['number'] == args.pr for p in run['pull_requests'])]
@@ -308,8 +327,6 @@ def run_gate(args):
             raise RuntimeError('no hosted CI pull_request run at exact head')
         run = max(runs, key=lambda row: row['id'])
         require(run['status'] == 'completed' and run['conclusion'] == 'success', f'{run["html_url"]} {run["status"]}/{run["conclusion"]}')
-        require(run['run_attempt'] == 1 or bool(args.rerun_reason and args.rerun_reason.strip()),
-                f'run={run["id"]} attempt={run["run_attempt"]}; reruns require --rerun-reason')
         jobs = pages(f'actions/runs/{run["id"]}/attempts/{run["run_attempt"]}/jobs', 'jobs')
         executed = [job for job in jobs if job['conclusion'] != 'skipped']
         require(bool(executed) and all(job['runner_group_name'] == 'GitHub Actions'
@@ -326,12 +343,13 @@ def run_gate(args):
         require(len(tested_parents) == 2 and tested_parents[1] == args.go_head,
                 f'CI tested={tested} parents={tested_parents}; expected second parent={args.go_head}')
         ci_base = tested_parents[0]
-        overlap_paths = sorted(changed(ci_base, refs[0]) & set(paths))
-        return require(not overlap_paths, f'CI tested={tested} CI base(first parent)={ci_base} main={refs[0]} overlap={overlap_paths}; rerun reason={args.rerun_reason or "attempt 1"}')
+        tested_tree = merge_tree(ci_base, args.go_head, tested)
+        overlap_paths = sorted(changed(ci_base, refs[0]) & pr_changed(ci_base, args.go_head))
+        return require(not overlap_paths, f'CI tested={tested} tree={tested_tree} CI base(first parent)={ci_base} main={refs[0]} overlap={overlap_paths}; rerun reason={args.rerun_reason or "attempt 1"}')
     check('ci-base-overlap', overlap)
     def stable():
         current = api(f'pulls/{args.pr}')
-        require(verdicts(mailbox(), args.pr, args.go_head) == latest, 'authenticated reviewer verdicts unchanged during checks')
+        require(verdicts(mailbox(), args.pr, args.go_head) == latest, 'Fractal message sender (same-uid asserted identity) verdicts unchanged during checks')
         return require(refs is not None and remote_refs(args.pr) == refs and current['head']['sha'] == args.go_head
                        and current['state'] == 'open' and not current['draft'] and current['mergeable'] is True,
                        'main/head/merge refs and PR readiness unchanged during checks')
