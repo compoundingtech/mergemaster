@@ -557,6 +557,26 @@ It never calls `AcceptedSource` or `json_bytes::parse`; their outstanding #280
 resource/security prerequisites remain open but unreachable, not silently satisfied.
 The unported `ci_inputs_unchanged`/`unresolved_ci_inputs` helpers have no callable
 CLI route; helper-name options and positional requests fail closed as unknown arguments.
+
+The local `scripts/ci-evidence-gate` invokes this binary entry for ordinary
+verification and both input/member projections. Its trusted workflow/runner must
+provision a pinned `mergemaster` on PATH or set `MERGEMASTER_BIN` to its absolute
+path, outside the candidate checkout. Missing binaries fail toward running;
+there is no Python fallback. BASE still supplies policy, keys, lanes and the
+legacy capability markers/helper-presence guards. The decision line's
+`verifier_sha256` remains the BASE Python capability-source digest, not a binary
+attestation; the runner owns the binary pin.
+
+Python is not yet removable: the gate's `ci_inputs_kept` still imports the BASE
+verifier for the unported `ci_inputs_unchanged` helper. Other copied consumers and
+the pinned differential oracle also still use Python. This local gate patch is
+not a claim that Fractal's deployed workflow has switched binaries.
+
+The Linux O_PATH permission regression is explicitly ignored in the default
+libtest suite because root cannot exercise it. As a non-root account, run
+`cargo test --workspace linux_git_search_only_cwd_uses_o_path -- --ignored`;
+an explicit root run fails instead of falsely passing.
+
 `cli_dispatch::project` composes complete member, policy-backed and plain project
 early returns before key/lane/run/log preparation. Policy default paths and
 base-input names stay borrowed through output; explicit paths replace defaults.

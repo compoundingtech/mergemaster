@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Evidence gate for one required check: may CI skip it because a trusted note already covers it?
 
-Asks the verifier from the accepted base whether a trusted note exists for this run's tree
-and check, and prints one decision line. It fails toward running: every doubt, error,
-timeout or inconsistency is `decision=run`. It never fails the job.
+Asks the trusted runner's pinned mergemaster binary whether a trusted note exists for
+this run's tree and check, using policy and trust files from the accepted base.
+It fails toward running: every doubt, error, timeout or inconsistency is `decision=run`.
+It never fails the job.
 
 One exception to running: a pull request whose opener the accepted base lists in .st/evidence-signed-only.json (our own
 pull requests, all pre-signed) is never run in CI. For it every `run` of an enforced check becomes `decision=refuse`, and
@@ -44,8 +45,8 @@ SKIP_EVENTS = ('pull_request', 'merge_group')
 VERIFIER_TIMEOUT = int(os.environ.get('GATE_VERIFIER_TIMEOUT', '30'))
 # A change that touches anything that decides a skip is not skipped on a note alone: those files are what a forged skip would
 # have to edit. Compared between the accepted base and this run's tree. One exception (decide): a pull_request run covered by a note
-# of one of OWN_LEVELS, our dev hosts, which ran the PR's own scripts. It is judged by THIS gate and verifier as the base has them
-# (the workflow fetches both from BASE_SHA), never the PR's copies. Merge groups reuse only exact-tree evidence enabled at BASE.
+# of one of OWN_LEVELS, our dev hosts, which ran the PR's own scripts. It is judged by THIS gate and the trusted runner's pinned
+# verifier, using configuration from BASE_SHA, never the PR's copies. Merge groups reuse only exact-tree evidence enabled at BASE.
 PROTECTED = (
     'scripts/ci-evidence-gate', 'scripts/evidence-verify', '.st/evidence-skip-policy.json', '.st/evidence-keys',
     '.github/workflows/fleet.yml', '.github/workflows/fleet.yml.genie.ts', '.github/workflows/workspace-ci.ts',
@@ -99,9 +100,12 @@ def input_refspecs(check, key):
             f'+refs/notes/evidence-input/{check}/{key}/*:refs/notes/evidence-input/{check}/{key}/*']
 CHECK_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,99}')
 VERIFIER = 'scripts/evidence-verify'
+# The workflow must provision this binary from trusted configuration, never from
+# the candidate checkout. No Python fallback: a missing binary keeps CI running.
+VERIFIER_COMMAND = (os.environ.get('MERGEMASTER_BIN', 'mergemaster'), 'legacy-evidence-verify')
 # Checks a note covers one crate at a time (docs/per-crate-test-signing.md): the gate asks whether EVERY workspace member of the tree
-# has a satisfying note for its own key (evidence-verify --members), with the accepted base's scripts/rust-test-keys beside the
-# verifier, which imports it.
+# has a satisfying note for its own key (--members). Base script/helper presence
+# and option markers remain compatibility guards, not executable verifier code.
 MEMBER_CHECKS = frozenset({'rust-tests'})
 MEMBER_KEYS = 'scripts/rust-test-keys'
 MEMBER_INPUTS = '.st/rust-test-inputs.json'
@@ -342,13 +346,13 @@ def observe(context, revision='HEAD', protected=None):
             return 'unavailable', None, f'could not read accepted configuration {selected}', None
         context[name] = hashlib.sha256(shown.stdout).hexdigest()[:16] if shown.returncode == 0 else 'none'
     script = run('git', 'show', f'{base}:{VERIFIER}')
+    # Preserve the accepted base's capability negotiation and its diagnostic
+    # digest. Only the runner's trusted binary executes verification/projection.
     if script.returncode != 0:
         return 'unavailable', None, 'the accepted base has no verifier yet', None
     digest = hashlib.sha256(script.stdout).hexdigest()
     with tempfile.TemporaryDirectory() as scratch:
-        path = os.path.join(scratch, 'evidence-verify')
-        with open(path, 'wb') as handle:
-            handle.write(script.stdout)
+        verifier = VERIFIER_COMMAND
         if config_path(base, KEYS) is not None:
             keys = ['--keys-from', base]
         else:
@@ -371,25 +375,25 @@ def observe(context, revision='HEAD', protected=None):
             and b'--lane-base' in script.stdout else []
         members = []
         if check in MEMBER_CHECKS:
-            # Per crate: the base's verifier must take --members, and its scripts/rust-test-keys goes beside it; else the check runs.
+            # Retain the base's per-crate capability/presence guards.
             if b'--members' not in script.stdout:
                 return 'unavailable', None, 'the accepted base has no per-crate verifier yet', digest
             member_keys = run('git', 'show', f'{base}:{MEMBER_KEYS}')
             if member_keys.returncode != 0:
                 return 'unavailable', None, f'the accepted base has no {MEMBER_KEYS}', digest
-            with open(os.path.join(scratch, 'rust-test-keys'), 'wb') as handle:
-                handle.write(member_keys.stdout)
+            # The Rust member projection reads manifests/configuration at pinned Git
+            # revisions; it does not import the base's Python rust-test-keys helper.
             context['manifests_fetch'] = prefetch_manifests(revision, base)
-            context['members_fetch'] = fetch_member_notes(path, base, check, repository, revision)
+            context['members_fetch'] = fetch_member_notes(verifier, base, check, repository, revision)
             members = ['--members']
         else:
-            fetch_input_notes(path, base, check, repository, revision)
-        # Our pull request that edits a protected file can skip only on our own hosts' note (own_pull_request): ask the base's verifier,
-        # once it takes it, for the newest passing note from those levels, so a pass CI signed later for the same inputs (any other pull
-        # request's typescript-client run) does not hide it. A newer failure still decides.
+            fetch_input_notes(verifier, base, check, repository, revision)
+        # A pull request editing protected files may skip only on our own hosts'
+        # note. Ask for those levels when the base advertises that capability;
+        # a newer failure still decides.
         prefer = ['--prefer-levels', ','.join(OWN_LEVELS)] if isinstance(protected, list) and protected and not members \
             and context.get('event') == 'pull_request' and b'--prefer-levels' in script.stdout else []
-        done = run(sys.executable, path, '--repo', '.', '--revision', revision, '--check', check, *members,
+        done = run(*verifier, '--repo', '.', '--revision', revision, '--check', check, *members,
                    '--policy-from', base, '--repository', repository, *keys, *log, *values, *lane_base, *prefer, timeout=VERIFIER_TIMEOUT)
     try:
         result = json.loads(done.stdout)
@@ -431,7 +435,7 @@ def fetch_member_notes(verifier, base, check, repository, revision='HEAD'):
     each crate's key and refspecs), never the whole namespace. 'ok', 'none' (no member has a key) or 'failed' (best effort: a failure
     means no note is seen, and the check runs)."""
     try:
-        done = run(sys.executable, verifier, '--repo', '.', '--revision', revision, '--check', check, '--members', '--project',
+        done = run(*verifier, '--repo', '.', '--revision', revision, '--check', check, '--members', '--project',
                    '--policy-from', base, '--repository', repository, timeout=VERIFIER_TIMEOUT)
         crates = json.loads(done.stdout).get('crates') if done.returncode == 0 else None
     except (ValueError, AttributeError, subprocess.TimeoutExpired, OSError):
@@ -451,7 +455,7 @@ def fetch_input_notes(verifier, base, check, repository, revision='HEAD'):
     if not CHECK_NAME.fullmatch(check):
         return
     try:
-        done = run(sys.executable, verifier, '--repo', '.', '--revision', revision, '--check', check, '--project',
+        done = run(*verifier, '--repo', '.', '--revision', revision, '--check', check, '--project',
                    '--policy-from', base, '--repository', repository, timeout=VERIFIER_TIMEOUT)
         key = json.loads(done.stdout).get('source_inputs') if done.returncode == 0 else None
     except (ValueError, AttributeError, subprocess.TimeoutExpired, OSError):

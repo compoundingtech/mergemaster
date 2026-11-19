@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Route the local CI evidence gate's verification and projections through the trusted runner's pinned `mergemaster legacy-evidence-verify`, preserving BASE configuration and fail-toward-running behavior without a Python subprocess fallback.
+- Mark the Linux search-only/O_PATH permission regression explicitly ignored by default; require a non-root account for an explicit run rather than returning a false pass under root.
+
 ## [0.10.0] - 2026-11-19
 
 - Add the hidden `legacy-evidence-verify` entry before clap, composing complete project, require-all and ordinary verification with lossless argv, exact wire exits and real-binary pinned-oracle comparisons; unported ci_inputs helper requests fail closed.
