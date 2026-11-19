@@ -524,6 +524,11 @@ fn repository_bound_gate_and_comparison_require_exact_signed_identity() {
                 f.decision(&[])
             };
             assert_eq!(d["reason"], reason, "{repository:?} queue={queue}");
+            if queue {
+                assert_eq!(d["repository_refused"], usize::from(reason != "satisfied"));
+            } else {
+                assert!(d.get("repository_refused").is_none());
+            }
             if reason == "satisfied" {
                 assert_eq!(d["record"], record);
                 assert_eq!(d["outcome"], "satisfied");
@@ -554,9 +559,13 @@ fn wrong_repository_failure_cannot_shadow_matching_success_or_comparison() {
     wrong["repository"] = json!("other/repo");
     wrong["predicate"]["observed"]["checks"][CHECK]["exit_code"] = json!(1);
     f.note(&wrong, &f.key, "tree");
+    let mut unbound = wrong.clone();
+    unbound.as_object_mut().unwrap().remove("repository");
+    f.note(&unbound, &f.key, "tree");
     let d = f.decision(&["--event", "queue", "--compare-head", &f.head]);
     assert_eq!(d["reason"], "satisfied");
     assert_eq!(d["record"], record);
+    assert_eq!(d["repository_refused"], 2);
     assert_eq!(
         d["compared_record"]["observed_at"],
         matching["predicate"]["observed_at"]

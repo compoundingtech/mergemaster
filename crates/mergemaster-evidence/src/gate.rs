@@ -76,6 +76,8 @@ pub struct Decision {
     pub lane_definition_sha256: Option<String>,
     pub input_key_equal: Option<bool>,
     pub compared_record: Option<ComparedRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repository_refused: Option<usize>,
     pub protected_paths: Vec<String>,
     pub summary: String,
 }
@@ -470,6 +472,7 @@ fn compute(
             lane_definition_sha256: None,
             input_key_equal: None,
             compared_record: None,
+            repository_refused: None,
         });
     }
     commit(repo, base)?;
@@ -498,6 +501,7 @@ fn compute(
                 lane_definition_sha256: None,
                 input_key_equal: None,
                 compared_record: None,
+                repository_refused: None,
             });
         }
         Err(error) => return Err(error),
@@ -527,6 +531,7 @@ fn compute(
         lane_definition_sha256: None,
         input_key_equal: None,
         compared_record: None,
+        repository_refused: None,
     };
     if queue {
         let parents =
@@ -1251,6 +1256,7 @@ fn compare(repo: &Path, args: &Args, head: &str, decision: &mut Decision) -> Res
     keys.write_all(&config.keys)?;
     keys.flush()?;
     let mut newest = None;
+    let mut repository_refused = 0;
     for (id, _) in records(repo, &tree)?.0 {
         let mut command = Command::new(std::env::current_exe()?);
         git::sanitize(&mut command);
@@ -1274,6 +1280,7 @@ fn compare(repo: &Path, args: &Args, head: &str, decision: &mut Decision) -> Res
         )
         .is_some()
         {
+            repository_refused += 1;
             continue;
         }
         let predicate = &statement.predicate;
@@ -1298,6 +1305,7 @@ fn compare(repo: &Path, args: &Args, head: &str, decision: &mut Decision) -> Res
             newest = Some((at, id, statement));
         }
     }
+    decision.repository_refused = Some(repository_refused);
     decision.compared_record = newest.map(|(at, _, statement)| ComparedRecord {
         tree,
         signer: statement.predicate.signer,

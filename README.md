@@ -351,6 +351,10 @@ The gate requires an exactly matching signed `Statement.repository`, including
 case, before any record enters selection or `--compare-head` reporting. Missing
 bindings reject the record with `repository_unbound`; differing bindings reject
 it with `repository_mismatch`. A rejected record cannot shadow valid evidence.
+When comparison runs, its JSON decision includes `repository_refused`: the number
+of signature-verified comparison records rejected for an absent or mismatched
+repository binding (zero when none). This count exposes replay attempts without
+including rejected record contents. Decisions without comparison omit the field.
 The identity uses the same literal `OWNER/NAME` validation as `evidence wrap
 --repository`; URLs, extra path components and whitespace are invalid.
 

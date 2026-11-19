@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add optional accepted-base gate `repository` policy: require an exact signed repository binding before evidence selection and comparison, with explicit unbound/mismatch rejection reasons; preserve existing behavior when omitted.
+- Report the count of repository-binding refusals in gate comparison JSON without exposing rejected record contents.
 
 ## [0.10.0] - 2026-11-19
 
