@@ -5,7 +5,9 @@ import os
 from pathlib import Path
 import re
 
-EXEMPT = {"PROVENANCE", "test-scripts"}
+# Repository-owned entrypoints have no copied Fractal implementation to compare.
+# merge-pr is covered by test-merge-pr.py, not by the legacy byte/mode oracle.
+EXEMPT = {"PROVENANCE", "test-scripts", "merge-pr"}
 ORIGINAL = "e2721e52463428b4ff655addee129cecd2839763"
 TARGET = "787e8ed592dff34d2bdc2a2b0b584482da567e7f"
 LOCAL_PATCHES = {"scripts/ci-signed-tree", "scripts/ci-signed-tree-test"}

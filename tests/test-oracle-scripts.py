@@ -153,6 +153,11 @@ class ResyncGuard(unittest.TestCase):
             self.write(self.oracle, name, b"oracle")
         self.run_check()
 
+    def test_native_merge_gate_has_no_legacy_oracle_counterpart(self):
+        self.write(self.src, "merge-pr", b"#!/usr/bin/env python3\n# repository-owned merge gate\n")
+        self.assertFalse((self.oracle / "scripts/merge-pr").exists())
+        self.run_check()
+
     def test_oracle_script_deletion_is_refused(self):
         self.write(self.oracle, "two", b"old")
         with self.assertRaisesRegex(ValueError, "missing oracle script"):
