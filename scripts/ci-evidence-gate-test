@@ -644,6 +644,34 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual((fields['decision'], outputs['skip'], outputs['record']), ('run', 'false', '-'), why)
         return fields
 
+    def test_missing_explicit_verifier_binary_runs_even_with_a_matching_note(self):
+        base = self.commit_base()
+        commit, tree = self.head()
+        self.note(commit, tree)
+        missing = Path(self.work_dir.name) / 'missing-mergemaster'
+        self.assertFalse(missing.exists())
+        fields = self.assertRuns(base, MERGEMASTER_BIN=str(missing))
+        self.assertEqual(fields['outcome'], 'unavailable')
+        self.assertIn('FileNotFoundError', fields['reason'])
+        self.assertIn(str(missing), fields['reason'])
+
+    def test_unset_verifier_binary_without_mergemaster_on_path_runs_even_with_a_matching_note(self):
+        base = self.commit_base()
+        commit, tree = self.head()
+        self.note(commit, tree)
+        # Keep real Git available for the clone/notes/configuration reads, but
+        # exclude every ambient tool directory that could supply mergemaster.
+        path = Path(self.work_dir.name) / 'git-only-path'
+        path.mkdir()
+        (path / 'git').symlink_to(shutil.which('git'))
+        self.assertIsNone(shutil.which('mergemaster', path=str(path)))
+        with mock.patch.dict(os.environ):
+            os.environ.pop('MERGEMASTER_BIN', None)
+            fields = self.assertRuns(base, PATH=str(path))
+        self.assertEqual(fields['outcome'], 'unavailable')
+        self.assertIn('FileNotFoundError', fields['reason'])
+        self.assertIn('mergemaster', fields['reason'])
+
     def test_queue_reuses_an_equal_tree_on_a_different_commit_then_runs_a_changed_tree(self):
         base = self.commit_base()
         commit, tree = self.head()
