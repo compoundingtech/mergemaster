@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Bind report-only queue batches with ordered repeatable `--member` heads, exact two-parent first-parent-chain validation back to BASE, precise `source_unbound` diagnostics, and additive v1 `queue_binding` metadata; preserve the no-member single-PR form.
 - Run the ignored Linux O_PATH regression explicitly as non-root in CI using its exact full name and requiring one passing test, and cover absent configured or PATH-resolved evidence verifier binaries with end-to-end fail-closed gate tests.
 - Route the local CI evidence gate's verification and projections through the trusted runner's pinned `mergemaster legacy-evidence-verify`, preserving BASE configuration and fail-toward-running behavior without a Python subprocess fallback.
 - Mark the Linux search-only/O_PATH permission regression explicitly ignored by default; require a non-root account for an explicit run rather than returning a false pass under root.

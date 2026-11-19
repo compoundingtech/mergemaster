@@ -27,6 +27,9 @@ pub struct Args {
     pub head: String,
     #[arg(long, default_value = "pull_request", value_parser = ["pull_request", "push", "merge_group", "queue"])]
     pub event: String,
+    /// Exact PR heads in batch merge order (oldest first); queue reports only.
+    #[arg(long = "member", value_name = "HEAD_SHA")]
+    pub members: Vec<String>,
     #[arg(long)]
     pub event_file: Option<PathBuf>,
     #[arg(long)]
@@ -64,6 +67,8 @@ pub struct Decision {
     pub base: String,
     pub head: String,
     pub tree: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queue_binding: Option<QueueBinding>,
     pub expectation_source: &'static str,
     pub decision: &'static str,
     pub outcome: &'static str,
@@ -80,6 +85,13 @@ pub struct Decision {
     pub repository_refused: Option<usize>,
     pub protected_paths: Vec<String>,
     pub summary: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct QueueBinding {
+    pub base: String,
+    pub members: Vec<String>,
+    pub tree: String,
 }
 
 impl Decision {
@@ -108,6 +120,10 @@ pub fn run(args: Args) -> Result<()> {
         queue || args.compare_head.is_none(),
         "--compare-head requires --event queue"
     );
+    ensure!(
+        queue || args.members.is_empty(),
+        "--member requires --event queue"
+    );
     let live = if merge_group || queue {
         None
     } else {
@@ -126,7 +142,7 @@ pub fn run(args: Args) -> Result<()> {
         &args.head,
         args.event_file.as_deref(),
         args.hosted_evidence.as_deref(),
-        &args.event,
+        (&args.event, &args.members),
     )?;
     if queue {
         decision.decision = "refuse";
@@ -432,11 +448,60 @@ pub fn decide(
     event: Option<&Path>,
 ) -> Result<Decision> {
     let live = Live::read(repo, base, head, event, false)?;
-    let mut decision = compute(repo, check, base, head, event, None, "pull_request")?;
+    let mut decision = compute(repo, check, base, head, event, None, ("pull_request", &[]))?;
     if let Some(refusal) = live.recheck(repo, base, head)? {
         decision.refuse(refusal);
     }
     Ok(decision)
+}
+
+// Explicit batches mirror the train's commit-tree tree -p prefix -p admitted.
+// The legacy single-PR form also accepts BASE as the second parent.
+fn bind_queue(repo: &Path, base: &str, head: &str, members: &[String]) -> Result<Vec<String>> {
+    let parents = |head: &str| -> Result<Vec<String>> {
+        Ok(git::text(repo, &["rev-list", "--parents", "-n", "1", head])?
+            .split_whitespace()
+            .skip(1)
+            .map(str::to_owned)
+            .collect())
+    };
+    if members.is_empty() {
+        let parents = parents(head)?;
+        ensure!(
+            parents.len() == 2 && parents.iter().any(|parent| parent == base),
+            "queue head {head} must be a two-parent merge with base {base} as a parent; declare ordered --member SHAs for a batch"
+        );
+        return Ok(parents.into_iter().filter(|parent| parent != base).collect());
+    }
+    let mut current = head.to_owned();
+    for (index, member) in members.iter().enumerate().rev() {
+        commit(repo, member).with_context(|| {
+            format!(
+                "queue member {} must be an existing full lowercase commit SHA",
+                index + 1
+            )
+        })?;
+        let parents = parents(&current)?;
+        ensure!(
+            parents.len() == 2,
+            "queue step {} at {current} must have exactly two parents, found {}",
+            index + 1,
+            parents.len()
+        );
+        ensure!(
+            parents[1] == *member,
+            "queue step {} at {current} has second parent {}, expected declared member {member}",
+            index + 1,
+            parents[1]
+        );
+        current = parents.into_iter().next().expect("two parents checked above");
+    }
+    ensure!(
+        current == base,
+        "queue first-parent chain after {} members ends at {current}, expected base {base}",
+        members.len()
+    );
+    Ok(members.to_vec())
 }
 
 fn compute(
@@ -446,8 +511,9 @@ fn compute(
     head: &str,
     event: Option<&Path>,
     hosted: Option<&Path>,
-    event_type: &str,
+    source: (&str, &[String]),
 ) -> Result<Decision> {
+    let (event_type, members) = source;
     let push = event_type == "push";
     let merge_group = event_type == "merge_group";
     let queue = event_type == "queue";
@@ -458,13 +524,14 @@ fn compute(
             base: base.into(),
             head: head.into(),
             tree: String::new(),
+            queue_binding: None,
             expectation_source: "caller",
             decision: "refuse",
             outcome: "rejected",
             reason: "source_unbound",
             record: None,
             protected_paths: Vec::new(),
-            summary: String::new(),
+            summary: "queue base and head must be existing full lowercase commit SHAs".into(),
             report_only: true,
             signer: None,
             observed_at: None,
@@ -487,6 +554,7 @@ fn compute(
                 base: base.into(),
                 head: head.into(),
                 tree,
+                queue_binding: None,
                 expectation_source: "caller",
                 decision: "refuse",
                 outcome: "rejected",
@@ -513,6 +581,7 @@ fn compute(
         base: base.into(),
         head: head.into(),
         tree,
+        queue_binding: None,
         expectation_source: "caller",
         decision: if lane.mode == "required_evidence" {
             "refuse"
@@ -534,12 +603,25 @@ fn compute(
         repository_refused: None,
     };
     if queue {
-        let parents =
-            git::text(repo, &["rev-list", "--parents", "-n", "1", head]).unwrap_or_default();
-        let parents: Vec<_> = parents.split_whitespace().skip(1).collect();
-        if event.is_some() || parents.len() != 2 || !parents.contains(&base) {
-            decision.reason = "source_unbound";
+        if event.is_some() {
+            decision.refuse((
+                "source_unbound",
+                "queue reports do not accept --event-file".into(),
+            ));
             return Ok(decision);
+        }
+        match bind_queue(repo, base, head, members) {
+            Ok(members) => {
+                decision.queue_binding = Some(QueueBinding {
+                    base: base.into(),
+                    members,
+                    tree: decision.tree.clone(),
+                });
+            }
+            Err(error) => {
+                decision.refuse(("source_unbound", error.to_string()));
+                return Ok(decision);
+            }
         }
     }
     if !lane.events.iter().any(|event| event == event_type) {
