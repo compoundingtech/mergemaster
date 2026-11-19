@@ -13,9 +13,11 @@ The flake provides the `mergemaster` binary and runs the Rust unit and Git
 integration tests (`checks.evidence`) on `x86_64-linux` and `aarch64-linux`.
 CI runs the copied script self-tests as a separate
 `nix develop -c bash scripts/test-scripts` step on both architectures.
-The default development shell provides both suites' real tool dependencies
-and pinned source inputs. Script tests run on the host, not inside a Nix
-derivation or a nested bubblewrap sandbox.
+The default development shell provides both suites' real tool dependencies,
+pinned source inputs and `MERGEMASTER_BIN` pointing to this flake's built binary.
+Script tests propagate that absolute path to child gate fixtures, including
+private clones. They run on the host, not inside a Nix derivation or a nested
+bubblewrap sandbox.
 
 Rust signer/verifier parity tests read the immutable v0.6.0 Python source pinned
 by the `python-oracle` flake input, not the working-tree scripts.
@@ -122,7 +124,7 @@ Run the script suite independently:
 
 ```sh
 nix develop -c bash scripts/test-scripts
-# Or, with dependencies and all three pinned-source environment variables set:
+# Or, with dependencies, all three pinned-source variables and MERGEMASTER_BIN set:
 bash scripts/test-scripts
 ```
 
@@ -578,6 +580,26 @@ It never calls `AcceptedSource` or `json_bytes::parse`; their outstanding #280
 resource/security prerequisites remain open but unreachable, not silently satisfied.
 The unported `ci_inputs_unchanged`/`unresolved_ci_inputs` helpers have no callable
 CLI route; helper-name options and positional requests fail closed as unknown arguments.
+
+The local `scripts/ci-evidence-gate` invokes this binary entry for ordinary
+verification and both input/member projections. Its trusted workflow/runner must
+provision a pinned `mergemaster` on PATH or set `MERGEMASTER_BIN` to its absolute
+path, outside the candidate checkout. Missing binaries fail toward running;
+there is no Python fallback. BASE still supplies policy, keys, lanes and the
+legacy capability markers/helper-presence guards. The decision line's
+`verifier_sha256` remains the BASE Python capability-source digest, not a binary
+attestation; the runner owns the binary pin.
+
+Python is not yet removable: the gate's `ci_inputs_kept` still imports the BASE
+verifier for the unported `ci_inputs_unchanged` helper. Other copied consumers and
+the pinned differential oracle also still use Python. This local gate patch is
+not a claim that Fractal's deployed workflow has switched binaries.
+
+The Linux O_PATH permission regression is explicitly ignored in the default
+libtest suite because root cannot exercise it. As a non-root account, run
+`cargo test --workspace linux_git_search_only_cwd_uses_o_path -- --ignored`;
+an explicit root run fails instead of falsely passing.
+
 `cli_dispatch::project` composes complete member, policy-backed and plain project
 early returns before key/lane/run/log preparation. Policy default paths and
 base-input names stay borrowed through output; explicit paths replace defaults.

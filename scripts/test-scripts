@@ -4,6 +4,15 @@ set -euo pipefail
 export PYTHONDONTWRITEBYTECODE=1
 root=$(cd "$(dirname "$0")/.." && pwd)
 oracle=${MERGEMASTER_PYTHON_ORACLE:?run in nix develop or set MERGEMASTER_PYTHON_ORACLE to the pinned Python oracle source}
+# Child fixtures invoke the Rust-backed gate, including from private clones.
+# Resolve once before changing cwd/HOME and propagate an absolute binary path.
+verifier=${MERGEMASTER_BIN:-mergemaster}
+export MERGEMASTER_BIN
+MERGEMASTER_BIN=$(command -v "$verifier") || {
+  echo "test-scripts: missing mergemaster binary: $verifier (run in nix develop or set MERGEMASTER_BIN)" >&2
+  exit 1
+}
+MERGEMASTER_BIN=$(realpath "$MERGEMASTER_BIN")
 . "$root/tests/fixtures/fractal/scripts/script-test-supervisor"
 . "$root/tests/fixtures/fractal/scripts/git-env-clean"
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_COUNT=0

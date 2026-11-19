@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Run the ignored Linux O_PATH regression explicitly as non-root in CI using its exact full name and requiring one passing test, and cover absent configured or PATH-resolved evidence verifier binaries with end-to-end fail-closed gate tests.
+- Route the local CI evidence gate's verification and projections through the trusted runner's pinned `mergemaster legacy-evidence-verify`, preserving BASE configuration and fail-toward-running behavior without a Python subprocess fallback.
+- Mark the Linux search-only/O_PATH permission regression explicitly ignored by default; require a non-root account for an explicit run rather than returning a false pass under root.
+- Provision the matching built binary in the development shell and propagate its absolute `MERGEMASTER_BIN` through the copied script-test harness, including per-crate gate fixtures in private clones.
+- Inject gate self-test failures and record argv at the trusted binary boundary, retaining fail-closed assertions for timeout, invalid/empty output, crashes and unsupported interfaces.
+- Make owned copies in the gate parity fixture owner-writable without changing executable bits, allowing repeated subtests against immutable Nix-store oracle sources.
 - Add optional accepted-base gate `repository` policy: require an exact signed repository binding before evidence selection and comparison, with explicit unbound/mismatch rejection reasons; preserve existing behavior when omitted.
 - Report the count of repository-binding refusals in gate comparison JSON without exposing rejected record contents.
 

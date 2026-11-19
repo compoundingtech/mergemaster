@@ -577,10 +577,18 @@ class EndToEnd(unittest.TestCase):
         (repo / 'scripts').mkdir(exist_ok=True)
         shutil.copy(ROOT / 'scripts/ci-evidence-gate', repo / 'scripts/ci-evidence-gate')
         target = repo / 'scripts/evidence-verify'
+        self.verifier_binary = None
         if script is None:
             shutil.copy(ROOT / 'scripts/evidence-verify', target)
         elif script is not False:
             target.write_text(script)
+            # BASE bytes still advertise capabilities, but the trusted runner's
+            # executable is now the verification boundary to fault-inject.
+            self.verifier_binary = Path(self.work_dir.name) / 'test-mergemaster'
+            self.verifier_binary.write_text(
+                f'#!{sys.executable}\nimport sys\n'
+                'assert sys.argv[1] == "legacy-evidence-verify", sys.argv\n' + script)
+            self.verifier_binary.chmod(0o755)
         (repo / '.st').mkdir(exist_ok=True)
         if with_keys:
             (repo / '.st/evidence-keys').write_text(self.f.keys.read_text())
@@ -613,6 +621,8 @@ class EndToEnd(unittest.TestCase):
                    GATE_VERIFIER_TIMEOUT=timeout)
         if check == 'fractal-web':  # the workflow always passes the run's kit_inputs (its change detection) to this gate
             env['RUN_INPUTS'] = '{"kit_inputs": "false"}'
+        if getattr(self, 'verifier_binary', None) is not None:
+            env['MERGEMASTER_BIN'] = str(self.verifier_binary)
         env.update(overrides)
         done = subprocess.run([sys.executable, str(ROOT / 'scripts/ci-evidence-gate')], cwd=work, env=env,
                               capture_output=True)
@@ -633,6 +643,34 @@ class EndToEnd(unittest.TestCase):
         fields, outputs = self.run_gate(base, **kwargs)
         self.assertEqual((fields['decision'], outputs['skip'], outputs['record']), ('run', 'false', '-'), why)
         return fields
+
+    def test_missing_explicit_verifier_binary_runs_even_with_a_matching_note(self):
+        base = self.commit_base()
+        commit, tree = self.head()
+        self.note(commit, tree)
+        missing = Path(self.work_dir.name) / 'missing-mergemaster'
+        self.assertFalse(missing.exists())
+        fields = self.assertRuns(base, MERGEMASTER_BIN=str(missing))
+        self.assertEqual(fields['outcome'], 'unavailable')
+        self.assertIn('FileNotFoundError', fields['reason'])
+        self.assertIn(str(missing), fields['reason'])
+
+    def test_unset_verifier_binary_without_mergemaster_on_path_runs_even_with_a_matching_note(self):
+        base = self.commit_base()
+        commit, tree = self.head()
+        self.note(commit, tree)
+        # Keep real Git available for the clone/notes/configuration reads, but
+        # exclude every ambient tool directory that could supply mergemaster.
+        path = Path(self.work_dir.name) / 'git-only-path'
+        path.mkdir()
+        (path / 'git').symlink_to(shutil.which('git'))
+        self.assertIsNone(shutil.which('mergemaster', path=str(path)))
+        with mock.patch.dict(os.environ):
+            os.environ.pop('MERGEMASTER_BIN', None)
+            fields = self.assertRuns(base, PATH=str(path))
+        self.assertEqual(fields['outcome'], 'unavailable')
+        self.assertIn('FileNotFoundError', fields['reason'])
+        self.assertIn('mergemaster', fields['reason'])
 
     def test_queue_reuses_an_equal_tree_on_a_different_commit_then_runs_a_changed_tree(self):
         base = self.commit_base()
@@ -1474,14 +1512,15 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(self.run_gate(base, EVENT_NAME='pull_request')[0]['decision'], 'skip')
 
     def test_everything_that_can_go_wrong_around_the_verifier_runs_the_check(self):
-        commit_tree = {}
+        # Even a real trusted note cannot cover a failed verifier subprocess.
         for name, script in {
             'no verifier at the base': False,
             'verifier that sleeps past the timeout': 'import time; time.sleep(30)\n',
             'verifier that prints invalid utf-8': 'import sys; sys.stdout.buffer.write(b"\\xff\\xfe{")\n',
             'verifier that prints nothing': 'pass\n',
             'verifier that crashes': 'raise SystemExit(7)\n',
-            'verifier that is not python': 'this is ( not python\n',
+            'verifier with invalid executable source': 'this is ( not python\n',
+            'verifier rejects the binary interface': 'raise SystemExit("unsupported interface")\n',
         }.items():
             with self.subTest(name):
                 self.f = fixtures.Fixture()
@@ -2691,7 +2730,7 @@ class WorkflowStructure(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 0, b'a' * 40 + b'\n', b'')
             if command[:2] == ('git', 'show') and command[2].endswith(':scripts/evidence-verify'):
                 return subprocess.CompletedProcess(command, 0, verifier_source, b'')
-            if command[0] == sys.executable and '--project' not in command:
+            if command[:2] == (gate.VERIFIER_BINARY, 'legacy-evidence-verify') and '--project' not in command:
                 return subprocess.CompletedProcess(command, 1, b'{"satisfied": false, "reason": "no_record"}', b'')
             return subprocess.CompletedProcess(command, 0, b'', b'')
         original = gate.run
@@ -2701,7 +2740,8 @@ class WorkflowStructure(unittest.TestCase):
         for verifier_source, passed in ((b'... --run-input KEY=VALUE ...', True), (b'an older verifier', False)):
             calls.clear()
             gate.observe(dict(context))
-            asked = [command for command in calls if command[0] == sys.executable and '--project' not in command]
+            asked = [command for command in calls
+                     if command[:2] == (gate.VERIFIER_BINARY, 'legacy-evidence-verify') and '--project' not in command]
             self.assertEqual(len(asked), 1)
             self.assertEqual('--run-input=kit_inputs=true' in asked[0], passed, asked[0])
 
