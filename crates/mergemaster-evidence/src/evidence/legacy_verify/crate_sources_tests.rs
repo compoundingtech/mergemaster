@@ -196,11 +196,15 @@ fn non_linux_git_search_only_cwd_matches_python() {
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 #[test]
+#[ignore = "requires non-root euid to exercise O_PATH; run explicitly with --ignored as a non-root user"]
 fn linux_git_search_only_cwd_uses_o_path() {
-    // Root bypasses the read restriction, so this would not exercise O_PATH.
+    // An explicit run must not falsely pass under root, which bypasses the
+    // read restriction. libtest cannot mark a test ignored dynamically.
     // SAFETY: geteuid has no preconditions and does not mutate process state.
-    if unsafe { libc::geteuid() } == 0 {
-        return;
-    }
+    assert_ne!(
+        unsafe { libc::geteuid() },
+        0,
+        "run this regression as non-root"
+    );
     assert_search_only_cwd_matches_python();
 }

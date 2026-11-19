@@ -9,6 +9,7 @@ license = "MIT"
 name = "mergemaster"
 path = "src/main.rs"
 
+
 [dependencies]
 anyhow = "1"
 base64 = "0.22"
