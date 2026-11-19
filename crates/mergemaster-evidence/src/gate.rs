@@ -748,6 +748,14 @@ fn compute(
         }
         let statement: Statement =
             serde_json::from_slice(&output.stdout).context("signature worker output")?;
+        if let Some(reason) = repository_refusal(
+            config.policy.repository.as_deref(),
+            statement.repository.as_deref(),
+        ) {
+            decision.reason = reason;
+            decision.outcome = "rejected";
+            continue;
+        }
         if statement.subject[0].digest.get("gitTree") != Some(&decision.tree) {
             decision.reason = if push { "tree_mismatch" } else { "stale_tree" };
             decision.outcome = "rejected";
@@ -781,7 +789,7 @@ fn compute(
             return "wrong_input";
         }
         let reason = satisfy(
-            (statement, at),
+            (statement, at, config.policy.repository.as_deref()),
             check,
             head,
             &decision.tree,
@@ -795,7 +803,7 @@ fn compute(
             && inputs.get("lane_definition_sha256") != expected.get("lane_definition_sha256")
             && matches!(
                 satisfy(
-                    (statement, at),
+                    (statement, at, config.policy.repository.as_deref()),
                     check,
                     head,
                     &decision.tree,
@@ -945,8 +953,19 @@ fn execution_claims_valid(
     })
 }
 
+// The accepted-base policy is authoritative; neither the candidate nor ambient
+// environment may choose or normalize the identity signed into a record.
+fn repository_refusal(repository: Option<&str>, signed: Option<&str>) -> Option<&'static str> {
+    let expected = repository?;
+    match signed {
+        None => Some("repository_unbound"),
+        Some(actual) if actual != expected => Some("repository_mismatch"),
+        Some(_) => None,
+    }
+}
+
 fn satisfy<'a>(
-    (statement, at): (&Statement, DateTime<chrono::FixedOffset>),
+    (statement, at, repository): (&Statement, DateTime<chrono::FixedOffset>, Option<&str>),
     check: &str,
     head: &str,
     tree: &str,
@@ -954,6 +973,9 @@ fn satisfy<'a>(
     mut expected: impl Iterator<Item = (&'a String, &'a String)>,
     push: bool,
 ) -> &'static str {
+    if let Some(reason) = repository_refusal(repository, statement.repository.as_deref()) {
+        return reason;
+    }
     let predicate = &statement.predicate;
     if predicate.tier == TrustTier::Degraded {
         return "degraded";
@@ -1246,6 +1268,14 @@ fn compare(repo: &Path, args: &Args, head: &str, decision: &mut Decision) -> Res
         }
         let statement: Statement =
             serde_json::from_slice(&output.stdout).context("signature worker output")?;
+        if repository_refusal(
+            config.policy.repository.as_deref(),
+            statement.repository.as_deref(),
+        )
+        .is_some()
+        {
+            continue;
+        }
         let predicate = &statement.predicate;
         if statement.subject[0].digest.get("gitTree") != Some(&tree)
             || predicate.tier != TrustTier::Full
@@ -1275,6 +1305,38 @@ fn compare(repo: &Path, args: &Args, head: &str, decision: &mut Decision) -> Res
         age_seconds: (Utc::now() - at.with_timezone(&Utc)).num_seconds(),
     });
     Ok(())
+}
+
+#[cfg(test)]
+mod repository_tests {
+    use super::repository_refusal;
+
+    #[test]
+    fn repository_binding_requires_byte_exact_identity_for_every_single_byte_mutation() {
+        let expected = "Owner/Name";
+        assert_eq!(repository_refusal(Some(expected), Some(expected)), None);
+        assert_eq!(
+            repository_refusal(Some(expected), None),
+            Some("repository_unbound")
+        );
+        assert_eq!(repository_refusal(None, None), None);
+        for index in 0..expected.len() {
+            for replacement in b'-'..=b'z' {
+                if !replacement.is_ascii_alphanumeric() && !b"-_./".contains(&replacement) {
+                    continue;
+                }
+                let mut changed = expected.as_bytes().to_vec();
+                changed[index] = replacement;
+                let changed = std::str::from_utf8(&changed).unwrap();
+                assert_eq!(
+                    repository_refusal(Some(expected), Some(changed)),
+                    (changed != expected).then_some("repository_mismatch"),
+                    "{changed}"
+                );
+                assert_eq!(repository_refusal(None, Some(changed)), None);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

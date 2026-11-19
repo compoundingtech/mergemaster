@@ -41,6 +41,8 @@ struct ReleasePin {
 #[serde(deny_unknown_fields)]
 pub struct Policy {
     pub version: u32,
+    #[serde(default)]
+    pub repository: Option<String>,
     pub pull_request: PullRequestPolicy,
     pub protected_paths: Vec<String>,
     #[serde(default)]
@@ -427,6 +429,9 @@ pub fn load(repo: &Path, base: &str) -> Result<Config> {
         &config_blob(repo, base, ".mergemaster/lanes.json")?,
         "lanes policy",
     )?;
+    if let Some(repository) = &policy.repository {
+        crate::evidence::validate_repository(repository)?;
+    }
     let environment_bytes = config_blob(repo, base, ".mergemaster/environment.json")?;
     let environment: Environment = decode(&environment_bytes, "environment")?;
     validate_environment(&environment)?;

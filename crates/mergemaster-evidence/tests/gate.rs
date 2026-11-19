@@ -38,6 +38,10 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
+        Self::with_repository(None)
+    }
+
+    fn with_repository(repository: Option<&str>) -> Self {
         let root = tempfile::tempdir().unwrap();
         let repo = root.path().join("repo");
         fs::create_dir(&repo).unwrap();
@@ -76,10 +80,11 @@ impl Fixture {
             "version":1,"systems":{"x86_64-linux":
             {"runtime":{"name":"bun","identity":format!("sha256:{}", "a".repeat(64))},"dependencies":{}}}
         }).to_string());
-        f.write(
-            ".mergemaster/lanes.json",
-            Self::policy("required_evidence").to_string(),
-        );
+        let mut policy = Self::policy("required_evidence");
+        if let Some(repository) = repository {
+            policy["repository"] = json!(repository);
+        }
+        f.write(".mergemaster/lanes.json", policy.to_string());
         f.write("tools/graph", "fixture command, never executed\n");
         f.write("source.txt", "base\n");
         f.write(".github/workflows/evidence.yml", "name: trusted\n");
@@ -455,8 +460,15 @@ print(json.dumps(r))
 }
 
 fn queue_fixture() -> Fixture {
-    let mut f = Fixture::new();
+    queue_fixture_with_repository(None)
+}
+
+fn queue_fixture_with_repository(repository: Option<&str>) -> Fixture {
+    let mut f = Fixture::with_repository(repository);
     let mut policy = Fixture::policy("required_evidence");
+    if let Some(repository) = repository {
+        policy["repository"] = json!(repository);
+    }
     policy["lanes"][CHECK]["events"] = json!(["queue"]);
     f.write(".mergemaster/lanes.json", policy.to_string());
     f.base = f.commit("queue policy");
@@ -476,6 +488,98 @@ fn queue_fixture() -> Fixture {
         b"",
     );
     f
+}
+
+#[test]
+fn absent_repository_policy_preserves_bound_record_compatibility() {
+    let f = Fixture::new();
+    let mut statement = f.statement();
+    statement["repository"] = json!("other/repo");
+    f.note(&statement, &f.key, "tree");
+    assert_eq!(f.decision(&[])["reason"], "satisfied");
+}
+
+#[test]
+fn repository_bound_gate_and_comparison_require_exact_signed_identity() {
+    for queue in [false, true] {
+        for (repository, reason) in [
+            (Some("fixture/repo"), "satisfied"),
+            (Some("other/repo"), "repository_mismatch"),
+            (None, "repository_unbound"),
+            (Some("Fixture/repo"), "repository_mismatch"),
+        ] {
+            let f = if queue {
+                queue_fixture_with_repository(Some("fixture/repo"))
+            } else {
+                Fixture::with_repository(Some("fixture/repo"))
+            };
+            let mut statement = f.statement();
+            if let Some(repository) = repository {
+                statement["repository"] = json!(repository);
+            }
+            let record = f.note(&statement, &f.key, "tree");
+            let d = if queue {
+                f.decision(&["--event", "queue", "--compare-head", &f.head])
+            } else {
+                f.decision(&[])
+            };
+            assert_eq!(d["reason"], reason, "{repository:?} queue={queue}");
+            if reason == "satisfied" {
+                assert_eq!(d["record"], record);
+                assert_eq!(d["outcome"], "satisfied");
+                if queue {
+                    assert_eq!(d["compared_record"]["tree"], f.tree);
+                } else {
+                    assert_eq!(d["decision"], "skip");
+                }
+            } else {
+                assert_eq!(d["decision"], "refuse");
+                assert_eq!(d["outcome"], "rejected");
+                assert!(d["record"].is_null());
+                assert!(d["compared_record"].is_null());
+            }
+        }
+    }
+}
+
+#[test]
+fn wrong_repository_failure_cannot_shadow_matching_success_or_comparison() {
+    let f = queue_fixture_with_repository(Some("fixture/repo"));
+    let mut matching = f.statement();
+    matching["repository"] = json!("fixture/repo");
+    matching["predicate"]["observed_at"] =
+        json!((chrono::Utc::now() - chrono::Duration::seconds(10)).to_rfc3339());
+    let record = f.note(&matching, &f.key, "tree");
+    let mut wrong = f.statement();
+    wrong["repository"] = json!("other/repo");
+    wrong["predicate"]["observed"]["checks"][CHECK]["exit_code"] = json!(1);
+    f.note(&wrong, &f.key, "tree");
+    let d = f.decision(&["--event", "queue", "--compare-head", &f.head]);
+    assert_eq!(d["reason"], "satisfied");
+    assert_eq!(d["record"], record);
+    assert_eq!(
+        d["compared_record"]["observed_at"],
+        matching["predicate"]["observed_at"]
+    );
+}
+
+#[test]
+fn repository_policy_is_validated_and_only_read_from_accepted_base() {
+    let mut f = Fixture::with_repository(Some("fixture/repo"));
+    let mut policy = Fixture::policy("required_evidence");
+    policy["repository"] = json!("other/repo");
+    f.write(".mergemaster/lanes.json", policy.to_string());
+    f.refresh_head();
+    assert_eq!(
+        load(&f.repo, &f.base).unwrap().policy.repository.as_deref(),
+        Some("fixture/repo")
+    );
+    for invalid in ["", "repo", "owner/repo/extra", "https://github.com/owner/repo"] {
+        policy["repository"] = json!(invalid);
+        f.write(".mergemaster/lanes.json", policy.to_string());
+        let base = f.commit("invalid repository policy");
+        assert!(load(&f.repo, &base).is_err(), "{invalid}");
+    }
 }
 
 #[test]

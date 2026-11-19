@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add optional accepted-base gate `repository` policy: require an exact signed repository binding before evidence selection and comparison, with explicit unbound/mismatch rejection reasons; preserve existing behavior when omitted.
+
 ## [0.10.0] - 2026-11-19
 
 - Add the hidden `legacy-evidence-verify` entry before clap, composing complete project, require-all and ordinary verification with lossless argv, exact wire exits and real-binary pinned-oracle comparisons; unported ci_inputs helper requests fail closed.
