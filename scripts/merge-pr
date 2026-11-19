@@ -89,9 +89,13 @@ def verdicts(rows, pr, head):
         text = title + '\n' + body
         named = (re.search(rf'(?<![\w/]){REPO}#{pr}\b', text)
                  or (re.search(rf'#{pr}\b', text) and re.search(r'\bmergemaster\b', text, re.I)))
-        if not named or not re.search(r'\b(?:GO|NO[ -]GO)\b', body, re.I):
+        # Only the exact reviewer subject form supplies a verdict. Quoted reply
+        # titles such as \"Re: ... NO-GO fix\" remain scope, not a new NO-GO.
+        formal = re.fullmatch(rf'(GO|NO-GO) {REPO}#{pr}', title, re.I)
+        verdict_text = body + ('\n' + formal[1] if formal else '')
+        if not named or not re.search(r'\b(?:GO|NO[ -]GO)\b', verdict_text, re.I):
             continue
-        negative = bool(re.search(r'\bNO[ -]GO\b', body, re.I))
+        negative = bool(re.search(r'\bNO[ -]GO\b', verdict_text, re.I))
         tokens = re.findall(r'(?<![0-9a-f])[0-9a-f]{8,40}(?![0-9a-f])', body)
         latest[sender] = (negative, any(head.startswith(token) for token in tokens), row['subject'])
     return latest
@@ -141,13 +145,44 @@ def remote_refs(pr):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('pr', type=int)
-    parser.add_argument('--go-head', required=True)
-    parser.add_argument('--go-ref', required=True)
-    parser.add_argument('--second-go-ref')
-    parser.add_argument('--rerun-reason')
-    parser.add_argument('--dry-run', action='store_true')
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""Reviewer messages:
+  Send to agent/compoundingtech/mergemaster with subject
+  GO compoundingtech/mergemaster#N or NO-GO compoundingtech/mergemaster#N.
+  Put the full 40-hex head SHA in the content. GitHub comments are informational:
+  agents share a GitHub login; Fractal authenticates each sender.
+
+Verdict details:
+  Read current and archived mailboxes as Mergemaster. Exact reads may mark its
+  own messages read. Each independent agent's latest verdict uses created_index.
+  An exact subject supplies the verdict; otherwise content must say GO/NO-GO.
+  Legacy messages may scope the PR by #N plus mergemaster in title/content,
+  and may name an 8+-hex head prefix. NO-GO takes precedence.
+  Any latest NO-GO blocks until that same reviewer posts a later GO.
+  Older-head GOs neither count nor block. A named GO must be at the current head
+  and its sender must still have a latest current-head GO.
+
+Mechanical checks:
+  Compute sensitive paths from base..head, never from a job in the PR's workflow.
+  Inspect all exact-head check-runs, including previous attempts.
+  Require the latest successful ci.yml PR run and successful GitHub-hosted jobs.
+  Derive the tested merge from checkout logs: first parent is CI base, second is
+  approved head. Changes from CI base to main must not overlap PR changed paths.
+  Require open, non-draft, mergeable against main, exact head, merge-ref parents
+  (main, head), and tree equality with local git merge-tree --write-tree.
+  Recheck refs, verdicts, and readiness before gh pr merge --merge
+  --match-head-commit HEAD. Any unreadable or uncomputable check refuses merging.
+
+Run from a trusted base checkout, not the PR's copy. Use the agent gh config
+for read-only runs. Dry runs fetch Git objects locally but never write GitHub.
+Tests: python3 tests/test-merge-pr.py
+""")
+    parser.add_argument('pr', type=int, help='PR number in compoundingtech/mergemaster')
+    parser.add_argument('--go-head', required=True, help='full 40-hex approved head SHA')
+    parser.add_argument('--go-ref', required=True, help='authenticated message/ID naming the first GO')
+    parser.add_argument('--second-go-ref', help='distinct current-head reviewer GO; required for .github/ or iac/ changes')
+    parser.add_argument('--rerun-reason', help='explicit reason required when the CI run attempt is greater than 1')
+    parser.add_argument('--dry-run', action='store_true', help='report PASS/FAIL evidence without merging; exit nonzero on refusal')
     args = parser.parse_args(argv)
     results = []
     def check(name, action):

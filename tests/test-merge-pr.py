@@ -127,6 +127,25 @@ class GateTests(unittest.TestCase):
         self.messages[0]['content'] = f'GO {HEAD[:7]}'
         self.assertEqual(self.run_gate('--dry-run')[0], 1)
 
+    def test_exact_reviewer_subject_with_sha_only_content(self):
+        self.messages[0].update(title='GO compoundingtech/mergemaster#376', content=HEAD)
+        self.assertEqual(self.run_gate('--dry-run')[0], 0)
+        self.messages[0]['title'] = 'NO-GO compoundingtech/mergemaster#376'
+        self.assertEqual(self.run_gate('--dry-run')[0], 1)
+
+    def test_no_go_content_overrides_exact_go_subject(self):
+        self.messages[0].update(title='GO compoundingtech/mergemaster#376', content=f'NO-GO {HEAD}')
+        self.assertEqual(self.run_gate('--dry-run')[0], 1)
+
+    def test_help_explains_reviewer_form_and_gate_details(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), self.assertRaises(SystemExit) as raised:
+            gate.main(['--help'])
+        self.assertEqual(raised.exception.code, 0)
+        self.assertIn('GO compoundingtech/mergemaster#N', output.getvalue())
+        self.assertIn('first parent is CI base', output.getvalue())
+        self.assertNotIn('/home/', output.getvalue())
+
     def test_archived_verdicts_are_not_hidden(self):
         row = message(sender='agent/blocker', body=f'NO-GO {HEAD}', index=3)
         with patch.object(gate, 'command', side_effect=[json.dumps(self.messages), json.dumps([row])]):
