@@ -13,9 +13,11 @@ The flake provides the `mergemaster` binary and runs the Rust unit and Git
 integration tests (`checks.evidence`) on `x86_64-linux` and `aarch64-linux`.
 CI runs the copied script self-tests as a separate
 `nix develop -c bash scripts/test-scripts` step on both architectures.
-The default development shell provides both suites' real tool dependencies
-and pinned source inputs. Script tests run on the host, not inside a Nix
-derivation or a nested bubblewrap sandbox.
+The default development shell provides both suites' real tool dependencies,
+pinned source inputs and `MERGEMASTER_BIN` pointing to this flake's built binary.
+Script tests propagate that absolute path to child gate fixtures, including
+private clones. They run on the host, not inside a Nix derivation or a nested
+bubblewrap sandbox.
 
 Rust signer/verifier parity tests read the immutable v0.6.0 Python source pinned
 by the `python-oracle` flake input, not the working-tree scripts.
@@ -122,7 +124,7 @@ Run the script suite independently:
 
 ```sh
 nix develop -c bash scripts/test-scripts
-# Or, with dependencies and all three pinned-source environment variables set:
+# Or, with dependencies, all three pinned-source variables and MERGEMASTER_BIN set:
 bash scripts/test-scripts
 ```
 

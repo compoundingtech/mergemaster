@@ -4,6 +4,7 @@
 
 - Route the local CI evidence gate's verification and projections through the trusted runner's pinned `mergemaster legacy-evidence-verify`, preserving BASE configuration and fail-toward-running behavior without a Python subprocess fallback.
 - Mark the Linux search-only/O_PATH permission regression explicitly ignored by default; require a non-root account for an explicit run rather than returning a false pass under root.
+- Provision the matching built binary in the development shell and propagate its absolute `MERGEMASTER_BIN` through the copied script-test harness, including per-crate gate fixtures in private clones.
 
 ## [0.10.0] - 2026-11-19
 

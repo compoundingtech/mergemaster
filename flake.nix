@@ -151,6 +151,9 @@
         let pkgs = import nixpkgs { inherit system; };
         in { default = pkgs.mkShell {
           packages = [ pkgs.cargo pkgs.rustc pkgs.rustfmt pkgs.clippy ] ++ scriptInputs pkgs;
+          # Copied script tests execute the local Rust-backed evidence gate.
+          # Provision the matching built binary for every child test process.
+          MERGEMASTER_BIN = "${packageFor system}/bin/mergemaster";
           MERGEMASTER_EFFECT_UTILS = "${effect-utils}";
           MERGEMASTER_FRACTAL_FIXTURE = "${fractal-fixture}";
           MERGEMASTER_PYTHON_ORACLE = "${python-oracle}";
