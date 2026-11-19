@@ -86,25 +86,23 @@ def verdicts(rows, pr, head):
         title = row.get('title') or ''
         if not isinstance(body, str) or not isinstance(title, str):
             raise RuntimeError('unreadable Fractal message content')
-        text = title + '\n' + body
-        named = (re.search(rf'(?<![\w/]){REPO}#{pr}\b', text)
-                 or (re.search(rf'#{pr}\b', text) and re.search(r'\bmergemaster\b', text, re.I)))
-        # Only the exact reviewer subject form supplies a verdict. Quoted reply
-        # titles such as \"Re: ... NO-GO fix\" remain scope, not a new NO-GO.
-        formal = re.fullmatch(rf'(GO|NO-GO) {REPO}#{pr}', title, re.I)
-        verdict_text = body + ('\n' + formal[1] if formal else '')
-        if not named or not re.search(r'\b(?:GO|NO[ -]GO)\b', verdict_text, re.I):
+        formal = re.match(rf'^(?:Re: )*(?:SOURCE )?(GO|NO-GO) {REPO}#{pr}(?=$|\s|:)', title)
+        if not formal:
             continue
-        negative = bool(re.search(r'\bNO[ -]GO\b', verdict_text, re.I))
-        tokens = re.findall(r'(?<![0-9a-f])[0-9a-f]{8,40}(?![0-9a-f])', body)
-        latest[sender] = (negative, any(head.startswith(token) for token in tokens), row['subject'])
+        heads = re.findall(r'(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])', body)
+        if not heads:
+            continue
+        latest[sender] = (formal[1] == 'NO-GO', head in heads, row['subject'])
     return latest
 
 
-def approval(ref, latest, pr, head):
+def approval(ref, latest, messages, pr, head):
     if not re.fullmatch(r'message/[0-9a-f]{16}', ref):
         raise RuntimeError('GO ref must be an authenticated Fractal message/ID; GitHub comments are informational only')
-    row = json.loads(command('st', 'conversations', 'read', ref, '--as', ACTOR, '--json', '--daemon-wait', '0'))
+    matches = [row for row in messages if row['subject'] == ref]
+    if len(matches) != 1:
+        raise RuntimeError(f'{ref}: absent or ambiguous in read-only current/archive listings')
+    row = matches[0]
     if row.get('subject') != ref or row.get('to') != ACTOR:
         raise RuntimeError('GO message identity or recipient mismatch')
     sender = row['from']
@@ -153,11 +151,13 @@ def main(argv=None):
   agents share a GitHub login; Fractal authenticates each sender.
 
 Verdict details:
-  Read current and archived mailboxes as Mergemaster. Exact reads may mark its
-  own messages read. Each independent agent's latest verdict uses created_index.
-  An exact subject supplies the verdict; otherwise content must say GO/NO-GO.
-  Legacy messages may scope the PR by #N plus mergemaster in title/content,
-  and may name an 8+-hex head prefix. NO-GO takes precedence.
+  Read current and archived mailbox listings without marking or consuming mail.
+  Named GO references must be present in those listings; absent references refuse.
+  Each independent agent's latest verdict uses created_index.
+  Only subjects starting GO compoundingtech/mergemaster#N or
+  NO-GO compoundingtech/mergemaster#N count. Re: and SOURCE prefixes are allowed.
+  Content must contain a full 40-hex head SHA; abbreviated SHAs do not count.
+  Casual GO/NO-GO words in content never create or change a verdict.
   Any latest NO-GO blocks until that same reviewer posts a later GO.
   Older-head GOs neither count nor block. A named GO must be at the current head
   and its sender must still have a latest current-head GO.
@@ -210,7 +210,7 @@ Tests: python3 tests/test-merge-pr.py
                                        and pr['head']['sha'] == args.go_head, f'GO head={args.go_head}; PR head={pr and pr["head"]["sha"]}'))
     messages = check('authenticated-mailbox', mailbox)
     latest = check('latest-verdicts', lambda: verdicts(messages, args.pr, args.go_head))
-    reviewer = check('source-go', lambda: approval(args.go_ref, latest, args.pr, args.go_head))
+    reviewer = check('source-go', lambda: approval(args.go_ref, latest, messages, args.pr, args.go_head))
     refs = check('remote-refs', lambda: remote_refs(args.pr))
     paths = None
     if refs:
@@ -228,7 +228,7 @@ Tests: python3 tests/test-merge-pr.py
             return 'no .github/ or iac/ touches in base..head'
         if not args.second_go_ref:
             raise RuntimeError(f'--second-go-ref required for {sensitive}')
-        second = approval(args.second_go_ref, latest, args.pr, args.go_head)
+        second = approval(args.second_go_ref, latest, messages, args.pr, args.go_head)
         return require(reviewer is not None and second != reviewer, f'second reviewer={second}; first={reviewer}; sensitive={sensitive}')
     check('sensitive-second-go', second_go)
     def binding():

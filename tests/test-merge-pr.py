@@ -21,9 +21,9 @@ HEAD, BASE, MERGE, TREE = ('a' * 40, 'b' * 40, 'c' * 40, 'd' * 40)
 REF, SECOND = 'message/1111111111111111', 'message/2222222222222222'
 
 
-def message(ref=REF, sender='agent/reviewer', body=None, index=1):
-    return {'subject': ref, 'from': sender, 'to': gate.ACTOR, 'title': 'mergemaster #376',
-            'content': body or f'SOURCE GO {HEAD}', 'created_index': index}
+def message(ref=REF, sender='agent/reviewer', body=None, index=1, title='GO compoundingtech/mergemaster#376'):
+    return {'subject': ref, 'from': sender, 'to': gate.ACTOR, 'title': title,
+            'content': HEAD if body is None else body, 'created_index': index}
 
 
 class GateTests(unittest.TestCase):
@@ -63,8 +63,6 @@ class GateTests(unittest.TestCase):
             return ''
         if args[:3] == ('st', 'conversations', 'ls'):
             return json.dumps([] if '--archive' in args else self.messages)
-        if args[:3] == ('st', 'conversations', 'read'):
-            return json.dumps(next(row for row in self.messages if row['subject'] == args[3]))
         if args[0] == 'git':
             if args[1] == 'ls-remote':
                 return f'{BASE}\trefs/heads/main\n{HEAD}\trefs/pull/376/head\n{MERGE}\trefs/pull/376/merge'
@@ -95,7 +93,7 @@ class GateTests(unittest.TestCase):
         self.assertEqual(self.merge_calls[0][-3:], ('--merge', '--match-head-commit', HEAD))
 
     def test_author_wrong_head_and_no_go_refuse(self):
-        for row in [message(sender=gate.ACTOR), message(body='SOURCE GO ' + BASE), message(body=f'NO-GO {HEAD}')]:
+        for row in [message(sender=gate.ACTOR), message(body=BASE), message(title='NO-GO compoundingtech/mergemaster#376')]:
             self.messages[0] = row
             code, output = self.run_gate('--dry-run')
             self.assertEqual(code, 1, output)
@@ -103,9 +101,10 @@ class GateTests(unittest.TestCase):
         self.assertEqual(self.merge_calls, [])
 
     def test_latest_no_go_blocks_until_same_sender_go(self):
-        self.messages.append(message('message/3333333333333333', 'agent/blocker', f'NO-GO {BASE}', 3))
+        self.messages.append(message('message/3333333333333333', 'agent/blocker', BASE, 3,
+                                     title='NO-GO compoundingtech/mergemaster#376'))
         self.assertEqual(self.run_gate('--dry-run')[0], 1)
-        self.messages.append(message('message/4444444444444444', 'agent/blocker', f'GO {HEAD[:8]}', 4))
+        self.messages.append(message('message/4444444444444444', 'agent/blocker', HEAD, 4))
         self.assertEqual(self.run_gate('--dry-run')[0], 0)
 
     def test_old_head_go_neither_counts_nor_blocks(self):
@@ -120,12 +119,29 @@ class GateTests(unittest.TestCase):
         self.assertEqual(self.run_gate('--dry-run', '--second-go-ref', REF)[0], 1)
         self.assertEqual(self.run_gate('--dry-run', '--second-go-ref', SECOND)[0], 0)
 
-    def test_title_scopes_pr_but_content_determines_verdict(self):
-        self.messages[0]['title'] = 'mergemaster #376 NO-GO fix'
-        self.messages[0]['content'] = f'GO {HEAD[:8]}'
-        self.assertEqual(self.run_gate('--dry-run')[0], 0)
-        self.messages[0]['content'] = f'GO {HEAD[:7]}'
-        self.assertEqual(self.run_gate('--dry-run')[0], 1)
+    def test_casual_content_verdicts_never_count(self):
+        for title in ['mergemaster #376 NO-GO fix', 'Re: #376 merger', 'Plan for compoundingtech/mergemaster#376']:
+            self.messages[0].update(title=title, content=f'merge after GO at {HEAD}')
+            self.assertEqual(self.run_gate('--dry-run')[0], 1)
+
+    def test_abbreviated_or_missing_head_is_ignored(self):
+        for body in [HEAD[:8], HEAD[:39], '', 'GO', HEAD + 'a']:
+            self.messages[0]['content'] = body
+            self.assertEqual(self.run_gate('--dry-run')[0], 1)
+        row = message(body=HEAD[:8], title='NO-GO compoundingtech/mergemaster#376')
+        self.assertEqual(gate.verdicts([row], 376, HEAD), {})
+
+    def test_subject_prefixes_and_suffixes(self):
+        for title in ['SOURCE GO compoundingtech/mergemaster#376',
+                      'Re: GO compoundingtech/mergemaster#376',
+                      'Re: SOURCE GO compoundingtech/mergemaster#376: reviewed',
+                      'GO compoundingtech/mergemaster#376 approved']:
+            self.messages[0]['title'] = title
+            self.assertEqual(self.run_gate('--dry-run')[0], 0)
+        for title in ['GO compoundingtech/mergemaster#3760', 'GO compoundingtech/mergemaster#376x',
+                      'FYI GO compoundingtech/mergemaster#376', 'GO other/repo#376']:
+            self.messages[0]['title'] = title
+            self.assertEqual(self.run_gate('--dry-run')[0], 1)
 
     def test_exact_reviewer_subject_with_sha_only_content(self):
         self.messages[0].update(title='GO compoundingtech/mergemaster#376', content=HEAD)
@@ -133,9 +149,20 @@ class GateTests(unittest.TestCase):
         self.messages[0]['title'] = 'NO-GO compoundingtech/mergemaster#376'
         self.assertEqual(self.run_gate('--dry-run')[0], 1)
 
-    def test_no_go_content_overrides_exact_go_subject(self):
-        self.messages[0].update(title='GO compoundingtech/mergemaster#376', content=f'NO-GO {HEAD}')
-        self.assertEqual(self.run_gate('--dry-run')[0], 1)
+    def test_content_words_do_not_change_subject_verdict(self):
+        self.messages[0].update(title='GO compoundingtech/mergemaster#376', content=f'Previously NO-GO; fixed at {HEAD}')
+        self.assertEqual(self.run_gate('--dry-run')[0], 0)
+
+    def test_absent_ref_fails_without_marking_message_read(self):
+        with self.assertRaisesRegex(RuntimeError, 'absent'):
+            gate.approval(REF, {}, [], 376, HEAD)
+
+    def test_archive_reference_resolves_without_read_command(self):
+        row = self.messages[0]
+        with patch.object(gate, 'command', side_effect=[json.dumps([]), json.dumps([row])]) as calls:
+            rows = gate.mailbox()
+            self.assertEqual(gate.approval(REF, gate.verdicts(rows, 376, HEAD), rows, 376, HEAD), 'agent/reviewer')
+        self.assertTrue(all(call.args[:3] == ('st', 'conversations', 'ls') for call in calls.call_args_list))
 
     def test_help_explains_reviewer_form_and_gate_details(self):
         output = io.StringIO()
@@ -147,7 +174,7 @@ class GateTests(unittest.TestCase):
         self.assertNotIn('/home/', output.getvalue())
 
     def test_archived_verdicts_are_not_hidden(self):
-        row = message(sender='agent/blocker', body=f'NO-GO {HEAD}', index=3)
+        row = message(sender='agent/blocker', body=HEAD, index=3, title='NO-GO compoundingtech/mergemaster#376')
         with patch.object(gate, 'command', side_effect=[json.dumps(self.messages), json.dumps([row])]):
             latest = gate.verdicts(gate.mailbox(), 376, HEAD)
             self.assertTrue(latest['agent/blocker'][0])
@@ -183,7 +210,7 @@ class GateTests(unittest.TestCase):
 
     def test_github_comments_not_binding(self):
         with self.assertRaises(RuntimeError):
-            gate.approval('12345', {}, 376, HEAD)
+            gate.approval('12345', {}, [], 376, HEAD)
 
     def test_pages_include_old_check_attempts(self):
         with patch.object(gate, 'api', side_effect=[{'check_runs': [self.check] * 100}, {'check_runs': [self.check]}]) as mock:

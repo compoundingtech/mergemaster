@@ -4,6 +4,7 @@
 
 - Add a fail-closed merge-time PR gate with durable independent exact-head verdicts, sensitive-path second review, hosted CI attempt/overlap checks, and local merge-tree verification.
 - Accept explicit `GO compoundingtech/mergemaster#N` / `NO-GO compoundingtech/mergemaster#N` reviewer subjects with the head SHA in the content; keep the merge rule brief and put operational detail in `merge-pr --help`.
+- Bind verdicts only to explicit GO/NO-GO subjects and full head SHAs; ignore casual content and abbreviated SHAs, and resolve named verdicts without consuming mailbox messages.
 - Exclude the repository-owned `merge-pr` from the copied Fractal script oracle, with explicit provenance and regression coverage; copied scripts remain byte/mode guarded.
 - Restore Cargo automatic integration-test discovery so every `crates/*/tests/*.rs` target runs.
 - Add optional accepted-base gate `repository` policy: require an exact signed repository binding before evidence selection and comparison, with explicit unbound/mismatch rejection reasons; preserve existing behavior when omitted.
