@@ -50,6 +50,9 @@ class GateTests(unittest.TestCase):
         self.merge_calls = []
         self.messages = [message(), message(SECOND, 'agent/second', index=2)]
         self.jobs = [{'status': 'completed', 'conclusion': 'success', 'runner_group_name': 'GitHub Actions'}]
+        agent = ('schickling-assistant', 'agent@example.invalid')
+        self.commit_rows = [(HEAD, *agent, *agent)]
+        self.merge_rows = [(MERGE, *agent, *agent)]
 
     def mock_command(self, *args, binary=False):
         if args[:2] == ('gh', 'api'):
@@ -84,6 +87,15 @@ class GateTests(unittest.TestCase):
                 return f'{BASE}\trefs/heads/main\n{HEAD}\trefs/pull/376/head\n{MERGE}\trefs/pull/376/merge'
             if args[1] == 'fetch':
                 return ''
+            if args[1] == 'log':
+                revision = args[-2]
+                if revision == f'{BASE}..{HEAD}':
+                    rows = self.commit_rows
+                elif revision == f'{MERGE}^!':
+                    rows = self.merge_rows
+                else:
+                    raise AssertionError(args)
+                return '\n'.join('\x1f'.join(row) for row in rows)
             if args[1] == 'merge-base':
                 return self.merge_bases.get(args[-2:], args[-2])
             if args[1] == 'show':
@@ -117,6 +129,56 @@ class GateTests(unittest.TestCase):
         self.assertEqual(self.merge_calls, [])
         self.assertEqual(self.run_gate()[0], 0)
         self.assertEqual(self.merge_calls[0][-3:], ('--merge', '--match-head-commit', HEAD))
+
+    def test_agent_identities_pass_before_and_after_merge(self):
+        code, output = self.run_gate()
+        self.assertEqual(code, 0, output)
+        self.assertIn('PASS no-human-authorship', output)
+        self.assertIn('PASS post-merge', output)
+        self.assertEqual(len(self.merge_calls), 1)
+
+    def test_human_author_refuses_even_in_non_head_commit(self):
+        for field, value in [(1, gate.HUMAN_NAME), (2, gate.HUMAN_EMAIL)]:
+            with self.subTest(field=field):
+                row = list(self.commit_rows[0])
+                row[0] = CI_BASE
+                row[field] = value
+                self.commit_rows = [self.commit_rows[0], tuple(row)]
+                code, output = self.run_gate()
+                self.assertEqual(code, 1, output)
+                self.assertIn('FAIL no-human-authorship', output)
+                self.assertIn(CI_BASE, output)
+                self.assertIn('re-author on a new signed branch with the agent identity, or land by squash, as Manager decides', output)
+                self.assertEqual(self.merge_calls, [])
+
+    def test_human_committer_refuses(self):
+        original = self.commit_rows[0]
+        for field, value in [(3, gate.HUMAN_NAME), (4, gate.HUMAN_EMAIL)]:
+            with self.subTest(field=field):
+                row = list(original)
+                row[field] = value
+                self.commit_rows = [tuple(row)]
+                code, output = self.run_gate()
+                self.assertEqual(code, 1, output)
+                self.assertIn('FAIL no-human-authorship', output)
+                self.assertIn(HEAD, output)
+                self.assertEqual(self.merge_calls, [])
+
+    def test_human_merge_author_or_committer_reports_coord(self):
+        original = self.merge_rows[0]
+        for field, value in [(1, gate.HUMAN_NAME), (2, gate.HUMAN_EMAIL),
+                             (3, gate.HUMAN_NAME), (4, gate.HUMAN_EMAIL)]:
+            with self.subTest(field=field):
+                self.merge_calls.clear()
+                row = list(original)
+                row[field] = value
+                self.merge_rows = [tuple(row)]
+                code, output = self.run_gate()
+                self.assertEqual(code, 1, output)
+                self.assertEqual(len(self.merge_calls), 1)
+                self.assertIn('HUMAN AUTHORSHIP IN NEW MAIN MERGE COMMIT', output)
+                self.assertIn(MERGE, output)
+                self.assertIn('post on COORD', output)
 
     def test_author_argument_required_and_other_authors_refused(self):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
@@ -400,6 +462,11 @@ class GitFixtureTests(unittest.TestCase):
                 gate.git('read-tree', '--reset', '-u', tree)
                 merge = commit({}, main, head)
                 self.assertEqual(gate.parents(merge), [main, head])
+                identities = gate.commit_identities(f'{base}..{merge}')
+                self.assertEqual({row[0] for row in identities}, {head, main, merge})
+                self.assertTrue(all(row[1:] == ('Fixture', 'fixture@example.invalid',
+                                               'Fixture', 'fixture@example.invalid') for row in identities))
+                self.assertEqual([row[0] for row in gate.commit_identities(f'{merge}^!')], [merge])
                 self.assertEqual(gate.merge_tree(main, head, merge), tree)
                 self.assertEqual(gate.changed(base, main) & gate.changed(base, head), set())
                 overlap = commit({'one': 'another\n'}, main)
