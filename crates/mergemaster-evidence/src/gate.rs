@@ -481,7 +481,7 @@ fn bind_queue(repo: &Path, base: &str, head: &str, members: &[String]) -> Result
                 index + 1
             )
         })?;
-        let parents = parents(&current)?;
+        let mut parents = parents(&current)?;
         ensure!(
             parents.len() == 2,
             "queue step {} at {current} must have exactly two parents, found {}",
@@ -494,7 +494,7 @@ fn bind_queue(repo: &Path, base: &str, head: &str, members: &[String]) -> Result
             index + 1,
             parents[1]
         );
-        current = parents.into_iter().next().expect("two parents checked above");
+        current = parents.swap_remove(0);
     }
     ensure!(
         current == base,
