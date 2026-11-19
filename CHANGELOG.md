@@ -3,6 +3,16 @@
 ## Unreleased
 
 - Bind report-only queue batches with ordered repeatable `--member` heads, exact two-parent first-parent-chain validation back to BASE, precise `source_unbound` diagnostics, and additive v1 `queue_binding` metadata; preserve the no-member single-PR form.
+- Add a fail-closed merge-time PR gate with durable independent exact-head verdicts, sensitive-path second review, hosted CI attempt/overlap checks, and local merge-tree verification.
+- Accept explicit `GO compoundingtech/mergemaster#N` / `NO-GO compoundingtech/mergemaster#N` reviewer subjects with the head SHA in the content; keep the merge rule brief and put operational detail in `merge-pr --help`.
+- Bind verdicts only to explicit GO/NO-GO subjects and full head SHAs; ignore casual content and abbreviated SHAs, and resolve named verdicts without consuming mailbox messages.
+- Require the Mergemaster author-agent assertion, serialize merge-gate runs, recheck main before merging, and verify the resulting merge's parents/tree with an explicit revert warning on mismatch.
+- Honor self-addressed author NO-GOs as withdrawals while excluding author GOs only from independent approval counts.
+- Verify the CI-tested merge tree and compare overlap from its first-parent base; describe Fractal sender identity as same-uid asserted rather than server-verified.
+- Keep Git evidence subprocess selectors correct in both auto-discovered and module-included integration-test targets.
+- Compute PR-owned paths from the three-dot merge base and require a rerun reason for every workflow attempt greater than one at the exact head.
+- Exclude the repository-owned `merge-pr` from the copied Fractal script oracle, with explicit provenance and regression coverage; copied scripts remain byte/mode guarded.
+- Restore Cargo automatic integration-test discovery so every `crates/*/tests/*.rs` target runs.
 - Run the ignored Linux O_PATH regression explicitly as non-root in CI using its exact full name and requiring one passing test, and cover absent configured or PATH-resolved evidence verifier binaries with end-to-end fail-closed gate tests.
 - Route the local CI evidence gate's verification and projections through the trusted runner's pinned `mergemaster legacy-evidence-verify`, preserving BASE configuration and fail-toward-running behavior without a Python subprocess fallback.
 - Mark the Linux search-only/O_PATH permission regression explicitly ignored by default; require a non-root account for an explicit run rather than returning a false pass under root.

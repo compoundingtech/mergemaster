@@ -1,6 +1,9 @@
 # Source: compoundingtech/fractal
 # Commit: e83871ec919f95b3b3e2a9a1cd211c2ac37babda
 # Scripts copied as-is except the documented upstream patches below; Git blob SHA-1 hashes (not file SHA-1 hashes).
+# Repository-owned scripts/merge-pr is not copied from Fractal and has no legacy
+# oracle counterpart. It is explicitly exempt from the byte/mode oracle guard;
+# tests/test-merge-pr.py owns its behavioral regression coverage.
 # R2 resync exception; exit: https://github.com/compoundingtech/mergemaster/issues/115
 # The original extraction Commit above is historical; this resync starts at the current fixture revision.
 # Pending requires oracle bytes; the target fixture activates exact upstream bytes and modes.
