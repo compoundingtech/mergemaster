@@ -26,7 +26,7 @@
 # markers/configuration and the unported ci_inputs Python import remain.
 # Differential integration: crates/mergemaster-evidence/tests/ci_evidence_gate.rs.
 # Remove this exception when the pinned oracle includes binary gate adoption.
-# local-patch scripts/ci-evidence-gate 4400fdf73ad4d572e1437286c1088965e1de964c c5d025fbf4e5168d1574b838653973183cdcc416
+# local-patch scripts/ci-evidence-gate 2952f89514a584465a428017b3f3e8ea043f41b2 c5d025fbf4e5168d1574b838653973183cdcc416
 # scripts/fractal-test-test: apply the fixture maintenance-isolation patch from
 # https://github.com/compoundingtech/fractal/pull/4398 (5f995f26e5).
 # The source_blob column remains the original import; mergemaster_blob includes applied patches.
