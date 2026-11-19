@@ -27,6 +27,9 @@
 # Differential integration: crates/mergemaster-evidence/tests/ci_evidence_gate.rs.
 # Remove this exception when the pinned oracle includes binary gate adoption.
 # local-patch scripts/ci-evidence-gate 2952f89514a584465a428017b3f3e8ea043f41b2 c5d025fbf4e5168d1574b838653973183cdcc416
+# Gate self-test fault/recording injection follows the trusted executable
+# boundary, retaining every fail-closed assertion and checking the hidden entry.
+# local-patch scripts/ci-evidence-gate-test 38a34e7d48ed407b428f739c0f3d38b151fced59 93f8f79ae50d8ab0513ff26c2fd1e975af39d1d7
 # scripts/fractal-test-test: apply the fixture maintenance-isolation patch from
 # https://github.com/compoundingtech/fractal/pull/4398 (5f995f26e5).
 # The source_blob column remains the original import; mergemaster_blob includes applied patches.

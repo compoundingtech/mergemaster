@@ -110,7 +110,7 @@ class ResyncGuard(unittest.TestCase):
         path.write_text(path.read_text() + f"# local-patch scripts/{name} {blob(source)} {blob(destination)}\n")
 
     def test_local_patch_pins_both_blobs_and_mode(self):
-        for name in ("ci-signed-tree", "ci-signed-tree-test", "ci-evidence-gate"):
+        for name in ("ci-signed-tree", "ci-signed-tree-test", "ci-evidence-gate", "ci-evidence-gate-test"):
             self.write(self.src, name, b"patched")
             self.write(self.oracle, name, b"old")
             self.patch_manifest(name)
