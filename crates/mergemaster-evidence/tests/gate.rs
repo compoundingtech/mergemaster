@@ -496,11 +496,27 @@ fn batch_fixture(size: usize) -> (Fixture, Vec<String>) {
     let mut members = vec![first];
     for index in 1..size {
         let member = f.git(
-            &["commit-tree", &f.tree, "-p", &f.base, "-m", &format!("member {index}")],
+            &[
+                "commit-tree",
+                &f.tree,
+                "-p",
+                &f.base,
+                "-m",
+                &format!("member {index}"),
+            ],
             b"",
         );
         f.head = f.git(
-            &["commit-tree", &f.tree, "-p", &f.head, "-p", &member, "-m", "train"],
+            &[
+                "commit-tree",
+                &f.tree,
+                "-p",
+                &f.head,
+                "-p",
+                &member,
+                "-m",
+                "train",
+            ],
             b"",
         );
         members.push(member);
@@ -527,22 +543,43 @@ fn queue_explicit_members_bind_one_and_four_member_candidates() {
         assert_eq!(d["record"], record);
         assert_eq!(d["decision"], "refuse");
         assert_eq!(d["report_only"], true);
-        assert_eq!(d["queue_binding"], json!({
-            "base": f.base, "members": members, "tree": f.tree
-        }));
+        assert_eq!(
+            d["queue_binding"],
+            json!({
+                "base": f.base, "members": members, "tree": f.tree
+            })
+        );
     }
 }
 
 #[test]
 fn queue_explicit_members_refuse_unbound_chains() {
-    for case in ["wrong order", "missing member", "extra merge", "non-merge step", "wrong base", "invalid member"] {
+    for case in [
+        "wrong order",
+        "missing member",
+        "extra merge",
+        "non-merge step",
+        "wrong base",
+        "invalid member",
+    ] {
         let (mut f, mut members) = batch_fixture(4);
         match case {
             "wrong order" => members.swap(0, 1),
-            "missing member" => { members.remove(0); }
+            "missing member" => {
+                members.remove(0);
+            }
             "extra merge" => {
                 f.head = f.git(
-                    &["commit-tree", &f.tree, "-p", &f.head, "-p", &f.base, "-m", "extra"],
+                    &[
+                        "commit-tree",
+                        &f.tree,
+                        "-p",
+                        &f.head,
+                        "-p",
+                        &f.base,
+                        "-m",
+                        "extra",
+                    ],
                     b"",
                 );
             }
@@ -563,7 +600,10 @@ fn queue_explicit_members_refuse_unbound_chains() {
         assert_eq!(d["outcome"], "rejected", "{case}");
         assert_eq!(d["decision"], "refuse", "{case}");
         assert_eq!(d["report_only"], true, "{case}");
-        assert!(d["summary"].as_str().unwrap().contains("queue"), "{case}: {d}");
+        assert!(
+            d["summary"].as_str().unwrap().contains("queue"),
+            "{case}: {d}"
+        );
         assert!(d.get("queue_binding").is_none(), "{case}");
     }
 }

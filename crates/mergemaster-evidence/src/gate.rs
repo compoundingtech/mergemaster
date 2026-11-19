@@ -459,11 +459,13 @@ pub fn decide(
 // The legacy single-PR form also accepts BASE as the second parent.
 fn bind_queue(repo: &Path, base: &str, head: &str, members: &[String]) -> Result<Vec<String>> {
     let parents = |head: &str| -> Result<Vec<String>> {
-        Ok(git::text(repo, &["rev-list", "--parents", "-n", "1", head])?
-            .split_whitespace()
-            .skip(1)
-            .map(str::to_owned)
-            .collect())
+        Ok(
+            git::text(repo, &["rev-list", "--parents", "-n", "1", head])?
+                .split_whitespace()
+                .skip(1)
+                .map(str::to_owned)
+                .collect(),
+        )
     };
     if members.is_empty() {
         let parents = parents(head)?;
@@ -471,7 +473,10 @@ fn bind_queue(repo: &Path, base: &str, head: &str, members: &[String]) -> Result
             parents.len() == 2 && parents.iter().any(|parent| parent == base),
             "queue head {head} must be a two-parent merge with base {base} as a parent; declare ordered --member SHAs for a batch"
         );
-        return Ok(parents.into_iter().filter(|parent| parent != base).collect());
+        return Ok(parents
+            .into_iter()
+            .filter(|parent| parent != base)
+            .collect());
     }
     let mut current = head.to_owned();
     for (index, member) in members.iter().enumerate().rev() {
