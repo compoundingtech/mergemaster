@@ -82,7 +82,7 @@ def verdicts(rows, pr, head):
     latest = {}
     for row in sorted(rows, key=lambda row: row['created_index']):
         sender = row['from']
-        if not isinstance(sender, str) or not sender.startswith('agent/') or sender == ACTOR:
+        if not isinstance(sender, str) or not sender.startswith('agent/'):
             continue
         body = row['content']
         title = row.get('title') or ''
@@ -108,6 +108,8 @@ def approval(ref, latest, messages, pr, head):
     if row.get('subject') != ref or row.get('to') != ACTOR:
         raise RuntimeError('GO message identity or recipient mismatch')
     sender = row['from']
+    if sender == ACTOR:
+        raise RuntimeError('author verdicts cannot count as independent GOs')
     own = verdicts([row], pr, head).get(sender)
     if own is None or own[0] or not own[1]:
         raise RuntimeError(f'{ref}: referenced message is not an exact-head GO for this PR')
@@ -190,6 +192,8 @@ Verdict details:
   Content must contain a full 40-hex head SHA; abbreviated SHAs do not count.
   Casual GO/NO-GO words in content never create or change a verdict.
   Any latest NO-GO blocks until that same reviewer posts a later GO.
+  Authors withdraw by sending a NO-GO message to themselves; it also blocks.
+  Author GOs can clear their withdrawal but never count as independent approval.
   Older-head GOs neither count nor block. A named GO must be at the current head
   and its sender must still have a latest current-head GO.
 

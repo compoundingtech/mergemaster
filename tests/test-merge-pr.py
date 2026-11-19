@@ -117,6 +117,21 @@ class GateTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn('FAIL sensitive-second-go', output)
 
+    def test_author_self_addressed_no_go_blocks_until_author_clears_it(self):
+        withdrawal = message('message/3333333333333333', gate.ACTOR, HEAD, 3,
+                             title='NO-GO compoundingtech/mergemaster#376')
+        self.messages.append(withdrawal)
+        code, output = self.run_gate()
+        self.assertEqual(code, 1)
+        self.assertIn('FAIL binding-verdicts', output)
+        self.assertEqual(self.merge_calls, [])
+        self.messages.append(message('message/4444444444444444', 'agent/other', HEAD, 4))
+        self.assertEqual(self.run_gate('--dry-run')[0], 1)
+        self.messages.append(message('message/5555555555555555', gate.ACTOR, HEAD, 5))
+        self.assertEqual(self.run_gate('--dry-run')[0], 0)
+        self.messages[0]['content'] = BASE
+        self.assertEqual(self.run_gate('--dry-run')[0], 1)
+
     def test_exclusive_common_dir_lock_covers_execution(self):
         def locked_run(args):
             with (Path(self.common.name) / 'merge-pr.lock').open('a') as contender:

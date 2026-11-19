@@ -6,6 +6,7 @@
 - Accept explicit `GO compoundingtech/mergemaster#N` / `NO-GO compoundingtech/mergemaster#N` reviewer subjects with the head SHA in the content; keep the merge rule brief and put operational detail in `merge-pr --help`.
 - Bind verdicts only to explicit GO/NO-GO subjects and full head SHAs; ignore casual content and abbreviated SHAs, and resolve named verdicts without consuming mailbox messages.
 - Require the Mergemaster author-agent assertion, serialize merge-gate runs, recheck main before merging, and verify the resulting merge's parents/tree with an explicit revert warning on mismatch.
+- Honor self-addressed author NO-GOs as withdrawals while excluding author GOs only from independent approval counts.
 - Exclude the repository-owned `merge-pr` from the copied Fractal script oracle, with explicit provenance and regression coverage; copied scripts remain byte/mode guarded.
 - Restore Cargo automatic integration-test discovery so every `crates/*/tests/*.rs` target runs.
 - Run the ignored Linux O_PATH regression explicitly as non-root in CI using its exact full name and requiring one passing test, and cover absent configured or PATH-resolved evidence verifier binaries with end-to-end fail-closed gate tests.
