@@ -34,6 +34,10 @@ path = "tests/keygen.rs"
 name = "parity_drift"
 path = "tests/parity_drift.rs"
 
+[[test]]
+name = "ci_evidence_gate"
+path = "tests/ci_evidence_gate.rs"
+
 [dependencies]
 anyhow = "1"
 base64 = "0.22"
