@@ -20,7 +20,7 @@ fn gate_decisions_match_python_with_real_shallow_repositories() {
 }
 
 const DRIVER: &str = r#"
-import importlib.machinery, importlib.util, os, pathlib, subprocess, sys, unittest
+import importlib.machinery, importlib.util, os, pathlib, shutil, stat, subprocess, sys, unittest
 from unittest import mock
 binary, gate = sys.argv[1:]
 root = pathlib.Path(os.environ['MERGEMASTER_PYTHON_ORACLE'])
@@ -32,6 +32,15 @@ os.environ['MERGEMASTER_BIN'] = binary
 original = oracle.EndToEnd.run_gate
 run = subprocess.run
 calls = 0
+# shutil.copy preserves Nix-store read-only modes. The oracle reuses fixture
+# destinations across subtests, so make owned copies writable after each copy,
+# retaining their executable bits and leaving immutable source bytes untouched.
+copy = shutil.copy
+def writable_copy(*args, **kwargs):
+    destination = copy(*args, **kwargs)
+    path = pathlib.Path(destination)
+    path.chmod(path.stat().st_mode | stat.S_IWUSR)
+    return destination
 def compare(self, *args, **kwargs):
     global calls
     expected, expected_outputs = original(self, *args, **kwargs)
@@ -66,7 +75,8 @@ names = [
     'test_a_statement_edited_after_signing_never_skips',
     'test_forks_unknown_heads_and_other_events_never_skip_even_with_a_valid_note',
 ]
-result = unittest.TextTestRunner(verbosity=2).run(unittest.TestSuite(oracle.EndToEnd(name) for name in names))
+with mock.patch.object(shutil, 'copy', side_effect=writable_copy):
+    result = unittest.TextTestRunner(verbosity=2).run(unittest.TestSuite(oracle.EndToEnd(name) for name in names))
 assert result.wasSuccessful()
 assert calls >= len(names), calls
 print('Compared', calls, 'real gate decisions against the pinned Python gate')
