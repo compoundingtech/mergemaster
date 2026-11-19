@@ -28,8 +28,14 @@ def message(ref=REF, sender='agent/reviewer', body=None, index=1, title='GO comp
 
 class GateTests(unittest.TestCase):
     def setUp(self):
+        (ROOT / 'tmp').mkdir(exist_ok=True)
+        self.common = tempfile.TemporaryDirectory(prefix='merge-pr-lock-', dir=ROOT / 'tmp')
+        self.addCleanup(self.common.cleanup)
+        self.main_tip = BASE
+        self.post_parents = f'{BASE} {HEAD}'
+        self.post_tree = TREE
         self.pr = {'state': 'open', 'draft': False, 'mergeable': True, 'base': {'ref': 'main'},
-                   'head': {'sha': HEAD}, 'user': {'login': 'shared-bot'}}
+                   'head': {'sha': HEAD}, 'user': {'login': 'shared-bot'}, 'merge_commit_sha': MERGE}
         self.run = {'id': 12, 'head_sha': HEAD, 'pull_requests': [{'number': 376}],
                     'run_attempt': 1, 'status': 'completed', 'conclusion': 'success', 'html_url': 'https://ci/12'}
         self.check = {'name': 'checks', 'head_sha': HEAD, 'status': 'completed', 'conclusion': 'success', 'html_url': 'https://checks/1'}
@@ -44,6 +50,8 @@ class GateTests(unittest.TestCase):
             path = args[2].removeprefix(f'repos/{gate.REPO}/')
             if path == 'pulls/376':
                 data = self.pr
+            elif path == 'git/ref/heads/main':
+                data = {'object': {'sha': self.main_tip}}
             elif path.startswith('actions/runs/12/attempts/') and '/jobs?' in path:
                 data = {'jobs': self.jobs}
             elif path.startswith('commits/'):
@@ -69,19 +77,21 @@ class GateTests(unittest.TestCase):
             if args[1] == 'fetch':
                 return ''
             if args[1] == 'show':
-                return f'{BASE} {HEAD}'
+                return self.post_parents if self.merge_calls else f'{BASE} {HEAD}'
             if args[1] == 'merge-tree':
                 return TREE
             if args[1] == 'rev-parse':
-                return TREE
+                if args[2] == '--git-common-dir':
+                    return self.common.name
+                return self.post_tree if self.merge_calls else TREE
             if args[1] == 'diff':
                 return self.files if args[-2:] == (BASE, HEAD) else ('src/main.rs\0' if self.raced else '')
         raise AssertionError(args)
 
     def run_gate(self, *extra):
         output = io.StringIO()
-        with patch.object(gate, 'command', self.mock_command), contextlib.redirect_stdout(output):
-            code = gate.main(['376', '--go-head', HEAD, '--go-ref', REF, *extra])
+        with patch.object(gate, 'command', self.mock_command), contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+            code = gate.main(['376', '--author-agent', gate.ACTOR, '--go-head', HEAD, '--go-ref', REF, *extra])
         return code, output.getvalue()
 
     def test_dry_run_and_guarded_merge(self):
@@ -91,6 +101,57 @@ class GateTests(unittest.TestCase):
         self.assertEqual(self.merge_calls, [])
         self.assertEqual(self.run_gate()[0], 0)
         self.assertEqual(self.merge_calls[0][-3:], ('--merge', '--match-head-commit', HEAD))
+
+    def test_author_argument_required_and_other_authors_refused(self):
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
+            gate.main(['376', '--go-head', HEAD, '--go-ref', REF])
+        self.assertEqual(raised.exception.code, 2)
+        code, output = self.run_gate('--dry-run', '--author-agent', 'agent/other-author')
+        self.assertEqual(code, 1)
+        self.assertIn('PRs by other agents: no authenticated author binding yet; merge them manually under review', output)
+
+    def test_author_cannot_supply_second_go(self):
+        self.files = '.github/workflows/ci.yml\0'
+        self.messages[1]['from'] = gate.ACTOR
+        code, output = self.run_gate('--dry-run', '--second-go-ref', SECOND)
+        self.assertEqual(code, 1)
+        self.assertIn('FAIL sensitive-second-go', output)
+
+    def test_exclusive_common_dir_lock_covers_execution(self):
+        def locked_run(args):
+            with (Path(self.common.name) / 'merge-pr.lock').open('a') as contender:
+                with self.assertRaises(BlockingIOError):
+                    gate.fcntl.flock(contender.fileno(), gate.fcntl.LOCK_EX | gate.fcntl.LOCK_NB)
+            return 0
+        with patch.object(gate, 'run_gate', side_effect=locked_run):
+            self.assertEqual(self.run_gate('--dry-run')[0], 0)
+        with (Path(self.common.name) / 'merge-pr.lock').open('a') as contender:
+            gate.fcntl.flock(contender.fileno(), gate.fcntl.LOCK_EX | gate.fcntl.LOCK_NB)
+
+    def test_last_main_read_refuses_before_merge(self):
+        self.main_tip = HEAD
+        code, output = self.run_gate()
+        self.assertEqual(code, 1)
+        self.assertIn('main changed immediately before merge', output)
+        self.assertEqual(self.merge_calls, [])
+
+    def test_post_merge_detects_other_writer_window(self):
+        self.post_parents = f'{HEAD} {HEAD}'
+        code, output = self.run_gate()
+        self.assertEqual(code, 1)
+        self.assertEqual(len(self.merge_calls), 1)
+        self.assertIn('POST-MERGE MISMATCH: revert or fresh CI required', output)
+        self.assertIn(f'git revert -m 1 {MERGE}', output)
+        self.assertIn(f'validated_base={BASE}', output)
+
+    def test_post_merge_tree_mismatch_and_unreadable_commit_fail(self):
+        for tree, commit in [(HEAD, MERGE), (TREE, None)]:
+            self.merge_calls.clear()
+            self.post_tree = tree
+            self.pr['merge_commit_sha'] = commit
+            code, output = self.run_gate()
+            self.assertEqual(code, 1)
+            self.assertIn('POST-MERGE MISMATCH: revert or fresh CI required', output)
 
     def test_author_wrong_head_and_no_go_refuse(self):
         for row in [message(sender=gate.ACTOR), message(body=BASE), message(title='NO-GO compoundingtech/mergemaster#376')]:
@@ -219,7 +280,7 @@ class GateTests(unittest.TestCase):
 
     def test_no_merge_when_unreadable(self):
         with patch.object(gate, 'command', side_effect=RuntimeError('offline')), contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(gate.main(['376', '--go-head', HEAD, '--go-ref', REF]), 1)
+            self.assertEqual(gate.main(['376', '--author-agent', gate.ACTOR, '--go-head', HEAD, '--go-ref', REF]), 1)
         self.assertEqual(self.merge_calls, [])
 
 

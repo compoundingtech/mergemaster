@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Fail-closed merge-time gate. See AGENTS.md for the approval contract."""
 import argparse
+import fcntl
 import io
 import json
+from pathlib import Path
 import re
 import subprocess
 import sys
@@ -142,6 +144,35 @@ def remote_refs(pr):
     return tuple(result[key] for key in keys)
 
 
+def current_main():
+    value = api('git/ref/heads/main')['object']['sha']
+    if not SHA.fullmatch(value):
+        raise RuntimeError('main ref did not return a full commit SHA')
+    return value
+
+
+def verify_merged(pr, base, head, expected_tree):
+    merged = 'unknown'
+    actual_parents, actual_tree = [], 'unknown'
+    try:
+        merged = api(f'pulls/{pr}')['merge_commit_sha']
+        if not isinstance(merged, str) or not SHA.fullmatch(merged):
+            raise RuntimeError('GitHub did not identify the merged commit')
+        git('fetch', '--no-tags', 'origin', merged)
+        actual_parents = parents(merged)
+        actual_tree = git('rev-parse', f'{merged}^{{tree}}')
+        if actual_parents != [base, head] or actual_tree != expected_tree:
+            raise RuntimeError('merged parents/tree differ from validated merge')
+    except (RuntimeError, KeyError, TypeError, ValueError, OSError, subprocess.TimeoutExpired) as error:
+        revert = merged if isinstance(merged, str) and SHA.fullmatch(merged) else '<merge-commit-sha>'
+        raise RuntimeError(
+            f'POST-MERGE MISMATCH: revert or fresh CI required; merge={merged} '
+            f'validated_base={base} approved_head={head} actual_parents={actual_parents} '
+            f'validated_tree={expected_tree} actual_tree={actual_tree}; {error}; '
+            f'suggested: git revert -m 1 {revert}') from error
+    return f'merge={merged} parents={actual_parents} tree={actual_tree}'
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Reviewer messages:
@@ -172,18 +203,37 @@ Mechanical checks:
   (main, head), and tree equality with local git merge-tree --write-tree.
   Recheck refs, verdicts, and readiness before gh pr merge --merge
   --match-head-commit HEAD. Any unreadable or uncomputable check refuses merging.
+  Serialize local runs with an exclusive flock in the Git common directory.
+  Re-read main immediately before merging, then fetch the resulting merge commit
+  and verify its first parent and tree against the validated base and merge-tree.
+  Another writer can still merge between the final main read and the API call;
+  post-merge verification catches that window and reports a revert command.
+  Only Mergemaster-authored PRs are supported; --author-agent is an explicit
+  author assertion, since the shared GitHub login cannot authenticate agents.
 
 Run from a trusted base checkout, not the PR's copy. Use the agent gh config
 for read-only runs. Dry runs fetch Git objects locally but never write GitHub.
 Tests: python3 tests/test-merge-pr.py
 """)
     parser.add_argument('pr', type=int, help='PR number in compoundingtech/mergemaster')
+    parser.add_argument('--author-agent', required=True, help='must be agent/compoundingtech/mergemaster; other author agents require manual review')
     parser.add_argument('--go-head', required=True, help='full 40-hex approved head SHA')
     parser.add_argument('--go-ref', required=True, help='authenticated message/ID naming the first GO')
     parser.add_argument('--second-go-ref', help='distinct current-head reviewer GO; required for .github/ or iac/ changes')
     parser.add_argument('--rerun-reason', help='explicit reason required when the CI run attempt is greater than 1')
     parser.add_argument('--dry-run', action='store_true', help='report PASS/FAIL evidence without merging; exit nonzero on refusal')
     args = parser.parse_args(argv)
+    try:
+        common = Path(git('rev-parse', '--git-common-dir'))
+        with (common / 'merge-pr.lock').open('a') as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            return run_gate(args)
+    except (RuntimeError, OSError, subprocess.TimeoutExpired) as error:
+        print(f'FAIL merge-pr: {error}', file=sys.stderr)
+        return 1
+
+
+def run_gate(args):
     results = []
     def check(name, action):
         try:
@@ -202,6 +252,9 @@ Tests: python3 tests/test-merge-pr.py
         if not condition:
             raise RuntimeError(evidence)
         return evidence
+    check('author-agent', lambda: require(args.author_agent == ACTOR,
+          'PRs by other agents: no authenticated author binding yet; merge them manually under review'
+          if args.author_agent != ACTOR else f'asserted author={ACTOR}; author verdicts excluded'))
     pr = check('pull-request', lambda: api(f'pulls/{args.pr}'))
     check('ready', lambda: require(pr is not None and pr['state'] == 'open' and not pr['draft']
                                   and pr['mergeable'] is True and pr['base']['ref'] == 'main',
@@ -213,12 +266,13 @@ Tests: python3 tests/test-merge-pr.py
     reviewer = check('source-go', lambda: approval(args.go_ref, latest, messages, args.pr, args.go_head))
     refs = check('remote-refs', lambda: remote_refs(args.pr))
     paths = None
+    tree = None
     if refs:
         base, head, merge = refs
         check('fetch-objects', lambda: git('fetch', '--no-tags', 'origin', base, head, merge) or f'fetched {base} {head} {merge}')
         check('merge-parents', lambda: require(head == args.go_head and parents(merge) == [base, head],
                                              f'main={base} head={head} merge={merge} parents={parents(merge)}'))
-        check('merge-tree', lambda: merge_tree(base, head, merge))
+        tree = check('merge-tree', lambda: merge_tree(base, head, merge))
         paths = check('changed-files', lambda: sorted(changed(base, head)))
     def second_go():
         if paths is None:
@@ -285,7 +339,10 @@ Tests: python3 tests/test-merge-pr.py
     if failures:
         return 1
     if not args.dry_run:
+        if current_main() != base:
+            raise RuntimeError(f'main changed immediately before merge; validated base={base}')
         command('gh', 'pr', 'merge', str(args.pr), '--repo', REPO, '--merge', '--match-head-commit', args.go_head)
+        print(f'PASS post-merge: {verify_merged(args.pr, base, head, tree)}')
     return 0
 
 
