@@ -346,6 +346,27 @@ letters, digits, `-`, `_`, or `.`. The only supported optional key restriction i
 `namespaces="git"` before `ssh-ed25519`; trailing comments, blank lines and
 comment-only lines are allowed. Unsupported key types/options, principal
 patterns, invalid SSH wire keys and signer files with no keys fail closed.
+
+To bind gate evidence to its consumer repository, set the optional top-level
+`"repository": "OWNER/NAME"` in the accepted BASE `.mergemaster/lanes.json`.
+The gate requires an exactly matching signed `Statement.repository`, including
+case, before any record enters selection or `--compare-head` reporting. Missing
+bindings reject the record with `repository_unbound`; differing bindings reject
+it with `repository_mismatch`. A rejected record cannot shadow valid evidence.
+When comparison runs, its JSON decision includes `repository_refused`: the number
+of signature-verified comparison records rejected for an absent or mismatched
+repository binding (zero when none). This count exposes replay attempts without
+including rejected record contents. Decisions without comparison omit the field.
+The identity uses the same literal `OWNER/NAME` validation as `evidence wrap
+--repository`; URLs, extra path components and whitespace are invalid.
+
+This policy is opt-in: omitting `repository` preserves historical behavior,
+including unbound records. Shared signing keys alone do not isolate repositories;
+enable the policy before relying on that isolation and produce evidence with
+`evidence wrap --repository OWNER/NAME`. The accepted-base policy is the sole
+binding authority; the gate does not infer it from HEAD, remotes or the ambient
+`GITHUB_REPOSITORY` environment variable.
+
 A Graph-shaped `lanes.json` is:
 
 ```json

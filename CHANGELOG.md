@@ -7,6 +7,8 @@
 - Provision the matching built binary in the development shell and propagate its absolute `MERGEMASTER_BIN` through the copied script-test harness, including per-crate gate fixtures in private clones.
 - Inject gate self-test failures and record argv at the trusted binary boundary, retaining fail-closed assertions for timeout, invalid/empty output, crashes and unsupported interfaces.
 - Make owned copies in the gate parity fixture owner-writable without changing executable bits, allowing repeated subtests against immutable Nix-store oracle sources.
+- Add optional accepted-base gate `repository` policy: require an exact signed repository binding before evidence selection and comparison, with explicit unbound/mismatch rejection reasons; preserve existing behavior when omitted.
+- Report the count of repository-binding refusals in gate comparison JSON without exposing rejected record contents.
 
 ## [0.10.0] - 2026-11-19
 
