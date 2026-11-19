@@ -4,35 +4,10 @@ version = "0.10.0"
 edition = "2024"
 description = "Portable signed gate observations in immutable Git notes"
 license = "MIT"
-autotests = false
 
 [[bin]]
 name = "mergemaster"
 path = "src/main.rs"
-
-[[test]]
-name = "integration"
-path = "tests/integration.rs"
-
-[[test]]
-name = "gate"
-path = "tests/gate.rs"
-
-[[test]]
-name = "workspace_inputs"
-path = "tests/workspace_inputs.rs"
-
-[[test]]
-name = "generic_evidence"
-path = "tests/generic_evidence.rs"
-
-[[test]]
-name = "keygen"
-path = "tests/keygen.rs"
-
-[[test]]
-name = "parity_drift"
-path = "tests/parity_drift.rs"
 
 [dependencies]
 anyhow = "1"

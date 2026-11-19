@@ -1,0 +1,258 @@
+#!/usr/bin/env python3
+"""Fail-closed merge-time gate. See AGENTS.md for the approval contract."""
+import argparse
+import io
+import json
+import re
+import subprocess
+import sys
+import zipfile
+
+REPO = 'compoundingtech/mergemaster'
+SHA = re.compile(r'^[0-9a-f]{40}$')
+
+
+def command(*args, binary=False):
+    result = subprocess.run(args, capture_output=True, timeout=120)
+    if result.returncode:
+        raise RuntimeError(f'{" ".join(args)}: {result.stderr.decode(errors="replace").strip()}')
+    return result.stdout if binary else result.stdout.decode().strip()
+
+
+def api(path):
+    return json.loads(command('gh', 'api', f'repos/{REPO}/{path}'))
+
+
+def pages(path, key=None):
+    values = []
+    for page in range(1, 1001):
+        data = api(f'{path}{"&" if "?" in path else "?"}per_page=100&page={page}')
+        rows = data[key] if key else data
+        values.extend(rows)
+        if len(rows) < 100:
+            return values
+    raise RuntimeError('pagination exceeded 1000 pages')
+
+
+def git(*args):
+    return command('git', *args)
+
+
+def changed(base, head):
+    # Include both sides of renames, so a rename cannot hide an overlap.
+    return set(git('diff', '--no-renames', '--name-only', '-z', base, head).split('\0')) - {''}
+
+
+def parents(commit):
+    return git('show', '-s', '--format=%P', commit).split()
+
+
+def merge_tree(base, head, merge):
+    expected = git('merge-tree', '--write-tree', base, head)
+    actual = git('rev-parse', f'{merge}^{{tree}}')
+    if expected != actual:
+        raise RuntimeError(f'merge tree {actual} differs from local merge-tree {expected}')
+    return actual
+
+
+ACTOR = 'agent/compoundingtech/mergemaster'
+
+
+def mailbox():
+    rows = {}
+    for archived in (False, True):
+        args = ['st', 'conversations', 'ls', ACTOR, '--as', ACTOR, '--json', '--daemon-wait', '0']
+        if archived:
+            args.append('--archive')
+        data = json.loads(command(*args))
+        if not isinstance(data, list):
+            raise RuntimeError('Fractal mailbox must return a complete message array')
+        for row in data:
+            if not isinstance(row, dict) or not isinstance(row.get('created_index'), int):
+                raise RuntimeError('unreadable Fractal message envelope')
+            if row.get('to') != ACTOR:
+                raise RuntimeError('mailbox returned a message for another recipient')
+            rows[row['subject']] = row
+    return list(rows.values())
+
+
+def verdicts(rows, pr, head):
+    latest = {}
+    for row in sorted(rows, key=lambda row: row['created_index']):
+        sender = row['from']
+        if not isinstance(sender, str) or not sender.startswith('agent/') or sender == ACTOR:
+            continue
+        body = row['content']
+        title = row.get('title') or ''
+        if not isinstance(body, str) or not isinstance(title, str):
+            raise RuntimeError('unreadable Fractal message content')
+        text = title + '\n' + body
+        named = (re.search(rf'(?<![\w/]){REPO}#{pr}\b', text)
+                 or (re.search(rf'#{pr}\b', text) and re.search(r'\bmergemaster\b', text, re.I)))
+        if not named or not re.search(r'\b(?:GO|NO[ -]GO)\b', body, re.I):
+            continue
+        negative = bool(re.search(r'\bNO[ -]GO\b', body, re.I))
+        tokens = re.findall(r'(?<![0-9a-f])[0-9a-f]{8,40}(?![0-9a-f])', body)
+        latest[sender] = (negative, any(head.startswith(token) for token in tokens), row['subject'])
+    return latest
+
+
+def approval(ref, latest, pr, head):
+    if not re.fullmatch(r'message/[0-9a-f]{16}', ref):
+        raise RuntimeError('GO ref must be an authenticated Fractal message/ID; GitHub comments are informational only')
+    row = json.loads(command('st', 'conversations', 'read', ref, '--as', ACTOR, '--json', '--daemon-wait', '0'))
+    if row.get('subject') != ref or row.get('to') != ACTOR:
+        raise RuntimeError('GO message identity or recipient mismatch')
+    sender = row['from']
+    own = verdicts([row], pr, head).get(sender)
+    if own is None or own[0] or not own[1]:
+        raise RuntimeError(f'{ref}: referenced message is not an exact-head GO for this PR')
+    if sender not in latest or latest[sender][0] or not latest[sender][1]:
+        raise RuntimeError(f'{sender}: latest PR verdict is not an exact-head GO')
+    return sender
+
+
+def tested_merge(run_id, pr):
+    archive = command('gh', 'api', f'repos/{REPO}/actions/runs/{run_id}/logs', binary=True)
+    commits = set()
+    with zipfile.ZipFile(io.BytesIO(archive)) as logs:
+        for name in logs.namelist():
+            text = logs.read(name).decode(errors='replace')
+            # Checkout's own log records the commit actually checked out, unlike run.head_sha
+            # (which identifies the PR head). Ignore external-repository checkouts.
+            for block in text.split('##[group]Getting Git version info'):
+                if f'refs/remotes/pull/{pr}/merge' not in block:
+                    continue
+                match = re.search(r'\[command\].*?git log -1 --format=%H[^\n]*\n[^\n]*?\b([0-9a-f]{40})\b', block)
+                if match:
+                    commits.add(match[1])
+    if len(commits) != 1:
+        raise RuntimeError(f'CI checkout logs must identify exactly one tested PR merge commit; found {sorted(commits)}')
+    return commits.pop()
+
+
+def remote_refs(pr):
+    refs = git('ls-remote', 'origin', 'refs/heads/main', f'refs/pull/{pr}/head', f'refs/pull/{pr}/merge')
+    result = dict(line.split()[::-1] for line in refs.splitlines())
+    keys = ['refs/heads/main', f'refs/pull/{pr}/head', f'refs/pull/{pr}/merge']
+    if any(key not in result or not SHA.fullmatch(result[key]) for key in keys):
+        raise RuntimeError('origin must advertise main, PR head, and PR merge refs')
+    return tuple(result[key] for key in keys)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('pr', type=int)
+    parser.add_argument('--go-head', required=True)
+    parser.add_argument('--go-ref', required=True)
+    parser.add_argument('--second-go-ref')
+    parser.add_argument('--rerun-reason')
+    parser.add_argument('--dry-run', action='store_true')
+    args = parser.parse_args(argv)
+    results = []
+    def check(name, action):
+        try:
+            value = action()
+            evidence = value.get('html_url', 'GitHub API response loaded') if isinstance(value, dict) else str(value)
+            if name == 'authenticated-mailbox':
+                evidence = f'{len(value)} authenticated current/archive messages loaded'
+            elif name == 'latest-verdicts':
+                evidence = str(value)
+            results.append((True, name, evidence))
+            return value
+        except (RuntimeError, KeyError, TypeError, ValueError, OSError, subprocess.TimeoutExpired, zipfile.BadZipFile) as error:
+            results.append((False, name, str(error)))
+            return None
+    def require(condition, evidence):
+        if not condition:
+            raise RuntimeError(evidence)
+        return evidence
+    pr = check('pull-request', lambda: api(f'pulls/{args.pr}'))
+    check('ready', lambda: require(pr is not None and pr['state'] == 'open' and not pr['draft']
+                                  and pr['mergeable'] is True and pr['base']['ref'] == 'main',
+                                  f'state={pr and pr.get("state")} draft={pr and pr.get("draft")} mergeable={pr and pr.get("mergeable")} base={pr and pr.get("base", {}).get("ref")}'))
+    check('exact-head', lambda: require(bool(SHA.fullmatch(args.go_head)) and pr is not None
+                                       and pr['head']['sha'] == args.go_head, f'GO head={args.go_head}; PR head={pr and pr["head"]["sha"]}'))
+    messages = check('authenticated-mailbox', mailbox)
+    latest = check('latest-verdicts', lambda: verdicts(messages, args.pr, args.go_head))
+    reviewer = check('source-go', lambda: approval(args.go_ref, latest, args.pr, args.go_head))
+    refs = check('remote-refs', lambda: remote_refs(args.pr))
+    paths = None
+    if refs:
+        base, head, merge = refs
+        check('fetch-objects', lambda: git('fetch', '--no-tags', 'origin', base, head, merge) or f'fetched {base} {head} {merge}')
+        check('merge-parents', lambda: require(head == args.go_head and parents(merge) == [base, head],
+                                             f'main={base} head={head} merge={merge} parents={parents(merge)}'))
+        check('merge-tree', lambda: merge_tree(base, head, merge))
+        paths = check('changed-files', lambda: sorted(changed(base, head)))
+    def second_go():
+        if paths is None:
+            raise RuntimeError('base..head changed files unavailable')
+        sensitive = [path for path in paths if path.startswith(('.github/', 'iac/'))]
+        if not sensitive:
+            return 'no .github/ or iac/ touches in base..head'
+        if not args.second_go_ref:
+            raise RuntimeError(f'--second-go-ref required for {sensitive}')
+        second = approval(args.second_go_ref, latest, args.pr, args.go_head)
+        return require(reviewer is not None and second != reviewer, f'second reviewer={second}; first={reviewer}; sensitive={sensitive}')
+    check('sensitive-second-go', second_go)
+    def binding():
+        if latest is None:
+            raise RuntimeError('authenticated verdicts unavailable')
+        blocked = {sender: verdict[2] for sender, verdict in latest.items() if verdict[0]}
+        return require(not blocked, f'latest reviewer verdicts={latest}; NO-GOs={blocked}')
+    check('binding-verdicts', binding)
+    def checks():
+        rows = pages(f'commits/{args.go_head}/check-runs?filter=all', 'check_runs')
+        evidence = '; '.join(f'{row["name"]}={row["status"]}/{row["conclusion"]} ({row["html_url"]})' for row in rows)
+        return require(bool(rows) and all(row['head_sha'] == args.go_head and row['status'] == 'completed'
+                                         and row['conclusion'] in ('success', 'skipped') for row in rows), evidence or 'no exact-head check-runs')
+    check('exact-head-check-runs', checks)
+    def ci():
+        runs = pages(f'actions/workflows/ci.yml/runs?head_sha={args.go_head}&event=pull_request', 'workflow_runs')
+        runs = [run for run in runs if run['head_sha'] == args.go_head and any(p['number'] == args.pr for p in run['pull_requests'])]
+        if not runs:
+            raise RuntimeError('no hosted CI pull_request run at exact head')
+        run = max(runs, key=lambda row: row['id'])
+        require(run['status'] == 'completed' and run['conclusion'] == 'success', f'{run["html_url"]} {run["status"]}/{run["conclusion"]}')
+        require(run['run_attempt'] == 1 or bool(args.rerun_reason and args.rerun_reason.strip()),
+                f'run={run["id"]} attempt={run["run_attempt"]}; reruns require --rerun-reason')
+        jobs = pages(f'actions/runs/{run["id"]}/attempts/{run["run_attempt"]}/jobs', 'jobs')
+        executed = [job for job in jobs if job['conclusion'] != 'skipped']
+        require(bool(executed) and all(job['runner_group_name'] == 'GitHub Actions'
+                                      and job['status'] == 'completed' and job['conclusion'] == 'success'
+                                      for job in executed), 'CI must have successful GitHub-hosted jobs')
+        return run
+    run = check('hosted-ci', ci)
+    def overlap():
+        if run is None or refs is None or paths is None:
+            raise RuntimeError('successful CI, refs, and changed files required')
+        tested = tested_merge(run['id'], args.pr)
+        git('fetch', '--no-tags', 'origin', tested)
+        tested_parents = parents(tested)
+        require(len(tested_parents) == 2 and tested_parents[1] == args.go_head,
+                f'CI tested={tested} parents={tested_parents}; expected second parent={args.go_head}')
+        ci_base = tested_parents[0]
+        overlap_paths = sorted(changed(ci_base, refs[0]) & set(paths))
+        return require(not overlap_paths, f'CI tested={tested} CI base(first parent)={ci_base} main={refs[0]} overlap={overlap_paths}; rerun reason={args.rerun_reason or "attempt 1"}')
+    check('ci-base-overlap', overlap)
+    def stable():
+        current = api(f'pulls/{args.pr}')
+        require(verdicts(mailbox(), args.pr, args.go_head) == latest, 'authenticated reviewer verdicts unchanged during checks')
+        return require(refs is not None and remote_refs(args.pr) == refs and current['head']['sha'] == args.go_head
+                       and current['state'] == 'open' and not current['draft'] and current['mergeable'] is True,
+                       'main/head/merge refs and PR readiness unchanged during checks')
+    check('final-snapshot', stable)
+    for passed, name, evidence in sorted(results, key=lambda row: row[0]):
+        print(f'{"PASS" if passed else "FAIL"} {name}: {evidence}')
+    failures = sum(not passed for passed, _, _ in results)
+    print(f'{"DRY RUN" if args.dry_run else "GATE"}: {len(results) - failures} PASS, {failures} FAIL; PR #{args.pr} head={args.go_head}')
+    if failures:
+        return 1
+    if not args.dry_run:
+        command('gh', 'pr', 'merge', str(args.pr), '--repo', REPO, '--merge', '--match-head-commit', args.go_head)
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
