@@ -574,7 +574,12 @@ fn repository_policy_is_validated_and_only_read_from_accepted_base() {
         load(&f.repo, &f.base).unwrap().policy.repository.as_deref(),
         Some("fixture/repo")
     );
-    for invalid in ["", "repo", "owner/repo/extra", "https://github.com/owner/repo"] {
+    for invalid in [
+        "",
+        "repo",
+        "owner/repo/extra",
+        "https://github.com/owner/repo",
+    ] {
         policy["repository"] = json!(invalid);
         f.write(".mergemaster/lanes.json", policy.to_string());
         let base = f.commit("invalid repository policy");
