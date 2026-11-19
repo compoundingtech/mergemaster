@@ -102,7 +102,7 @@ CHECK_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,99}')
 VERIFIER = 'scripts/evidence-verify'
 # The workflow must provision this binary from trusted configuration, never from
 # the candidate checkout. No Python fallback: a missing binary keeps CI running.
-VERIFIER_COMMAND = (os.environ.get('MERGEMASTER_BIN', 'mergemaster'), 'legacy-evidence-verify')
+VERIFIER_BINARY = os.environ.get('MERGEMASTER_BIN', 'mergemaster')
 # Checks a note covers one crate at a time (docs/per-crate-test-signing.md): the gate asks whether EVERY workspace member of the tree
 # has a satisfying note for its own key (--members). Base script/helper presence
 # and option markers remain compatibility guards, not executable verifier code.
@@ -352,7 +352,7 @@ def observe(context, revision='HEAD', protected=None):
         return 'unavailable', None, 'the accepted base has no verifier yet', None
     digest = hashlib.sha256(script.stdout).hexdigest()
     with tempfile.TemporaryDirectory() as scratch:
-        verifier = VERIFIER_COMMAND
+        verifier = VERIFIER_BINARY
         if config_path(base, KEYS) is not None:
             keys = ['--keys-from', base]
         else:
@@ -393,7 +393,7 @@ def observe(context, revision='HEAD', protected=None):
         # a newer failure still decides.
         prefer = ['--prefer-levels', ','.join(OWN_LEVELS)] if isinstance(protected, list) and protected and not members \
             and context.get('event') == 'pull_request' and b'--prefer-levels' in script.stdout else []
-        done = run(*verifier, '--repo', '.', '--revision', revision, '--check', check, *members,
+        done = run(verifier, 'legacy-evidence-verify', '--repo', '.', '--revision', revision, '--check', check, *members,
                    '--policy-from', base, '--repository', repository, *keys, *log, *values, *lane_base, *prefer, timeout=VERIFIER_TIMEOUT)
     try:
         result = json.loads(done.stdout)
@@ -435,7 +435,7 @@ def fetch_member_notes(verifier, base, check, repository, revision='HEAD'):
     each crate's key and refspecs), never the whole namespace. 'ok', 'none' (no member has a key) or 'failed' (best effort: a failure
     means no note is seen, and the check runs)."""
     try:
-        done = run(*verifier, '--repo', '.', '--revision', revision, '--check', check, '--members', '--project',
+        done = run(verifier, 'legacy-evidence-verify', '--repo', '.', '--revision', revision, '--check', check, '--members', '--project',
                    '--policy-from', base, '--repository', repository, timeout=VERIFIER_TIMEOUT)
         crates = json.loads(done.stdout).get('crates') if done.returncode == 0 else None
     except (ValueError, AttributeError, subprocess.TimeoutExpired, OSError):
@@ -455,7 +455,7 @@ def fetch_input_notes(verifier, base, check, repository, revision='HEAD'):
     if not CHECK_NAME.fullmatch(check):
         return
     try:
-        done = run(*verifier, '--repo', '.', '--revision', revision, '--check', check, '--project',
+        done = run(verifier, 'legacy-evidence-verify', '--repo', '.', '--revision', revision, '--check', check, '--project',
                    '--policy-from', base, '--repository', repository, timeout=VERIFIER_TIMEOUT)
         key = json.loads(done.stdout).get('source_inputs') if done.returncode == 0 else None
     except (ValueError, AttributeError, subprocess.TimeoutExpired, OSError):
