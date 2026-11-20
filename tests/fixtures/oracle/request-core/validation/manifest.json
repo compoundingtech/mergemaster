@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "source_test": {
+    "path": "crates/mergemaster-evidence/src/evidence/legacy_request.rs",
+    "function": "legacy_requests_match_python_validation"
+  },
+  "oracle": {
+    "environment": "MERGEMASTER_PYTHON_ORACLE",
+    "path": "scripts/evidence-sign",
+    "rev": "cff667cd53bdb6c024f9d7a06259b8f9a3fbb0cb",
+    "nar_hash": "sha256-UeHYs08Nzqy50cvlWu1n5Z0bR2I/J2Ectj7ztd5gfNI=",
+    "git_blob": "288b9c2ca9ba7e4f909dd4656df52ae30c9a8914"
+  },
+  "runtime": {
+    "implementation": "CPython",
+    "version": "3.14.7"
+  },
+  "argv": [
+    "-I",
+    "-B",
+    "driver.py",
+    "${oracle}"
+  ],
+  "cwd": ".",
+  "environment": {
+    "PATH": "${python_bin}",
+    "NO_COLOR": "1",
+    "TERM": "dumb",
+    "COLUMNS": "80",
+    "LC_ALL": "C.UTF-8",
+    "TZ": "UTC"
+  },
+  "stdin": "stdin.json",
+  "stdout": "stdout.bin",
+  "stderr": "stderr.bin",
+  "exit_code": 0,
+  "row_count": 141,
+  "ordering": "Nix-only omitted input names are sorted lexically; -I ignores PYTHONHASHSEED, so stdout never relies on hash iteration order.",
+  "divergences": []
+}

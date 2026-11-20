@@ -31,6 +31,7 @@
     "policy-helpers/repeated-keys-keep-the-last-value-and-first-position/manifest.json",
     "policy-helpers/repository-substitution-preserves-original-codepoints/manifest.json",
     "policy-helpers/rule-helper-diagnostics-match-pinned-handlers-losslessly/manifest.json",
-    "policy-helpers/value-schemas-match-the-pinned-oracle/manifest.json"
+    "policy-helpers/value-schemas-match-the-pinned-oracle/manifest.json",
+    "request-core/validation/manifest.json"
   ]
 }
