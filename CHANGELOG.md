@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Freeze ten complete policy helper, name/repository substitution and value-order matrices, including JSON/integer diagnostics and surrogate-preserving handler outputs.
 - Freeze all six policy kind/level schema and lossless handler-diagnostic matrices, including zero overrides, surrogate keys and wide-number boundaries.
 - Freeze all six policy root/header, command/base-input and declared-path matrices with exact generator-input equality and preserved refusal/diagnostic assertions.
 - Capture real Python/Rust divergence witnesses in hosted CI, preserving accepted-main review provenance and explicitly pending or review-requested cases without fabricating observations or approval.

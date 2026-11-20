@@ -187,30 +187,16 @@ mod tests {
                 json!({"shard_inputs":{"count":"n","results":"r","pull_request_count":count}}),
             );
         }
-        let root = std::env::var("MERGEMASTER_PYTHON_ORACLE")
-            .expect("MERGEMASTER_PYTHON_ORACLE must point to the pinned Python oracle");
-        let script = r#"
-import json, runpy, sys
-oracle = runpy.run_path(sys.argv[1] + '/scripts/evidence-verify')
-results = []
-for rule in json.loads(sys.argv[2]):
-    try:
-        order, shards = oracle['checked_value_rules'](rule, 'fixture')
-        results.append(dict(input_order=order, shard_inputs=shards))
-    except (oracle['Failure'], TypeError):
-        results.append({'reason': 'error'})
-print(json.dumps(results))
-"#;
-        let output = crate::pinned_python::command()
-            .args(["-c", script, &root, &serde_json::to_string(&cases).unwrap()])
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
+        assert_eq!(
+            serde_json::to_string(&cases).unwrap(),
+            include_str!(
+                "../../../../../tests/fixtures/oracle/policy-helpers/value-schemas-match-the-pinned-oracle/stdin.json"
+            )
         );
-        let expected: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+        let frozen = include_bytes!(
+            "../../../../../tests/fixtures/oracle/policy-helpers/value-schemas-match-the-pinned-oracle/stdout.bin"
+        );
+        let expected: Vec<Value> = serde_json::from_slice(frozen).unwrap();
         assert_eq!(expected.len(), cases.len());
         for (rule, expected) in cases.iter().zip(expected) {
             let document = Document::from_bytes(rule.to_string().as_bytes()).unwrap();
@@ -245,26 +231,16 @@ print(json.dumps(results))
         let base = super::super::checked_base_inputs(fields, &[TextRef::Str("fixture")]).unwrap();
         let values = checked_value_rules(fields, &[TextRef::Str("fixture")]).unwrap();
         let actual = json!([command.bind_inputs, base, values.input_order]);
-        let root = std::env::var("MERGEMASTER_PYTHON_ORACLE")
-            .expect("MERGEMASTER_PYTHON_ORACLE must point to the pinned Python oracle");
-        let script = r#"
-import json, runpy, sys
-oracle, rule = runpy.run_path(sys.argv[1] + '/scripts/evidence-verify'), json.loads(sys.argv[2])
-_, _, binds = oracle['checked_command_inputs'](rule, 'fixture')
-base = oracle['checked_base_inputs'](rule, 'fixture')
-order, _ = oracle['checked_value_rules'](rule, 'fixture')
-print(json.dumps([list(value.items()) for value in (binds, base, order)]))
-"#;
-        let output = crate::pinned_python::command()
-            .args(["-c", script, &root, text])
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
+        assert_eq!(
+            text,
+            include_str!(
+                "../../../../../tests/fixtures/oracle/policy-helpers/repeated-keys-keep-the-last-value-and-first-position/stdin.json"
+            )
         );
-        let expected: Value = serde_json::from_slice(&output.stdout).unwrap();
+        let frozen = include_bytes!(
+            "../../../../../tests/fixtures/oracle/policy-helpers/repeated-keys-keep-the-last-value-and-first-position/stdout.bin"
+        );
+        let expected: Value = serde_json::from_slice(frozen).unwrap();
         assert_eq!(actual, expected);
         let retained = json!([
             [["z", "last"], ["a", "middle"]],
@@ -293,36 +269,16 @@ print(json.dumps([list(value.items()) for value in (binds, base, order)]))
                 .unwrap()
             })
             .collect();
-        let root = std::env::var("MERGEMASTER_PYTHON_ORACLE")
-            .expect("MERGEMASTER_PYTHON_ORACLE must point to the pinned Python oracle");
-        let script = r#"
-import json, runpy, sys
-oracle = runpy.run_path(sys.argv[1] + '/scripts/evidence-verify')
-reasons = []
-for original, parsed in zip(json.loads(sys.argv[2]), json.loads(sys.argv[3])):
-    for rule in (original, parsed):
-        try:
-            oracle['value_checks'](rule, {'z': 'wrong'}, {'z': 'strong'}, 1)
-        except oracle['Failure'] as failure:
-            reasons.append(failure.reason)
-print(json.dumps(reasons))
-"#;
-        let output = crate::pinned_python::command()
-            .args([
-                "-c",
-                script,
-                &root,
-                &rules.to_string(),
-                &serde_json::to_string(&parsed).unwrap(),
-            ])
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
+        assert_eq!(
+            serde_json::to_string(&(&rules, &parsed)).unwrap(),
+            include_str!(
+                "../../../../../tests/fixtures/oracle/policy-helpers/input-order-preserves-the-oracle-deciding-reason/stdin.json"
+            )
         );
-        let reasons: Vec<String> = serde_json::from_slice(&output.stdout).unwrap();
+        let frozen = include_bytes!(
+            "../../../../../tests/fixtures/oracle/policy-helpers/input-order-preserves-the-oracle-deciding-reason/stdout.bin"
+        );
+        let reasons: Vec<String> = serde_json::from_slice(frozen).unwrap();
         assert_eq!(
             reasons,
             ["wrong_input", "wrong_input", "no_run_input", "no_run_input"]

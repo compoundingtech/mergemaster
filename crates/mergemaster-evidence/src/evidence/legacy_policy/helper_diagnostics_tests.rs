@@ -2,32 +2,10 @@ use super::*;
 use crate::evidence::{legacy_output, legacy_verify::failure_json::WireError};
 #[test]
 fn rule_helper_diagnostics_match_pinned_handlers_losslessly() {
-    let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
-    let output = crate::pinned_python::command().args(["-c", r#"
-import ast,json,runpy,sys,types
-path=sys.argv[1]+'/scripts/evidence-verify';v=runpy.run_path(path)
-main=next(n for n in ast.parse(open(path).read()).body if isinstance(n,ast.FunctionDef) and n.name=='main')
-def dump(kind,global_):
- h=next(n for n in ast.walk(main) if isinstance(n,ast.ExceptHandler) and isinstance(n.type,ast.Name) and n.type.id==kind)
- return compile(ast.Expression(h.body[0].body[0].value.args[0] if global_ else h.body[1].value.args[0]),'<handler>','eval')
-cases=[]
-for name in ['check','\ud800','\udfff','😀','quote\'"\n','\u0378']:
- for helper,rules in [('checked_command_inputs',[{},dict(command=[]),dict(command=[None]),dict(command=['run'],required_inputs=1),dict(command=['run'],bind_inputs={'x':1})]),('checked_base_inputs',[dict(base_inputs=[]),dict(base_inputs={'x':'../bad'}),dict(base_inputs={'x':'a\n'}),dict(base_inputs={'x':'x'*301})]),('checked_value_rules',[dict(input_order=[]),dict(input_order={'x':['a','a']}),dict(input_order={'x':[[],[]]}),dict(input_order={'x':[{},'a']}),dict(input_order={'':['a',[]]}),dict(input_order={'x':[[]]}),dict(shard_inputs=[]),dict(shard_inputs={'count':'n','results':'r','index':None})])]:
-  for rule in rules:
-   try: v[helper](rule.copy(),name)
-   except Exception as error:
-    failure=isinstance(error,v['Failure']);kind='Failure' if failure else 'Exception'
-    env=dict(v,failure=error,error=error,args=types.SimpleNamespace(check=name))
-    cases.append(dict(helper=helper,rule=rule,name=list(map(ord,name)),class_=None if failure else type(error).__name__,reason=error.reason if failure else 'error',detail=list(map(ord,error.detail if failure else str(error))),single=eval(dump(kind,False),env),global_=eval(dump(kind,True),env)))
-   else: raise AssertionError('expected refusal')
-print(json.dumps(cases))
-"#, &root]).output().unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
+    let frozen = include_bytes!(
+        "../../../../../tests/fixtures/oracle/policy-helpers/rule-helper-diagnostics-match-pinned-handlers-losslessly/stdout.bin"
     );
-    let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    let cases: Vec<Value> = serde_json::from_slice(frozen).unwrap();
     assert_eq!(cases.len(), 102);
     let mut exceptions = 0;
     for case in cases {
@@ -79,27 +57,10 @@ print(json.dumps(cases))
 
 #[test]
 fn declared_source_paths_preserve_nested_surrogate_diagnostics() {
-    let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
-    let output = crate::pinned_python::command().args(["-c", r#"
-import json,runpy,sys
-v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify')
-cases=[]
-for point in ['\ud800','\udfff','😀','\u0378']:
- for item in [point,'!'+point,'x.json::'+point,point+'.yml::jobs.id']:
-  for selectors in [False,True]:
-   text=json.dumps([item])
-   try: result=v['declared_paths'](json.loads(text),'fixture',selectors)
-   except v['Failure'] as error:
-    cases.append(dict(text=text,selectors=selectors,reason=error.reason,detail=list(map(ord,error.detail))))
-   else: raise AssertionError('expected invalid literal')
-print(json.dumps(cases))
-"#, &root]).output().unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
+    let frozen = include_bytes!(
+        "../../../../../tests/fixtures/oracle/policy-helpers/declared-source-paths-preserve-nested-surrogate-diagnostics/stdout.bin"
     );
-    let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    let cases: Vec<Value> = serde_json::from_slice(frozen).unwrap();
     assert_eq!(cases.len(), 32);
     for case in cases {
         let document = crate::evidence::legacy_verify::statement_document::Document::from_bytes(
@@ -228,31 +189,16 @@ fn policy_json_decode_errors_match_python_text_and_positions() {
         "\u{feff}\"x\"",
         " \u{feff}{}",
     ];
-    let output = crate::pinned_python::command()
-        .args([
-            "-c",
-            r#"
-import json,runpy,sys
-assert sys.version_info[:3]==(3,14,7)
-v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify');out=[]
-for text in json.loads(sys.argv[2]):
- try:v['policy_rules'](text,'check','org/repo')
- except v['Failure'] as error:
-  out.append(dict(reason=error.reason,detail=list(map(ord,error.detail))))
- else:raise AssertionError('expected syntax refusal')
-print(json.dumps(out))
-"#,
-            &std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle"),
-            &serde_json::to_string(&cases).unwrap(),
-        ])
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
+    assert_eq!(
+        serde_json::to_string(&cases).unwrap(),
+        include_str!(
+            "../../../../../tests/fixtures/oracle/policy-helpers/policy-json-decode-errors-match-python-text-and-positions/stdin.json"
+        )
     );
-    let expected: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    let frozen = include_bytes!(
+        "../../../../../tests/fixtures/oracle/policy-helpers/policy-json-decode-errors-match-python-text-and-positions/stdout.bin"
+    );
+    let expected: Vec<Value> = serde_json::from_slice(frozen).unwrap();
     assert_eq!(expected.len(), 20);
     for (text, expected) in cases.iter().zip(expected) {
         let error = PolicyDocument::parse(text, "check").unwrap_err();
@@ -278,40 +224,10 @@ print(json.dumps(out))
 
 #[test]
 fn policy_integer_limit_preserves_digit_count_and_python_value_error() {
-    let output = crate::pinned_python::command().args(["-c", r#"
-import json,runpy,sys
-assert sys.version_info[:3]==(3,14,7)
-v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify');cases=[]
-for digits in [4300,4301,5000]:
- for negative in [False,True]:
-  for placement in ['ignored','age']:
-   entry=dict(trust_levels=['agent'],kinds=dict(wrapper=dict(command=['run'])))
-   checks=dict(check=entry)
-   if placement=='age':entry['max_age_s']='TOKEN'
-   else:checks['ignored']='TOKEN'
-   decimal=('-' if negative else '')+'9'*digits
-   text=json.dumps(dict(version=1,checks=checks)).replace('"TOKEN"',decimal)
-   if digits>4300:
-    try:json.loads(text)
-    except ValueError as error:
-     assert type(error) is ValueError
-     assert str(error)==f'Exceeds the limit (4300 digits) for integer string conversion: value has {digits} digits; use sys.set_int_max_str_digits() to increase the limit'
-    else:raise AssertionError('expected integer conversion limit')
-   case=dict(text=text,digits=digits,limit=digits>4300)
-   try:
-    result=v['policy_rules'](text,'check','org/repo')
-    case.update(accepted=True,seconds=None if result['max_age_s'] is None else str(result['max_age_s']))
-   except v['Failure'] as error:
-    case.update(accepted=False,reason=error.reason,detail=list(map(ord,error.detail)))
-   cases.append(case)
-print(json.dumps(cases))
-"#, &std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle")]).output().unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
+    let frozen = include_bytes!(
+        "../../../../../tests/fixtures/oracle/policy-helpers/policy-integer-limit-preserves-digit-count-and-python-value-error/stdout.bin"
     );
-    let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    let cases: Vec<Value> = serde_json::from_slice(frozen).unwrap();
     assert_eq!(cases.len(), 12);
     let mut accepted = 0;
     let mut limited = 0;

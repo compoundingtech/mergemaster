@@ -21,6 +21,16 @@
     "policy-kind-level/level-overrides/manifest.json",
     "policy-kind-level/level-surrogate-wide-numbers/manifest.json",
     "policy-kind-level/outer-kind-diagnostics/manifest.json",
-    "policy-kind-level/zero-overrides/manifest.json"
+    "policy-kind-level/zero-overrides/manifest.json",
+    "policy-helpers/declared-source-paths-preserve-nested-surrogate-diagnostics/manifest.json",
+    "policy-helpers/input-order-preserves-the-oracle-deciding-reason/manifest.json",
+    "policy-helpers/lossless-policy-names-normalize-through-the-pinned-rules/manifest.json",
+    "policy-helpers/nested-policy-text-keeps-python-point-identity/manifest.json",
+    "policy-helpers/policy-integer-limit-preserves-digit-count-and-python-value-error/manifest.json",
+    "policy-helpers/policy-json-decode-errors-match-python-text-and-positions/manifest.json",
+    "policy-helpers/repeated-keys-keep-the-last-value-and-first-position/manifest.json",
+    "policy-helpers/repository-substitution-preserves-original-codepoints/manifest.json",
+    "policy-helpers/rule-helper-diagnostics-match-pinned-handlers-losslessly/manifest.json",
+    "policy-helpers/value-schemas-match-the-pinned-oracle/manifest.json"
   ]
 }
