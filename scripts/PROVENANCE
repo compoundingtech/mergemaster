@@ -4,6 +4,19 @@
 # Repository-owned scripts/merge-pr is not copied from Fractal and has no legacy
 # oracle counterpart. It is explicitly exempt from the byte/mode oracle guard;
 # tests/test-merge-pr.py owns its behavioral regression coverage.
+# Migration inventory: tests/python-removals.json version 1 names each scripts/
+# entry, committed fixture, and Python source separately with its removal wave.
+# Every entry starts retained. A removal PR changes only the individual removed
+# paths to state=removed, in their assigned wave; the file must actually be absent.
+# Keep tombstones until wave 9 retires this guard. Merely assigning a wave does
+# not permit deletion, retained byte edits, mode edits, or wildcard exemptions.
+# Retained copied scripts still use this file's bounded resync/local-patch rules
+# and the independent legacy oracle. Shared fixture rows additionally pin SHA-256
+# and executable bits; native entrypoints/support tests remain behaviorally owned
+# by their existing suites rather than frozen against their own implementation.
+# All scripts (including shell/service helpers) and fixtures have explicit rows;
+# residual scaffolding/native Python is assigned wave 9, not silently exempted.
+# scripts/evidence_test_support.py and both oracle guard Python files stay to wave 9.
 # R2 resync exception; exit: https://github.com/compoundingtech/mergemaster/issues/115
 # The original extraction Commit above is historical; this resync starts at the current fixture revision.
 # Pending requires oracle bytes; the target fixture activates exact upstream bytes and modes.

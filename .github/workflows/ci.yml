@@ -17,6 +17,14 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Enforce append-only Python removal history
+        env:
+          MIGRATION_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          python3 -B tests/test-oracle-scripts.py
+          python3 -B tests/oracle_scripts.py --migration-base "$MIGRATION_BASE"
       - uses: DeterminateSystems/determinate-nix-action@92957199488000b908fdad19f63711000965d8f3 # v3
       - name: Log Nix version and download settings
         shell: bash

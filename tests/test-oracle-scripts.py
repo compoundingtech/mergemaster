@@ -1,8 +1,13 @@
+import hashlib
+import json
+import os
+import subprocess
 import tempfile
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
-from oracle_scripts import EXEMPT, ORIGINAL, TARGET, blob, check
+from oracle_scripts import EXEMPT, MANIFEST, ORIGINAL, TARGET, blob, check, migration, migration_history
 
 
 class ResyncGuard(unittest.TestCase):
@@ -28,7 +33,16 @@ class ResyncGuard(unittest.TestCase):
         (self.src / "scripts/PROVENANCE").write_text(
             f"# resync-original {self.old}\n# resync-rev {self.target}\n# resync-blob scripts/one {self.oid}\n")
 
-    def run_check(self, rev=None):
+    def run_check(self, rev=None, removed=()):
+        names = {path.relative_to(root).as_posix()
+                 for root in (self.src, self.oracle)
+                 for path in (root / "scripts").iterdir()}
+        (self.src / "tests").mkdir(exist_ok=True)
+        (self.src / MANIFEST).write_text(json.dumps({"version": 1, "paths": [
+            {"path": name, "wave": "wave-1-leaves",
+             "state": "removed" if name in removed else "retained"}
+            for name in sorted(names)
+        ]}))
         check(self.src, self.oracle, self.fixture, rev or self.target)
 
     def test_match(self):
@@ -160,7 +174,7 @@ class ResyncGuard(unittest.TestCase):
 
     def test_oracle_script_deletion_is_refused(self):
         self.write(self.oracle, "two", b"old")
-        with self.assertRaisesRegex(ValueError, "missing oracle script"):
+        with self.assertRaisesRegex(ValueError, "undeclared removal"):
             self.run_check()
 
     def test_unlisted_addition_is_refused(self):
@@ -169,6 +183,193 @@ class ResyncGuard(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "not a regular script"):
                 self.run_check()
             (self.src / "scripts" / name).unlink()
+
+    def test_declared_resync_removal(self):
+        (self.src / "scripts/one").unlink()
+        self.run_check(removed={"scripts/one"})
+
+    def test_declared_ordinary_removal_does_not_allow_retained_drift(self):
+        self.write(self.oracle, "two", b"old")
+        self.run_check(removed={"scripts/two"})
+        self.write(self.src, "one", b"edited")
+        with self.assertRaisesRegex(ValueError, "resync bytes/mode/blob mismatch"):
+            self.run_check(removed={"scripts/two"})
+
+    def test_declared_local_patch_removal(self):
+        self.write(self.oracle, "ci-signed-tree", b"old")
+        self.patch_manifest()
+        self.run_check(removed={"scripts/ci-signed-tree"})
+
+    def test_tombstone_cannot_hide_present_script(self):
+        with self.assertRaisesRegex(ValueError, "declared removal still exists"):
+            self.run_check(removed={"scripts/one"})
+
+
+class RemovalManifest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.src = Path(self.temp.name)
+        self.name = "tests/fixtures/fractal/scripts/shared.py"
+        self.path = self.src / self.name
+        self.path.parent.mkdir(parents=True)
+        self.path.write_bytes(b"shared fixture\n")
+        self.path.chmod(0o755)
+        self.row = {"path": self.name, "wave": "wave-7-local-runner", "state": "retained",
+                    "sha256": hashlib.sha256(self.path.read_bytes()).hexdigest(), "executable": 0o111}
+
+    def run_check(self, rows=None):
+        (self.src / MANIFEST).write_text(json.dumps(
+            {"version": 1, "paths": [self.row] if rows is None else rows}))
+        return migration(self.src)
+
+    def test_shared_fixture_bytes_and_modes_are_pinned(self):
+        self.run_check()
+        self.path.write_bytes(b"changed\n")
+        with self.assertRaisesRegex(ValueError, "retained bytes/mode mismatch"):
+            self.run_check()
+        self.path.write_bytes(b"shared fixture\n")
+        self.path.chmod(0o644)
+        with self.assertRaisesRegex(ValueError, "retained bytes/mode mismatch"):
+            self.run_check()
+
+    def test_removal_requires_individual_tombstone(self):
+        self.path.unlink()
+        with self.assertRaisesRegex(ValueError, "undeclared removal"):
+            self.run_check()
+        self.row["state"] = "removed"
+        self.assertEqual(self.run_check()[1], {self.name})
+
+    def test_no_blanket_exemptions_or_unknown_waves(self):
+        for field, value in (("path", "scripts/*"), ("path", "../escape"),
+                             ("wave", "wave-0-oracle-contract"), ("state", "exempt")):
+            with self.subTest(field=field, value=value):
+                row = dict(self.row, **{field: value})
+                with self.assertRaises(ValueError):
+                    self.run_check([row])
+
+    def test_duplicate_rows_and_uninventoried_fixtures_fail(self):
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            self.run_check([self.row, self.row])
+        with self.assertRaisesRegex(ValueError, "uninventoried"):
+            self.run_check([])
+
+    def test_fixture_digest_is_required(self):
+        row = {key: value for key, value in self.row.items() if key not in ("sha256", "executable")}
+        with self.assertRaisesRegex(ValueError, "requires pinned"):
+            self.run_check([row])
+
+    def test_new_python_path_requires_inventory(self):
+        path = self.src / "tests/new.py"
+        path.write_bytes(b"pass\n")
+        with self.assertRaisesRegex(ValueError, "uninventoried"):
+            self.run_check()
+
+    def test_guard_and_shared_support_stay_until_wave9(self):
+        for name in ("tests/oracle_scripts.py", "tests/test-oracle-scripts.py",
+                     "scripts/evidence_test_support.py"):
+            with self.assertRaisesRegex(ValueError, "until wave 9"):
+                self.run_check([{"path": name, "wave": "wave-1-leaves", "state": "removed"}])
+
+
+class MigrationHistory(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.src = Path(self.temp.name) / "repo"
+        self.src.mkdir()
+        # Exercise real Git history without inheriting host identity, signing,
+        # repository selectors or config (including GIT_CONFIG_COUNT overrides).
+        home = Path(self.temp.name) / "home"
+        home.mkdir()
+        self.git_env = {key: value for key, value in os.environ.items()
+                        if not key.startswith("GIT_")}
+        self.git_env.update(HOME=str(home), XDG_CONFIG_HOME=str(home / ".config"),
+                            GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+        self.enterContext(patch.dict(os.environ, self.git_env, clear=True))
+        self.git("init", "--quiet")
+        self.git("config", "user.name", "Migration History Test")
+        self.git("config", "user.email", "migration@example.invalid")
+        self.git("config", "commit.gpgsign", "false")
+        self.name = "tests/fixtures/fractal/scripts/shared.py"
+        self.path = self.src / self.name
+        self.path.parent.mkdir(parents=True)
+        self.data = b"shared fixture\n"
+        self.path.write_bytes(self.data)
+        self.path.chmod(0o755)
+        self.row = {"path": self.name, "wave": "wave-7-local-runner", "state": "retained",
+                    "sha256": hashlib.sha256(self.data).hexdigest(), "executable": 0o111}
+        self.write_manifest([self.row])
+        self.base = self.commit_tree()
+
+    def git(self, *args):
+        return subprocess.run(
+            ["git", "-C", str(self.src), *args], env=self.git_env,
+            check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit_tree(self):
+        self.git("add", "--all")
+        tree = self.git("write-tree")
+        return self.git("commit-tree", tree, "-m", "Trusted migration base")
+
+    def write_manifest(self, rows):
+        (self.src / MANIFEST).write_text(json.dumps({"version": 1, "paths": rows}))
+
+    def assert_history_rejected(self, base):
+        # The current tree is valid: only comparison with trusted history can reject it.
+        migration(self.src)
+        with self.assertRaises(ValueError):
+            migration_history(self.src, base)
+
+    def test_deleting_fixture_and_manifest_row_fails(self):
+        self.path.unlink()
+        self.write_manifest([])
+        self.assert_history_rejected(self.base)
+
+    def test_retained_to_removed_with_file_gone_passes(self):
+        self.path.unlink()
+        self.write_manifest([dict(self.row, state="removed")])
+        self.assertEqual(migration(self.src)[1], {self.name})
+        migration_history(self.src, self.base)
+
+    def test_removed_to_retained_fails(self):
+        self.path.unlink()
+        self.write_manifest([dict(self.row, state="removed")])
+        base = self.commit_tree()
+        self.path.write_bytes(self.data)
+        self.path.chmod(0o755)
+        self.write_manifest([self.row])
+        self.assert_history_rejected(base)
+
+    def test_removed_row_deletion_fails(self):
+        self.path.unlink()
+        self.write_manifest([dict(self.row, state="removed")])
+        base = self.commit_tree()
+        self.write_manifest([])
+        self.assert_history_rejected(base)
+
+    def test_wave_reassignment_fails(self):
+        self.write_manifest([dict(self.row, wave="wave-8-hooks-signers")])
+        self.assert_history_rejected(self.base)
+
+    def test_unavailable_base_fails(self):
+        self.assert_history_rejected("0" * 40)
+
+    def test_missing_or_non_full_commit_base_fails(self):
+        for base in ("", self.base[:12], "HEAD", "g" * 40):
+            with self.subTest(base=base):
+                self.assert_history_rejected(base)
+
+    def test_unavailable_git_history_fails(self):
+        (self.src / ".git").rename(Path(self.temp.name) / "unavailable-history")
+        self.assert_history_rejected(self.base)
+
+    def test_bootstrap_base_rejects_disappearing_inventory_and_row(self):
+        (self.src / MANIFEST).unlink()
+        base = self.commit_tree()
+        self.path.unlink()
+        self.write_manifest([])
+        self.assert_history_rejected(base)
 
 if __name__ == "__main__":
     unittest.main()
