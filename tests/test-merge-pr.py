@@ -184,6 +184,14 @@ class GateTests(unittest.TestCase):
                 self.assertEqual(code, 1, output)
                 self.assertIn('HUMAN AUTHORSHIP IN NEW MAIN MERGE COMMIT', output)
 
+    def test_verify_completed_merge_checks_pr_commit_authorship(self):
+        row = list(self.commit_rows[0])
+        row[3] = 'JOHANNES schickling'
+        self.commit_rows = [tuple(row)]
+        code, output = self.run_verification()
+        self.assertEqual(code, 1, output)
+        self.assertIn(f'BASE..HEAD_SHA {BASE}..{HEAD}', output)
+
     def test_verification_requires_original_full_sha_inputs(self):
         for extra in (['--verify-base', ''], ['--verify-base', BASE[:8]],
                       ['--go-head', HEAD[:8]], ['--verify-merged', ''], ['--dry-run']):

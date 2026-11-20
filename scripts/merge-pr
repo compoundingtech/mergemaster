@@ -244,7 +244,8 @@ def merge_async(pr, head, base):
             f'If status is merged, verify details.sha against the original validated base/head:\n'
             f'  MERGE_SHA=$(gh api {endpoint} --jq \'select(.status == "merged") | .details.sha\')\n'
             f'  scripts/merge-pr {pr} --go-head {head} --verify-base {base} --verify-merged "$MERGE_SHA"\n'
-            f'Verification never merges or automatically reverts.') from error
+            f'Verification never merges or automatically reverts. A pending request that did not\n'
+            f'match the approved head/method/action is not approved; verification refuses its merge.') from error
 
 
 def verify_merged(pr, base, head, expected_tree, merged):
@@ -321,8 +322,9 @@ Mechanical checks:
 Late completion:
   After a pending request fails locally, re-read the printed merge-async result.
   If it merged, run --verify-merged MERGE_SHA --verify-base ORIGINAL_BASE_SHA
-  with --go-head ORIGINAL_APPROVED_HEAD. This fetches objects and runs the same
-  PR commit, parent, tree and merge-authorship checks, without merging or reverting.
+  with --go-head ORIGINAL_APPROVED_HEAD. This fetches objects and runs the PR-commit
+  authorship check over BASE..HEAD and the merge parent, tree and merge-commit
+  authorship checks, without merging or reverting.
   It does not repeat approval/CI gates or require --author-agent/--go-ref.
 
 Run from a trusted base checkout, not the PR's copy. Use the agent gh config
@@ -355,6 +357,10 @@ Tests: python3 tests/test-merge-pr.py
             if args.verify_merged is not None:
                 git('fetch', '--no-tags', 'origin', args.verify_base, args.go_head)
                 tree = git('merge-tree', '--write-tree', args.verify_base, args.go_head)
+                human_authorship_check(
+                    commit_identities(f'{args.verify_base}..{args.go_head}'),
+                    f'BASE..HEAD_SHA {args.verify_base}..{args.go_head}',
+                    'revert the merge and re-author on a new signed branch, as Manager decides')
                 print(f'PASS post-merge: {verify_merged(args.pr, args.verify_base, args.go_head, tree, args.verify_merged)}')
                 return 0
             return run_gate(args)
