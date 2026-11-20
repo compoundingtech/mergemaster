@@ -137,9 +137,19 @@ class GateTests(unittest.TestCase):
         self.assertIn('PASS post-merge', output)
         self.assertEqual(len(self.merge_calls), 1)
 
+    def test_agent_noreply_identity_is_not_human(self):
+        agent = ('schickling-assistant', '261620128+schickling-assistant@users.noreply.github.com')
+        self.commit_rows = [(HEAD, *agent, *agent)]
+        self.merge_rows = [(MERGE, *agent, *agent)]
+        code, output = self.run_gate()
+        self.assertEqual(code, 0, output)
+        self.assertIn('PASS no-human-authorship', output)
+
     def test_human_author_refuses_even_in_non_head_commit(self):
-        for field, value in [(1, gate.HUMAN_NAME), (2, gate.HUMAN_EMAIL)]:
-            with self.subTest(field=field):
+        for field, value in [(1, gate.HUMAN_NAME), (2, gate.HUMAN_EMAIL), (2, 'Schickling.J@Gmail.com'),
+                             (2, 'schickling@users.noreply.github.com'),
+                             (2, '1567498+Schickling@users.noreply.github.com')]:
+            with self.subTest(field=field, value=value):
                 row = list(self.commit_rows[0])
                 row[0] = CI_BASE
                 row[field] = value
@@ -153,8 +163,8 @@ class GateTests(unittest.TestCase):
 
     def test_human_committer_refuses(self):
         original = self.commit_rows[0]
-        for field, value in [(3, gate.HUMAN_NAME), (4, gate.HUMAN_EMAIL)]:
-            with self.subTest(field=field):
+        for field, value in [(3, gate.HUMAN_NAME), (4, gate.HUMAN_EMAIL), (4, 'SCHICKLING.J@GMAIL.COM')]:
+            with self.subTest(field=field, value=value):
                 row = list(original)
                 row[field] = value
                 self.commit_rows = [tuple(row)]
@@ -179,6 +189,14 @@ class GateTests(unittest.TestCase):
                 self.assertIn('HUMAN AUTHORSHIP IN NEW MAIN MERGE COMMIT', output)
                 self.assertIn(MERGE, output)
                 self.assertIn('post on COORD', output)
+
+    def test_post_merge_mismatch_reported_before_merge_authorship(self):
+        self.post_tree = HEAD
+        self.merge_rows = [(MERGE, gate.HUMAN_NAME, gate.HUMAN_EMAIL, gate.HUMAN_NAME, gate.HUMAN_EMAIL)]
+        code, output = self.run_gate()
+        self.assertEqual(code, 1, output)
+        self.assertIn('merged parents/tree differ from validated merge', output)
+        self.assertNotIn('HUMAN AUTHORSHIP IN NEW MAIN MERGE COMMIT', output)
 
     def test_author_argument_required_and_other_authors_refused(self):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:

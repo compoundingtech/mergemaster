@@ -13,6 +13,8 @@ import zipfile
 REPO = 'compoundingtech/mergemaster'
 SHA = re.compile(r'^[0-9a-f]{40}$')
 HUMAN_EMAIL = 'schickling.j@gmail.com'
+# GitHub noreply form, with or without the numeric user-ID prefix.
+HUMAN_NOREPLY = re.compile(r'^(?:\d+\+)?schickling@users\.noreply\.github\.com$', re.I)
 HUMAN_NAME = 'Johannes Schickling'
 
 
@@ -64,7 +66,8 @@ def human_authorship_check(commits, label, remedy):
     # Manager decision c5d8b68d: personal human identity must not enter merged history.
     offenders = []
     for sha, author_name, author_email, committer_name, committer_email in commits:
-        if author_email == HUMAN_EMAIL or committer_email == HUMAN_EMAIL:
+        if any(email.casefold() == HUMAN_EMAIL or HUMAN_NOREPLY.fullmatch(email)
+               for email in (author_email, committer_email)):
             offenders.append(sha)
         elif HUMAN_NAME in (author_name, committer_name):
             offenders.append(sha)
@@ -190,13 +193,13 @@ def verify_merged(pr, base, head, expected_tree):
         if not isinstance(merged, str) or not SHA.fullmatch(merged):
             raise RuntimeError('GitHub did not identify the merged commit')
         git('fetch', '--no-tags', 'origin', merged)
-        human_authorship_check(
-            commit_identities(f'{merged}^!'), 'HUMAN AUTHORSHIP IN NEW MAIN MERGE COMMIT',
-            'post on COORD')
         actual_parents = parents(merged)
         actual_tree = git('rev-parse', f'{merged}^{{tree}}')
         if actual_parents != [base, head] or actual_tree != expected_tree:
             raise RuntimeError('merged parents/tree differ from validated merge')
+        human_authorship_check(
+            commit_identities(f'{merged}^!'), 'HUMAN AUTHORSHIP IN NEW MAIN MERGE COMMIT',
+            'post on COORD')
     except (RuntimeError, KeyError, TypeError, ValueError, OSError, subprocess.TimeoutExpired) as error:
         revert = merged if isinstance(merged, str) and SHA.fullmatch(merged) else '<merge-commit-sha>'
         raise RuntimeError(
