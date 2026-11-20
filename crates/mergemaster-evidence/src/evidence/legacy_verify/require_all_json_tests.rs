@@ -11,48 +11,12 @@ use serde_json::Value;
 
 #[test]
 fn require_all_json_matches_pinned_aggregation_and_error_envelopes() {
-    let oracle = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
-    let output = crate::pinned_python::command().args(["-c", r#"
-import ast,itertools,json,runpy,sys
-path=sys.argv[1]+'/scripts/evidence-verify';v=runpy.run_path(path);cases=[]
-ns=v['require_all'].__globals__
-names=['😀','z','\ud800','a']
-for modes in itertools.product(['off','shadow','reject'],repeat=4):
- for pattern in ['ok','failure','mixed','no-lane']:
-  checks=dict(zip(names,modes))
-  ns['policy_rules']=lambda text,check,repo:dict(require=checks[check])
-  def lane(repo,tree,lane_file,check,lane_base):
-   if pattern=='no-lane' and check=='\ud800': raise v['Failure']('no_lane','fixture lane missing\ud800')
-  def verify(repo,tree,check,*args,**kwargs):
-   if pattern=='failure' or pattern=='mixed' and check!='a': raise v['Failure']('wrong_check','fixture refusal\nquote" λ😀\udfff')
-   return dict(record='record',signer='agent/fixture',tier='full')
-  ns['lane_for']=lane;ns['verify']=verify
-  result=v['require_all'](None,'a'*40,None,json.dumps(dict(version=1,checks=checks)),'fixture')
-  wire=json.dumps(result,indent=2)
-  result['lanes']=[[list(map(ord,k)),dict(item,tier=list(map(ord,item['tier']))) if item['satisfied'] else dict(item,detail=list(map(ord,item['detail'])))] for k,item in result['lanes'].items()]
-  cases.append(dict(value=result,wire=wire))
-main=next(n for n in ast.parse(open(path).read()).body if isinstance(n,ast.FunctionDef) and n.name=='main')
-errors=[]
-for kind in ['Failure','Exception']:
- handler=next(n for n in ast.walk(main) if isinstance(n,ast.ExceptHandler) and isinstance(n.type,ast.Name) and n.type.id==kind)
- dump=compile(ast.Expression(handler.body[0].body[0].value.args[0]),'<pinned-global-envelope>','eval')
- for reason in ['error','no_policy'] if kind=='Failure' else ['error']:
-  env=dict(v,failure=v['Failure'](reason,'fixture detail\nλ😀\ud800'),error=OverflowError('fixture overflow\udfff'))
-  wire=eval(dump,env);value=json.loads(wire)
-  value['detail']=list(map(ord,value['detail']))
-  source=env['failure'] if kind=='Failure' else env['error']
-  detail=source.detail if kind=='Failure' else str(source)
-  errors.append(dict(value=value,wire=wire,source_detail=list(map(ord,detail)),exception=kind=='Exception'))
-print(json.dumps(dict(cases=cases,errors=errors)))
-"#, &oracle]).output().unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let fixtures: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let fixtures = crate::oracle_digest::rows(include_bytes!(
+        "../../../../../tests/fixtures/oracle/judgment-core/require-all-json/stdout.bin"
+    ));
     assert_eq!(fixtures["cases"].as_array().unwrap().len(), 324);
-    for fixture in fixtures["cases"].as_array().unwrap() {
+    for observation in fixtures["cases"].as_array().unwrap() {
+        let fixture = crate::oracle_digest::json(&observation["input"]);
         let value = &fixture["value"];
         let all = All {
             tree: value["tree"].as_str().unwrap(),
@@ -101,10 +65,11 @@ print(json.dumps(dict(cases=cases,errors=errors)))
         };
         let mut actual = String::new();
         legacy_output::write(&mut actual, |w| all.write_json(w)).unwrap();
-        assert_eq!(actual, fixture["wire"].as_str().unwrap());
+        crate::oracle_digest::assert_value(&Value::String(actual), &observation["wire"]);
     }
     assert_eq!(fixtures["errors"].as_array().unwrap().len(), 3);
-    for fixture in fixtures["errors"].as_array().unwrap() {
+    for observation in fixtures["errors"].as_array().unwrap() {
+        let fixture = crate::oracle_digest::json(&observation["input"]);
         let error = PolicyError {
             resource: None,
             origin: if fixture["exception"] == true {
@@ -125,7 +90,7 @@ print(json.dumps(dict(cases=cases,errors=errors)))
         };
         let mut actual = String::new();
         legacy_output::write(&mut actual, |w| write_error(&error, w)).unwrap();
-        assert_eq!(actual, fixture["wire"].as_str().unwrap());
+        crate::oracle_digest::assert_value(&Value::String(actual), &observation["wire"]);
     }
 }
 fn parse_decision(value: &Value) -> Decision {
