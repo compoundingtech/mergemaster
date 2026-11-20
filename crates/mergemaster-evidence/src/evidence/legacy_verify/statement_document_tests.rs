@@ -2,75 +2,14 @@ use super::*;
 use serde_json::json;
 #[test]
 fn containers_match_python_oracle() {
-    let script = r#"
-import json,runpy,struct,sys
-assert sys.version_info[:3] == (3,14,7), sys.version
-j=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify')['json']
-cases=[b'-0',b'',b'[]',b'{}',b'[{},[],true,null,1.5]',b'{"b":1,"a":2,"b":3}',
- b'{"x":[],"x":{}}',br'{"\ud800":1,"\ud800":2,"\udfff":3}',
- br'{"x":[NaN,Infinity,-Infinity,"\ud800"]}',b'[1,]',b'{"a":1,}',
- b'[1 2]',b'{"a" 1}',b'{"a":}',b'{1:2}',b'[,1]',b'{,}',b'[}',b'{]',
- b'[',b'{"a":',b'[truefalse]',b'01',b'{}[]',b'null?',b'[]x',b'[]\xff',
- b'{} '+b'9'*4301,b' [0] \t\r\n',b'"hello"',b'false']
-# Syntax fixtures exercise the accelerated scanner used by the pinned oracle.
-texts=[' ', '\n\t', '{', '{ ', '[ ', '{"a"', '{"a" ', '{"a": ',
- '[1', '[1 ', '[1,', '{"a":1,', '[1, ]', '{"a":1, }',
- '{"a":}', '{"a": ]', '{"a",1}', '{"a":1 "b":2}', '{"a":1 "',
- '{?', '{1', '{NaN', '{9'+'9'*4300, '[1 "',
- '"', '"abc', '"abc\\', '"\\q"', '"\\u"', '"\\u12"',
- '"\\u12g4"', '"\\u１２３４"', '"\\ud800\\u12g4"',
- '"a\nb"', '"a\x00b"', '"a\tb"', '["🌍",\n {"é": ?}]',
- '["🌍",\n {"é" ?}]', '["🌍",\n 1, ]', '"🌍" ?',
- '"\ud800" ?', '["\udfff",\n?]', '"🌍\\q"', '"🌍\\u12g4"',
- '0.', '0.e1', '1e', '1e+', '1e-', '-1.e2', '-',
- '-NaN', '--1', '+1', '00', '-01', '[01]', '[1.]', '[1e+]',
- '{"a":1e}', '[truefalse]', 'null?', '[] "unterminated',
- '{"a":1} '+'9'*4301, '\u00a0null']
-for control in range(32): texts.append('"🌍'+chr(control)+'"')
-for text in ['"🌍" ?', '["é",\n?]', '"\\ud800\\u12g4"']:
- for encoding in ['utf-8-sig','utf-16-le','utf-16-be','utf-32-le','utf-32-be']:
-  cases.append(text.encode(encoding,'surrogatepass'))
-cases.extend(text.encode('utf-8','surrogatepass') for text in texts)
-for depth in [2000,50000]: cases.append(b'['*depth+b'0'+b']'*depth)
-cases.append(b'{"k":'*2000+b'null'+b'}'*2000)
-results=[]
-for blob in cases:
- depth=0
- try:
-  value=j.loads(blob); flat=[]; stack=[(value,1)]
-  while stack:
-   v,d=stack.pop()
-   if isinstance(v,(list,dict)): depth=max(depth,d)
-   if isinstance(v,list): flat.append(['array',len(v)]); stack.extend((c,d+1) for c in reversed(v))
-   elif isinstance(v,dict):
-    flat.append(['object',[list(map(ord,k)) for k in v]]); stack.extend((c,d+1) for c in reversed(v.values()))
-   elif v is None: flat.append(['null'])
-   elif isinstance(v,bool): flat.append(['bool',v])
-   elif isinstance(v,int): flat.append(['integer',str(v)])
-   elif isinstance(v,float): flat.append(['float',struct.pack('>d',v).hex()])
-   else: flat.append(['string',list(map(ord,v))])
-  result=['ok',flat]
- except j.JSONDecodeError as e: result=['syntax',e.msg,e.pos,e.lineno,e.colno,str(e)]
- except UnicodeError: result=['encoding']
- except RecursionError: result=['recursion']
- results.append(dict(bytes=list(blob),result=result,depth=depth))
-print(json.dumps(results))
-"#;
-    let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle required");
-    let output = crate::pinned_python::command()
-        .args(["-c", script, &root])
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let cases: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    for (index, case) in cases.as_array().unwrap().iter().enumerate() {
-        let bytes: Vec<u8> = serde_json::from_value(case["bytes"].clone()).unwrap();
+    let cases = crate::oracle_digest::rows(include_bytes!(
+        "../../../../../tests/fixtures/oracle/statement-core/containers/stdout.bin"
+    ));
+    assert_eq!(cases.as_array().unwrap().len(), 146);
+    for case in cases.as_array().unwrap() {
+        let bytes = crate::oracle_digest::bytes(&case["input"]);
         if case["depth"].as_u64().unwrap() > MAX_CONTAINER_DEPTH as u64 {
-            assert_eq!(case["result"][0], "ok"); // Explicit conservative divergence.
+            assert_eq!(case["result_kind"], "ok"); // Explicit conservative divergence.
             assert_eq!(
                 Document::from_bytes(&bytes).unwrap_err(),
                 Error::NestingLimit
@@ -113,7 +52,7 @@ print(json.dumps(results))
                 json!(["ok", flat])
             }
         };
-        assert_eq!(actual, case["result"], "fixture {index}");
+        crate::oracle_digest::assert_value(&actual, &case["result"]);
     }
 }
 #[test]
@@ -175,35 +114,10 @@ fn policy_depth_parameter_preserves_the_statement_default() {
 
 #[test]
 fn json_text_input_never_uses_bytes_encoding_detection() {
-    let output = crate::pinned_python::command()
-        .args([
-            "-c",
-            r#"
-import json,sys
-assert sys.version_info[:3]==(3,14,7)
-cases=[]
-for base in ['{}','0','"x"']:
- for encoding in ['utf-16-le','utf-16-be','utf-32-le','utf-32-be']:
-  blob=base.encode(encoding);cases.append((blob.decode('latin1'),blob))
-for text in ['{}','\ufeff{}','"\ufeff"',r'"\u0000"']:
- cases.append((text,text.encode()))
-out=[]
-for text,blob in cases:
- def accepts(value):
-  try: json.loads(value);return True
-  except ValueError:return False
- out.append(dict(text=text,bytes=list(blob),str_ok=accepts(text),bytes_ok=accepts(blob)))
-print(json.dumps(out))
-"#,
-        ])
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let cases: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let cases: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../../../tests/fixtures/oracle/statement-core/text-encoding/stdout.bin"
+    ))
+    .unwrap();
     assert_eq!(cases.as_array().unwrap().len(), 16);
     for case in cases.as_array().unwrap() {
         let text = case["text"].as_str().unwrap();
@@ -272,49 +186,13 @@ fn uncapped_text_api_has_only_reachable_errors_and_identical_results() {
 
 #[test]
 fn policy_json_boundaries_and_text_helpers_match_real_oracle() {
-    let script = r#"
-import json,runpy,sys
-assert sys.version_info[:3]==(3,14,7)
-j=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify')['json']; rows=[]
-def add(raw,resource=None,nodes=None):
- j.loads(raw) # Real oracle accepts every below/above-bound fixture.
- rows.append(dict(raw=raw,resource=resource,nodes=nodes))
-for extra in [0,1]:
- raw='"'+'é'*524287+'"'+(' '*extra)
- assert len(raw.encode())==1048576+extra
- add(raw,'SourceBytes' if extra else None,1)
- for opening,closing,empty in [('[',']','[]'),('{"k":','}','{}'),('[{"k":','}]','[]')]:
-  depth=256+extra
-  if opening=='[{"k":':
-   pairs=(depth-1)//2; raw=opening*pairs+('[' if depth%2==0 else '')+empty+(']' if depth%2==0 else '')+closing*pairs
-  else: raw=opening*(depth-1)+empty+closing*(depth-1)
-  pending=[(j.loads(raw),1)]; observed=0
-  while pending:
-   value,d=pending.pop()
-   if isinstance(value,(list,dict)):
-    observed=max(observed,d); pending.extend((v,d+1) for v in (value.values() if isinstance(value,dict) else value))
-  assert observed==depth
-  add(raw,'ContainerDepth' if extra else None,depth)
- for prefix,suffix,item,overhead in [('[',']','0',1),('[',']','[]',1),('{"x":[','],"x":0}','0',3)]:
-  raw=prefix+','.join([item]*(262144-overhead+extra))+suffix
-  assert len(raw.encode())<1048576
-  add(raw,'Nodes' if extra else None,262144+extra)
-print(json.dumps(rows))
-"#;
-    let output = crate::pinned_python::command()
-        .args(["-c", script])
-        .arg(std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap())
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let rows: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(rows.len(), 14);
-    for row in rows {
-        let raw = row["raw"].as_str().unwrap();
+    let rows = crate::oracle_digest::rows(include_bytes!(
+        "../../../../../tests/fixtures/oracle/statement-core/policy-json-boundaries/stdout.bin"
+    ));
+    assert_eq!(rows.as_array().unwrap().len(), 14);
+    for row in rows.as_array().unwrap() {
+        let text = String::from_utf8(crate::oracle_digest::bytes(&row["input"])).unwrap();
+        let raw = text.as_str();
         let resource = match row["resource"].as_str() {
             Some("SourceBytes") => Some(PolicyResource::SourceBytes),
             Some("ContainerDepth") => Some(PolicyResource::ContainerDepth),

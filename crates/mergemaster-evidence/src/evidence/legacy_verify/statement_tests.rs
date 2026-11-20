@@ -3,17 +3,21 @@ use serde_json::{Value as Json, json};
 #[test]
 fn legacy_statement_shapes_match_oracle() {
     let tree = "a".repeat(40);
-    let valid = json!({"_type":"https://in-toto.io/Statement/v1","predicateType":"https://compounding.tech/fractal/evidence/gate/v1",
+    let mut valid = json!({"_type":"https://in-toto.io/Statement/v1","predicateType":"https://compounding.tech/fractal/evidence/gate/v1",
         "subject":[{"name":"b".repeat(40),"digest":{"gitTree":tree}}],"predicate":{"schema_version":1,"change_id":"change","tier":"full","signer":null,
         "observed_at":"2026-01-01T12:30:00Z","observed":{"kind":"tests","runner":"wrapper","inputs":{},"checks":{"check":{"command":[""],"exit_code":0,"output_sha256":"c".repeat(64)}}}}});
+    // The capture used sorted keys, independent of serde_json's preserve_order feature.
+    valid.sort_all_objects();
     let mut cases = vec![valid.to_string(), "null".into(), "{}".into(), "[".into()];
     let mut absent_inputs = valid.clone();
     absent_inputs["predicate"]["observed"]
         .as_object_mut()
         .unwrap()
         .remove("inputs");
+    // Removing a key can swap another key into its slot with preserve_order.
+    absent_inputs.sort_all_objects();
     cases.push(absent_inputs.to_string());
-    let mutations: Json = serde_json::from_str(r#"[
+    let mut mutations: Json = serde_json::from_str(r#"[
       ["/_type",["wrong",null]], ["/predicateType",["https://smalltalk.dev/evidence/gate/v1","wrong"]],
       ["/subject",[[],null]], ["/subject/0/name",["bad",null]],
       ["/subject/0/digest",[{"gitTree":"wrong"},{"gitTree":"a","other":"x"}]],
@@ -26,6 +30,7 @@ fn legacy_statement_shapes_match_oracle() {
       ["/predicate/observed/checks/check/exit_code",[true,1.0,-5]],
       ["/predicate/observed/checks/check/output_sha256",["bad",null]]
     ]"#).unwrap();
+    mutations.sort_all_objects();
     for mutation in mutations.as_array().unwrap() {
         for value in mutation[1].as_array().unwrap() {
             let mut v = valid.clone();
@@ -56,6 +61,7 @@ fn legacy_statement_shapes_match_oracle() {
     ] {
         let mut v = valid.clone();
         v["predicate"].as_object_mut().unwrap().remove(field);
+        v.sort_all_objects();
         cases.push(v.to_string());
     }
     for n in [
@@ -70,18 +76,18 @@ fn legacy_statement_shapes_match_oracle() {
                 .replace("\"exit_code\":0", &format!("\"exit_code\":{n}")),
         );
     }
-    let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned Python oracle required");
-    let output=crate::pinned_python::command().args(["-c",r#"
-import json,runpy,sys
-o=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify')
-print(json.dumps([o['statement_of'](s.encode(),sys.argv[2]) is not None for s in json.loads(sys.argv[3])]))
-"#,&root,&tree,&json!(cases).to_string()]).output().unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
+    assert_eq!(
+        json!(cases).to_string().as_bytes(),
+        include_bytes!(
+            "../../../../../tests/fixtures/oracle/statement-core/statement-shapes/stdin.json"
+        ),
+        "statement shape matrix input drift"
     );
-    let expected: Vec<bool> = serde_json::from_slice(&output.stdout).unwrap();
+    let expected: Vec<bool> = serde_json::from_slice(include_bytes!(
+        "../../../../../tests/fixtures/oracle/statement-core/statement-shapes/stdout.bin"
+    ))
+    .unwrap();
+    assert_eq!(expected.len(), 95);
     for (case, expected) in cases.iter().zip(expected) {
         assert_eq!(
             statement_of(case.as_bytes(), &tree).unwrap().is_some(),
@@ -114,50 +120,11 @@ print(json.dumps([o['statement_of'](s.encode(),sys.argv[2]) is not None for s in
 
 #[test]
 fn zoned_instants_match_python_without_narrowing_statement_times() {
-    let script = r#"
-import datetime,json,runpy,sys
-o=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify')
-cases=['0001-01-01T00:00:00+23:59:59.999999',
- '9999-12-31T23:59:59.999999-23:59:59.999999',
- '9999-12-30T24:00Z','9999-12-31T24:00Z',
- '1969-12-31T23:59:59.999999Z','1970-01-01T00:00:00Z',
- '2026-01-01\ud80012:30Z','2026-01-01🌍12:30Z','2026-01-01Z12:30Z',
- '2026-01-01','2026-01-01T12:30','2026-W01','0000-01-01T00:00Z',
- '2026-01-01T24:00:00.000001Z','2026-01-01T24:00:00.0000009Z',
- '2026-01-01T12:30:00+00:00:00.000001',
- '2026-01-01T12:30:00-00:00:00.000001',
- '2026-01-01T12:30:00+00:00:00.999999','2026-01-01T12:30:00-00:00:00.999999']
-for date in ['2026-01-01','20260101','2026-W01-4','2026W014','2026-W01','2026W01']:
- for clock in ['12','1230','12:30','123045','12:30:45','12:30:45.123456789','12:30:45,0000009','24:00']:
-  for offset in ['Z','+01','-0130','+01:02:03.123456789','-00:00:00.000001','+00:60','+24:00']:
-   cases.append(date+'T'+clock+offset)
-out=[]
-for text in cases:
- try:
-  d=o['parse_time'](text); offset=d.utcoffset()
-  if offset is None: result=None
-  else:
-   local=d.replace(tzinfo=None)-datetime.datetime(1970,1,1)
-   result=((local.days*86400+local.seconds)*1000000+local.microseconds
-           -(offset.days*86400+offset.seconds)*1000000-offset.microseconds)
- except (ValueError,OverflowError): result=None
- out.append(([ord(c) for c in text],result))
-assert out[0][1]==-62135683199999999 and out[1][1]==253402387199999998
-assert out[3][1] is None and out[4][1]==-1 and out[5][1]==0
-assert out[6][1]==out[7][1] and out[14][1] is not None
-print(json.dumps(out))
-"#;
-    let oracle = std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap();
-    let output = crate::pinned_python::command()
-        .args(["-c", script, &oracle])
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let cases: Vec<(Vec<u32>, Option<i64>)> = serde_json::from_slice(&output.stdout).unwrap();
+    let cases: Vec<(Vec<u32>, Option<i64>)> = serde_json::from_slice(include_bytes!(
+        "../../../../../tests/fixtures/oracle/statement-core/zoned-instants/stdout.bin"
+    ))
+    .unwrap();
+    assert_eq!(cases.len(), 355);
     for (points, expected) in &cases {
         assert_eq!(zoned_time_micros(points), *expected, "{points:?}");
         assert_eq!(zoned_time(points), expected.is_some());
