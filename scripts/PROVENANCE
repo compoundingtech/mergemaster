@@ -17,6 +17,7 @@
 # All scripts (including shell/service helpers) and fixtures have explicit rows;
 # residual scaffolding/native Python is assigned wave 9, not silently exempted.
 # scripts/evidence_test_support.py and both oracle guard Python files stay to wave 9.
+# ci.yml also runs the base revision's tests/oracle_scripts.py; the wave-9 PR removes that step.
 # Oracle execution is test-only: flake.nix pins CPython 3.14.7 from the locked
 # nixpkgs and an independent hash-pinned Fractal source for rust-test-keys.
 # MERGEMASTER_ORACLE_PYTHON is an absolute interpreter, never a PATH fallback;
