@@ -1,4 +1,5 @@
 //! Read-only summaries of the local runner's version-one JSONL records.
+use anyhow::Context;
 use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, Utc};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, fmt::Write, path::PathBuf};
@@ -49,8 +50,17 @@ fn rank(sorted: &[&Value], share: f64) -> Value {
 }
 fn ordered(values: &[Value]) -> Vec<&Value> {
     let mut sorted: Vec<_> = values.iter().collect();
-    sorted.sort_by(|a, b| a.as_f64().unwrap().total_cmp(&b.as_f64().unwrap()));
+    sorted.sort_by(|a, b| compare_numbers(a, b));
     sorted
+}
+fn compare_numbers(a: &Value, b: &Value) -> std::cmp::Ordering {
+    match (number(a), number(b)) {
+        (Some(a), Some(b)) => a.total_cmp(&b),
+        (a, b) => a.is_some().cmp(&b.is_some()),
+    }
+}
+fn report_error(error: impl std::fmt::Display) -> (i32, String, String) {
+    (1, String::new(), format!("fractal-test-report: {error}\n"))
 }
 pub fn percentile(values: &[Value], share: f64) -> Value {
     rank(&ordered(values), share)
@@ -214,7 +224,10 @@ pub fn run_at(argv: &[String], until: DateTime<Utc>) -> (i32, String, String) {
             None
         };
         if let Some(reason) = reason {
-            excluded[reason] = json!(excluded[reason].as_u64().unwrap() + 1);
+            let Some(count) = excluded[reason].as_u64() else {
+                return report_error("invalid exclusion counter");
+            };
+            excluded[reason] = json!(count + 1);
         } else {
             counted.push((ended, record));
         }
@@ -227,7 +240,11 @@ pub fn run_at(argv: &[String], until: DateTime<Utc>) -> (i32, String, String) {
     let mut reasons = Vec::new();
     let mut result =
         json!({"window":{"since":iso(since),"until":iso(until)},"slo_s":slo,"max_allowed_s":max});
-    for (key, value) in summary(&totals).as_object().unwrap() {
+    let overall = summary(&totals);
+    let Some(overall) = overall.as_object() else {
+        return report_error("invalid overall summary");
+    };
+    for (key, value) in overall {
         result[key] = value.clone();
     }
     if number(&result["p90_s"]).is_some_and(|v| v > slo as f64) {
@@ -238,7 +255,7 @@ pub fn run_at(argv: &[String], until: DateTime<Utc>) -> (i32, String, String) {
     }
     let over: Vec<_> = totals
         .iter()
-        .filter(|v| number(v).unwrap() > max as f64)
+        .filter(|v| number(v).is_some_and(|n| n > max as f64))
         .cloned()
         .collect();
     if !over.is_empty() {
@@ -250,7 +267,7 @@ pub fn run_at(argv: &[String], until: DateTime<Utc>) -> (i32, String, String) {
     }
     let within = totals
         .iter()
-        .filter(|v| number(v).unwrap() <= slo as f64)
+        .filter(|v| number(v).is_some_and(|n| n <= slo as f64))
         .count();
     result["within_slo"] = if totals.is_empty() {
         Value::Null
@@ -295,29 +312,34 @@ pub fn run_at(argv: &[String], until: DateTime<Utc>) -> (i32, String, String) {
             result["waits"][label] = summary(&values);
         }
     }
-    let mut slowest:Vec<Value>=spent.into_iter().map(|((kind,name),values)|json!({"name":name,"kind":kind,"count":values.len(),"mean_s":((values.iter().map(|v|number(v).unwrap()).sum::<f64>()/values.len() as f64)*10.0).round_ties_even()/10.0,"p90_s":percentile(&values,0.9)})).collect();
+    let mut slowest = Vec::with_capacity(spent.len());
+    for ((kind, name), values) in spent {
+        let Some(total) = values.iter().map(number).sum::<Option<f64>>() else {
+            return report_error("invalid stage duration");
+        };
+        slowest.push(json!({
+            "name": name, "kind": kind, "count": values.len(),
+            "mean_s": ((total / values.len() as f64) * 10.0).round_ties_even() / 10.0,
+            "p90_s": percentile(&values, 0.9)
+        }));
+    }
     slowest.sort_by(|a, b| {
-        number(&b["mean_s"])
-            .unwrap()
-            .total_cmp(&number(&a["mean_s"]).unwrap())
+        compare_numbers(&b["mean_s"], &a["mean_s"])
             .then_with(|| a["name"].as_str().cmp(&b["name"].as_str()))
     });
     slowest.truncate(5);
     result["slowest"] = json!(slowest);
     result["candidates"]=json!(window.iter().filter(|(_,r)|truth(&r["candidate"])).map(|(_,r)|json!({"head":r["candidate"],"ended":r["ended"],"total_s":r["total_s"],"exit":r["exit"]})).collect::<Vec<_>>());
     result["runs"]=json!(counted.iter().map(|(_,r)|json!({"ended":r["ended"],"host":r["host"],"total_s":r["total_s"],"tree":r["tree"]})).collect::<Vec<_>>());
-    (
-        0,
-        format!(
-            "{}\n",
-            if markdown {
-                render_markdown(&result)
-            } else {
-                serde_json::to_string_pretty(&result).unwrap()
-            }
-        ),
-        String::new(),
-    )
+    let output = if markdown {
+        render_markdown(&result)
+    } else {
+        serde_json::to_string_pretty(&result).map_err(anyhow::Error::from)
+    };
+    match output {
+        Ok(output) => (0, format!("{output}\n"), String::new()),
+        Err(error) => report_error(error),
+    }
 }
 fn seconds(v: &Value) -> String {
     if v.is_null() {
@@ -326,10 +348,10 @@ fn seconds(v: &Value) -> String {
         format!("{v}s")
     }
 }
-fn render_markdown(r: &Value) -> String {
+fn render_markdown(r: &Value) -> anyhow::Result<String> {
     let excluded = r["excluded"]
         .as_object()
-        .unwrap()
+        .context("invalid exclusions")?
         .iter()
         .filter(|(_, v)| v.as_u64() != Some(0))
         .map(|(k, v)| format!("{v} {k}"))
@@ -343,8 +365,12 @@ fn render_markdown(r: &Value) -> String {
     };
     let mut out = format!(
         "**fractal-test full warm runs**, {} .. {}: {} counted (left out: {}{unreadable})\n\nObjective: p90 at most {}s, no run over {}s; {share} of runs within {}s.\n\n| runs | count | p50 | p90 | max |\n|---|---:|---:|---:|---:|",
-        r["window"]["since"].as_str().unwrap(),
-        r["window"]["until"].as_str().unwrap(),
+        r["window"]["since"]
+            .as_str()
+            .context("invalid window start")?,
+        r["window"]["until"]
+            .as_str()
+            .context("invalid window end")?,
         r["count"],
         if excluded.is_empty() {
             "none"
@@ -355,7 +381,7 @@ fn render_markdown(r: &Value) -> String {
         r["max_allowed_s"],
         r["slo_s"]
     );
-    let row = |out: &mut String, label: &str, v: &Value| {
+    let row = |out: &mut String, label: &str, v: &Value| -> std::fmt::Result {
         write!(
             out,
             "\n| {label} | {} | {} | {} | {} |",
@@ -364,21 +390,22 @@ fn render_markdown(r: &Value) -> String {
             seconds(&v["p90_s"]),
             seconds(&v["max_s"])
         )
-        .unwrap();
     };
-    row(&mut out, "all", r);
-    for (host, v) in r["by_host"].as_object().unwrap() {
-        row(&mut out, host, v);
+    row(&mut out, "all", r)?;
+    for (host, v) in r["by_host"].as_object().context("invalid host summaries")? {
+        row(&mut out, host, v)?;
     }
-    if !r["waits"].as_object().unwrap().is_empty() {
+    let waits = r["waits"].as_object().context("invalid wait summaries")?;
+    if !waits.is_empty() {
         out.push_str("\n\n| waited for (every run in the window) | runs | p50 | p90 | max |\n|---|---:|---:|---:|---:|");
-        for (label, v) in r["waits"].as_object().unwrap() {
-            row(&mut out, label, v);
+        for (label, v) in waits {
+            row(&mut out, label, v)?;
         }
     }
-    if !r["candidates"].as_array().unwrap().is_empty() {
+    let candidates = r["candidates"].as_array().context("invalid candidates")?;
+    if !candidates.is_empty() {
         out.push_str("\n\nCandidate measurements (excluded from SLO figures):");
-        for v in r["candidates"].as_array().unwrap() {
+        for v in candidates {
             write!(
                 out,
                 "\n- {}: {}s, exit {}, ended {}",
@@ -386,36 +413,39 @@ fn render_markdown(r: &Value) -> String {
                 v["total_s"],
                 pystr(&v["exit"]),
                 pystr(&v["ended"])
-            )
-            .unwrap();
+            )?;
         }
     }
-    if !r["slowest"].as_array().unwrap().is_empty() {
+    let slowest = r["slowest"]
+        .as_array()
+        .context("invalid slowest durations")?;
+    if !slowest.is_empty() {
         out.push_str("\n\n| slowest stage or check | mean | p90 |\n|---|---:|---:|");
-        for v in r["slowest"].as_array().unwrap() {
+        for v in slowest {
             write!(
                 out,
                 "\n| {} ({}) | {:.1}s | {} |",
                 pystr(&v["name"]),
                 pystr(&v["kind"]),
-                number(&v["mean_s"]).unwrap(),
+                number(&v["mean_s"]).context("invalid mean duration")?,
                 seconds(&v["p90_s"])
-            )
-            .unwrap();
+            )?;
         }
     }
     out.push_str("\n\n");
     if r["breach"] == true {
         out.push_str("**Breach**: ");
-        out.push_str(
-            &r["breach_reasons"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|v| v.as_str().unwrap())
-                .collect::<Vec<_>>()
-                .join("; "),
-        );
+        for (index, reason) in r["breach_reasons"]
+            .as_array()
+            .context("invalid breach reasons")?
+            .iter()
+            .enumerate()
+        {
+            if index != 0 {
+                out.push_str("; ");
+            }
+            out.push_str(reason.as_str().context("invalid breach reason")?);
+        }
     } else {
         out.push_str(if r["count"] == 0 {
             "No full warm run in the window: nothing to judge."
@@ -423,5 +453,5 @@ fn render_markdown(r: &Value) -> String {
             "**Within the objective.**"
         });
     }
-    out
+    Ok(out)
 }
