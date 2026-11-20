@@ -47,6 +47,9 @@
 # Rust hashes through a formatting sink; on a mismatching block it consults only
 # the pinned oracle to identify the first differing codepoint. Corpus replay
 # independently regenerates all identities; no encoded stream blob is committed.
+# request-core/ freezes the complete signer request-validation generator,
+# including wrapper/Nix claims, number lexemes, reserved JSON member names,
+# required inputs and all original refusal boundaries; 141 cases are retained.
 # policy-helpers/ freezes ten complete helper, name/repository and value-rule
 # matrices. Frozen inputs retain duplicate-member order and complete error
 # positions, integer limits and surrogate-preserving diagnostics; no sampling.

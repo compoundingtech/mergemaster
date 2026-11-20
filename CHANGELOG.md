@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Freeze the complete 141-case legacy signer request-validation matrix against the independently pinned evidence-sign source; sort omitted Nix input cases explicitly so isolated Python replay is independent of randomized set order.
 - Freeze ten complete policy helper, name/repository substitution and value-order matrices, including JSON/integer diagnostics and surrogate-preserving handler outputs.
 - Freeze all six policy kind/level schema and lossless handler-diagnostic matrices, including zero overrides, surrogate keys and wide-number boundaries.
 - Freeze all six policy root/header, command/base-input and declared-path matrices with exact generator-input equality and preserved refusal/diagnostic assertions.
