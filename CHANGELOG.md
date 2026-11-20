@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Rust port wave 1: `mergemaster evidence source` replaces `scripts/ci-evidence-source`. Source receipts are version 2: they name the producing tool (repository, revision, release version, binary sha256) instead of the producer script digest, and the operator pins the accepted base `.mergemaster/tool-pin.json` digest (`tool_pin_sha256`, replacing `recipe_sha256`). Version 1 receipts are rejected.
 - Rust port wave 1: `mergemaster evidence presign-notice` replaces `scripts/ci-evidence-presign-notice` and its self-test. The generated `evidence-presign-notice` job provisions the pinned, attestation-verified release binary from the base `.mergemaster/tool-pin.json` instead of running the base Python copy; it still says nothing when it cannot run.
 - Rust port wave 1: remove the Python keygen (`scripts/evidence-keygen`, its self-test and `tests/test-native-keygen.py`); `mergemaster evidence keygen` owns every former assertion, with frozen recordings compared against the pinned Python oracle.
 - merge-pr: match personal names case-insensitively and print actionable async-result recovery commands with a verification-only mode for late merges.

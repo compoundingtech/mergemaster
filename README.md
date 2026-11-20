@@ -238,7 +238,6 @@ release tag in a source comment.
 
 ```ts
 import { evidenceGateJobs, evidenceSourceJob } from './repos/mergemaster/genie/evidence.ts'
-import { readFileSync } from 'node:fs'
 
 const actions = {
   checkout: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1', // v7.0.1
@@ -247,19 +246,39 @@ const actions = {
 }
 const jobs = {
   ...evidenceGateJobs({ checks: ['linux-gate'], actions }),
-  'evidence-source': evidenceSourceJob(
-    readFileSync(new URL('./repos/mergemaster/scripts/ci-evidence-source', import.meta.url), 'utf8'),
-    actions,
-  ),
+  'evidence-source': evidenceSourceJob(actions),
 }
 ```
 
-Source retention embeds the real `scripts/ci-evidence-source` producer when
-generating YAML, never a separately maintained copy. Signing fragments take
-the consumer's full-history checkout steps, signing environment, check names,
-and lane-specific web-note environment. `configDir` and `legacyConfigDir`
-default to `.fractal` and `.st`; the accepted base decides which key file exists.
-Script command names and record formats remain unchanged.
+Source retention fetches the accepted BASE and provisions its
+`.mergemaster/tool-pin.json` release, verifies the binary digest and GitHub
+release attestation, then runs `"$MERGEMASTER" evidence source`. It never embeds
+or executes a Python producer, builds a candidate tool, or silently falls back.
+For pull requests, BASE follows the gate's checked-out merge first parent when
+its second parent matches the event's PR head; otherwise it uses the event base.
+Merge groups use `merge_group.base_sha`; main-branch manual dispatches use
+`github.sha`. Unsupported events fail without provisioning. The producer reads
+this exported `BASE_SHA` and hashes its running executable through `/proc/self/exe`.
+The informational job retains its existing names, `continue-on-error`, and
+`ci-evidence-source-${{ github.run_attempt }}` upload containing exactly
+`source.pack` and `receipt.json` under `${{ runner.temp }}/ci-evidence-source/`.
+
+The source receipt is version 2. Its `tool` identity is
+`{repository, revision, release_version, binary_sha256}`, matching BASE's pin;
+the executable hash must equal the pinned release digest. The pin is version 1,
+for `compoundingtech/mergemaster`, with a lowercase 40-hex revision, `vN.N.N`
+release version and lowercase 64-hex release SHA-256; additional pin fields are
+tolerated. Operator-owned CI binding configuration uses `tool_pin_sha256`, the
+SHA-256 of the **raw pin bytes**, instead of `recipe_sha256`. Whitespace changes
+therefore change the binding. Version-1 source receipts are unsupported, not
+converted or accepted through a legacy arm. Source retention is provenance,
+not proof that checks passed or authorization for full trust.
+
+Signing fragments take the consumer's full-history checkout steps, signing
+environment, check names, and lane-specific web-note environment. `configDir`
+and `legacyConfigDir` default to `.fractal` and `.st`; the accepted base decides
+which key file exists. Signing script command names and record formats remain
+unchanged.
 
 The gate fetches its executable from the accepted BASE revision, including
 the original pull-request merge-parent selection. Signers archive BASE's
@@ -282,10 +301,14 @@ inputs.mergemaster.inputs.nixpkgs.follows = "nixpkgs";
 Run `nix develop -c python3 tests/test-workflow-adapters.py` for the strict
 TypeScript check and golden test. It renders both the unmodified pinned
 `fractal-fixture` generators and the public fragments with Fractal's original
-settings through the same real pinned effect-utils generator, requiring
-byte-identical output. It also compares every fleet evidence job and the
+settings through the same real pinned effect-utils generator. The native notice
+and source cutovers have explicit migration assertions; all other output must
+remain byte-identical. It also compares every fleet evidence job and the
 complete observer and signed-tree workflows against the committed fixture
-YAML. The shell supplies `oxfmt`, which genie invokes after serialization;
+YAML, allowing only those asserted cutovers. Provisioning cases cover malformed
+pins, transport/attestation/digest failures, executable dispatch and accepted-base
+selection; source failures remain failures, while notices retain their fallback.
+The shell supplies `oxfmt`, which genie invokes after serialization;
 without it genie silently emits unformatted YAML. The test retains the
 consumer's queue/cache/sandbox wrappers. Original fixture action tags are
 used only to prove unchanged output; this repository's hosted workflow uses

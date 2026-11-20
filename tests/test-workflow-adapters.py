@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render extracted adapters; retain byte parity except the trusted native notice cutover."""
+"""Render extracted adapters; retain parity except trusted native notice/source cutovers."""
 import difflib
 import hashlib
 import json
@@ -96,13 +96,43 @@ def notice_migration(actual, expected):
     return script
 
 
-def notice_provisioning(script, scratch):
-    root = Path(scratch) / 'notice-provisioning'
+def source_migration(actual, expected, notice_script):
+    actual_job = yaml.load(actual, Loader=yaml.BaseLoader)
+    expected_job = yaml.load(expected, Loader=yaml.BaseLoader)
+    assert list(actual_job) == list(expected_job) == ['evidence-source']
+    actual_step = actual_job['evidence-source']['steps'][1]
+    expected_step = expected_job['evidence-source']['steps'][1]
+    script = actual_step.pop('run').rstrip('\n')
+    old_script = expected_step.pop('run')
+    assert actual_step.pop('env') == {
+        'BASE_SHA': "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.sha) || '' }}",
+        'EVENT_NAME': '${{ github.event_name }}',
+        'PR_HEAD_SHA': '${{ github.event.pull_request.head.sha }}',
+        'GH_TOKEN': '${{ github.token }}',
+    }
+    assert actual_job == expected_job, 'Source job/step names, upload contract or permissions changed'
+    assert actual_job['evidence-source']['permissions'] == {'contents': 'read'}
+    assert actual_job['evidence-source']['continue-on-error'] == 'true'
+    upload = actual_job['evidence-source']['steps'][2]['with']
+    assert upload['name'] == 'ci-evidence-source-${{ github.run_attempt }}'
+    assert upload['path'] == '${{ runner.temp }}/ci-evidence-source/'
+    assert upload['if-no-files-found'] == 'error'
+    assert 'python3' in old_script and 'python3' not in script
+    assert '|| echo' not in script and NOTICE_FALLBACK not in script
+    assert 'git cat-file -p HEAD' in script and '[ "$2" = "$PR_HEAD_SHA" ]' in script
+    assert 'export BASE_SHA="$source_base"' in script
+    assert script.endswith('test -n "$BASE_SHA" && git fetch --no-tags --depth=1 -q origin "$BASE_SHA" && provision_evidence_tool && "$MERGEMASTER" evidence source')
+    assert script.split('\nsource_base=', 1)[0] == notice_script.split('\ngit fetch', 1)[0]
+    return script
+
+
+def tool_provisioning(script, scratch, command):
+    root = Path(scratch) / f'{command}-provisioning'
     root.mkdir()
     binary = root / 'released-tool'
     binary.write_text('#!/bin/sh\nprintf "%s\\n" "$*" > "$TEST_INVOKED"\n'
                       '[ "$TEST_FAILURE" != subcommand ] || exit 127\n'
-                      'echo native-notice\n')
+                      'echo native-tool\n')
     pin = {
         'version': 1, 'repository': 'compoundingtech/mergemaster', 'revision': 'a' * 40,
         'release': {'version': 'v1.2.3', 'sha256': hashlib.sha256(binary.read_bytes()).hexdigest()},
@@ -112,7 +142,10 @@ def notice_provisioning(script, scratch):
     prologue = r'''
 git() {
   case "$1" in
-    fetch) [ "$TEST_FAILURE" != fetch ] ;;
+    fetch)
+      printf '%s\n' "${@: -1}" > "$TEST_FETCHED_BASE"
+      [ "$TEST_FAILURE" != fetch ] ;;
+    cat-file) printf '%s\n' "$TEST_PARENTS" ;;
     show)
       [ "$TEST_FAILURE" != show ] || return 1
       [ "$2" = "$BASE_SHA:.mergemaster/tool-pin.json" ] || return 1
@@ -135,13 +168,18 @@ chmod() {
   command chmod "$@"
 }
 '''
-    cases = [('success', pin, ''), *[(failure, pin, failure) for failure in
-             ('fetch', 'show', 'download', 'attestation', 'chmod', 'subcommand')]]
+    extended_pin = {**pin, 'extra': True, 'release': {**pin['release'], 'extra': True}}
+    cases = [('success', pin, ''), ('extra-fields', extended_pin, ''),
+             *[(failure, pin, failure) for failure in
+               ('fetch', 'show', 'download', 'attestation', 'chmod', 'subcommand')]]
+    if command == 'source':
+        cases.extend((name, pin, '') for name in ('pr-effective-base', 'pr-event-base', 'missing-base'))
     for field, value in (
         ('version', 2), ('version', True), ('repository', 'attacker/mergemaster'),
-        ('revision', 'a' * 39), ('revision', 'a' * 40 + '\n'),
+        ('revision', 'a' * 39), ('revision', 'A' * 40), ('revision', 'a' * 40 + '\n'),
         ('release.version', 'latest'), ('release.version', 'v1.2.3\n'),
         ('release.sha256', '0' * 64), ('release.sha256', '0' * 63),
+        ('release.sha256', 'A' * 64),
         ('release.sha256', '0' * 64 + '\n'),
     ):
         altered = json.loads(json.dumps(pin))
@@ -153,19 +191,35 @@ chmod() {
         case.mkdir()
         pin_path, invoked, gh_log = (case / filename for filename in ('pin.json', 'invoked', 'gh.log'))
         pin_path.write_text(json.dumps(case_pin))
+        pr_case = name.startswith('pr-')
+        success = name in ('success', 'extra-fields', 'pr-effective-base', 'pr-event-base')
+        base = '' if name == 'missing-base' else 'b' * 40
+        fetched_base = case / 'fetched-base'
         done = subprocess.run(['bash', '--noprofile', '--norc', '-e', '-o', 'pipefail', '-c',
                                prologue + script], capture_output=True, text=True, cwd=case,
-                              env=dict(os.environ, RUNNER_TEMP=str(case), BASE_SHA='b' * 40,
+                              env=dict(os.environ, RUNNER_TEMP=str(case), BASE_SHA=base,
+                                       EVENT_NAME='pull_request' if pr_case else 'workflow_dispatch',
+                                       PR_HEAD_SHA='c' * 40,
+                                       TEST_PARENTS='parent ' + 'd' * 40 + '\nparent ' +
+                                       ('c' if name == 'pr-effective-base' else 'e') * 40,
                                        TEST_PIN=str(pin_path), TEST_BINARY=str(binary),
                                        TEST_FAILURE=failure, TEST_INVOKED=str(invoked),
-                                       TEST_GH_LOG=str(gh_log)))
-        assert done.returncode == 0, (name, done.stderr)
-        assert done.stdout.strip() == ('native-notice' if name == 'success' else NOTICE_FALLBACK), (
-            name, done.stdout, done.stderr)
-        assert invoked.exists() == (name in ('success', 'subcommand')), name
+                                       TEST_FETCHED_BASE=str(fetched_base), TEST_GH_LOG=str(gh_log)))
+        if command == 'presign-notice':
+            assert done.returncode == 0, (name, done.stderr)
+            expected_stdout = 'native-tool' if success else NOTICE_FALLBACK
+        else:
+            assert (done.returncode == 0) == success, (name, done.stdout, done.stderr)
+            expected_stdout = 'native-tool' if success else ''
+        assert done.stdout.strip() == expected_stdout, (name, done.stdout, done.stderr)
+        assert invoked.exists() == (success or name == 'subcommand'), name
         if invoked.exists():
-            assert invoked.read_text() == 'evidence presign-notice\n'
-        if name == 'success':
+            assert invoked.read_text() == f'evidence {command}\n'
+        if name == 'missing-base':
+            assert not fetched_base.exists() and not gh_log.exists()
+        else:
+            assert fetched_base.read_text().strip() == ('d' * 40 if name == 'pr-effective-base' else base)
+        if success:
             arguments = gh_log.read_text().splitlines()
             assert arguments[:8] == [
                 'release', 'download', 'v1.2.3', '--repo', 'compoundingtech/mergemaster',
@@ -200,9 +254,7 @@ with tempfile.TemporaryDirectory(prefix='workflow-adapters-', dir=ROOT / 'tmp') 
     (work / 'repos/effect-utils').symlink_to(EFFECT_UTILS, target_is_directory=True)
     (work / 'scripts').mkdir()
     for path in (FIXTURE / 'scripts').iterdir():
-        (work / 'scripts' / path.name).symlink_to(
-            ROOT / 'scripts/ci-evidence-source' if path.name == 'ci-evidence-source' else path,
-            target_is_directory=path.is_dir())
+        (work / 'scripts' / path.name).symlink_to(path, target_is_directory=path.is_dir())
     for name in ('fleet', 'evidence-observe', 'signed-tree'):
         shutil.copy2(FIXTURE / f'.github/workflows/{name}.yml.genie.ts',
                      workflows / f'{name}.yml.genie.ts')
@@ -217,7 +269,7 @@ with tempfile.TemporaryDirectory(prefix='workflow-adapters-', dir=ROOT / 'tmp') 
     # Replace whole anchored blocks; assertions still catch missing or duplicate blocks.
     source = replace_block(source, "    'evidence-note-rust-tests':", "    },", '    ...buildFractalWebJobs(', "    'evidence-note-rust-tests': evidenceRustTestSigningJob(" + signing + rust_needs + " }),\n")
     source = replace_block(source, "    'evidence-note-linux-gate':", "    },", "    'evidence-note-rust-tests':", "    'evidence-note-linux-gate': evidenceAggregateSigningJob(" + signing + aggregate_needs + " }),\n")
-    source = replace_block(source, "    'evidence-source':", "    },", '    ...evidenceGateJobs,', "    'evidence-source': evidenceSourceJob(readFileSync(new URL('../../scripts/ci-evidence-source', import.meta.url), 'utf8'), adapterActions),\n")
+    source = replace_block(source, "    'evidence-source':", "    },", '    ...evidenceGateJobs,', "    'evidence-source': evidenceSourceJob(adapterActions),\n")
     source = replace_block(source, 'const presignNoticeJob =', '}', 'export const buildFleetWorkflow', "const presignNoticeJob = evidencePresignNoticeJob({ checks: evidenceGateChecks, actions: adapterActions })\n")
     source = replace_block(source, 'const evidenceGateJobs =', '}]))', 'const presignNoticeJob =', "const evidenceGateJobs = makeGateJobs({ checks: evidenceGateChecks, runInputs: evidenceGateRunInputs, actions: adapterActions })\n")
     (workflows / 'fleet.yml.genie.ts').write_text(IMPORT + ACTIONS + source)
@@ -238,14 +290,18 @@ with tempfile.TemporaryDirectory(prefix='workflow-adapters-', dir=ROOT / 'tmp') 
             notice_key, = [key for key, job in yaml.load(actual, Loader=yaml.BaseLoader)['jobs'].items()
                            if job.get('name') == 'evidence-presign-notice']
             notice_script = notice_migration(actual_blocks[notice_key], baseline_blocks[notice_key])
-            notice_provisioning(notice_script, scratch)
-            comparable = actual.decode().replace(
-                actual_blocks[notice_key], baseline_blocks[notice_key], 1).encode()
+            tool_provisioning(notice_script, scratch, 'presign-notice')
+            source_script = source_migration(actual_blocks['evidence-source'], baseline_blocks['evidence-source'], notice_script)
+            tool_provisioning(source_script, scratch, 'source')
+            comparable = actual.decode()
+            for key in (notice_key, 'evidence-source'):
+                comparable = comparable.replace(actual_blocks[key], baseline_blocks[key], 1)
+            comparable = comparable.encode()
         assert comparable == baseline[name], ''.join(difflib.unified_diff(
             baseline[name].decode().splitlines(keepends=True),
             comparable.decode().splitlines(keepends=True),
             fromfile=f'consumer-generator/{name}', tofile=f'adapter-generator/{name}'))
-        print(f'{name}.yml: generator parity YES (notice native cutover only)')
+        print(f'{name}.yml: generator parity YES (notice/source native cutovers only)')
         expected = (FIXTURE / f'.github/workflows/{name}.yml').read_bytes()
         if name == 'fleet':
             actual_jobs = job_blocks(actual.decode())
@@ -257,6 +313,9 @@ with tempfile.TemporaryDirectory(prefix='workflow-adapters-', dir=ROOT / 'tmp') 
                 if key == notice_key:
                     notice_migration(actual_jobs[key], expected_jobs[key])
                     continue
+                if key == 'evidence-source':
+                    source_migration(actual_jobs[key], expected_jobs[key], notice_script)
+                    continue
                 assert actual_jobs[key].encode() == expected_jobs[key].encode(), ''.join(
                     difflib.unified_diff(expected_jobs[key].splitlines(keepends=True),
                                          actual_jobs[key].splitlines(keepends=True),
@@ -265,7 +324,7 @@ with tempfile.TemporaryDirectory(prefix='workflow-adapters-', dir=ROOT / 'tmp') 
             assert actual == expected, ''.join(difflib.unified_diff(
                 expected.decode().splitlines(keepends=True), actual.decode().splitlines(keepends=True),
                 fromfile=f'pinned/{name}', tofile=f'rendered/{name}'))
-        print(f'{name}.yml: pinned evidence parity YES (notice native cutover only)')
+        print(f'{name}.yml: pinned evidence parity YES (notice/source native cutovers only)')
     print('Workflow adapter strict typecheck and golden test passed')
 
 subprocess.run(['python3', str(ROOT / 'tests/test-generic-evidence.py')], check=True)

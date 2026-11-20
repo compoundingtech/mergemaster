@@ -16,6 +16,8 @@ pub enum EvidenceCommand {
     Keygen(super::keygen::KeygenArgs),
     /// Explain which signable gates ran without a pre-signed note; never fails.
     PresignNotice,
+    /// Retain the effective tested checkout for a later protected observer; never sign.
+    Source,
     /// Run a BASE-declared lane once, sign its observation, and publish its note.
     Wrap(super::generic::WrapArgs),
     /// Sign a wrapper request using explicit account-local configuration.
@@ -83,6 +85,7 @@ pub fn run(args: EvidenceArgs) -> Result<()> {
             super::presign_notice::run();
             return Ok(());
         }
+        EvidenceCommand::Source => return super::source::run(),
         EvidenceCommand::Wrap(args) => {
             let code = super::generic::run_wrap(&args)?;
             if code != 0 {
