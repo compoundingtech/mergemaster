@@ -33,8 +33,7 @@ for name in ['c795','c794','wide1024','wide1025','cycle']:
  rows.append(dict(name=name,count=len(cache),paths=sorted(cache[name])))
 print(json.dumps(dict(tree=tree,measurement=measurement,rows=rows)))
 "#;
-    let oracle = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/fixtures/fractal/scripts/rust-test-keys");
+    let oracle = crate::pinned_python::keys_oracle();
     let output = crate::pinned_python::command()
         .args(["-c", script])
         .arg(oracle)

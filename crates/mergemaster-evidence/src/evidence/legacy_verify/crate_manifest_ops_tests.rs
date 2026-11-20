@@ -34,8 +34,7 @@ for token in samples:
   cases.append(dict(raw=raw,op=op,expected=expected))
 print(json.dumps(cases))
 "#;
-    let oracle = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/fixtures/fractal/scripts/rust-test-keys");
+    let oracle = crate::pinned_python::keys_oracle();
     let out = crate::pinned_python::command()
         .args(["-c", script])
         .arg(oracle)

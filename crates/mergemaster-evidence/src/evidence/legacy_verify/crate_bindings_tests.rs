@@ -56,10 +56,7 @@ print(json.dumps(cases))
         .args(["-c", script])
         .arg(std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap())
         .arg(repo.path())
-        .arg(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../tests/fixtures/fractal/scripts/rust-test-keys"),
-        )
+        .arg(crate::pinned_python::keys_oracle())
         .output()
         .unwrap();
     assert!(

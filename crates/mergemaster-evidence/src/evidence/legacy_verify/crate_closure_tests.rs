@@ -28,8 +28,7 @@ for i,(docs,workspace,roots) in enumerate(fixtures):
 print(json.dumps(cases))
 "#;
     let repo = tempfile::tempdir().unwrap();
-    let oracle = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/fixtures/fractal/scripts/rust-test-keys");
+    let oracle = crate::pinned_python::keys_oracle();
     let out = crate::pinned_python::command()
         .args(["-c", script])
         .arg(oracle)

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Pin oracle tests to an explicit CPython 3.14.7 derivation and independent hash-pinned crate-key sources instead of committed runner fixtures; freeze initial CLI/signed-pack observations with exact replay checks. Keep the shared keys helper warning-free in path-included test targets without per-binary lint expectations.
 - Make the copied-script oracle migration-aware with exact per-path removal tombstones, a complete removal-wave inventory and retained shared-fixture byte/mode pins. CI separately enforces append-only paths, immutable removal waves/tombstones against the trusted PR base or previous main commit, failing closed without history; retain all in-tree removal/drift checks and remove no Python sources. Supply Git to the sandboxed regression check and isolate temporary repository configuration and signing from the host.
 - merge-pr: use the SHA-pinned async merge API for stacked PRs, refuse open downstack bases and unexpected outcomes, and verify the completed merge commit after bounded polling.
 - merge-pr: verify the merge commit's parents and tree before its authorship; refuse the personal identity regardless of email case and in its GitHub noreply form.

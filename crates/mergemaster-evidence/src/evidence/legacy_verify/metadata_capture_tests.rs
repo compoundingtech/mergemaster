@@ -49,8 +49,7 @@ fn metadata_capture_bounds_both_readers_and_config_stderr() {
     let script = r#"
 import json,os,pathlib,runpy,subprocess,sys
 assert sys.version_info[:3]==(3,14,7)
-p=pathlib.Path(os.environ['MERGEMASTER_PYTHON_PARITY_ORACLE']);p=p if p.is_dir() else p.parent.parent
-m=runpy.run_path(str(p/'tests/fixtures/fractal/scripts/rust-test-keys'))
+m=runpy.run_path(sys.argv[2])
 shim=pathlib.Path(sys.argv[1]);program=shim/'git'
 program.write_text('#!'+sys.executable+'''\nimport os
 size=int(os.environ['MM_METADATA_SIZE']);case=os.environ['MM_METADATA_CASE']
@@ -74,6 +73,7 @@ print(json.dumps(str(shim)))
     let out = crate::pinned_python::command()
         .args(["-c", script])
         .arg(root.path())
+        .arg(crate::pinned_python::keys_oracle())
         .output()
         .unwrap();
     assert!(

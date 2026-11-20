@@ -17,6 +17,19 @@
 # All scripts (including shell/service helpers) and fixtures have explicit rows;
 # residual scaffolding/native Python is assigned wave 9, not silently exempted.
 # scripts/evidence_test_support.py and both oracle guard Python files stay to wave 9.
+# Oracle execution is test-only: flake.nix pins CPython 3.14.7 from the locked
+# nixpkgs and an independent hash-pinned Fractal source for rust-test-keys.
+# MERGEMASTER_ORACLE_PYTHON is an absolute interpreter, never a PATH fallback;
+# MERGEMASTER_PYTHON_KEYS_ORACLE replaces direct committed fixture consumers.
+# tests/fixtures/oracle/v1/manifest.json names source/runtime pins, corpus input
+# files, exact argv/cwd/environment templates and signed-pack provenance.
+# recordings.json freezes raw stdout/stderr as base64 and exit codes.
+# Replay: nix develop -c python3 -I -B tests/oracle_corpus.py.
+# --record prints observations only; review changes before replacing recordings
+# and updating individual fixture hashes in tests/python-removals.json.
+# This initial corpus covers five cases (four exact Rust CLI comparisons).
+# It does not freeze every existing generated oracle matrix or divergence;
+# those existing tests/approvals remain authoritative until their corpus lands.
 # R2 resync exception; exit: https://github.com/compoundingtech/mergemaster/issues/115
 # The original extraction Commit above is historical; this resync starts at the current fixture revision.
 # Pending requires oracle bytes; the target fixture activates exact upstream bytes and modes.

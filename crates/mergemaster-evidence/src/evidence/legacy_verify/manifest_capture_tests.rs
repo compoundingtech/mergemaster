@@ -20,8 +20,7 @@ fn bounded_manifests_and_launch_errors_match_real_oracle() {
     let script = r#"
 import json,os,pathlib,runpy,subprocess,sys
 assert sys.version_info[:3]==(3,14,7)
-p=pathlib.Path(os.environ['MERGEMASTER_PYTHON_PARITY_ORACLE']);p=p if p.is_dir() else p.parent.parent
-m=runpy.run_path(str(p/'tests/fixtures/fractal/scripts/rust-test-keys'));root=pathlib.Path(sys.argv[1]);rows=[]
+m=runpy.run_path(sys.argv[2]);root=pathlib.Path(sys.argv[1]);rows=[]
 for fmt in ['sha1','sha256']:
  repo=root/fmt;subprocess.run(['git','init','-q','--bare','--object-format='+fmt,str(repo)],check=True)
  for size in [1048576,1048577]:
@@ -42,6 +41,7 @@ print(json.dumps(dict(rows=rows,errors=errors)))
     let out = crate::pinned_python::command()
         .args(["-c", script])
         .arg(root.path())
+        .arg(crate::pinned_python::keys_oracle())
         .output()
         .unwrap();
     assert!(

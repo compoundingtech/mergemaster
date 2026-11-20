@@ -131,10 +131,7 @@ print(json.dumps(rows))
     let output = crate::pinned_python::command()
         .args(["-c", script])
         .arg(root.path())
-        .arg(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../tests/fixtures/fractal/scripts/rust-test-keys"),
-        )
+        .arg(crate::pinned_python::keys_oracle())
         .output()
         .unwrap();
     assert!(

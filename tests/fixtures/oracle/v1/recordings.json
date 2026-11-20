@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "signed-trusted",
+      "stdout_base64": "ewogICJzYXRpc2ZpZWQiOiB0cnVlLAogICJ0cmVlIjogIjUwYzgxMjgzNTg3OGFlYjA3NTBmNTk2ZjAzZjFlMTE3M2VjMTZjM2YiLAogICJjaGVjayI6ICJsaW51eC1nYXRlIiwKICAicmVjb3JkIjogIjFlOTY0YmFlN2RmYjFkZmVmM2I4NjdiYjA2NTI2ODM0OGY1YmUyNjUiLAogICJraW5kIjogIndyYXBwZXIiLAogICJzaWduZXIiOiAiZmxlZXQvZGV2IiwKICAidHJ1c3RfbGV2ZWwiOiAiZmxlZXQiLAogICJ0aWVyIjogImZ1bGwiLAogICJvYnNlcnZlZF9hdCI6ICIyMDI2LTEwLTE0VDEyOjAwOjAwWiIsCiAgImNvbW1hbmQiOiBbCiAgICAidHJ1ZSIKICBdLAogICJpbnB1dHMiOiB7CiAgICAiYXR0ZW1wdCI6ICIxIiwKICAgICJmbGFrZV9sb2NrX3NoYTI1NiI6ICI0NzU0YjdiMTMwNTk4NzlhMzc3Njk1MjZjYjkzZWJkMzgyZjQ3YzlhNDU3OWYwYzZhMzRlNDkwODJlMGJlOTA0IiwKICAgICJzeXN0ZW0iOiAieDg2XzY0LWxpbnV4IiwKICAgICJ0b29sY2hhaW5fc2hhMjU2IjogImNiZDJlMDhiZTkzNjFhM2JlZDRiNjM2NDMxMDM5Nzc2ODkyNzUyMDQ5MmZiNzkyOGQyYjg1ZjJiOWVmN2Q2MjAiLAogICAgIndyYXBwZXJfc2hhMjU2IjogIjExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEiCiAgfSwKICAiYXR0ZW1wdHMiOiAxLAogICJwb2xpY3kiOiBmYWxzZSwKICAibWF4X2FnZV9zIjogbnVsbCwKICAiZW5mb3JjZSI6IGZhbHNlLAogICJtYXRjaCI6ICJ0cmVlIiwKICAibWF0Y2hlZF90cmVlIjogIjUwYzgxMjgzNTg3OGFlYjA3NTBmNTk2ZjAzZjFlMTE3M2VjMTZjM2YiLAogICJzb3VyY2VfaW5wdXRzIjogbnVsbCwKICAic2FtcGxlX29uZV9pbiI6IDEsCiAgImV2ZW50cyI6IG51bGwsCiAgImRlY2lkZWRfYnkiOiAiMWU5NjRiYWU3ZGZiMWRmZWYzYjg2N2JiMDY1MjY4MzQ4ZjViZTI2NSIsCiAgInNraXBwZWRfbmV3ZXIiOiBbXQp9Cg==",
+      "stderr_base64": "",
+      "exit_code": 0
+    },
+    {
+      "id": "signed-untrusted",
+      "stdout_base64": "ewogICJzYXRpc2ZpZWQiOiBmYWxzZSwKICAicmVhc29uIjogInVudHJ1c3RlZF9zaWduZXIiLAogICJjaGVjayI6ICJsaW51eC1nYXRlIiwKICAiZGV0YWlsIjogIm5vIHJlY29yZCBmb3IgY2hlY2sgbGludXgtZ2F0ZSBpcyBzaWduZWQgYnkgYSB0cnVzdGVkIGtleSIKfQo=",
+      "stderr_base64": "",
+      "exit_code": 1
+    },
+    {
+      "id": "wrong-check",
+      "stdout_base64": "ewogICJzYXRpc2ZpZWQiOiBmYWxzZSwKICAicmVhc29uIjogIndyb25nX2NoZWNrIiwKICAiY2hlY2siOiAibm90LXJlY29yZGVkIiwKICAiZGV0YWlsIjogInRydXN0ZWQgcmVjb3JkcyBmb3IgdGhpcyB0cmVlIGRvIG5vdCBpbmNsdWRlIGNoZWNrIG5vdC1yZWNvcmRlZCIKfQo=",
+      "stderr_base64": "",
+      "exit_code": 1
+    },
+    {
+      "id": "project-inputs",
+      "stdout_base64": "ewogICJzb3VyY2VfaW5wdXRzIjogbnVsbCwKICAicGF0aHMiOiBudWxsLAogICJ0cmVlIjogIjhmNWM3NmVhYjRiMDViOTMyMjU0YjNhZjFlMWQyNTZmY2JhN2I0ZTIiLAogICJjaGVjayI6ICJjb3JwdXMiLAogICJiYXNlX2lucHV0cyI6IHt9Cn0K",
+      "stderr_base64": "",
+      "exit_code": 0
+    },
+    {
+      "id": "crate-key-projection",
+      "stdout_base64": "ewogImxlYWYiOiAiOGY1Yzc2ZWFiNGIwNWI5MzIyNTRiM2FmMWUxZDI1NmZjYmE3YjRlMiIKfQo=",
+      "stderr_base64": "",
+      "exit_code": 0
+    }
+  ]
+}

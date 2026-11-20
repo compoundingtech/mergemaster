@@ -66,10 +66,7 @@ print(json.dumps(rows))
     let out = crate::pinned_python::command()
         .args(["-c", script])
         .arg(root.path())
-        .arg(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../tests/fixtures/fractal/scripts/rust-test-keys"),
-        )
+        .arg(crate::pinned_python::keys_oracle())
         .arg(option_env!("CARGO_BIN_EXE_mergemaster").unwrap_or(""))
         .output()
         .unwrap();

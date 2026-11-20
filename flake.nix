@@ -25,6 +25,18 @@
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
       cargoVersion = (builtins.fromTOML (builtins.readFile ./crates/mergemaster-evidence/Cargo.toml)).package.version;
+      # Independent of the production fixture input: oracle provenance survives its removal.
+      python-keys-oracle = builtins.fetchTree {
+        type = "git";
+        url = "https://github.com/compoundingtech/fractal";
+        rev = "787e8ed592dff34d2bdc2a2b0b584482da567e7f";
+        narHash = "sha256-EYnLgrxDCQXThOybpPxr2okTy7BpcHkzjLvBsaAZ+vM=";
+        shallow = true;
+      };
+      # The locked nixpkgs owns the CPython source hash; never follow its python3 alias.
+      oraclePythonFor = pkgs:
+        assert pkgs.python314.version == "3.14.7";
+        pkgs.python314;
       scriptInputs = pkgs: with pkgs; [
         effect-utils.packages.${pkgs.stdenv.hostPlatform.system}.genie
         (python3.withPackages (packages: [ packages.pyyaml ])) git openssh openssl bash coreutils findutils gnugrep gnused gawk nix
@@ -40,7 +52,7 @@
           cargoLock.lockFile = ./Cargo.lock;
           cargoBuildFlags = [ "--package" "mergemaster-evidence" ];
           cargoTestFlags = [ "--package" "mergemaster-evidence" ];
-          nativeCheckInputs = [ pkgs.git pkgs.openssh pkgs.openssl pkgs.coreutils pkgs.python3 ];
+          nativeCheckInputs = [ pkgs.git pkgs.openssh pkgs.openssl pkgs.coreutils ];
           preCheck = ''
             export HOME="$TMPDIR/home"
             mkdir -p "$HOME"
@@ -88,6 +100,7 @@
         in {
           default = packageFor system;
           evidence-reconciler = reconcilerFor system;
+          oracle-python = oraclePythonFor pkgs;
           # Native musl headers/libs plus compiler/binutils wrappers, never host glibc.
           release-musl-toolchain = pkgs.runCommand "mergemaster-musl-toolchain" {} ''
             mkdir -p "$out/bin"
@@ -96,8 +109,17 @@
           '';
         });
       checks = forAllSystems (system:
-        let pkgs = import nixpkgs { inherit system; };
+        let
+          pkgs = import nixpkgs { inherit system; };
+          oraclePython = oraclePythonFor pkgs;
         in {
+          oracle-python = pkgs.runCommand "mergemaster-oracle-python" {
+            MERGEMASTER_ORACLE_PYTHON = "${oraclePython}/bin/python3.14";
+          } ''
+            "$MERGEMASTER_ORACLE_PYTHON" -I -c \
+              "import sys; assert sys.implementation.name == 'cpython'; assert sys.version_info[:3] == (3,14,7); assert sys.flags.optimize == 0; assert sys.flags.isolated == 1"
+            touch "$out"
+          '';
           package-version =
             let package = packageFor system;
             in assert package.version == cargoVersion;
@@ -107,12 +129,29 @@
             '';
           evidence = (packageFor system).overrideAttrs (_: {
             doCheck = true;
+            nativeCheckInputs = [ pkgs.git pkgs.openssh pkgs.openssl pkgs.coreutils oraclePython ];
+            MERGEMASTER_ORACLE_PYTHON = "${oraclePython}/bin/python3.14";
+            MERGEMASTER_PYTHON_KEYS_ORACLE = "${python-keys-oracle}";
             MERGEMASTER_PYTHON_ORACLE = "${python-oracle}";
             MERGEMASTER_PYTHON_PARITY_ORACLE = "${python-oracle-parity}";
             MERGEMASTER_FRACTAL_FIXTURE = "${fractal-fixture}";
           });
+          oracle-corpus = pkgs.runCommand "mergemaster-oracle-corpus" {
+            nativeBuildInputs = [ pkgs.git pkgs.openssh ];
+            src = self;
+            MERGEMASTER_BIN = "${packageFor system}/bin/mergemaster";
+            MERGEMASTER_ORACLE_PYTHON = "${oraclePython}/bin/python3.14";
+            MERGEMASTER_PYTHON_KEYS_ORACLE = "${python-keys-oracle}";
+            MERGEMASTER_PYTHON_ORACLE = "${python-oracle}";
+            MERGEMASTER_PYTHON_PARITY_ORACLE = "${python-oracle-parity}";
+          } ''
+            ${oraclePython}/bin/python3 -I -B "$src/tests/oracle_corpus.py"
+            touch "$out"
+          '';
           oracle-scripts = pkgs.runCommand "mergemaster-oracle-scripts" {
-            nativeBuildInputs = [ pkgs.python3 pkgs.git ];
+            nativeBuildInputs = [ oraclePython pkgs.git ];
+            MERGEMASTER_ORACLE_PYTHON = "${oraclePython}/bin/python3.14";
+            MERGEMASTER_PYTHON_KEYS_ORACLE = "${python-keys-oracle}";
             # Inspect every Git-source entry, including names cleanSource excludes.
             src = self;
             MERGEMASTER_PYTHON_ORACLE = "${python-oracle}";
@@ -148,9 +187,13 @@
           });
         });
       devShells = forAllSystems (system:
-        let pkgs = import nixpkgs { inherit system; };
+        let
+          pkgs = import nixpkgs { inherit system; };
+          oraclePython = oraclePythonFor pkgs;
         in { default = pkgs.mkShell {
-          packages = [ pkgs.cargo pkgs.rustc pkgs.rustfmt pkgs.clippy ] ++ scriptInputs pkgs;
+          packages = [ pkgs.cargo pkgs.rustc pkgs.rustfmt pkgs.clippy oraclePython ] ++ scriptInputs pkgs;
+          MERGEMASTER_ORACLE_PYTHON = "${oraclePython}/bin/python3.14";
+          MERGEMASTER_PYTHON_KEYS_ORACLE = "${python-keys-oracle}";
           # Copied script tests execute the local Rust-backed evidence gate.
           # Provision the matching built binary for every child test process.
           MERGEMASTER_BIN = "${packageFor system}/bin/mergemaster";
