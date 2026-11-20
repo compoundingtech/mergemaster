@@ -105,7 +105,11 @@ class ConfigBridgeTest(unittest.TestCase):
             modules = {}
             for name in names:
                 target = root / name
-                shutil.copyfile(ROOT / 'scripts' / name, target)
+                # The native notice no longer ships a Python module. Preserve the
+                # extracted-reader assertions against its independent pinned oracle.
+                source = (Path(os.environ['MERGEMASTER_PYTHON_ORACLE']) / 'scripts' / name
+                          if name == 'ci-evidence-presign-notice' else ROOT / 'scripts' / name)
+                shutil.copyfile(source, target)
                 loader = importlib.machinery.SourceFileLoader(name.replace('-', '_') + '_bridge', str(target))
                 module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
                 loader.exec_module(module)

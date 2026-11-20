@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
-"""Render extracted adapters through pinned Fractal's real generator and compare bytes."""
+"""Render extracted adapters; retain byte parity except the trusted native notice cutover."""
 import difflib
+import hashlib
+import json
 import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
 import tempfile
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = Path(os.environ['MERGEMASTER_FRACTAL_FIXTURE'])
@@ -59,6 +63,119 @@ def generate(work, workflows, scratch):
         assert formatted.returncode == 0 and formatted.stdout, formatted.stderr.decode()
         target.chmod(0o644)
         target.write_bytes(formatted.stdout)
+
+
+NOTICE_FALLBACK = 'evidence-presign-notice: not at the base yet, or it could not run; nothing to say'
+
+
+def notice_migration(actual, expected):
+    actual_job = yaml.load(actual, Loader=yaml.BaseLoader)
+    expected_job = yaml.load(expected, Loader=yaml.BaseLoader)
+    key, = actual_job
+    assert list(expected_job) == [key]
+    actual_step = actual_job[key]['steps'][1]
+    expected_step = expected_job[key]['steps'][1]
+    script = actual_step.pop('run').rstrip('\n')
+    old_script = expected_step.pop('run')
+    assert actual_job == expected_job, 'Notice metadata, environment or permissions changed'
+    assert actual_job[key]['permissions'] == {'contents': 'read', 'pull-requests': 'read'}
+    assert 'python3' in old_script and 'python3' not in script
+    assert script.endswith("|| echo '" + NOTICE_FALLBACK + "'")
+    assert 'provision_evidence_tool && "$MERGEMASTER" evidence presign-notice' in script
+    for fragment in (
+        'git show "$BASE_SHA:.mergemaster/tool-pin.json"',
+        'gh release download "$release_version" --repo compoundingtech/mergemaster',
+        '--pattern mergemaster-x86_64-unknown-linux-musl',
+        'sha256sum --check --status',
+        'gh attestation verify "$MERGEMASTER" --repo compoundingtech/mergemaster',
+        '--signer-digest "$revision" --source-digest "$revision"',
+        '--signer-workflow compoundingtech/mergemaster/.github/workflows/release.yml',
+        '--deny-self-hosted-runners',
+    ):
+        assert fragment in script, f'Missing trusted provisioning boundary: {fragment}'
+    return script
+
+
+def notice_provisioning(script, scratch):
+    root = Path(scratch) / 'notice-provisioning'
+    root.mkdir()
+    binary = root / 'released-tool'
+    binary.write_text('#!/bin/sh\nprintf "%s\\n" "$*" > "$TEST_INVOKED"\n'
+                      '[ "$TEST_FAILURE" != subcommand ] || exit 127\n'
+                      'echo native-notice\n')
+    pin = {
+        'version': 1, 'repository': 'compoundingtech/mergemaster', 'revision': 'a' * 40,
+        'release': {'version': 'v1.2.3', 'sha256': hashlib.sha256(binary.read_bytes()).hexdigest()},
+    }
+    # Only transport/process boundaries are faked; run the generated shell's real
+    # pin parsing, digest verification, control flow and native executable dispatch.
+    prologue = r'''
+git() {
+  case "$1" in
+    fetch) [ "$TEST_FAILURE" != fetch ] ;;
+    show)
+      [ "$TEST_FAILURE" != show ] || return 1
+      [ "$2" = "$BASE_SHA:.mergemaster/tool-pin.json" ] || return 1
+      cat "$TEST_PIN" ;;
+    *) return 1 ;;
+  esac
+}
+gh() {
+  printf '%s\n' "$@" >> "$TEST_GH_LOG"
+  case "$1 $2" in
+    'release download')
+      [ "$TEST_FAILURE" != download ] || return 1
+      cp "$TEST_BINARY" "${@: -1}/mergemaster-x86_64-unknown-linux-musl" ;;
+    'attestation verify') [ "$TEST_FAILURE" != attestation ] ;;
+    *) return 1 ;;
+  esac
+}
+chmod() {
+  [ "$TEST_FAILURE" != chmod ] || return 1
+  command chmod "$@"
+}
+'''
+    cases = [('success', pin, ''), *[(failure, pin, failure) for failure in
+             ('fetch', 'show', 'download', 'attestation', 'chmod', 'subcommand')]]
+    for field, value in (
+        ('version', 2), ('version', True), ('repository', 'attacker/mergemaster'),
+        ('revision', 'a' * 39), ('revision', 'a' * 40 + '\n'),
+        ('release.version', 'latest'), ('release.version', 'v1.2.3\n'),
+        ('release.sha256', '0' * 64), ('release.sha256', '0' * 63),
+        ('release.sha256', '0' * 64 + '\n'),
+    ):
+        altered = json.loads(json.dumps(pin))
+        target = altered['release'] if field.startswith('release.') else altered
+        target[field.split('.')[-1]] = value
+        cases.append((f'invalid-{field}-{len(cases)}', altered, ''))
+    for name, case_pin, failure in cases:
+        case = root / name
+        case.mkdir()
+        pin_path, invoked, gh_log = (case / filename for filename in ('pin.json', 'invoked', 'gh.log'))
+        pin_path.write_text(json.dumps(case_pin))
+        done = subprocess.run(['bash', '--noprofile', '--norc', '-e', '-o', 'pipefail', '-c',
+                               prologue + script], capture_output=True, text=True, cwd=case,
+                              env=dict(os.environ, RUNNER_TEMP=str(case), BASE_SHA='b' * 40,
+                                       TEST_PIN=str(pin_path), TEST_BINARY=str(binary),
+                                       TEST_FAILURE=failure, TEST_INVOKED=str(invoked),
+                                       TEST_GH_LOG=str(gh_log)))
+        assert done.returncode == 0, (name, done.stderr)
+        assert done.stdout.strip() == ('native-notice' if name == 'success' else NOTICE_FALLBACK), (
+            name, done.stdout, done.stderr)
+        assert invoked.exists() == (name in ('success', 'subcommand')), name
+        if invoked.exists():
+            assert invoked.read_text() == 'evidence presign-notice\n'
+        if name == 'success':
+            arguments = gh_log.read_text().splitlines()
+            assert arguments[:8] == [
+                'release', 'download', 'v1.2.3', '--repo', 'compoundingtech/mergemaster',
+                '--pattern', 'mergemaster-x86_64-unknown-linux-musl', '--dir']
+            assert Path(arguments[8]).parent == case
+            assert arguments[9:] == [
+                'attestation', 'verify', str(Path(arguments[8]) / 'mergemaster-x86_64-unknown-linux-musl'),
+                '--repo', 'compoundingtech/mergemaster', '--signer-digest', 'a' * 40,
+                '--source-digest', 'a' * 40, '--signer-workflow',
+                'compoundingtech/mergemaster/.github/workflows/release.yml', '--deny-self-hosted-runners']
 
 
 (ROOT / 'tmp').mkdir(exist_ok=True)
@@ -114,11 +231,21 @@ with tempfile.TemporaryDirectory(prefix='workflow-adapters-', dir=ROOT / 'tmp') 
     generate(work, workflows, scratch)
     for name in ('fleet', 'evidence-observe', 'signed-tree'):
         actual = (workflows / f'{name}.yml').read_bytes()
-        assert actual == baseline[name], ''.join(difflib.unified_diff(
+        comparable = actual
+        if name == 'fleet':
+            actual_blocks = job_blocks(actual.decode())
+            baseline_blocks = job_blocks(baseline[name].decode())
+            notice_key, = [key for key, job in yaml.load(actual, Loader=yaml.BaseLoader)['jobs'].items()
+                           if job.get('name') == 'evidence-presign-notice']
+            notice_script = notice_migration(actual_blocks[notice_key], baseline_blocks[notice_key])
+            notice_provisioning(notice_script, scratch)
+            comparable = actual.decode().replace(
+                actual_blocks[notice_key], baseline_blocks[notice_key], 1).encode()
+        assert comparable == baseline[name], ''.join(difflib.unified_diff(
             baseline[name].decode().splitlines(keepends=True),
-            actual.decode().splitlines(keepends=True),
+            comparable.decode().splitlines(keepends=True),
             fromfile=f'consumer-generator/{name}', tofile=f'adapter-generator/{name}'))
-        print(f'{name}.yml: generator-to-generator byte-identical YES')
+        print(f'{name}.yml: generator parity YES (notice native cutover only)')
         expected = (FIXTURE / f'.github/workflows/{name}.yml').read_bytes()
         if name == 'fleet':
             actual_jobs = job_blocks(actual.decode())
@@ -127,6 +254,9 @@ with tempfile.TemporaryDirectory(prefix='workflow-adapters-', dir=ROOT / 'tmp') 
             assert selected, 'No evidence jobs selected'
             assert actual_jobs.keys() == expected_jobs.keys(), 'Consumer job inventory changed'
             for key in selected:
+                if key == notice_key:
+                    notice_migration(actual_jobs[key], expected_jobs[key])
+                    continue
                 assert actual_jobs[key].encode() == expected_jobs[key].encode(), ''.join(
                     difflib.unified_diff(expected_jobs[key].splitlines(keepends=True),
                                          actual_jobs[key].splitlines(keepends=True),
@@ -135,7 +265,7 @@ with tempfile.TemporaryDirectory(prefix='workflow-adapters-', dir=ROOT / 'tmp') 
             assert actual == expected, ''.join(difflib.unified_diff(
                 expected.decode().splitlines(keepends=True), actual.decode().splitlines(keepends=True),
                 fromfile=f'pinned/{name}', tofile=f'rendered/{name}'))
-        print(f'{name}.yml: evidence sections byte-identical YES')
+        print(f'{name}.yml: pinned evidence parity YES (notice native cutover only)')
     print('Workflow adapter strict typecheck and golden test passed')
 
 subprocess.run(['python3', str(ROOT / 'tests/test-generic-evidence.py')], check=True)

@@ -107,6 +107,22 @@
 # tests/fixtures/oracle/keygen.json freezes host/agent provisioning and reuse
 # streams using a deliberately public fixed test key and explicit home template;
 # oracle_corpus.py replays independently, and Rust compares both implementations.
+# Native notice migration: mergemaster evidence presign-notice replaces the
+# copied notice entrypoint and its Python self-test. The 19 independent CPython
+# 3.14.7 recordings in tests/fixtures/oracle/presign-notice.json freeze complete
+# stdout/stderr/exit and summary contents, including append. oracle_corpus.py
+# replays each case against the pinned source and native executable with the
+# same executable git/gh fixtures and isolated environment.
+# Coverage retains signable ordering, one whole-suite command, covered/sampled/
+# shadow/rejected exclusions, fork/merge/lane-edit reasons, all four path-boundary
+# assertions, unreadable lanes/files, noise/placeholders and required lane names/
+# nonempty definition paths. Extra cases cover probe failure, missing BASE_SHA,
+# duplicate decisions, preferred layout and malformed selected JSON.
+# fractal-test-test still extracts the notice reader and asserts identical
+# real-Git layout selection, old-revision isolation, malformed selected config,
+# missing object and missing revision behavior; only its source is now the
+# independent pinned oracle, not a removed local module (mergemaster#401).
+# local-patch scripts/fractal-test-test decb42b9d442807c9601b473c190b3743b24c4c0 64512b587397413f98c5614c7745cc11f472b891
 # local-patch scripts/ci-signed-tree 77a560621f8182d2ca19f622782ff24c95e7d514 2bdd0922a31a6dad544bf6826666efeec68a3466
 # local-patch scripts/ci-signed-tree-test 91612975e7ae383ca5c55b94a19af20b0b1c7df2 9b1877c7407fe1128620fb94e376b66a7fcca8d2
 # Intentional local gate adoption: verification and project subprocesses use the
@@ -462,7 +478,7 @@ scripts/evidence_test_support.py	3590f507364ac813bed170e490149c25561fa2d5	3590f5
 scripts/fractal-test	08a31a9ab85b195c71387a8021cc85d383de75e8	08a31a9ab85b195c71387a8021cc85d383de75e8
 scripts/fractal-test-report	5bc77bf53ec47d0e580d5e4c26e20cb24a0b3f16	5bc77bf53ec47d0e580d5e4c26e20cb24a0b3f16
 scripts/fractal-test-report-test	616e9248c0a584b40590a7682242df337f7dbf93	616e9248c0a584b40590a7682242df337f7dbf93
-scripts/fractal-test-test	608abec5c3044afa1066e39b4ff703be5249b20d	c68a7453452902a88743e0cd4dbbc22eb4976bf0
+scripts/fractal-test-test	608abec5c3044afa1066e39b4ff703be5249b20d	64512b587397413f98c5614c7745cc11f472b891
 scripts/install-git-hooks	5655c13c85772ff65aa7aecfd78326ffd033cd10	5655c13c85772ff65aa7aecfd78326ffd033cd10
 scripts/lane-definition-closure	cee51d7d65d375eb6f5559b403e5acc4eb2f7f5c	cee51d7d65d375eb6f5559b403e5acc4eb2f7f5c
 scripts/lane-definition-closure-test	8ac1eca3d95a681667134167883606fddb73dc58	8ac1eca3d95a681667134167883606fddb73dc58

@@ -91,6 +91,33 @@ export const evidenceGateJobs = ({ checks: evidenceGateChecks, runInputs: eviden
   ],
 }]))
 
+// Base-controlled release provisioning shared by unprivileged evidence producers.
+// Every command propagates failure even when the caller uses an informational fallback.
+// Successful provisioning sets MERGEMASTER; candidate checkout files never select the tool.
+export const provisionEvidenceTool = String.raw`provision_evidence_tool() {
+  local pin revision release_version release_sha256 destination
+  pin=$(git show "$BASE_SHA:.mergemaster/tool-pin.json") || return
+  printf '%s\n' "$pin" | jq -e '
+    .version == 1 and .repository == "compoundingtech/mergemaster"
+    and (.revision | type == "string" and test("^[0-9a-f]{40}\\z"))
+    and (.release.version | type == "string" and test("^v[0-9]+\\.[0-9]+\\.[0-9]+\\z"))
+    and (.release.sha256 | type == "string" and test("^[0-9a-f]{64}\\z"))
+  ' >/dev/null || return
+  revision=$(printf '%s\n' "$pin" | jq -r '.revision') || return
+  release_version=$(printf '%s\n' "$pin" | jq -r '.release.version') || return
+  release_sha256=$(printf '%s\n' "$pin" | jq -r '.release.sha256') || return
+  destination=$(mktemp -d "$RUNNER_TEMP/mergemaster-release.XXXXXX") || return
+  MERGEMASTER="$destination/mergemaster-x86_64-unknown-linux-musl"
+  gh release download "$release_version" --repo compoundingtech/mergemaster \
+    --pattern mergemaster-x86_64-unknown-linux-musl --dir "$destination" >&2 || return
+  printf '%s  %s\n' "$release_sha256" "$MERGEMASTER" | sha256sum --check --status || return
+  gh attestation verify "$MERGEMASTER" --repo compoundingtech/mergemaster \
+    --signer-digest "$revision" --source-digest "$revision" \
+    --signer-workflow compoundingtech/mergemaster/.github/workflows/release.yml \
+    --deny-self-hosted-runners >&2 || return
+  chmod 700 "$MERGEMASTER" || return
+}`
+
 export const evidencePresignNoticeJob = ({ checks: evidenceGateChecks, actions, runner = 'ubuntu-latest' }: GateOptions): WorkflowObject => ({
   name: 'evidence-presign-notice',
   'runs-on': runner,
@@ -110,7 +137,7 @@ export const evidencePresignNoticeJob = ({ checks: evidenceGateChecks, actions, 
         PR_NUMBER: '${{ github.event.pull_request.number }}',
         GH_TOKEN: '${{ github.token }}',
       },
-      run: `git fetch --no-tags --depth=1 -q origin "$BASE_SHA" && git show "$BASE_SHA:scripts/ci-evidence-presign-notice" > "$RUNNER_TEMP/ci-evidence-presign-notice" && python3 "$RUNNER_TEMP/ci-evidence-presign-notice" || echo 'evidence-presign-notice: not at the base yet, or it could not run; nothing to say'`,
+      run: `${provisionEvidenceTool}\ngit fetch --no-tags --depth=1 -q origin "$BASE_SHA" && provision_evidence_tool && "$MERGEMASTER" evidence presign-notice || echo 'evidence-presign-notice: not at the base yet, or it could not run; nothing to say'`,
     },
   ],
 })
