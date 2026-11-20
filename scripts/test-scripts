@@ -3,7 +3,7 @@
 set -euo pipefail
 export PYTHONDONTWRITEBYTECODE=1
 root=$(cd "$(dirname "$0")/.." && pwd)
-oracle=${MERGEMASTER_PYTHON_ORACLE:?run in nix develop or set MERGEMASTER_PYTHON_ORACLE to the pinned Python oracle source}
+: "${MERGEMASTER_PYTHON_ORACLE:?run in nix develop or set MERGEMASTER_PYTHON_ORACLE to the pinned Python oracle source}"
 # Child fixtures invoke the Rust-backed gate, including from private clones.
 # Resolve once before changing cwd/HOME and propagate an absolute binary path.
 verifier=${MERGEMASTER_BIN:-mergemaster}
@@ -16,9 +16,10 @@ MERGEMASTER_BIN=$(realpath "$MERGEMASTER_BIN")
 . "$root/tests/fixtures/fractal/scripts/script-test-supervisor"
 . "$root/tests/fixtures/fractal/scripts/git-env-clean"
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_COUNT=0
-# Discover before overlaying fixtures: fixture-only scripts are not this suite.
+# Discover retained working-tree self-tests before overlaying fixtures: removed
+# leaves must not re-enter this suite from the immutable oracle source.
 tests=()
-for path in "$oracle"/scripts/*-test; do
+for path in "$root"/scripts/*-test; do
   name=${path##*/}
   case "$name" in st-test|fractal-test) continue ;; esac
   tests+=("$name")

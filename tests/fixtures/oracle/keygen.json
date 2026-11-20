@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "oracle": {
+    "environment": "MERGEMASTER_PYTHON_ORACLE",
+    "path": "scripts/evidence-keygen",
+    "rev": "cff667cd53bdb6c024f9d7a06259b8f9a3fbb0cb",
+    "git_blob": "80ca855789c68da714288a8402a204b1a53201d2",
+    "runtime": "CPython 3.14.7"
+  },
+  "recipe": "A fresh home contains only .config/st (0700) and the public test private key (0600). Run host twice, remove only evidence-sign.json, then run agent twice. ${home} expands to the fresh absolute home in argv and stderr. No output is otherwise normalized. Reuse preserves all file bytes, modes and timestamps. This key is public test data, never an enrollment credential.",
+  "cwd": "repository root",
+  "stdin": "",
+  "environment": "inherited; interpreter uses -I; explicit --home isolates account state",
+  "public_test_private_key_base64": "LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQkc1dmJtVUFBQUFFYm05dVpRQUFBQUFBQUFBQkFBQUFNd0FBQUF0emMyZ3RaVwpReU5UVXhPUUFBQUNEemR0dDdLR0RMYzB3K0tWOVJHUTgrTy9sUm0zSk9aVVVOQzZFcW1Za28yd0FBQUtDMGx3NjZ0SmNPCnVnQUFBQXR6YzJndFpXUXlOVFV4T1FBQUFDRHpkdHQ3S0dETGMwdytLVjlSR1E4K08vbFJtM0pPWlVVTkM2RXFtWWtvMncKQUFBRUNXOGhYK0duNGNxOHhROXdEN1VHS1Vhb2VtSEx6aWFEL2ZUNHRVN3NIUXBmTjIyM3NvWU10elRENHBYMUVaRHo0NworVkdiY2s1bFJRMExvU3FaaVNqYkFBQUFHSEIxWW14cFl5MTBaWE4wTFdacGVIUjFjbVV0YjI1c2VRRUNBd1FGCi0tLS0tRU5EIE9QRU5TU0ggUFJJVkFURSBLRVktLS0tLQo=",
+  "cases": [
+    {
+      "id": "host-0",
+      "argv": ["--name", "box-1", "--level", "host", "--home", "${home}"],
+      "stdout": "host/box-1 namespaces=\"git\" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPN223soYMtzTD4pX1EZDz47+VGbck5lRQ0LoSqZiSjb\n",
+      "stderr": "signer host/box-1; key ${home}/.config/st/evidence-sign-key; configuration ${home}/.config/st/evidence-sign.json\nList the printed line in .st/evidence-keys with a pull request.\n",
+      "exit_code": 0
+    },
+    {
+      "id": "host-1",
+      "argv": ["--name", "box-1", "--level", "host", "--home", "${home}"],
+      "stdout": "host/box-1 namespaces=\"git\" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPN223soYMtzTD4pX1EZDz47+VGbck5lRQ0LoSqZiSjb\n",
+      "stderr": "signer host/box-1; key ${home}/.config/st/evidence-sign-key; configuration ${home}/.config/st/evidence-sign.json\nList the printed line in .st/evidence-keys with a pull request.\n",
+      "exit_code": 0
+    },
+    {
+      "id": "agent-0",
+      "argv": ["--name", "box-1", "--level", "agent", "--home", "${home}"],
+      "stdout": "agent/box-1 namespaces=\"git\" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPN223soYMtzTD4pX1EZDz47+VGbck5lRQ0LoSqZiSjb\n",
+      "stderr": "signer agent/box-1; key ${home}/.config/st/evidence-sign-key; configuration ${home}/.config/st/evidence-sign.json\nList the printed line in .st/evidence-keys with a pull request.\n",
+      "exit_code": 0
+    },
+    {
+      "id": "agent-1",
+      "argv": ["--name", "box-1", "--level", "agent", "--home", "${home}"],
+      "stdout": "agent/box-1 namespaces=\"git\" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPN223soYMtzTD4pX1EZDz47+VGbck5lRQ0LoSqZiSjb\n",
+      "stderr": "signer agent/box-1; key ${home}/.config/st/evidence-sign-key; configuration ${home}/.config/st/evidence-sign.json\nList the printed line in .st/evidence-keys with a pull request.\n",
+      "exit_code": 0
+    }
+  ]
+}
