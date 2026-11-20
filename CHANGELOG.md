@@ -8,7 +8,8 @@
 - Bind verdicts only to explicit GO/NO-GO subjects and full head SHAs; ignore casual content and abbreviated SHAs, and resolve named verdicts without consuming mailbox messages.
 - Require the Mergemaster author-agent assertion, serialize merge-gate runs, recheck main before merging, and verify the resulting merge's parents/tree with an explicit revert warning on mismatch.
 - Honor self-addressed author NO-GOs as withdrawals while excluding author GOs only from independent approval counts.
-- Verify the CI-tested merge tree and compare overlap from its first-parent base; describe Fractal sender identity as same-uid asserted rather than server-verified.
+- Verify the CI-tested merge tree and compare overlap from its first-parent base.
+- Refuse to merge when Johannes's personal identity is the author or committer of any PR commit or of the resulting merge commit.
 - Keep Git evidence subprocess selectors correct in both auto-discovered and module-included integration-test targets.
 - Compute PR-owned paths from the three-dot merge base and require a rerun reason for every workflow attempt greater than one at the exact head.
 - Exclude the repository-owned `merge-pr` from the copied Fractal script oracle, with explicit provenance and regression coverage; copied scripts remain byte/mode guarded.
