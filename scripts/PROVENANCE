@@ -42,6 +42,11 @@
 # 79 policy check-name cases, including raw/surrogate keys, duplicate selection,
 # numeric values and every raw/escaped C0 control. Input-generator equality
 # prevents policy matrix drift; pre-existing refusal/sink assertions remain.
+# The exhaustive codepoint encoder freezes per-stream byte counts and SHA-256
+# (including final LF), plus fixed 4096-codepoint block identities for diagnosis.
+# Rust hashes through a formatting sink; on a mismatching block it consults only
+# the pinned oracle to identify the first differing codepoint. Corpus replay
+# independently regenerates all identities; no encoded stream blob is committed.
 # tests/fixtures/oracle/native-assertions.json records each already-native test
 # and its assertion/helper evidence at an exact source revision. It is not a
 # shared-file exemption: Python-backed siblings retain independent freeze work.

@@ -8,6 +8,7 @@
     "argparse/parse/manifest.json",
     "argparse/usage/manifest.json",
     "scalar/output/manifest.json",
-    "scalar/check-names/manifest.json"
+    "scalar/check-names/manifest.json",
+    "scalar/codepoint-encoder/manifest.json"
   ]
 }
