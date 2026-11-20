@@ -275,7 +275,7 @@ def hook(argv):
     if git('status', '--porcelain', '--untracked-files=no').stdout.strip():
         return outcome('not_signing:dirty', 'uncommitted changes to tracked files: not signing (the note is for the committed tree)')
     if not has_signer():
-        say_once('no-signer', 'no signing key is set up on this machine (run scripts/evidence-keygen --name ALIAS and list its line in '
+        say_once('no-signer', 'no signing key is set up on this machine (run mergemaster evidence keygen --name ALIAS and list its line in '
                  '.st/evidence-keys); not signing, the pull request will run in CI. On a machine that stays without a signer, hosted '
                  'CI at the exact head is the proof: push with ST_SKIP_EVIDENCE=1 and say so in the pull request. This is said once '
                  'per machine.')
@@ -284,7 +284,7 @@ def hook(argv):
     if not signer_listed(base):
         return outcome('not_signing:signer_unlisted',
                        'this machine\'s signer is not listed in .st/evidence-keys on main yet, so its notes would not count; not signing '
-                       '(list the line scripts/evidence-keygen prints by pull request). The pull request will run in CI')
+                       '(list the line mergemaster evidence keygen prints by pull request). The pull request will run in CI')
     asked = time.monotonic()
     try:
         status = subprocess.run([sys.executable, str(script), '--status', '--base', base], capture_output=True, text=True,

@@ -78,14 +78,18 @@ configuration under `~/.config/st`. It prints only the allowed-signers enrollmen
 line on stdout; diagnostics go to stderr. Submit that line to `.st/evidence-keys`
 by pull request. Repeating the same invocation preserves the key and configuration;
 conflicting configuration, unsafe ownership/modes and symlink targets are refused.
-The native command requires Git and OpenSSH, not Python. `scripts/evidence-keygen`
-remains unchanged for existing script consumers and as an independent parity oracle;
-it does not require an installed native binary.
+The native command requires Git and OpenSSH, not Python. The legacy keygen
+entrypoints have been removed. Rust integration tests own every former keygen
+self-test and native-parity assertion, running the same cases against the
+independent pinned Python oracle (never a working-tree Python implementation).
+They also check cross-implementation reuse without changing bytes, modes or
+timestamps. Run `nix develop -c cargo test -p mergemaster-evidence --test keygen`
+(non-root).
 
-The focused parity check loads `scripts/evidence-keygen` and every assertion in
-`scripts/evidence-keygen-test` from `MERGEMASTER_PYTHON_ORACLE`, not the working tree,
-and tests both implementations plus cross-implementation reuse and refusal cases:
-`nix develop -c cargo test -p mergemaster-evidence --test keygen` (non-root).
+Frozen host/agent provisioning and reuse recordings use a public test-only key
+in `tests/fixtures/oracle/keygen.json`; `tests/oracle_corpus.py` replays them
+independently. Retained copied self-tests are discovered from this checkout so
+removed leaves cannot silently return from the oracle fixture.
 
 ## Evidence gate SLO counters
 
@@ -918,7 +922,8 @@ No process group or signal forwarding is added; terminal SIGINT stays inherited.
 A grandchild can outlive timeout and hold pipes, but cleanup does not wait for EOF.
 Intentional no-deadline exceptions preserve Python parity: parity-drift's reporter
 Git calls (pinned scripts/parity-drift:33-37), its native default-root lookup for
-tool consistency, and keygen's scratch Git init (scripts/evidence-keygen:55-56,135).
+tool consistency, and keygen's scratch Git init (independent pinned oracle
+`scripts/evidence-keygen:55-56,135`, not a working-tree executable).
 A deadline for those paths would need a separately approved divergence.
 The protected CI fetch instead retains its existing external `timeout` wrapper:
 30 seconds with a 2-second kill-after, not a GitChild deadline. Direct Git fixture
