@@ -4,6 +4,15 @@
 # Repository-owned scripts/merge-pr is not copied from Fractal and has no legacy
 # oracle counterpart. It is explicitly exempt from the byte/mode oracle guard;
 # tests/test-merge-pr.py owns its behavioral regression coverage.
+# Wave 1 SLO removal: scripts/ci-evidence-slo and scripts/ci-evidence-slo-test
+# are tombstoned in tests/python-removals.json. Native entrypoint:
+# mergemaster evidence slo; all former assertions: crates/mergemaster-evidence/tests/slo.rs.
+# tests/fixtures/oracle/slo.json freezes raw CLI bytes, exit codes, API inputs and
+# log-download order against immutable oracle blob 8009b173d74522847dd27f6c77091faf6756e9f5
+# under CPython 3.14.7. tests/oracle_corpus.py replays both implementations.
+# Repository-owned scripts/test-scripts discovers retained working-tree tests,
+# preventing deleted leaves from re-entering through the pinned oracle source.
+# No retained copied-script bytes/modes or LOCAL_PATCHES exceptions change.
 # Migration inventory: tests/python-removals.json version 1 names each scripts/
 # entry, committed fixture, and Python source separately with its removal wave.
 # Every entry starts retained. A removal PR changes only the individual removed

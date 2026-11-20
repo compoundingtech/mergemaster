@@ -87,6 +87,25 @@ The focused parity check loads `scripts/evidence-keygen` and every assertion in
 and tests both implementations plus cross-implementation reuse and refusal cases:
 `nix develop -c cargo test -p mergemaster-evidence --test keygen` (non-root).
 
+## Evidence gate SLO counters
+
+```sh
+mergemaster evidence slo --repository OWNER/NAME --hours 24 --json
+```
+
+This native, read-only command reports completed `Workspace CI` evidence-gate
+decisions by check and event, including skipped/shadow satisfaction, producer
+splits and produced-but-not-verified reasons (target zero). `--since` and `--until`
+accept ISO timestamps; `--max-logs` bounds log downloads (default 300). It requires
+authenticated `gh`, not Python, and never starts runs or writes to GitHub.
+
+`scripts/ci-evidence-slo` and its self-test are removed. Every former self-test
+assertion now lives in `crates/mergemaster-evidence/tests/slo.rs`. The focused check
+is `nix develop -c cargo test -p mergemaster-evidence --test slo`. Frozen CLI
+recordings in `tests/fixtures/oracle/slo.json` are compared byte-for-byte against
+the immutable `MERGEMASTER_PYTHON_ORACLE` source with pinned CPython 3.14.7 and the
+native command, both in that integration test and `tests/oracle_corpus.py`.
+
 ## Copied evidence scripts
 
 The evidence scripts and their self-tests originate from

@@ -69,6 +69,36 @@ def replay_matrices(interpreter):
     print(f"Replayed {len(registry['manifests'])} frozen source matrices")
 
 
+def replay_slo(interpreter):
+    """Replay native SLO CLI bytes and its read-only API calls against frozen Python."""
+    fixture = json.loads((CORPUS.parent / "slo.json").read_text())
+    pin = fixture["oracle"]
+    source = Path(os.environ[pin["environment"]]) / pin["path"]
+    assert git_blob(source.read_bytes()) == pin["git_blob"], "slo: oracle source drift"
+    assert subprocess.check_output([interpreter, "-I", "-c",
+        "import sys; print('.'.join(map(str,sys.version_info[:3])))"]) == b"3.14.7\n"
+    with tempfile.TemporaryDirectory(prefix="mergemaster-slo-") as temporary:
+        root = Path(temporary)
+        gh = root / "gh"
+        gh.write_text(f"#!{interpreter}\n" + fixture["gh_shim"])
+        gh.chmod(0o700)
+        environment = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
+                           SLO_API=str(root / "api.json"), SLO_CALLS=str(root / "calls"))
+        for case in fixture["cases"]:
+            (root / "api.json").write_text(json.dumps(case["api"]))
+            for command in ([str(interpreter), "-I", "-B", str(source)],
+                            [os.environ["MERGEMASTER_BIN"], "evidence", "slo"]):
+                (root / "calls").write_text("")
+                done = subprocess.run([*command, *case["argv"]], cwd=ROOT,
+                                      env=environment, capture_output=True)
+                assert done.returncode == case["exit_code"], (case["id"], command, done.stderr)
+                assert done.stdout == case["stdout"].encode(), (case["id"], command, "stdout")
+                assert done.stderr == case["stderr"].encode(), (case["id"], command, "stderr")
+                calls = [int(line) for line in (root / "calls").read_text().splitlines()]
+                assert calls == case["logs"], (case["id"], command, calls)
+    print(f"Replayed {len(fixture['cases'])} frozen SLO cases against Python and Rust")
+
+
 def replay(record=False):
     manifest = json.loads((CORPUS / "manifest.json").read_text())
     interpreter = Path(os.environ["MERGEMASTER_ORACLE_PYTHON"])
@@ -135,6 +165,7 @@ def replay(record=False):
         expected = json.loads((CORPUS / "recordings.json").read_text())
         assert expected == {"version": 1, "cases": observations}, "frozen oracle observations changed"
         print(f"Replayed {len(observations)} frozen oracle cases")
+        replay_slo(interpreter)
         replay_matrices(interpreter)
 
 

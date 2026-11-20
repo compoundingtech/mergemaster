@@ -1,0 +1,3892 @@
+{
+  "version": 1,
+  "oracle": {
+    "environment": "MERGEMASTER_PYTHON_ORACLE",
+    "path": "scripts/ci-evidence-slo",
+    "git_blob": "8009b173d74522847dd27f6c77091faf6756e9f5",
+    "runtime": "CPython 3.14.7"
+  },
+  "recipe": "Fixed interval; fake read-only gh REST API returns two pages. No stdout/stderr normalization. Each case runs in an isolated temporary directory with only gh shim prepended to PATH. API log calls are recorded in order.",
+  "gh_shim": "import json, os, sys\nfrom pathlib import Path\napi = json.loads(Path(os.environ['SLO_API']).read_text())\nassert sys.argv[1:3] == ['api', '--allow-escape-sequences'], sys.argv\npath = sys.argv[3]\nif api.get('error'):\n    sys.stderr.write(api['error']); sys.exit(1)\nif '/logs' in path:\n    assert len(sys.argv) == 4\n    job = path.split('/jobs/')[1].split('/')[0]\n    with open(os.environ['SLO_CALLS'], 'a') as calls: calls.write(job + '\\n')\n    entry = api['logs'].get(job, '')\n    if isinstance(entry, dict): sys.exit(entry['exit_code'])\n    sys.stdout.write(entry)\nelse:\n    assert sys.argv[4:] == ['--paginate', '--slurp'], sys.argv\n    if '/workflows/fleet.yml/runs' in path:\n        key, data = 'workflow_runs', api['runs']\n    else:\n        key, data = 'jobs', api['jobs'][path.split('/runs/')[1].split('/')[0]]\n    print(json.dumps([{key: data[:1]}, {key: data[1:]}]))\n",
+  "cases": [
+    {
+      "id": "counters",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00Z",
+        "--until",
+        "2026-10-18T12:00:00Z",
+        "--json"
+      ],
+      "api": {
+        "runs": [
+          {
+            "id": 1,
+            "event": "pull_request",
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 2,
+            "event": "pull_request",
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 3,
+            "event": "merge_group",
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 4,
+            "event": "pull_request",
+            "status": "in_progress",
+            "conclusion": "success"
+          }
+        ],
+        "jobs": {
+          "1": [
+            {
+              "id": 11,
+              "name": "evidence-gate-linux-gate",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            },
+            {
+              "id": 12,
+              "name": "evidence-gate-genie-freshness",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            },
+            {
+              "id": 13,
+              "name": "evidence-gate-typescript-client",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            }
+          ],
+          "2": [
+            {
+              "id": 21,
+              "name": "evidence-gate-linux-gate",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 22,
+              "name": "evidence-gate-genie-freshness",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            },
+            {
+              "id": 23,
+              "name": "evidence-gate-typescript-client",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            },
+            {
+              "id": 24,
+              "name": "evidence-gate-isolation-vm",
+              "status": "in_progress",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            }
+          ],
+          "3": [
+            {
+              "id": 31,
+              "name": "evidence-gate-linux-gate",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            },
+            {
+              "id": 32,
+              "name": "linux-tests",
+              "status": "completed",
+              "steps": []
+            }
+          ],
+          "4": [
+            {
+              "id": 41,
+              "name": "evidence-gate-linux-gate",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            }
+          ]
+        },
+        "logs": {
+          "11": "run: python3 gate || { echo \"evidence-decision v1 check=$CHECK decision=run outcome=unavailable reason=no-gate-at-base run=$RUN_ID\"; }\nnoise\nevidence-decision v1 kind=wrapper trust_level=host signer=host/box gate_sha256=abc123\nmore noise",
+          "21": "run: python3 gate || { echo \"evidence-decision v1 check=$CHECK decision=run outcome=unavailable reason=no-gate-at-base run=$RUN_ID\"; }\nnoise\nevidence-decision v1 kind=observed trust_level=fleet gate_sha256=abc123\nmore noise",
+          "31": "run: python3 gate || { echo \"evidence-decision v1 check=$CHECK decision=run outcome=unavailable reason=no-gate-at-base run=$RUN_ID\"; }\nnoise\nevidence-decision v1 kind=observed trust_level=fleet gate_sha256=abc123\nmore noise",
+          "13": "run: python3 gate || { echo \"evidence-decision v1 check=$CHECK decision=run outcome=unavailable reason=no-gate-at-base run=$RUN_ID\"; }\nnoise\nevidence-decision v1 reason=untrusted_signer gate_sha256=abc123\nmore noise",
+          "22": "run: python3 gate || { echo \"evidence-decision v1 check=$CHECK decision=run outcome=unavailable reason=no-gate-at-base run=$RUN_ID\"; }\nnoise\nevidence-decision v1 reason=degraded gate_sha256=abc123\nmore noise"
+        }
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00+00:00\",\n    \"until\": \"2026-10-18T12:00:00+00:00\"\n  },\n  \"runs_read\": 3,\n  \"logs_read\": 5,\n  \"totals\": {\n    \"decisions\": 7,\n    \"satisfied\": 3,\n    \"produced_not_verified\": 2\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": [\n    {\n      \"check\": \"genie-freshness\",\n      \"event\": \"pull_request\",\n      \"decisions\": 2,\n      \"satisfied\": 0,\n      \"skipped\": 0,\n      \"shadow\": 0,\n      \"satisfied_rate\": 0.0,\n      \"satisfied_by_producer\": {},\n      \"produced_not_verified\": 1,\n      \"rejected\": 0,\n      \"degraded\": 1,\n      \"produced_not_verified_rate\": 0.5,\n      \"produced_not_verified_reasons\": {\n        \"degraded\": 1\n      },\n      \"no_note\": 1,\n      \"unavailable\": 0,\n      \"gate_incomplete\": 0\n    },\n    {\n      \"check\": \"linux-gate\",\n      \"event\": \"merge_group\",\n      \"decisions\": 1,\n      \"satisfied\": 1,\n      \"skipped\": 0,\n      \"shadow\": 1,\n      \"satisfied_rate\": 1.0,\n      \"satisfied_by_producer\": {\n        \"observed/fleet\": 1\n      },\n      \"produced_not_verified\": 0,\n      \"rejected\": 0,\n      \"degraded\": 0,\n      \"produced_not_verified_rate\": 0.0,\n      \"produced_not_verified_reasons\": {},\n      \"no_note\": 0,\n      \"unavailable\": 0,\n      \"gate_incomplete\": 0\n    },\n    {\n      \"check\": \"linux-gate\",\n      \"event\": \"pull_request\",\n      \"decisions\": 2,\n      \"satisfied\": 2,\n      \"skipped\": 1,\n      \"shadow\": 1,\n      \"satisfied_rate\": 1.0,\n      \"satisfied_by_producer\": {\n        \"wrapper/host\": 1,\n        \"observed/fleet\": 1\n      },\n      \"produced_not_verified\": 0,\n      \"rejected\": 0,\n      \"degraded\": 0,\n      \"produced_not_verified_rate\": 0.0,\n      \"produced_not_verified_reasons\": {},\n      \"no_note\": 0,\n      \"unavailable\": 0,\n      \"gate_incomplete\": 0\n    },\n    {\n      \"check\": \"typescript-client\",\n      \"event\": \"pull_request\",\n      \"decisions\": 2,\n      \"satisfied\": 0,\n      \"skipped\": 0,\n      \"shadow\": 0,\n      \"satisfied_rate\": 0.0,\n      \"satisfied_by_producer\": {},\n      \"produced_not_verified\": 1,\n      \"rejected\": 1,\n      \"degraded\": 0,\n      \"produced_not_verified_rate\": 0.5,\n      \"produced_not_verified_reasons\": {\n        \"untrusted_signer\": 1\n      },\n      \"no_note\": 0,\n      \"unavailable\": 1,\n      \"gate_incomplete\": 0\n    }\n  ]\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": [
+        11,
+        13,
+        21,
+        22,
+        31
+      ]
+    },
+    {
+      "id": "text",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00Z",
+        "--until",
+        "2026-10-18T12:00:00Z"
+      ],
+      "api": {
+        "runs": [
+          {
+            "id": 1,
+            "event": "pull_request",
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 2,
+            "event": "pull_request",
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 3,
+            "event": "merge_group",
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 4,
+            "event": "pull_request",
+            "status": "in_progress",
+            "conclusion": "success"
+          }
+        ],
+        "jobs": {
+          "1": [
+            {
+              "id": 11,
+              "name": "evidence-gate-linux-gate",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            },
+            {
+              "id": 12,
+              "name": "evidence-gate-genie-freshness",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            },
+            {
+              "id": 13,
+              "name": "evidence-gate-typescript-client",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            }
+          ],
+          "2": [
+            {
+              "id": 21,
+              "name": "evidence-gate-linux-gate",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 22,
+              "name": "evidence-gate-genie-freshness",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            },
+            {
+              "id": 23,
+              "name": "evidence-gate-typescript-client",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            },
+            {
+              "id": 24,
+              "name": "evidence-gate-isolation-vm",
+              "status": "in_progress",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            }
+          ],
+          "3": [
+            {
+              "id": 31,
+              "name": "evidence-gate-linux-gate",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            },
+            {
+              "id": 32,
+              "name": "linux-tests",
+              "status": "completed",
+              "steps": []
+            }
+          ],
+          "4": [
+            {
+              "id": 41,
+              "name": "evidence-gate-linux-gate",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            }
+          ]
+        },
+        "logs": {
+          "11": "run: python3 gate || { echo \"evidence-decision v1 check=$CHECK decision=run outcome=unavailable reason=no-gate-at-base run=$RUN_ID\"; }\nnoise\nevidence-decision v1 kind=wrapper trust_level=host signer=host/box gate_sha256=abc123\nmore noise",
+          "21": "run: python3 gate || { echo \"evidence-decision v1 check=$CHECK decision=run outcome=unavailable reason=no-gate-at-base run=$RUN_ID\"; }\nnoise\nevidence-decision v1 kind=observed trust_level=fleet gate_sha256=abc123\nmore noise",
+          "31": "run: python3 gate || { echo \"evidence-decision v1 check=$CHECK decision=run outcome=unavailable reason=no-gate-at-base run=$RUN_ID\"; }\nnoise\nevidence-decision v1 kind=observed trust_level=fleet gate_sha256=abc123\nmore noise",
+          "13": "run: python3 gate || { echo \"evidence-decision v1 check=$CHECK decision=run outcome=unavailable reason=no-gate-at-base run=$RUN_ID\"; }\nnoise\nevidence-decision v1 reason=untrusted_signer gate_sha256=abc123\nmore noise",
+          "22": "run: python3 gate || { echo \"evidence-decision v1 check=$CHECK decision=run outcome=unavailable reason=no-gate-at-base run=$RUN_ID\"; }\nnoise\nevidence-decision v1 reason=degraded gate_sha256=abc123\nmore noise"
+        }
+      },
+      "stdout": "evidence gate, 2026-10-17T12:00:00+00:00 .. 2026-10-18T12:00:00+00:00: 3 runs, 5 logs read\ntotals: 7 decisions, 3 satisfied by an existing note, 2 produced-but-not-verified (target 0)\n  genie-freshness            pull_request decisions=2    satisfied=0    (0.0%) skipped=0 by=- bad=1 {'degraded': 1}\n  linux-gate                 merge_group  decisions=1    satisfied=1    (100.0%) skipped=0 by={'observed/fleet': 1} bad=0 \n  linux-gate                 pull_request decisions=2    satisfied=2    (100.0%) skipped=1 by={'wrapper/host': 1, 'observed/fleet': 1} bad=0 \n  typescript-client          pull_request decisions=2    satisfied=0    (0.0%) skipped=0 by=- bad=1 {'untrusted_signer': 1}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": [
+        11,
+        13,
+        21,
+        22,
+        31
+      ]
+    },
+    {
+      "id": "incomplete",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00Z",
+        "--until",
+        "2026-10-18T12:00:00Z",
+        "--json"
+      ],
+      "api": {
+        "runs": [
+          {
+            "id": 1,
+            "event": "pull_request",
+            "status": "completed",
+            "conclusion": "success"
+          }
+        ],
+        "jobs": {
+          "1": [
+            {
+              "id": 11,
+              "name": "evidence-gate-linux-gate",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            }
+          ]
+        },
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00+00:00\",\n    \"until\": \"2026-10-18T12:00:00+00:00\"\n  },\n  \"runs_read\": 1,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": [\n    {\n      \"check\": \"linux-gate\",\n      \"event\": \"pull_request\",\n      \"decisions\": 0,\n      \"satisfied\": 0,\n      \"skipped\": 0,\n      \"shadow\": 0,\n      \"satisfied_rate\": null,\n      \"satisfied_by_producer\": {},\n      \"produced_not_verified\": 0,\n      \"rejected\": 0,\n      \"degraded\": 0,\n      \"produced_not_verified_rate\": null,\n      \"produced_not_verified_reasons\": {},\n      \"no_note\": 0,\n      \"unavailable\": 0,\n      \"gate_incomplete\": 1\n    }\n  ]\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "budget",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00Z",
+        "--until",
+        "2026-10-18T12:00:00Z",
+        "--json",
+        "--max-logs",
+        "2"
+      ],
+      "api": {
+        "runs": [
+          {
+            "id": 1,
+            "event": "pull_request",
+            "status": "completed",
+            "conclusion": "success"
+          }
+        ],
+        "jobs": {
+          "1": [
+            {
+              "id": 10,
+              "name": "evidence-gate-linux-gate",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            },
+            {
+              "id": 11,
+              "name": "evidence-gate-linux-gate",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            },
+            {
+              "id": 12,
+              "name": "evidence-gate-linux-gate",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            },
+            {
+              "id": 13,
+              "name": "evidence-gate-linux-gate",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            },
+            {
+              "id": 14,
+              "name": "evidence-gate-linux-gate",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            }
+          ]
+        },
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00+00:00\",\n    \"until\": \"2026-10-18T12:00:00+00:00\"\n  },\n  \"runs_read\": 1,\n  \"logs_read\": 2,\n  \"totals\": {\n    \"decisions\": 5,\n    \"satisfied\": 5,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": [\n    {\n      \"check\": \"linux-gate\",\n      \"event\": \"pull_request\",\n      \"decisions\": 5,\n      \"satisfied\": 5,\n      \"skipped\": 0,\n      \"shadow\": 5,\n      \"satisfied_rate\": 1.0,\n      \"satisfied_by_producer\": {\n        \"?/?\": 2,\n        \"unread\": 3\n      },\n      \"produced_not_verified\": 0,\n      \"rejected\": 0,\n      \"degraded\": 0,\n      \"produced_not_verified_rate\": 0.0,\n      \"produced_not_verified_reasons\": {},\n      \"no_note\": 0,\n      \"unavailable\": 0,\n      \"gate_incomplete\": 0\n    }\n  ]\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": [
+        10,
+        11
+      ]
+    },
+    {
+      "id": "empty",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00Z",
+        "--until",
+        "2026-10-18T12:00:00Z",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00+00:00\",\n    \"until\": \"2026-10-18T12:00:00+00:00\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "api-error",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00Z",
+        "--until",
+        "2026-10-18T12:00:00Z",
+        "--json"
+      ],
+      "api": {
+        "error": "rate limited"
+      },
+      "stdout": "",
+      "stderr": "could not read the runs: RuntimeError: gh api repos/org/repo/actions/workflows/fleet.yml/runs?per_page=100&created=2026-10-17T12:00:00Z..2026-10-18T12:00:00Z: rate limited\n",
+      "exit_code": 1,
+      "logs": []
+    },
+    {
+      "id": "bad-hours",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00Z",
+        "--until",
+        "2026-10-18T12:00:00Z",
+        "--hours",
+        "0"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "",
+      "stderr": "bad --repository, --hours or --max-logs\n",
+      "exit_code": 2,
+      "logs": []
+    },
+    {
+      "id": "bad-since",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00Z",
+        "--until",
+        "2026-10-18T12:00:00Z",
+        "--since",
+        "yesterday"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "",
+      "stderr": "bad --since or --until\n",
+      "exit_code": 2,
+      "logs": []
+    },
+    {
+      "id": "reversed",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00Z",
+        "--until",
+        "2026-10-18T12:00:00Z",
+        "--since",
+        "2026-10-19T00:00:00Z"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "",
+      "stderr": "--since must be before --until\n",
+      "exit_code": 2,
+      "logs": []
+    },
+    {
+      "id": "bad-budget",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00Z",
+        "--until",
+        "2026-10-18T12:00:00Z",
+        "--max-logs",
+        "-1"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "",
+      "stderr": "bad --repository, --hours or --max-logs\n",
+      "exit_code": 2,
+      "logs": []
+    },
+    {
+      "id": "bad-repository",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00Z",
+        "--until",
+        "2026-10-18T12:00:00Z",
+        "--repository",
+        "bad repo"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "",
+      "stderr": "bad --repository, --hours or --max-logs\n",
+      "exit_code": 2,
+      "logs": []
+    },
+    {
+      "id": "help",
+      "argv": [
+        "--help"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "usage: ci-evidence-slo [-h] --repository REPOSITORY [--hours HOURS]\n                       [--since SINCE] [--until UNTIL] [--max-logs MAX_LOGS]\n                       [--json]\n\nSLO counters for the evidence gate: how often is a required check covered by\nan existing note, by whom, and how often is a note produced but not verified.\n\noptions:\n  -h, --help            show this help message and exit\n  --repository REPOSITORY\n  --hours HOURS\n  --since SINCE\n  --until UNTIL\n  --max-logs MAX_LOGS\n  --json\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "missing",
+      "argv": [],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "",
+      "stderr": "usage: ci-evidence-slo [-h] --repository REPOSITORY [--hours HOURS]\n                       [--since SINCE] [--until UNTIL] [--max-logs MAX_LOGS]\n                       [--json]\nci-evidence-slo: error: the following arguments are required: --repository\n",
+      "exit_code": 2,
+      "logs": []
+    },
+    {
+      "id": "unknown",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00Z",
+        "--until",
+        "2026-10-18T12:00:00Z",
+        "--wat"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "",
+      "stderr": "usage: ci-evidence-slo [-h] --repository REPOSITORY [--hours HOURS]\n                       [--since SINCE] [--until UNTIL] [--max-logs MAX_LOGS]\n                       [--json]\nci-evidence-slo: error: unrecognized arguments: --wat\n",
+      "exit_code": 2,
+      "logs": []
+    },
+    {
+      "id": "invalid-float",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00Z",
+        "--until",
+        "2026-10-18T12:00:00Z",
+        "--hours",
+        "potato"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "",
+      "stderr": "usage: ci-evidence-slo [-h] --repository REPOSITORY [--hours HOURS]\n                       [--since SINCE] [--until UNTIL] [--max-logs MAX_LOGS]\n                       [--json]\nci-evidence-slo: error: argument --hours: invalid float value: 'potato'\n",
+      "exit_code": 2,
+      "logs": []
+    },
+    {
+      "id": "invalid-int",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00Z",
+        "--until",
+        "2026-10-18T12:00:00Z",
+        "--max-logs",
+        "1.5"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "",
+      "stderr": "usage: ci-evidence-slo [-h] --repository REPOSITORY [--hours HOURS]\n                       [--since SINCE] [--until UNTIL] [--max-logs MAX_LOGS]\n                       [--json]\nci-evidence-slo: error: argument --max-logs: invalid int value: '1.5'\n",
+      "exit_code": 2,
+      "logs": []
+    },
+    {
+      "id": "missing-value",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00Z",
+        "--until",
+        "2026-10-18T12:00:00Z",
+        "--since"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "",
+      "stderr": "usage: ci-evidence-slo [-h] --repository REPOSITORY [--hours HOURS]\n                       [--since SINCE] [--until UNTIL] [--max-logs MAX_LOGS]\n                       [--json]\nci-evidence-slo: error: argument --since: expected one argument\n",
+      "exit_code": 2,
+      "logs": []
+    },
+    {
+      "id": "zero-budget",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00Z",
+        "--until",
+        "2026-10-18T12:00:00Z",
+        "--json",
+        "--max-logs",
+        "0"
+      ],
+      "api": {
+        "runs": [
+          {
+            "id": 1,
+            "event": "pull_request",
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 2,
+            "event": "pull_request",
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 3,
+            "event": "merge_group",
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "id": 4,
+            "event": "pull_request",
+            "status": "in_progress",
+            "conclusion": "success"
+          }
+        ],
+        "jobs": {
+          "1": [
+            {
+              "id": 11,
+              "name": "evidence-gate-linux-gate",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            },
+            {
+              "id": 12,
+              "name": "evidence-gate-genie-freshness",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            },
+            {
+              "id": 13,
+              "name": "evidence-gate-typescript-client",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            }
+          ],
+          "2": [
+            {
+              "id": 21,
+              "name": "evidence-gate-linux-gate",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 22,
+              "name": "evidence-gate-genie-freshness",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            },
+            {
+              "id": 23,
+              "name": "evidence-gate-typescript-client",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            },
+            {
+              "id": 24,
+              "name": "evidence-gate-isolation-vm",
+              "status": "in_progress",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            }
+          ],
+          "3": [
+            {
+              "id": 31,
+              "name": "evidence-gate-linux-gate",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            },
+            {
+              "id": 32,
+              "name": "linux-tests",
+              "status": "completed",
+              "steps": []
+            }
+          ],
+          "4": [
+            {
+              "id": 41,
+              "name": "evidence-gate-linux-gate",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            }
+          ]
+        },
+        "logs": {
+          "11": "run: python3 gate || { echo \"evidence-decision v1 check=$CHECK decision=run outcome=unavailable reason=no-gate-at-base run=$RUN_ID\"; }\nnoise\nevidence-decision v1 kind=wrapper trust_level=host signer=host/box gate_sha256=abc123\nmore noise",
+          "21": "run: python3 gate || { echo \"evidence-decision v1 check=$CHECK decision=run outcome=unavailable reason=no-gate-at-base run=$RUN_ID\"; }\nnoise\nevidence-decision v1 kind=observed trust_level=fleet gate_sha256=abc123\nmore noise",
+          "31": "run: python3 gate || { echo \"evidence-decision v1 check=$CHECK decision=run outcome=unavailable reason=no-gate-at-base run=$RUN_ID\"; }\nnoise\nevidence-decision v1 kind=observed trust_level=fleet gate_sha256=abc123\nmore noise",
+          "13": "run: python3 gate || { echo \"evidence-decision v1 check=$CHECK decision=run outcome=unavailable reason=no-gate-at-base run=$RUN_ID\"; }\nnoise\nevidence-decision v1 reason=untrusted_signer gate_sha256=abc123\nmore noise",
+          "22": "run: python3 gate || { echo \"evidence-decision v1 check=$CHECK decision=run outcome=unavailable reason=no-gate-at-base run=$RUN_ID\"; }\nnoise\nevidence-decision v1 reason=degraded gate_sha256=abc123\nmore noise"
+        }
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00+00:00\",\n    \"until\": \"2026-10-18T12:00:00+00:00\"\n  },\n  \"runs_read\": 3,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 7,\n    \"satisfied\": 3,\n    \"produced_not_verified\": 2\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": [\n    {\n      \"check\": \"genie-freshness\",\n      \"event\": \"pull_request\",\n      \"decisions\": 2,\n      \"satisfied\": 0,\n      \"skipped\": 0,\n      \"shadow\": 0,\n      \"satisfied_rate\": 0.0,\n      \"satisfied_by_producer\": {},\n      \"produced_not_verified\": 1,\n      \"rejected\": 0,\n      \"degraded\": 1,\n      \"produced_not_verified_rate\": 0.5,\n      \"produced_not_verified_reasons\": {},\n      \"no_note\": 1,\n      \"unavailable\": 0,\n      \"gate_incomplete\": 0\n    },\n    {\n      \"check\": \"linux-gate\",\n      \"event\": \"merge_group\",\n      \"decisions\": 1,\n      \"satisfied\": 1,\n      \"skipped\": 0,\n      \"shadow\": 1,\n      \"satisfied_rate\": 1.0,\n      \"satisfied_by_producer\": {\n        \"unread\": 1\n      },\n      \"produced_not_verified\": 0,\n      \"rejected\": 0,\n      \"degraded\": 0,\n      \"produced_not_verified_rate\": 0.0,\n      \"produced_not_verified_reasons\": {},\n      \"no_note\": 0,\n      \"unavailable\": 0,\n      \"gate_incomplete\": 0\n    },\n    {\n      \"check\": \"linux-gate\",\n      \"event\": \"pull_request\",\n      \"decisions\": 2,\n      \"satisfied\": 2,\n      \"skipped\": 1,\n      \"shadow\": 1,\n      \"satisfied_rate\": 1.0,\n      \"satisfied_by_producer\": {\n        \"unread\": 2\n      },\n      \"produced_not_verified\": 0,\n      \"rejected\": 0,\n      \"degraded\": 0,\n      \"produced_not_verified_rate\": 0.0,\n      \"produced_not_verified_reasons\": {},\n      \"no_note\": 0,\n      \"unavailable\": 0,\n      \"gate_incomplete\": 0\n    },\n    {\n      \"check\": \"typescript-client\",\n      \"event\": \"pull_request\",\n      \"decisions\": 2,\n      \"satisfied\": 0,\n      \"skipped\": 0,\n      \"shadow\": 0,\n      \"satisfied_rate\": 0.0,\n      \"satisfied_by_producer\": {},\n      \"produced_not_verified\": 1,\n      \"rejected\": 1,\n      \"degraded\": 0,\n      \"produced_not_verified_rate\": 0.5,\n      \"produced_not_verified_reasons\": {},\n      \"no_note\": 0,\n      \"unavailable\": 1,\n      \"gate_incomplete\": 0\n    }\n  ]\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "hours-offset",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--hours",
+        "0.5",
+        "--until",
+        "2026-10-18T12:00:00.123456+02:30",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-18T11:30:00.123456+02:30\",\n    \"until\": \"2026-10-18T12:00:00.123456+02:30\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "decision-lines",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00Z",
+        "--until",
+        "2026-10-18T12:00:00Z",
+        "--json"
+      ],
+      "api": {
+        "runs": [
+          {
+            "id": 1,
+            "event": "push",
+            "status": "completed",
+            "conclusion": "success"
+          }
+        ],
+        "jobs": {
+          "1": [
+            {
+              "id": 51,
+              "name": "evidence-gate-odd._-check",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            },
+            {
+              "id": 52,
+              "name": "evidence-gate-odd._-check",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            },
+            {
+              "id": 53,
+              "name": "evidence-gate-odd._-check",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            },
+            {
+              "id": 54,
+              "name": "evidence-gate-odd._-check",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            }
+          ]
+        },
+        "logs": {
+          "51": "run: python3 gate || { echo \"evidence-decision v1 check=$CHECK decision=run outcome=unavailable reason=no-gate-at-base run=$RUN_ID\"; }\nevidence-decision v1 kind=wrong trust_level=wrong\n\u001b[31mevidence-decision v1 kind=observed trust_level=fleet gate_sha256=abc\u001b[0m\n",
+          "52": {
+            "exit_code": 1
+          },
+          "53": "run: python3 gate || { echo \"evidence-decision v1 check=$CHECK decision=run outcome=unavailable reason=no-gate-at-base run=$RUN_ID\"; }\nnoise\nevidence-decision v1 reason=quote'and-\u00e9 gate_sha256=abc123\nmore noise",
+          "54": "no real decision\n"
+        }
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00+00:00\",\n    \"until\": \"2026-10-18T12:00:00+00:00\"\n  },\n  \"runs_read\": 1,\n  \"logs_read\": 4,\n  \"totals\": {\n    \"decisions\": 4,\n    \"satisfied\": 2,\n    \"produced_not_verified\": 2\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": [\n    {\n      \"check\": \"odd._-check\",\n      \"event\": \"push\",\n      \"decisions\": 4,\n      \"satisfied\": 2,\n      \"skipped\": 0,\n      \"shadow\": 2,\n      \"satisfied_rate\": 0.5,\n      \"satisfied_by_producer\": {\n        \"observed/fleet\": 1,\n        \"?/?\": 1\n      },\n      \"produced_not_verified\": 2,\n      \"rejected\": 1,\n      \"degraded\": 1,\n      \"produced_not_verified_rate\": 0.5,\n      \"produced_not_verified_reasons\": {\n        \"quote'and-\\u00e9\": 1,\n        \"?\": 1\n      },\n      \"no_note\": 0,\n      \"unavailable\": 0,\n      \"gate_incomplete\": 0\n    }\n  ]\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": [
+        51,
+        52,
+        53,
+        54
+      ]
+    },
+    {
+      "id": "decision-lines-text",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00Z",
+        "--until",
+        "2026-10-18T12:00:00Z"
+      ],
+      "api": {
+        "runs": [
+          {
+            "id": 1,
+            "event": "push",
+            "status": "completed",
+            "conclusion": "success"
+          }
+        ],
+        "jobs": {
+          "1": [
+            {
+              "id": 51,
+              "name": "evidence-gate-odd._-check",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            },
+            {
+              "id": 52,
+              "name": "evidence-gate-odd._-check",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            },
+            {
+              "id": 53,
+              "name": "evidence-gate-odd._-check",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            },
+            {
+              "id": 54,
+              "name": "evidence-gate-odd._-check",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "Set up job",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence existing note is degraded",
+                  "conclusion": "success"
+                },
+                {
+                  "name": "evidence no note",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence verifier unavailable",
+                  "conclusion": "skipped"
+                },
+                {
+                  "name": "evidence skip taken",
+                  "conclusion": "skipped"
+                }
+              ]
+            }
+          ]
+        },
+        "logs": {
+          "51": "run: python3 gate || { echo \"evidence-decision v1 check=$CHECK decision=run outcome=unavailable reason=no-gate-at-base run=$RUN_ID\"; }\nevidence-decision v1 kind=wrong trust_level=wrong\n\u001b[31mevidence-decision v1 kind=observed trust_level=fleet gate_sha256=abc\u001b[0m\n",
+          "52": {
+            "exit_code": 1
+          },
+          "53": "run: python3 gate || { echo \"evidence-decision v1 check=$CHECK decision=run outcome=unavailable reason=no-gate-at-base run=$RUN_ID\"; }\nnoise\nevidence-decision v1 reason=quote'and-\u00e9 gate_sha256=abc123\nmore noise",
+          "54": "no real decision\n"
+        }
+      },
+      "stdout": "evidence gate, 2026-10-17T12:00:00+00:00 .. 2026-10-18T12:00:00+00:00: 1 runs, 4 logs read\ntotals: 4 decisions, 2 satisfied by an existing note, 2 produced-but-not-verified (target 0)\n  odd._-check                push         decisions=4    satisfied=2    (50.0%) skipped=0 by={'observed/fleet': 1, '?/?': 1} bad=2 {\"quote'and-\u00e9\": 1, '?': 1}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": [
+        51,
+        52,
+        53,
+        54
+      ]
+    },
+    {
+      "id": "rounded-rates",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00Z",
+        "--until",
+        "2026-10-18T12:00:00Z",
+        "--json",
+        "--max-logs",
+        "0"
+      ],
+      "api": {
+        "runs": [
+          {
+            "id": 1,
+            "event": "pull_request",
+            "status": "completed",
+            "conclusion": "success"
+          }
+        ],
+        "jobs": {
+          "1": [
+            {
+              "id": 1,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence satisfied by existing note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 2,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 3,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 4,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence note rejected",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 5,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 6,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 7,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 8,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 9,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 10,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 11,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 12,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 13,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 14,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 15,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 16,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 17,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 18,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 19,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 20,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 21,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 22,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 23,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 24,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 25,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 26,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 27,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 28,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 29,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 30,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 31,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 32,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 33,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 34,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 35,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 36,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 37,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 38,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 39,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 40,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 41,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 42,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 43,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 44,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 45,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 46,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 47,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 48,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 49,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 50,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 51,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 52,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 53,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 54,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 55,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 56,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 57,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 58,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 59,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 60,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 61,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 62,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 63,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 64,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 65,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 66,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 67,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 68,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 69,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 70,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 71,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 72,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 73,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 74,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 75,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 76,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 77,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 78,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 79,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 80,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 81,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 82,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 83,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 84,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 85,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 86,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 87,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 88,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 89,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 90,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 91,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 92,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 93,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 94,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 95,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 96,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 97,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 98,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 99,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 100,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 101,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 102,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 103,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 104,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 105,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 106,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 107,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 108,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 109,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 110,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 111,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 112,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 113,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 114,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 115,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 116,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 117,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 118,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 119,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 120,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 121,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 122,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 123,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 124,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 125,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 126,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 127,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 128,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 129,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 130,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 131,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 132,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 133,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 134,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 135,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 136,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 137,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 138,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 139,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 140,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 141,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 142,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 143,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 144,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 145,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 146,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 147,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 148,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 149,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 150,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 151,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 152,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 153,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 154,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 155,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 156,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 157,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 158,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 159,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            },
+            {
+              "id": 160,
+              "name": "evidence-gate-rounding",
+              "status": "completed",
+              "steps": [
+                {
+                  "name": "evidence no note",
+                  "conclusion": "success"
+                }
+              ]
+            }
+          ]
+        },
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00+00:00\",\n    \"until\": \"2026-10-18T12:00:00+00:00\"\n  },\n  \"runs_read\": 1,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 160,\n    \"satisfied\": 1,\n    \"produced_not_verified\": 3\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": [\n    {\n      \"check\": \"rounding\",\n      \"event\": \"pull_request\",\n      \"decisions\": 160,\n      \"satisfied\": 1,\n      \"skipped\": 0,\n      \"shadow\": 1,\n      \"satisfied_rate\": 0.0063,\n      \"satisfied_by_producer\": {\n        \"unread\": 1\n      },\n      \"produced_not_verified\": 3,\n      \"rejected\": 3,\n      \"degraded\": 0,\n      \"produced_not_verified_rate\": 0.0187,\n      \"produced_not_verified_reasons\": {},\n      \"no_note\": 156,\n      \"unavailable\": 0,\n      \"gate_incomplete\": 0\n    }\n  ]\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    }
+  ]
+}
