@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [0.11.0] - 2026-11-20
 
 - Bind report-only queue batches with ordered repeatable `--member` heads, exact two-parent first-parent-chain validation back to BASE, precise `source_unbound` diagnostics, and additive v1 `queue_binding` metadata; preserve the no-member single-PR form.
 - Add a fail-closed merge-time PR gate with durable independent exact-head verdicts, sensitive-path second review, hosted CI attempt/overlap checks, and local merge-tree verification.
