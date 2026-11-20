@@ -31,8 +31,7 @@ for revision,inputs,names in [(tree,None,[]),(tree,base,[]),(tree,base,['z']),(t
 print(json.dumps(cases))
 "#;
     let repo = tempfile::tempdir().unwrap();
-    let tool = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/fixtures/fractal/scripts/rust-test-keys");
+    let tool = crate::pinned_python::keys_oracle();
     let out = crate::pinned_python::command()
         .args(["-c", script])
         .arg(tool)
@@ -158,10 +157,7 @@ print(json.dumps(cases))
         .args(["-c", script])
         .arg(std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap())
         .arg(repo.path())
-        .arg(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../tests/fixtures/fractal/scripts/rust-test-keys"),
-        )
+        .arg(crate::pinned_python::keys_oracle())
         .output()
         .unwrap();
     assert!(
@@ -196,8 +192,7 @@ print(json.dumps(cases))
 #[test]
 fn ordered_list_paths_empty_workspaces_and_none_keys_match_oracle() {
     let repo = tempfile::tempdir().unwrap();
-    let tool = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/fixtures/fractal/scripts/rust-test-keys");
+    let tool = crate::pinned_python::keys_oracle();
     let out = crate::pinned_python::command().args(["-c", r#"
 import json,pathlib,runpy,subprocess,sys
 repo=pathlib.Path(sys.argv[1]);tool=sys.argv[2];v=sys.argv[3]+'/scripts/evidence-verify'

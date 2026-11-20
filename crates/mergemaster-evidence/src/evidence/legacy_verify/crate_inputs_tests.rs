@@ -66,8 +66,7 @@ fn committed_manifest_and_configuration_match_oracle() {
     std::fs::write(repo.join(".fractal/rust-test-inputs.json"), b"malformed").unwrap();
     run(&["add", "."]);
     let new = run(&["write-tree"]);
-    let oracle = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/fixtures/fractal/scripts/rust-test-keys");
+    let oracle = crate::pinned_python::keys_oracle();
     let cases = python(
         r#"
 import json,runpy,sys,types

@@ -1,0 +1,200 @@
+{
+  "version": 1,
+  "runtime": {
+    "implementation": "CPython",
+    "version": "3.14.7",
+    "nixpkgs_rev": "4ba99f3209788ed04f01af38f77ddb803ad6ec63",
+    "source_sha256": "sha256-O0jayPtZ9i6qZ6yDwesSvaG3oIQG3ShuJSwRpmvif4E="
+  },
+  "oracles": {
+    "verifier": {
+      "environment": "MERGEMASTER_PYTHON_ORACLE",
+      "path": "scripts/evidence-verify",
+      "rev": "cff667cd53bdb6c024f9d7a06259b8f9a3fbb0cb",
+      "nar_hash": "sha256-UeHYs08Nzqy50cvlWu1n5Z0bR2I/J2Ectj7ztd5gfNI=",
+      "git_blob": "5ed6ade05b64b65825d4f6e6da812db1263c6148"
+    },
+    "keys": {
+      "environment": "MERGEMASTER_PYTHON_KEYS_ORACLE",
+      "path": "scripts/rust-test-keys",
+      "rev": "787e8ed592dff34d2bdc2a2b0b584482da567e7f",
+      "nar_hash": "sha256-EYnLgrxDCQXThOybpPxr2okTy7BpcHkzjLvBsaAZ+vM=",
+      "git_blob": "a37998a626583209e45a9f9fbb1921f661e916a2"
+    }
+  },
+  "path_variables": {
+    "scratch": "fresh replay root",
+    "git_bin": "parent directory of resolved git executable",
+    "openssh_bin": "parent directory of resolved ssh-keygen executable"
+  },
+  "environment": {
+    "PATH": "${git_bin}:${openssh_bin}",
+    "HOME": "${scratch}/home",
+    "TMPDIR": "${scratch}/tmp",
+    "GIT_CONFIG_GLOBAL": "/dev/null",
+    "GIT_CONFIG_SYSTEM": "/dev/null",
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_CONFIG_COUNT": "0",
+    "GIT_TERMINAL_PROMPT": "0",
+    "GIT_NO_REPLACE_OBJECTS": "1",
+    "LANG": "C.UTF-8",
+    "LC_ALL": "C.UTF-8",
+    "TZ": "UTC",
+    "NO_COLOR": "1",
+    "COLUMNS": "80",
+    "TERM": "dumb"
+  },
+  "asset_provenance": {
+    "repository": "https://github.com/compoundingtech/fractal",
+    "rev": "e2721e52463428b4ff655addee129cecd2839763",
+    "path": "scripts/testdata/evidence/wrapper-note",
+    "transport": "original base64 Git pack; signed commit bytes preserved, not resigned"
+  },
+  "assets": {
+    "record.pack.base64": "3fe0c5d093d26d049b07b7d1e4bdf2d9c6165647962f176b95e69578f6ff4bfc",
+    "allowed-signers": "4757af5088288a5ae1052fa4c1cfbe2eaf45839d649e0663d53b0a6152dcbf76",
+    "untrusted-signers": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "signed_record": {
+    "record": "1e964bae7dfb1dfef3b867bb065268348f5be265",
+    "commit": "59103b7d33ab6d0731338cfc2fa5ceff05d6788b",
+    "tree": "50c812835878aeb0750f596f03f1e1173ec16c3f",
+    "check": "linux-gate",
+    "signer": "fleet/dev",
+    "runner": "wrapper",
+    "tier": "full",
+    "exit_code": 0,
+    "flake_lock_sha256": "4754b7b13059879a37769526cb93ebd382f47c9a4579f0c6a34e49082e0be904"
+  },
+  "workspace_files": {
+    "Cargo.toml": "[workspace]\nmembers = [\"leaf\"]\nresolver = \"2\"\n",
+    "leaf/Cargo.toml": "[package]\nname = \"leaf\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    "leaf/src/lib.rs": "pub fn leaf() {}\n",
+    ".st/rust-test-inputs.json": "{}\n"
+  },
+  "cases": [
+    {
+      "id": "signed-trusted",
+      "oracle": "verifier",
+      "argv": [
+        "--repo",
+        "signed",
+        "--tree",
+        "50c812835878aeb0750f596f03f1e1173ec16c3f",
+        "--check",
+        "linux-gate",
+        "--keys",
+        "allowed-signers"
+      ],
+      "rust_argv": [
+        "legacy-evidence-verify",
+        "--repo",
+        "signed",
+        "--tree",
+        "50c812835878aeb0750f596f03f1e1173ec16c3f",
+        "--check",
+        "linux-gate",
+        "--keys",
+        "allowed-signers"
+      ],
+      "cwd": ".",
+      "divergences": []
+    },
+    {
+      "id": "signed-untrusted",
+      "oracle": "verifier",
+      "argv": [
+        "--repo",
+        "signed",
+        "--tree",
+        "50c812835878aeb0750f596f03f1e1173ec16c3f",
+        "--check",
+        "linux-gate",
+        "--keys",
+        "untrusted-signers"
+      ],
+      "rust_argv": [
+        "legacy-evidence-verify",
+        "--repo",
+        "signed",
+        "--tree",
+        "50c812835878aeb0750f596f03f1e1173ec16c3f",
+        "--check",
+        "linux-gate",
+        "--keys",
+        "untrusted-signers"
+      ],
+      "cwd": ".",
+      "divergences": []
+    },
+    {
+      "id": "wrong-check",
+      "oracle": "verifier",
+      "argv": [
+        "--repo",
+        "signed",
+        "--tree",
+        "50c812835878aeb0750f596f03f1e1173ec16c3f",
+        "--check",
+        "linux-gate",
+        "--keys",
+        "allowed-signers",
+        "--check",
+        "not-recorded"
+      ],
+      "rust_argv": [
+        "legacy-evidence-verify",
+        "--repo",
+        "signed",
+        "--tree",
+        "50c812835878aeb0750f596f03f1e1173ec16c3f",
+        "--check",
+        "linux-gate",
+        "--keys",
+        "allowed-signers",
+        "--check",
+        "not-recorded"
+      ],
+      "cwd": ".",
+      "divergences": []
+    },
+    {
+      "id": "project-inputs",
+      "oracle": "verifier",
+      "argv": [
+        "--repo",
+        "workspace",
+        "--revision",
+        "HEAD",
+        "--project",
+        "--check",
+        "corpus"
+      ],
+      "rust_argv": [
+        "legacy-evidence-verify",
+        "--repo",
+        "workspace",
+        "--revision",
+        "HEAD",
+        "--project",
+        "--check",
+        "corpus"
+      ],
+      "cwd": ".",
+      "divergences": []
+    },
+    {
+      "id": "crate-key-projection",
+      "oracle": "keys",
+      "argv": [
+        "--repo",
+        "workspace",
+        "--tree",
+        "HEAD",
+        "--json"
+      ],
+      "cwd": ".",
+      "divergences": []
+    }
+  ]
+}
