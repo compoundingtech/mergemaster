@@ -114,7 +114,7 @@ class GateTests(unittest.TestCase):
             if args[1] == 'show':
                 if args[-1] == CI_MERGE:
                     return f'{CI_BASE} {HEAD}'
-                return self.post_parents if self.merge_calls else f'{BASE} {HEAD}'
+                return self.post_parents if self.merge_calls or self.pr['state'] == 'closed' else f'{BASE} {HEAD}'
             if args[1] == 'merge-tree':
                 return TREE
             if args[1] == 'rev-parse':
@@ -122,7 +122,7 @@ class GateTests(unittest.TestCase):
                     return self.common.name
                 if args[2] == f'{CI_MERGE}^{{tree}}':
                     return self.tested_tree
-                return self.post_tree if self.merge_calls else TREE
+                return self.post_tree if self.merge_calls or self.pr['state'] == 'closed' else TREE
             if args[1] == 'diff':
                 if args[-2:] in self.diffs:
                     return self.diffs[args[-2:]]
@@ -134,6 +134,100 @@ class GateTests(unittest.TestCase):
         with patch.object(gate, 'command', self.mock_command), contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
             code = gate.main(['376', '--author-agent', gate.ACTOR, '--go-head', HEAD, '--go-ref', REF, *extra])
         return code, output.getvalue()
+
+    def run_verification(self, *extra):
+        self.pr['state'] = 'closed'
+        output = io.StringIO()
+        with patch.object(gate, 'command', side_effect=self.mock_command) as calls, \
+                patch.object(gate, 'run_gate', side_effect=AssertionError('verification must not run merge gates')), \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+            code = gate.main(['376', '--go-head', HEAD, '--verify-merged', MERGE,
+                              '--verify-base', BASE, *extra])
+        self.assertFalse(any(call.args[:3] == ('st', 'conversations', 'ls') for call in calls.call_args_list))
+        self.assertEqual(self.merge_calls, [])
+        return code, output.getvalue()
+
+    def assert_recovery_commands(self, output):
+        endpoint = f'repos/{gate.REPO}/pulls/376/merge-async/{self.pending["details"]["uuid"]}'
+        self.assertIn(f'gh api {endpoint}', output)
+        self.assertIn(f'MERGE_SHA=$(gh api {endpoint} --jq \'select(.status == "merged") | .details.sha\')', output)
+        self.assertIn(f'scripts/merge-pr 376 --go-head {HEAD} --verify-base {BASE} --verify-merged "$MERGE_SHA"', output)
+        self.assertIn('never merges or automatically reverts', output)
+
+    def test_verify_completed_merge_without_approvals_or_merge_request(self):
+        code, output = self.run_verification()
+        self.assertEqual(code, 0, output)
+        self.assertIn(f'PASS post-merge: merge={MERGE}', output)
+
+    def test_verify_completed_merge_checks_parents_tree_and_pr_commit(self):
+        for field, value in (('post_parents', f'{CI_BASE} {HEAD}'), ('post_tree', HEAD),
+                             ('merge_commit_sha', CI_MERGE)):
+            with self.subTest(field=field):
+                self.post_parents, self.post_tree = f'{BASE} {HEAD}', TREE
+                self.pr['merge_commit_sha'] = MERGE
+                if field == 'merge_commit_sha':
+                    self.pr[field] = value
+                else:
+                    setattr(self, field, value)
+                code, output = self.run_verification()
+                self.assertEqual(code, 1, output)
+                self.assertIn('POST-MERGE MISMATCH', output)
+
+    def test_verify_completed_merge_checks_casefolded_authorship(self):
+        original = self.merge_rows[0]
+        for field in (1, 3):
+            with self.subTest(field=field):
+                row = list(original)
+                row[field] = 'jOhAnNeS sChIcKlInG'
+                self.merge_rows = [tuple(row)]
+                code, output = self.run_verification()
+                self.assertEqual(code, 1, output)
+                self.assertIn('HUMAN AUTHORSHIP IN NEW MAIN MERGE COMMIT', output)
+
+    def test_verification_requires_original_full_sha_inputs(self):
+        for extra in (['--verify-base', ''], ['--verify-base', BASE[:8]],
+                      ['--go-head', HEAD[:8]], ['--verify-merged', ''], ['--dry-run']):
+            with self.subTest(extra=extra), contextlib.redirect_stderr(io.StringIO()), \
+                    self.assertRaises(SystemExit) as raised:
+                self.run_verification(*extra)
+            self.assertEqual(raised.exception.code, 2)
+
+    def test_human_names_refuse_case_insensitively(self):
+        original = self.commit_rows[0]
+        for field in (1, 3):
+            for name in ('johannes schickling', 'JOHANNES SCHICKLING', 'jOhAnNeS sChIcKlInG'):
+                with self.subTest(field=field, name=name):
+                    row = list(original)
+                    row[field] = name
+                    self.commit_rows = [tuple(row)]
+                    code, output = self.run_gate()
+                    self.assertEqual(code, 1, output)
+                    self.assertIn('FAIL no-human-authorship', output)
+                    self.assertEqual(self.merge_calls, [])
+
+    def test_async_unexpected_poll_status_prints_recovery(self):
+        self.merge_status = 202
+        self.merge_response = self.pending
+        self.poll_responses = [{'status': 'unexpected', 'details': {}}]
+        with patch.object(gate.time, 'sleep'):
+            code, output = self.run_gate()
+        self.assertEqual(code, 1, output)
+        self.assertIn('async merge status=unexpected', output)
+        self.assert_recovery_commands(output)
+
+    def test_async_poll_read_failure_prints_recovery(self):
+        self.merge_status = 202
+        self.merge_response = self.pending
+        original = self.mock_command
+        def fail_poll(*args, **kwargs):
+            if args[:2] == ('gh', 'api') and '/merge-async/' in args[2]:
+                raise RuntimeError('result read unavailable')
+            return original(*args, **kwargs)
+        with patch.object(self, 'mock_command', fail_poll), patch.object(gate.time, 'sleep'):
+            code, output = self.run_gate()
+        self.assertEqual(code, 1, output)
+        self.assertIn('result read unavailable', output)
+        self.assert_recovery_commands(output)
 
     def test_dry_run_and_guarded_merge(self):
         code, output = self.run_gate('--dry-run')
@@ -210,6 +304,7 @@ class GateTests(unittest.TestCase):
         self.assertEqual(code, 1, output)
         self.assertIn('async merge deadline exceeded', output)
         self.assertIn('merge may still complete', output)
+        self.assert_recovery_commands(output)
         self.assertEqual(len(self.poll_calls), 1)
 
     def test_async_merge_commit_must_match_pr_commit(self):
