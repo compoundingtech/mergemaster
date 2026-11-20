@@ -2,50 +2,11 @@ use super::*;
 use serde_json::json;
 #[test]
 fn python_json_primitive_tokens_match_oracle() {
-    let script = r#"
-import json,runpy,struct,sys
-j=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify')['json']
-cases=[]
-for name,text in {
- 'null':'null','true':'true','false':'false','zero':'0','negative-zero':'-0','integer':'-123',
- 'float':'1.25','float-negative-zero':'-0.0','exponent':'1E+2','overflow':'1e400','underflow':'-1e-400','rounding':'9007199254740993.0','rounding-int':'9007199254740993',
- 'nan':'NaN','infinity':'Infinity','negative-infinity':'-Infinity','whitespace':' \t\r\n0 ',
- 'empty-string':'""','escapes':r'"\u0000\b\f\n\r\t\"\\\/"',
- 'high':r'"\ud800"','low':r'"\udfff"','pair':r'"\ud800\udc00"','nonpair':r'"\ud800\u0041"',
- 'literal-backslash':r'"\\ud800"','bad-escape':r'"\x20"','bad-hex':r'"\u12g4"','unicode-hex':r'"\u１２３４"','truncated-string':'"abc',
- 'leading-zero':'01','plus':'+1','missing-fraction':'1.','missing-exponent':'1e','double-sign':'--1',
- 'negative-nan':'-NaN','word-suffix':'Infinityx','two-values':'nulltrue','unicode-space':'\u00a0null'
-}.items(): cases.append((name,text.encode()))
-for name,data in {'raw-high':'22eda08022','raw-pair':'22eda080edb08022','mixed-pair':'225c7564383030edb08022','raw-control':'220122','invalid-utf8':'ff'}.items():
- cases.append((name,bytes.fromhex(data)))
-for encoding in ['utf-8-sig','utf-16-le','utf-16-be','utf-32-le','utf-32-be']:
- cases.append(('encoded-'+encoding,'"x🌍\ud800"'.encode(encoding,'surrogatepass')))
-for n in [4300,4301]:
- cases.extend([('digits-'+str(n),b'9'*n),('float-digits-'+str(n),b'9'*n+b'e0')])
-results=[]
-for name,blob in cases:
- try:
-  v=j.loads(blob)
-  if v is None: value=['null']
-  elif isinstance(v,bool): value=['bool',v]
-  elif isinstance(v,int): value=['integer',str(v)]
-  elif isinstance(v,float): value=['float',struct.pack('>d',v).hex()]
-  else: value=['string',list(map(ord,v))]
- except ValueError: value=None
- results.append(dict(name=name,bytes=list(blob),value=value))
-print(json.dumps(results))
-"#;
-    let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle required");
-    let output = crate::pinned_python::command()
-        .args(["-c", script, &root])
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let cases: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let cases: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../../../tests/fixtures/oracle/statement-core/primitive-tokens/stdout.bin"
+    ))
+    .unwrap();
+    assert_eq!(cases.as_array().unwrap().len(), 51);
     for case in cases.as_array().unwrap() {
         let bytes: Vec<u8> = serde_json::from_value(case["bytes"].clone()).unwrap();
         let actual = Tokens::from_bytes(&bytes)
@@ -93,36 +54,11 @@ fn token_boundaries_and_failure_are_explicit() {
 
 #[test]
 fn scanner_syntax_and_number_boundaries_match_pinned_python() {
-    let script = r#"
-import json,re,sys
-assert sys.version_info[:3] == (3,14,7), sys.version
-texts=['?', '-', '-NaN', '+1', 'nul', '"', '"abc', '"abc\\',
- '"\\q"', '"\\u"', '"\\u12"', '"\\u12g4"', '"\\u１２３４"',
- '"\\ud800\\u12g4"', '"\\ud800\\u"', '"\\ud800\\udc00',
- ' \n"🌍\\q"', ' \r\n"🌍\\u12g4"', '"\ud800\\q"',
- '0.', '1e', '1e+', '1e-', '-1.e2', '01', '-01', '1.2e+',
- '1.2', '1E+2', '-0', 'Infinityx', '-Infinityx', 'nulltrue']
-texts.extend('"🌍'+chr(control)+'"' for control in range(32))
-results=[]
-for text in texts:
- try:
-  _,end=json.JSONDecoder().raw_decode(text,re.match(r'[ \t\r\n]*',text).end())
-  result=['ok',end]
- except json.JSONDecodeError as e:
-  result=['syntax',e.msg,e.pos,e.lineno,e.colno,str(e)]
- results.append(dict(bytes=list(text.encode('utf-8','surrogatepass')),result=result))
-print(json.dumps(results))
-"#;
-    let output = crate::pinned_python::command()
-        .args(["-c", script])
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let cases: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let cases: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../../../tests/fixtures/oracle/statement-core/scanner-boundaries/stdout.bin"
+    ))
+    .unwrap();
+    assert_eq!(cases.as_array().unwrap().len(), 65);
     for case in cases.as_array().unwrap() {
         let bytes: Vec<u8> = serde_json::from_value(case["bytes"].clone()).unwrap();
         let mut tokens = Tokens::from_bytes(&bytes).unwrap();

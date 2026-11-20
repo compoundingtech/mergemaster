@@ -1,78 +1,14 @@
 use super::decode_json_bytes;
 #[test]
 fn legacy_statement_bytes_match_python_transport() {
-    let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned Python oracle required");
-    let script = r#"
-import copy,json,runpy,sys
-oracle=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify')
-tree='a'*40
-valid={'_type':oracle['STATEMENT_TYPE'],'predicateType':oracle['PREDICATE_TYPE'],
- 'subject':[{'name':'b'*40,'digest':{'gitTree':tree}}],
- 'predicate':{'schema_version':1,'change_id':'change🌍','tier':'full','signer':None,
- 'observed_at':'2026-01-01T00:00:00Z','observed':{'kind':'tests','runner':'wrapper',
- 'checks':{'check':{'command':[''],'exit_code':0,'output_sha256':'c'*64}}}}}
-text=json.dumps(valid,ensure_ascii=False)
-cases=[]
-for encoding in ['utf-8','utf-8-sig','utf-16','utf-16-le','utf-16-be','utf-32','utf-32-le','utf-32-be']:
- cases.append(('valid-'+encoding,text.encode(encoding)))
-for encoding,bom in [('utf-16-be',b'\xfe\xff'),('utf-32-be',b'\0\0\xfe\xff')]:
- cases.append(('valid-bom-'+encoding,bom+text.encode(encoding)))
-boundary=json.dumps('x'+''.join(map(chr,[0,0x7f,0x80,0x7ff,0x800,0xd7ff,0xd800,0xdbff,0xdc00,0xdfff,0xe000,0xffff,0x10000,0x10ffff])),ensure_ascii=False)
-for encoding in ['utf-8','utf-16-le','utf-16-be','utf-32-le','utf-32-be']:
- cases.append(('boundaries-'+encoding,boundary.encode(encoding,'surrogatepass')))
-for name,value in [('surrogate-value','\ud800'),('surrogate-key','\udfff'),('nan',float('nan')),('infinity',float('inf')),('negative-infinity',-float('inf'))]:
- v=copy.deepcopy(valid)
- if name=='surrogate-key': v[value]='kept'
- else: v['extra']=value
- for encoding in ['utf-8','utf-16-le','utf-32-be']:
-  cases.append((name+'-'+encoding,json.dumps(v,ensure_ascii=False).encode(encoding,'surrogatepass')))
-for name,data in {
- 'empty':'','utf8-bom-only':'efbbbf','utf16-bom-only':'fffe','utf32-bom-only':'fffe0000',
- 'short-be':'0030','short-le':'3000','three-byte-nul':'003030','four-byte-nul':'00003030',
- 'odd-utf16':'fffe30','truncated-utf32':'fffe00003000','utf32-too-large':'fffe000000001100',
- 'utf8-overlong':'c080','utf8-overlong-three':'e08080','utf8-overlong-four':'f0808080',
- 'utf8-too-large':'f4908080','utf8-truncated':'f09f8c','utf8-continuation':'80',
- 'utf8-high-surrogate':'eda080','utf8-low-surrogate':'edbfbf','utf8-surrogate-pair':'eda080edb080',
- 'utf16-high-surrogate':'fffe00d8','utf16-low-surrogate':'fffeffdf','utf16-pair':'fffe00d800dc',
- 'utf16-unpaired-then-ascii':'fffe00d86100','utf32-surrogate':'0000feff0000d800',
- 'utf8-double-bom':'efbbbfefbbbf','utf16-double-bom':'fffefffe','utf32-double-bom':'fffe0000fffe0000'
-}.items(): cases.append((name,bytes.fromhex(data)))
-for count in [4300,4301]: cases.append(('integer-'+str(count),(text[:-1]+',"extra":'+'9'*count+'}').encode()))
-for depth in [101,256,257,497,498,2001]: cases.append(('depth-'+str(depth),(text[:-1]+',"extra":'+'['*(depth-1)+'0'+']'*(depth-1)+'}').encode()))
-for field in ['change_id','signer','runner','command','inputs','checks','observed_at']:
- v=copy.deepcopy(valid); p=v['predicate']; o=p['observed']
- if field=='observed_at': p[field]='2026-01-01\ud80012:30Z'
- elif field in ['change_id','signer']: p[field]='\ud800'
- elif field=='command': o['checks']['check'][field]=['\ud800','']
- elif field=='inputs': o[field]={'\ud800':'\udfff'}
- elif field=='checks': o[field]={'\udfff':o[field]['check']}
- else: o[field]='\ud800'
- cases.append(('guard-surrogate-'+field,json.dumps(v).encode()))
-for suffix in ['x','{}',',','\u00a0']:
- cases.append(('extra-'+repr(suffix),(text+suffix).encode()))
-results=[]
-for name,blob in cases:
- try: points=list(map(ord,blob.decode(json.detect_encoding(blob),'surrogatepass')))
- except UnicodeError: points=None
- try: statement=oracle['statement_of'](blob,tree) is not None
- except Exception as e: statement=type(e).__name__
- results.append(dict(name=name,bytes=list(blob),points=points,statement=statement))
-print(json.dumps(results))
-"#;
-    let output = crate::pinned_python::command()
-        .args(["-c", script, &root])
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let cases: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let cases = crate::oracle_digest::rows(include_bytes!(
+        "../../../../../tests/fixtures/oracle/statement-core/bytes-transport/stdout.bin"
+    ));
+    assert_eq!(cases.as_array().unwrap().len(), 77);
     for case in cases.as_array().unwrap() {
-        let bytes: Vec<u8> = serde_json::from_value(case["bytes"].clone()).unwrap();
-        let expected: Option<Vec<u32>> = serde_json::from_value(case["points"].clone()).unwrap();
-        assert_eq!(decode_json_bytes(&bytes), expected, "{}", case["name"]);
+        let bytes = crate::oracle_digest::bytes(&case["input"]);
+        let actual_points = serde_json::to_value(decode_json_bytes(&bytes)).unwrap();
+        crate::oracle_digest::assert_value(&actual_points, &case["points"]);
         let actual = super::super::statement::statement_of(&bytes, &"a".repeat(40));
         let depth = case["name"]
             .as_str()
@@ -96,45 +32,21 @@ print(json.dumps(results))
 
 #[test]
 fn exact_decode_errors_match_python_detection_and_surrogatepass() {
-    let script = r#"
-import json,random,sys
-assert sys.version_info[:3]==(3,14,7)
-samples=[bytes([i]) for i in range(256)]
-for lead in [0xc0,0xc2,0xdf,0xe0,0xed,0xef,0xf0,0xf4,0xf5]:
- for second in range(256):
-  for suffix in [b'',b'x',b'\x80',b'\xbf\x80']:
-   samples.append(bytes([lead,second])+suffix)
-rng=random.Random(735)
-for bom in [b'',b'\xef\xbb\xbf',b'\xff\xfe',b'\xfe\xff',b'\xff\xfe\0\0',b'\0\0\xfe\xff']:
- for n in range(500):
-  samples.append(bom+rng.randbytes(n%17))
-for encoding,bom in [('utf-16-le',b'\xff\xfe'),('utf-16-be',b'\xfe\xff'),('utf-32-le',b'\xff\xfe\0\0'),('utf-32-be',b'\0\0\xfe\xff')]:
- for point in [0,0xd7ff,0xd800,0xdbff,0xdc00,0xdfff,0xe000,0x10ffff]:
-  blob=bom+chr(point).encode(encoding,'surrogatepass')
-  samples += [blob,blob+b'x',blob+b'\0']
-cases=[]
-for blob in samples:
- try: expected={'points':list(map(ord,blob.decode(json.detect_encoding(blob),'surrogatepass')))}
- except UnicodeDecodeError as e: expected={'error':str(e)}
- cases.append([list(blob),expected])
-print(json.dumps(cases))
-"#;
-    let out = crate::pinned_python::command()
-        .args(["-c", script])
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let cases: Vec<(Vec<u8>, serde_json::Value)> = serde_json::from_slice(&out.stdout).unwrap();
-    for (bytes, expected) in &cases {
-        let actual = match super::decode_json_bytes_exact(bytes) {
+    let fixture = crate::oracle_digest::rows(include_bytes!(
+        "../../../../../tests/fixtures/oracle/statement-core/decode-errors/stdout.bin"
+    ));
+    let cases = fixture["cases"].as_array().unwrap();
+    let expected = fixture["expected"].as_array().unwrap();
+    for case in cases {
+        let bytes = crate::oracle_digest::bytes(&case["input"]);
+        let actual = match super::decode_json_bytes_exact(&bytes) {
             Ok(points) => serde_json::json!({"points":points}),
             Err(error) => serde_json::json!({"error":error.to_string()}),
         };
-        assert_eq!(&actual, expected, "{bytes:?}");
+        crate::oracle_digest::assert_value(
+            &actual,
+            &expected[case["expected"].as_u64().unwrap() as usize],
+        );
     }
     assert_eq!(cases.len(), 12_568);
 }

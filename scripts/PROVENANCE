@@ -47,6 +47,10 @@
 # Rust hashes through a formatting sink; on a mismatching block it consults only
 # the pinned oracle to identify the first differing codepoint. Corpus replay
 # independently regenerates all identities; no encoded stream blob is committed.
+# Statement byte, container, decoder, parser and timestamp matrices use pinned
+# CPython 3.14.7 captures with all full native input/guard assertions retained.
+# Above 256 KiB raw stdout, the corpus uses verified recipes/identities; stderr
+# and exit codes remain raw. The corpus registry records this uniform rule.
 # judgment-core/ freezes eight complete candidate/fact/routing and result/error
 # matrices. Full codepoint inputs, candidate ordering, Failure/exception
 # provenance and native structured/wire-format assertions are retained.
