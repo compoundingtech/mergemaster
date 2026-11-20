@@ -25,6 +25,9 @@ jobs:
         run: |
           python3 -B tests/test-oracle-scripts.py
           python3 -B tests/oracle_scripts.py --migration-base "$MIGRATION_BASE"
+          # Also run the trusted base revision's checker, so a change cannot weaken the guard that judges it.
+          git show "$MIGRATION_BASE:tests/oracle_scripts.py" > "$RUNNER_TEMP/base_oracle_scripts.py"
+          python3 -B "$RUNNER_TEMP/base_oracle_scripts.py" --migration-base "$MIGRATION_BASE"
       - uses: DeterminateSystems/determinate-nix-action@92957199488000b908fdad19f63711000965d8f3 # v3
       - name: Log Nix version and download settings
         shell: bash

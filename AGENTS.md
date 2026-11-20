@@ -5,7 +5,7 @@ Subject starts with `GO compoundingtech/mergemaster#N` or `NO-GO compoundingtech
 Content must contain the full 40-hex head SHA; without it the message is ignored. Casual content verdicts and GitHub comments do not count.
 Only Mergemaster-authored PRs are supported: require `--author-agent agent/compoundingtech/mergemaster`; its GOs never count, but the author can withdraw by sending a `NO-GO` message to itself. Other authors need manual review.
 - Require one independent reviewer's latest GO at the current head; any latest NO-GO blocks. Resolve refs from read-only current/archive listings, without marking mail read.
-- Compute `.github/` and `iac/` changes from main...head; require a named second independent GO for either.
+- Compute `.github/` and `iac/` changes from main...head; require a named second independent GO for either. The standing second reviewer is `agent/dotfiles/fod-lander-dev3`: send it the PR link and exact head. If it co-wrote the change or has no verdict 45 min after the request, ask Manager to name another reviewer.
 - Require every exact-head check-run to finish success/skipped and hosted CI to pass; explain reruns of every workflow at the head.
 - Verify CI's tested merge tree at its first-parent base; refuse overlap between CI-base..main changes and the PR's CI-base...head changes.
 - Require an open, non-draft, mergeable PR, approved head, current merge parents, and matching local merge-tree.
