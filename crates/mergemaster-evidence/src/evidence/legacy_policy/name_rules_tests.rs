@@ -16,55 +16,10 @@ fn summary(rules: &PolicyRules) -> Value {
 }
 #[test]
 fn lossless_policy_names_normalize_through_the_pinned_rules() {
-    let script = r#"
-import json,pathlib,runpy,sys,tempfile
-v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify'); cases=[]
-points=lambda s:list(map(ord,s))
-for check in ['check','\ud800','\udfff','🦀','a\ud800b','\0','{repository}','{check}']:
- for repo in ['owner/repo','owner/{check}']:
-  for mode in ['off','shadow','reject']:
-   entry=dict(require=mode,trust_levels=['agent'],kinds=dict(wrapper=dict(command=['{repository}','{check}','{check}{check}','literal'],runner_prefix='producer/{repository}/{check}',by_level=dict(agent=dict(command=['level/{check}','{repository}'],events=['pull_request'])))))
-   text=json.dumps(dict(version=1,checks={check:entry}),ensure_ascii=repo=='owner/repo' or any(0xd800<=ord(c)<=0xdfff for c in check))
-   text.encode('utf-8')  # read_policy accepts strict UTF-8, not surrogatepass text.
-   rules=v['policy_rules'](text,check,repo); kind=rules['kinds']['wrapper']
-   expected=dict(require=rules['require'],command=[points(s) for s in kind['command']],prefix=points(kind['runner_prefix']),level_command=[points(s) for s in kind['by_level']['agent']['command']])
-   cases.append(dict(text=text,check=points(check),repo=repo,expected=expected))
- for mutation in ['unknown','empty-kinds','missing-command','absent']:
-  entry=dict(require='off',trust_levels=['agent'],kinds=dict(wrapper=dict(command=['true'])))
-  if mutation=='unknown': entry['unknown']=True
-  if mutation=='empty-kinds': entry['kinds']={}
-  if mutation=='missing-command': del entry['kinds']['wrapper']['command']
-  text=json.dumps(dict(version=1,checks={} if mutation=='absent' else {check:entry}))
-  try: v['policy_rules'](text,check,'owner/repo'); raise AssertionError('expected refusal')
-  except v['Failure'] as error: reason=error.reason
-  except KeyError: reason='error'
-  cases.append(dict(text=text,check=points(check),repo='owner/repo',expected=dict(reason=reason)))
-namespace=v['read_policy'].__globals__; original=namespace['config_blob']
-for invalid in [b'\xff',b'\xed\xa0\x80']:
- raw=b'{"version":1,"checks":{"'+invalid+b'":{}}}'
- with tempfile.NamedTemporaryFile() as file:
-  file.write(raw); file.flush()
-  namespace['config_blob']=lambda *args:pathlib.Path(file.name).read_bytes()
-  try: v['read_policy']('unused','base'); raise AssertionError('invalid policy accepted')
-  except v['Failure'] as error: reason=error.reason
-  finally: namespace['config_blob']=original
- cases.append(dict(policy_bytes=list(raw),reason=reason))
-print(json.dumps(cases))
-"#;
-    let output = crate::pinned_python::command()
-        .args([
-            "-c",
-            script,
-            &std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle"),
-        ])
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
+    let frozen = include_bytes!(
+        "../../../../../tests/fixtures/oracle/policy-helpers/lossless-policy-names-normalize-through-the-pinned-rules/stdout.bin"
     );
-    let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    let cases: Vec<Value> = serde_json::from_slice(frozen).unwrap();
     assert_eq!(cases.len(), 82);
     for case in cases {
         if let Some(raw) = case.get("policy_bytes") {
@@ -109,35 +64,10 @@ print(json.dumps(cases))
 
 #[test]
 fn nested_policy_text_keeps_python_point_identity() {
-    let output = crate::pinned_python::command().args(["-c", r#"
-import json,runpy,sys
-v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify'); cases=[]
-p=lambda s:list(map(ord,s))
-for name in ['\ud800','\udfff','a\ud800b','😀']:
- level='level/'+name
- fields=dict(command=[name,'{check}'],required_inputs=[name],bind_inputs={name:name},
-             input_order={name:[name,'weak']},base_inputs={name:'.'},
-             shard_inputs=dict(count=name,results=name,index=name),
-             by_level={level:dict(command=[name,'{check}'],required_inputs=[name],bind_inputs={name:name},events=['pull_request'])})
- text=json.dumps(dict(version=1,checks={name:dict(kinds=dict(wrapper=fields),trust_levels=[level])}))
- r=v['policy_rules'](text,name,'org/repo'); k=r['kinds']['wrapper']; l=k['by_level'][level]
- expected=dict(level=p(r['trust_levels'][0]),command=[p(s) for s in k['command']],
-   required=[p(s) for s in k['required_inputs']],bind=[[p(a),p(b)] for a,b in k['bind_inputs'].items()],
-   order=[[p(a),[p(b) for b in bs]] for a,bs in k['input_order'].items()],
-   base=[[p(a),b] for a,b in k['base_inputs'].items()],
-   shard=[p(k['shard_inputs'][a]) for a in ['count','results','index']],
-   by_level=p(level),level_command=[p(s) for s in l['command']],
-   level_required=[p(s) for s in l['required_inputs']],level_bind=[[p(a),p(b)] for a,b in l['bind_inputs'].items()])
- cases.append(dict(text=text,name=p(name),expected=expected))
-print(json.dumps(cases))
-"#, &std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle")])
-        .output().unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
+    let frozen = include_bytes!(
+        "../../../../../tests/fixtures/oracle/policy-helpers/nested-policy-text-keeps-python-point-identity/stdout.bin"
     );
-    let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    let cases: Vec<Value> = serde_json::from_slice(frozen).unwrap();
     assert_eq!(cases.len(), 4);
     for case in cases {
         let name: Vec<u32> = serde_json::from_value(case["name"].clone()).unwrap();

@@ -14,6 +14,8 @@
 pub mod cli_output;
 pub mod evidence;
 pub mod gate;
+#[cfg(test)]
+pub(crate) mod oracle_digest;
 pub mod parity_drift;
 #[cfg(test)]
 pub(crate) mod pinned_python;

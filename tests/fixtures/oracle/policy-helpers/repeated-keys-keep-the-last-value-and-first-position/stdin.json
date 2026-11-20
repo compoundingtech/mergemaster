@@ -1,0 +1,4 @@
+{"command":["true"],
+          "bind_inputs":{"z":"old","a":"middle","z":"last"},
+          "base_inputs":{"z":"old.txt","a":"middle.txt","z":"last.txt"},
+          "input_order":{"z":["old","weak"],"a":["middle","weak"],"z":["last","weak"]}}
