@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- merge-pr: use the SHA-pinned async merge API for stacked PRs, refuse open downstack bases and unexpected outcomes, and verify the completed merge commit after bounded polling.
 - merge-pr: verify the merge commit's parents and tree before its authorship; refuse the personal identity regardless of email case and in its GitHub noreply form.
 
 ## [0.11.0] - 2026-11-20
