@@ -17,6 +17,42 @@ def git_blob(data):
     return hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
 
 
+def replay_matrices(interpreter):
+    """Replay each explicitly inventoried generator without regenerating expectations."""
+    directory = CORPUS.parent
+    registry = json.loads((directory / "matrices.json").read_text())
+    lock = json.loads((ROOT / "flake.lock").read_text())
+    assert registry["version"] == 1
+    for relative in registry["manifests"]:
+        fixture = directory / relative
+        manifest = json.loads(fixture.read_text())
+        assert manifest["version"] == 1
+        assert manifest["runtime"] == {"implementation": "CPython", "version": "3.14.7"}
+        pin = manifest["oracle"]
+        source = Path(os.environ[pin["environment"]])
+        assert git_blob((source / pin["path"]).read_bytes()) == pin["git_blob"], relative
+        input_name = {"MERGEMASTER_PYTHON_ORACLE": "python-oracle",
+                      "MERGEMASTER_PYTHON_PARITY_ORACLE": "python-oracle-parity"}[pin["environment"]]
+        locked = lock["nodes"][lock["nodes"]["root"]["inputs"][input_name]]["locked"]
+        assert (pin["rev"], pin["nar_hash"]) == (locked["rev"], locked["narHash"]), relative
+        with tempfile.TemporaryDirectory(prefix="mergemaster-matrix-") as temporary:
+            variables = {"${python_bin}": str(interpreter.parent), "${scratch}": temporary}
+            environment = {}
+            for key, value in manifest["environment"].items():
+                for token, replacement in variables.items():
+                    value = value.replace(token, replacement)
+                environment[key] = value
+            argv = [str(fixture.parent / "driver.py") if value == "driver.py"
+                    else str(source) if value == "${oracle}" else value
+                    for value in manifest["argv"]]
+            done = subprocess.run([interpreter, *argv], input=(fixture.parent / manifest["stdin"]).read_bytes(),
+                                  cwd=Path(temporary) / manifest["cwd"], env=environment, capture_output=True)
+        assert done.returncode == manifest["exit_code"], (relative, done.stderr)
+        assert done.stdout == (fixture.parent / manifest["stdout"]).read_bytes(), relative
+        assert done.stderr == (fixture.parent / manifest["stderr"]).read_bytes(), relative
+    print(f"Replayed {len(registry['manifests'])} frozen source matrices")
+
+
 def replay(record=False):
     manifest = json.loads((CORPUS / "manifest.json").read_text())
     interpreter = Path(os.environ["MERGEMASTER_ORACLE_PYTHON"])
@@ -83,6 +119,7 @@ def replay(record=False):
         expected = json.loads((CORPUS / "recordings.json").read_text())
         assert expected == {"version": 1, "cases": observations}, "frozen oracle observations changed"
         print(f"Replayed {len(observations)} frozen oracle cases")
+        replay_matrices(interpreter)
 
 
 if __name__ == "__main__":

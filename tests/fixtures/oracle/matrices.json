@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "manifests": [
+    "argparse/diagnostic/manifest.json",
+    "argparse/help/manifest.json",
+    "argparse/int/manifest.json",
+    "argparse/options/manifest.json",
+    "argparse/parse/manifest.json",
+    "argparse/usage/manifest.json"
+  ]
+}
