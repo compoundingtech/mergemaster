@@ -2,18 +2,7 @@ use super::*;
 
 #[test]
 fn legacy_output_matches_pinned_json_dumps_bytes() {
-    let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
-    let output = crate::pinned_python::command().args(["-c", r#"
-import runpy,sys
-json=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify')['json']
-cases=[{},[],{'z':[], '\ud800😀':[True,False,None,-170141183460469231731687303715884105728,{'empty':{},'s':'quote"\\\n'}]}, [[[]],{}]]
-for value in cases: print(json.dumps(value,indent=2))
-"#, &root]).output().unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    let expected = include_bytes!("../../../../tests/fixtures/oracle/scalar/output/stdout.bin");
     let mut actual = String::new();
     write(&mut actual, |w| w.object(|_| Ok(()))).unwrap();
     actual.push('\n');
@@ -48,7 +37,7 @@ for value in cases: print(json.dumps(value,indent=2))
     })
     .unwrap();
     actual.push('\n');
-    assert_eq!(actual.as_bytes(), output.stdout);
+    assert_eq!(actual.as_bytes(), expected);
 }
 
 #[test]

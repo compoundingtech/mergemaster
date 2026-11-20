@@ -38,6 +38,10 @@
 # asserts its complete inputs still equal frozen stdin. No cases are sampled out.
 # The argparse freeze includes diagnostics, help widths, usage/program codepoints,
 # parser metadata, namespaces and all 844 integer codepoint/limit cases.
+# The scalar-output freeze adds all four structured JSON output cases and all
+# 79 policy check-name cases, including raw/surrogate keys, duplicate selection,
+# numeric values and every raw/escaped C0 control. Input-generator equality
+# prevents policy matrix drift; pre-existing refusal/sink assertions remain.
 # R2 resync exception; exit: https://github.com/compoundingtech/mergemaster/issues/115
 # The original extraction Commit above is historical; this resync starts at the current fixture revision.
 # Pending requires oracle bytes; the target fixture activates exact upstream bytes and modes.
