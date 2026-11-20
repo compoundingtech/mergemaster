@@ -69,6 +69,39 @@ def replay_matrices(interpreter):
     print(f"Replayed {len(registry['manifests'])} frozen source matrices")
 
 
+def replay_runner_report(interpreter):
+    """Replay fixed-clock reports using the independent pinned Python source."""
+    fixture_path = CORPUS.parent / "runner-report.json"
+    fixture = json.loads(fixture_path.read_text())
+    pin = fixture["oracle"]
+    source = Path(os.environ[pin["environment"]]) / pin["path"]
+    assert git_blob(source.read_bytes()) == pin["git_blob"], "runner-report: oracle source drift"
+    driver = """import datetime, importlib.machinery, importlib.util, sys
+assert sys.implementation.name == 'cpython' and sys.version_info[:3] == (3, 14, 7)
+loader = importlib.machinery.SourceFileLoader('runner_report_oracle', sys.argv[1])
+module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+loader.exec_module(module)
+now = datetime.datetime.fromisoformat(sys.argv[2].replace('Z', '+00:00'))
+sys.exit(module.main(sys.argv[3:], now=now))
+"""
+    for case in fixture["cases"]:
+        with tempfile.TemporaryDirectory(prefix="runner-report-oracle-") as temporary:
+            root = Path(temporary)
+            for name, content in case["files"].items():
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content)
+            replace = lambda value: value.replace("${scratch}", temporary)
+            environment = dict(os.environ)
+            environment.update({key: replace(value) for key, value in case["environment"].items()})
+            done = subprocess.run([interpreter, "-I", "-B", "-c", driver, str(source), fixture["now"],
+                                   *[replace(value) for value in case["argv"]]],
+                                  env=environment, capture_output=True)
+            assert (done.returncode, done.stdout, done.stderr) == (
+                case["exit"], replace(case["stdout"]).encode(), replace(case["stderr"]).encode()), case["id"]
+    print(f"Replayed {len(fixture['cases'])} frozen runner-report cases")
+
+
 def replay(record=False):
     manifest = json.loads((CORPUS / "manifest.json").read_text())
     interpreter = Path(os.environ["MERGEMASTER_ORACLE_PYTHON"])
@@ -136,6 +169,7 @@ def replay(record=False):
         assert expected == {"version": 1, "cases": observations}, "frozen oracle observations changed"
         print(f"Replayed {len(observations)} frozen oracle cases")
         replay_matrices(interpreter)
+        replay_runner_report(interpreter)
 
 
 if __name__ == "__main__":

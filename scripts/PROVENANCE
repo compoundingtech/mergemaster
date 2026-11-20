@@ -97,6 +97,10 @@
 # Local patches pin oracle and local blobs plus equal executable modes; unlike
 # resync rows, they do not claim these bytes came from the Fractal fixture.
 # Remove each exception when an oracle repin includes the patch.
+# Native local runner reporting replaces scripts/fractal-test-report and its self-test.
+# Assertions: crates/mergemaster-evidence/tests/runner_report.rs. Frozen fixed-clock
+# inputs and Python streams: tests/fixtures/oracle/runner-report.json; independently
+# replayed by replay_runner_report in tests/oracle_corpus.py.
 # local-patch scripts/ci-signed-tree 77a560621f8182d2ca19f622782ff24c95e7d514 2bdd0922a31a6dad544bf6826666efeec68a3466
 # local-patch scripts/ci-signed-tree-test 91612975e7ae383ca5c55b94a19af20b0b1c7df2 9b1877c7407fe1128620fb94e376b66a7fcca8d2
 # Intentional local gate adoption: verification and project subprocesses use the

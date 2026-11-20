@@ -14,6 +14,7 @@ pub struct EvidenceArgs {
 pub enum EvidenceCommand {
     /// Provision this account's signing key and print its public enrollment line.
     Keygen(super::keygen::KeygenArgs),
+    RunnerReport(super::runner_report::RunnerReportArgs),
     /// Run a BASE-declared lane once, sign its observation, and publish its note.
     Wrap(super::generic::WrapArgs),
     /// Sign a wrapper request using explicit account-local configuration.
@@ -77,6 +78,7 @@ pub enum EvidenceCommand {
 pub fn run(args: EvidenceArgs) -> Result<()> {
     let value = match args.command {
         EvidenceCommand::Keygen(args) => return super::keygen::run_keygen(args),
+        EvidenceCommand::RunnerReport(args) => return super::runner_report::run(args),
         EvidenceCommand::Wrap(args) => {
             let code = super::generic::run_wrap(&args)?;
             if code != 0 {

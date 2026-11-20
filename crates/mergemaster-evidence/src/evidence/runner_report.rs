@@ -1,0 +1,427 @@
+//! Read-only summaries of the local runner's version-one JSONL records.
+use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, Utc};
+use serde_json::{Value, json};
+use std::{collections::BTreeMap, fmt::Write, path::PathBuf};
+
+#[derive(clap::Args)]
+pub struct RunnerReportArgs {
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    argv: Vec<String>,
+}
+
+pub fn run(args: RunnerReportArgs) -> anyhow::Result<()> {
+    let (code, stdout, stderr) = run_at(&args.argv, Utc::now());
+    if !stdout.is_empty() {
+        crate::cli_println!("{}", stdout.trim_end_matches('\n'));
+    }
+    if !stderr.is_empty() {
+        eprint!("{stderr}");
+    }
+    if code != 0 {
+        std::process::exit(code);
+    }
+    Ok(())
+}
+
+fn time(text: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(text)
+        .map(|v| v.with_timezone(&Utc))
+        .ok()
+        .or_else(|| {
+            NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f")
+                .ok()
+                .map(|v| v.and_utc())
+        })
+        .or_else(|| {
+            NaiveDate::parse_from_str(text, "%Y-%m-%d")
+                .ok()
+                .and_then(|v| v.and_hms_opt(0, 0, 0))
+                .map(|v| v.and_utc())
+        })
+}
+fn iso(value: DateTime<Utc>) -> String {
+    value.format("%Y-%m-%dT%H:%M:%SZ").to_string()
+}
+fn rank(sorted: &[&Value], share: f64) -> Value {
+    sorted
+        .get(((share * sorted.len() as f64).ceil() as usize).saturating_sub(1))
+        .map_or(Value::Null, |v| (*v).clone())
+}
+fn ordered(values: &[Value]) -> Vec<&Value> {
+    let mut sorted: Vec<_> = values.iter().collect();
+    sorted.sort_by(|a, b| a.as_f64().unwrap().total_cmp(&b.as_f64().unwrap()));
+    sorted
+}
+pub fn percentile(values: &[Value], share: f64) -> Value {
+    rank(&ordered(values), share)
+}
+fn summary(values: &[Value]) -> Value {
+    let sorted = ordered(values);
+    json!({"count":values.len(), "p50_s":rank(&sorted,0.5), "p90_s":rank(&sorted,0.9), "max_s":sorted.last().copied()})
+}
+fn truth(v: &Value) -> bool {
+    match v {
+        Value::Null => false,
+        Value::Bool(b) => *b,
+        Value::String(s) => !s.is_empty(),
+        Value::Number(n) => n.as_f64() != Some(0.0),
+        Value::Array(a) => !a.is_empty(),
+        Value::Object(o) => !o.is_empty(),
+    }
+}
+fn number(v: &Value) -> Option<f64> {
+    v.as_f64()
+        .or_else(|| v.as_bool().map(|b| if b { 1.0 } else { 0.0 }))
+}
+fn numeric(v: &Value) -> Value {
+    if let Some(b) = v.as_bool() {
+        json!(if b { 1 } else { 0 })
+    } else {
+        v.clone()
+    }
+}
+fn pystr(v: &Value) -> String {
+    match v {
+        Value::Null => "None".into(),
+        Value::String(s) => s.clone(),
+        Value::Bool(true) => "True".into(),
+        Value::Bool(false) => "False".into(),
+        _ => v.to_string(),
+    }
+}
+const WAITS: [(&str, &str); 3] = [
+    ("tree_wait_s", "pool tree"),
+    ("tree_slot_wait_s", "build slot, tree free"),
+    ("burst_wait_s", "lane burst"),
+];
+
+/// Explicit clock boundary keeps frozen observations independent of wall-clock time.
+pub fn run_at(argv: &[String], until: DateTime<Utc>) -> (i32, String, String) {
+    let mut hours = 24.0f64;
+    let mut slo = 720i64;
+    let mut max = 900i64;
+    let mut since = None;
+    let mut markdown = false;
+    let mut files = Vec::new();
+    let mut args = argv.iter();
+    while let Some(arg) = args.next() {
+        let (key, inline) = arg
+            .split_once('=')
+            .map_or((arg.as_str(), None), |(a, b)| (a, Some(b)));
+        match key {
+            "--markdown"=>markdown=true,
+            "--hours"|"--slo-s"|"--max-s"|"--since"=>{
+                let Some(value)=inline.or_else(||args.next().map(String::as_str)) else { return (2,String::new(),format!("{key} requires a value\n")); };
+                let ok=match key {"--hours"=>value.parse().map(|v|hours=v).is_ok(), "--slo-s"=>value.parse().map(|v|slo=v).is_ok(), "--max-s"=>value.parse().map(|v|max=v).is_ok(), _=>{since=Some(value.to_owned());true}};
+                if !ok {return (2,String::new(),format!("invalid {key}\n"));}
+            }
+            "--"=>{files.extend(args.map(PathBuf::from));break;}
+            "-h"|"--help"=>return (0,"Report full warm local runner records.\nUsage: mergemaster evidence runner-report [RUNS.jsonl ...] [--hours 24] [--since ISO8601] [--slo-s 720] [--max-s 900] [--markdown]\n".into(),String::new()),
+            _ if arg.starts_with('-')=>return (2,String::new(),format!("unrecognized argument: {arg}\n")),
+            _=>files.push(PathBuf::from(arg)),
+        }
+    }
+    if !hours.is_finite() || hours <= 0.0 || slo <= 0 || max <= 0 {
+        return (
+            2,
+            String::new(),
+            "--hours, --slo-s and --max-s must be positive\n".into(),
+        );
+    }
+    let since = if let Some(text) = since {
+        match time(&text) {
+            Some(v) => v,
+            None => return (2, String::new(), "bad --since\n".into()),
+        }
+    } else {
+        let Some(duration) = Duration::try_milliseconds((hours * 3_600_000.0).round() as i64)
+        else {
+            return (2, String::new(), "bad --hours\n".into());
+        };
+        let Some(value) = until.checked_sub_signed(duration) else {
+            return (2, String::new(), "bad --hours\n".into());
+        };
+        value
+    };
+    if files.is_empty() {
+        let explicit = std::env::var_os("ST_TEST_RUNS").filter(|v| !v.is_empty() && v != "off");
+        files.push(explicit.map(PathBuf::from).unwrap_or_else(|| {
+            let state = std::env::var_os("XDG_STATE_HOME")
+                .map(PathBuf::from)
+                .filter(|p| p.is_absolute())
+                .unwrap_or_else(|| {
+                    PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state")
+                });
+            state.join("st-test/runs.jsonl")
+        }));
+    }
+    let mut unreadable = 0;
+    let mut window = Vec::new();
+    for path in files {
+        let bytes = match std::fs::read(&path) {
+            Ok(v) => v,
+            Err(e) => {
+                let message = e.to_string();
+                let message = message.split(" (os error ").next().unwrap_or(&message);
+                let errno = e
+                    .raw_os_error()
+                    .map_or(String::new(), |n| format!("[Errno {n}] "));
+                return (
+                    1,
+                    String::new(),
+                    format!(
+                        "fractal-test-report: cannot read the runs: {errno}{message}: '{}'\n",
+                        path.display()
+                    ),
+                );
+            }
+        };
+        for line in String::from_utf8_lossy(&bytes)
+            .lines()
+            .filter(|s| !s.trim().is_empty())
+        {
+            let value = serde_json::from_str::<Value>(line).ok();
+            let valid = value.as_ref().filter(|v| {
+                v.is_object()
+                    && number(&v["v"]) == Some(1.0)
+                    && (v["total_s"].is_i64() || v["total_s"].is_u64() || v["total_s"].is_boolean())
+            });
+            let ended = valid.and_then(|v| v["ended"].as_str()).and_then(time);
+            match (value, ended) {
+                (Some(v), Some(t)) => {
+                    if since <= t && t <= until {
+                        window.push((t, v));
+                    }
+                }
+                _ => unreadable += 1,
+            }
+        }
+    }
+    let mut excluded = json!({"not_full":0,"cold":0,"partial":0,"failed":0,"candidate":0});
+    let mut counted = Vec::new();
+    for (ended, record) in &window {
+        let reason = if truth(&record["candidate"]) {
+            Some("candidate")
+        } else if record["full"] != true {
+            Some("not_full")
+        } else if record["warm"] != true {
+            Some("cold")
+        } else if number(&record["exit"]) == Some(4.0) {
+            Some("partial")
+        } else if number(&record["exit"]) != Some(0.0) {
+            Some("failed")
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            excluded[reason] = json!(excluded[reason].as_u64().unwrap() + 1);
+        } else {
+            counted.push((ended, record));
+        }
+    }
+    counted.sort_by_key(|(ended, _)| *ended);
+    let totals: Vec<_> = counted
+        .iter()
+        .map(|(_, r)| numeric(&r["total_s"]))
+        .collect();
+    let mut reasons = Vec::new();
+    let mut result =
+        json!({"window":{"since":iso(since),"until":iso(until)},"slo_s":slo,"max_allowed_s":max});
+    for (key, value) in summary(&totals).as_object().unwrap() {
+        result[key] = value.clone();
+    }
+    if number(&result["p90_s"]).is_some_and(|v| v > slo as f64) {
+        reasons.push(format!(
+            "p90 {}s is over the {slo}s objective",
+            result["p90_s"]
+        ));
+    }
+    let over: Vec<_> = totals
+        .iter()
+        .filter(|v| number(v).unwrap() > max as f64)
+        .cloned()
+        .collect();
+    if !over.is_empty() {
+        reasons.push(format!(
+            "{} full warm run(s) over {max}s (slowest {}s)",
+            over.len(),
+            percentile(&over, 1.0)
+        ));
+    }
+    let within = totals
+        .iter()
+        .filter(|v| number(v).unwrap() <= slo as f64)
+        .count();
+    result["within_slo"] = if totals.is_empty() {
+        Value::Null
+    } else {
+        json!(((within as f64 / totals.len() as f64) * 1000.0).round_ties_even() / 1000.0)
+    };
+    result["breach"] = json!(!reasons.is_empty());
+    result["breach_reasons"] = json!(reasons);
+    result["excluded"] = excluded;
+    result["unreadable"] = json!(unreadable);
+    let mut hosts: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+    let mut spent: BTreeMap<(String, String), Vec<Value>> = BTreeMap::new();
+    for (_, record) in &counted {
+        hosts
+            .entry(pystr(&record["host"]))
+            .or_default()
+            .push(numeric(&record["total_s"]));
+        let stages = record["stages"].as_array().filter(|v| !v.is_empty());
+        let (kind, rows) = if let Some(rows) = stages {
+            ("stage", Some(rows))
+        } else {
+            ("check", record["rows"].as_array())
+        };
+        for row in rows.into_iter().flatten() {
+            if let (Some(name), Some(_)) = (row["name"].as_str(), number(&row["seconds"])) {
+                spent
+                    .entry((kind.into(), name.into()))
+                    .or_default()
+                    .push(numeric(&row["seconds"]));
+            }
+        }
+    }
+    result["by_host"] = Value::Object(hosts.into_iter().map(|(k, v)| (k, summary(&v))).collect());
+    result["waits"] = json!({});
+    for (key, label) in WAITS {
+        let values: Vec<_> = window
+            .iter()
+            .filter(|(_, r)| number(&r[key]).is_some())
+            .map(|(_, r)| numeric(&r[key]))
+            .collect();
+        if !values.is_empty() {
+            result["waits"][label] = summary(&values);
+        }
+    }
+    let mut slowest:Vec<Value>=spent.into_iter().map(|((kind,name),values)|json!({"name":name,"kind":kind,"count":values.len(),"mean_s":((values.iter().map(|v|number(v).unwrap()).sum::<f64>()/values.len() as f64)*10.0).round_ties_even()/10.0,"p90_s":percentile(&values,0.9)})).collect();
+    slowest.sort_by(|a, b| {
+        number(&b["mean_s"])
+            .unwrap()
+            .total_cmp(&number(&a["mean_s"]).unwrap())
+            .then_with(|| a["name"].as_str().cmp(&b["name"].as_str()))
+    });
+    slowest.truncate(5);
+    result["slowest"] = json!(slowest);
+    result["candidates"]=json!(window.iter().filter(|(_,r)|truth(&r["candidate"])).map(|(_,r)|json!({"head":r["candidate"],"ended":r["ended"],"total_s":r["total_s"],"exit":r["exit"]})).collect::<Vec<_>>());
+    result["runs"]=json!(counted.iter().map(|(_,r)|json!({"ended":r["ended"],"host":r["host"],"total_s":r["total_s"],"tree":r["tree"]})).collect::<Vec<_>>());
+    (
+        0,
+        format!(
+            "{}\n",
+            if markdown {
+                render_markdown(&result)
+            } else {
+                serde_json::to_string_pretty(&result).unwrap()
+            }
+        ),
+        String::new(),
+    )
+}
+fn seconds(v: &Value) -> String {
+    if v.is_null() {
+        "-".into()
+    } else {
+        format!("{v}s")
+    }
+}
+fn render_markdown(r: &Value) -> String {
+    let excluded = r["excluded"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .filter(|(_, v)| v.as_u64() != Some(0))
+        .map(|(k, v)| format!("{v} {k}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let share = number(&r["within_slo"]).map_or("-".into(), |v| format!("{:.0}%", v * 100.0));
+    let unreadable = if r["unreadable"] != 0 {
+        format!("; {} unreadable lines", r["unreadable"])
+    } else {
+        String::new()
+    };
+    let mut out = format!(
+        "**fractal-test full warm runs**, {} .. {}: {} counted (left out: {}{unreadable})\n\nObjective: p90 at most {}s, no run over {}s; {share} of runs within {}s.\n\n| runs | count | p50 | p90 | max |\n|---|---:|---:|---:|---:|",
+        r["window"]["since"].as_str().unwrap(),
+        r["window"]["until"].as_str().unwrap(),
+        r["count"],
+        if excluded.is_empty() {
+            "none"
+        } else {
+            &excluded
+        },
+        r["slo_s"],
+        r["max_allowed_s"],
+        r["slo_s"]
+    );
+    let row = |out: &mut String, label: &str, v: &Value| {
+        write!(
+            out,
+            "\n| {label} | {} | {} | {} | {} |",
+            v["count"],
+            seconds(&v["p50_s"]),
+            seconds(&v["p90_s"]),
+            seconds(&v["max_s"])
+        )
+        .unwrap();
+    };
+    row(&mut out, "all", r);
+    for (host, v) in r["by_host"].as_object().unwrap() {
+        row(&mut out, host, v);
+    }
+    if !r["waits"].as_object().unwrap().is_empty() {
+        out.push_str("\n\n| waited for (every run in the window) | runs | p50 | p90 | max |\n|---|---:|---:|---:|---:|");
+        for (label, v) in r["waits"].as_object().unwrap() {
+            row(&mut out, label, v);
+        }
+    }
+    if !r["candidates"].as_array().unwrap().is_empty() {
+        out.push_str("\n\nCandidate measurements (excluded from SLO figures):");
+        for v in r["candidates"].as_array().unwrap() {
+            write!(
+                out,
+                "\n- {}: {}s, exit {}, ended {}",
+                pystr(&v["head"]),
+                v["total_s"],
+                pystr(&v["exit"]),
+                pystr(&v["ended"])
+            )
+            .unwrap();
+        }
+    }
+    if !r["slowest"].as_array().unwrap().is_empty() {
+        out.push_str("\n\n| slowest stage or check | mean | p90 |\n|---|---:|---:|");
+        for v in r["slowest"].as_array().unwrap() {
+            write!(
+                out,
+                "\n| {} ({}) | {:.1}s | {} |",
+                pystr(&v["name"]),
+                pystr(&v["kind"]),
+                number(&v["mean_s"]).unwrap(),
+                seconds(&v["p90_s"])
+            )
+            .unwrap();
+        }
+    }
+    out.push_str("\n\n");
+    if r["breach"] == true {
+        out.push_str("**Breach**: ");
+        out.push_str(
+            &r["breach_reasons"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap())
+                .collect::<Vec<_>>()
+                .join("; "),
+        );
+    } else {
+        out.push_str(if r["count"] == 0 {
+            "No full warm run in the window: nothing to judge."
+        } else {
+            "**Within the objective.**"
+        });
+    }
+    out
+}

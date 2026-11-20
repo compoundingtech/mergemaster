@@ -87,6 +87,21 @@ The focused parity check loads `scripts/evidence-keygen` and every assertion in
 and tests both implementations plus cross-implementation reuse and refusal cases:
 `nix develop -c cargo test -p mergemaster-evidence --test keygen` (non-root).
 
+## Local runner timing reports
+
+`mergemaster evidence runner-report [RUNS.jsonl ...] --markdown` replaces
+`scripts/fractal-test-report`. With no file it reads `ST_TEST_RUNS`, or
+`${XDG_STATE_HOME:-~/.local/state}/st-test/runs.jsonl` (the state directory must
+be absolute). `--hours` (default 24) or `--since` selects the window ending now.
+Only completed full warm runs count toward the nearest-rank p90 objective
+(`--slo-s 720`) and single-run maximum (`--max-s 900`). Candidates stay separate;
+wait statistics include excluded runs. Omit `--markdown` for JSON.
+An unreadable file exits 1; invalid arguments exit 2. A timing breach is data,
+not a failed command. The native command neither writes records nor runs checks.
+Frozen recordings replay every former self-test scenario against the independent
+pinned Python implementation; native assertions live in `tests/runner_report.rs`
+inside the evidence crate.
+
 ## Copied evidence scripts
 
 The evidence scripts and their self-tests originate from
