@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- merge-pr: verify the merge commit's parents and tree before its authorship; refuse the personal identity regardless of email case and in its GitHub noreply form.
+
 ## [0.11.0] - 2026-11-20
 
 - Bind report-only queue batches with ordered repeatable `--member` heads, exact two-parent first-parent-chain validation back to BASE, precise `source_unbound` diagnostics, and additive v1 `queue_binding` metadata; preserve the no-member single-PR form.
