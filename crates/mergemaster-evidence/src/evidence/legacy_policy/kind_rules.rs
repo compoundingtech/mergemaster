@@ -227,30 +227,15 @@ mod tests {
             cases.push(json!({"wrapper":{"command":["true"],"by_level":{
                 "agent":{"command":["true"],"events":["pull_request"],"lane":lane}}}}));
         }
-        let root = std::env::var("MERGEMASTER_PYTHON_ORACLE")
-            .expect("MERGEMASTER_PYTHON_ORACLE must point to the pinned Python oracle");
-        let script = r#"
-import json, runpy, sys
-oracle = runpy.run_path(sys.argv[1] + '/scripts/evidence-verify')
-results = []
-for kinds in json.loads(sys.argv[2]):
-    try:
-        policy = dict(version=1, checks=dict(check=dict(kinds=kinds, trust_levels=['agent'])))
-        results.append(oracle['policy_rules'](json.dumps(policy), 'check', 'owner/{check}'))
-    except (oracle['Failure'], TypeError, AttributeError, KeyError):
-        results.append(dict(reason='error'))
-print(json.dumps(results))
-"#;
-        let output = crate::pinned_python::command()
-            .args(["-c", script, &root, &serde_json::to_string(&cases).unwrap()])
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let expected: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+        let frozen_inputs: Vec<Value> = serde_json::from_str(include_str!(
+            "../../../../../tests/fixtures/oracle/policy-kind-level/complete-kind-schemas/stdin.json"
+        ))
+        .unwrap();
+        assert_eq!(cases, frozen_inputs);
+        let expected: Vec<Value> = serde_json::from_slice(include_bytes!(
+            "../../../../../tests/fixtures/oracle/policy-kind-level/complete-kind-schemas/stdout.bin"
+        ))
+        .unwrap();
         assert_eq!(cases.len(), expected.len());
         for (kinds, expected) in cases.into_iter().zip(expected) {
             let policy =

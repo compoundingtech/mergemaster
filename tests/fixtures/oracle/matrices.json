@@ -15,6 +15,12 @@
     "policy-header/declared-paths/manifest.json",
     "policy-header/header-diagnostics/manifest.json",
     "policy-header/headers/manifest.json",
-    "policy-header/root-shape/manifest.json"
+    "policy-header/root-shape/manifest.json",
+    "policy-kind-level/complete-kind-schemas/manifest.json",
+    "policy-kind-level/level-diagnostics/manifest.json",
+    "policy-kind-level/level-overrides/manifest.json",
+    "policy-kind-level/level-surrogate-wide-numbers/manifest.json",
+    "policy-kind-level/outer-kind-diagnostics/manifest.json",
+    "policy-kind-level/zero-overrides/manifest.json"
   ]
 }

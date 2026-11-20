@@ -6,38 +6,10 @@ use crate::evidence::{
 use serde_json::Value;
 #[test]
 fn outer_kind_diagnostics_match_pinned_handlers_losslessly() {
-    let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
-    let output = crate::pinned_python::command().args(["-c", r#"
-import ast,json,runpy,sys,types
-path=sys.argv[1]+'/scripts/evidence-verify';v=runpy.run_path(path)
-main=next(n for n in ast.parse(open(path).read()).body if isinstance(n,ast.FunctionDef) and n.name=='main')
-def dump(kind,global_):
- h=next(n for n in ast.walk(main) if isinstance(n,ast.ExceptHandler) and isinstance(n.type,ast.Name) and n.type.id==kind)
- return compile(ast.Expression(h.body[0].body[0].value.args[0] if global_ else h.body[1].value.args[0]),'<handler>','eval')
-cases=[]
-for check in ['check','\ud800','\udfff','😀','quote\'"\n','\u0378']:
- kinds=[{kind:dict(command=['run'])} for kind in ['unknown','😀','quote\'"\n','\u0378','\ud800','\udfff']]
- kinds += [dict(wrapper=value) for value in [None,{},dict(command=['run'],unknown=True),dict(command=[]),dict(command=['run'],trust_levels=[]),dict(command=['run'],trust_levels=['']),dict(command=['run'],runner_prefix=''),dict(command=['run'],runner_prefix=1)]]
- kinds += [dict(wrapper=dict(command=['run'],by_level=value)) for value in [True,1,1.5,'x',[1],2**64,10**100,1e400,-1e400]]
- for point in ['\ud800','\udfff']:
-  kinds += [dict(wrapper=dict(command=['run'],**fields)) for fields in [
-   dict(base_inputs={point:point}),dict(input_order={point:[point,point]}),dict(bind_inputs={point:None})]]
- for value in kinds:
-  text=json.dumps(dict(version=1,checks={check:dict(trust_levels=['agent'],kinds=value)}))
-  try: v['policy_rules'](text,check,'org/repo')
-  except Exception as error:
-   failure=isinstance(error,v['Failure']);kind='Failure' if failure else 'Exception'
-   env=dict(v,failure=error,error=error,args=types.SimpleNamespace(check=check))
-   cases.append(dict(text=text,name=list(map(ord,check)),exception=None if failure else type(error).__name__,reason=error.reason if failure else 'error',detail=list(map(ord,error.detail if failure else str(error))),single=eval(dump(kind,False),env),global_=eval(dump(kind,True),env)))
-  else: raise AssertionError('expected refusal')
-print(json.dumps(cases))
-"#, &root]).output().unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    let cases: Vec<Value> = serde_json::from_slice(include_bytes!(
+        "../../../../../tests/fixtures/oracle/policy-kind-level/outer-kind-diagnostics/stdout.bin"
+    ))
+    .unwrap();
     assert_eq!(cases.len(), 174);
     let mut exceptions = 0;
     for case in cases {
@@ -75,31 +47,10 @@ print(json.dumps(cases))
 #[test]
 fn integer_and_float_zero_overrides_stay_falsy_like_python() {
     use crate::evidence::legacy_verify::statement_document::{Document, Node};
-    let output = crate::pinned_python::command()
-        .args([
-            "-c",
-            r#"
-import json,runpy,sys
-v=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify');cases=[]
-for literal in ['0','-0','0.0','-0.0','0e5']:
- entry=dict(trust_levels=['agent'],kinds=dict(wrapper=dict(command=['run'],by_level='TOKEN')))
- text=json.dumps(dict(version=1,checks=dict(check=entry))).replace('"TOKEN"',literal)
- rules=v['policy_rules'](text,'check','org/repo')
- assert rules['kinds']['wrapper']['by_level']=={}
- value=json.loads(literal)
- cases.append(dict(literal=literal,text=text,integer=type(value) is int))
-print(json.dumps(cases))
-"#,
-            &std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle"),
-        ])
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    let cases: Vec<Value> = serde_json::from_slice(include_bytes!(
+        "../../../../../tests/fixtures/oracle/policy-kind-level/zero-overrides/stdout.bin"
+    ))
+    .unwrap();
     assert_eq!(cases.len(), 5);
     for case in cases {
         let literal = case["literal"].as_str().unwrap();
