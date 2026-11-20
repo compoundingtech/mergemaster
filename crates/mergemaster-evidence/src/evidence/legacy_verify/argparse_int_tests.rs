@@ -1,5 +1,4 @@
 use super::*;
-use std::io::Write;
 #[test]
 fn integer_values_and_complete_argparse_diagnostics_match_python() {
     let mut cases: Vec<String> = [
@@ -63,36 +62,19 @@ fn integer_values_and_complete_argparse_diagnostics_match_python() {
         vec![39, 0xdfff, 34],
         vec![32, 0xdcff, 10],
     ]);
-    let script = r#"
-import argparse,json,sys
-assert sys.version_info[:3]==(3,14,7)
-p=argparse.ArgumentParser(exit_on_error=False); action=p.add_argument('--max-age',type=int)
-r=[]
-for points in json.load(sys.stdin):
- text=''.join(map(chr,points))
- try:
-  v=p._get_value(action,text); r.append(dict(negative=v<0,digits=str(abs(v))))
- except argparse.ArgumentError as e:
-  try: int(text)
-  except ValueError as cause: kind='limit' if str(cause).startswith('Exceeds the limit') else 'literal'
-  r.append(dict(error=kind,diagnostic=e.message,complete=str(e)))
-print(json.dumps(r))
-"#;
-    let mut child = crate::pinned_python::command()
-        .args(["-c", script])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(&serde_json::to_vec(&cases).unwrap())
-        .unwrap();
-    let output = child.wait_with_output().unwrap();
-    assert!(output.status.success());
-    let expected: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
+    let recorded_cases: Vec<Vec<u32>> = serde_json::from_slice(include_bytes!(
+        "../../../../../tests/fixtures/oracle/argparse/int/stdin.json"
+    ))
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(&cases).unwrap(),
+        serde_json::to_value(&recorded_cases).unwrap()
+    );
+    let expected: Vec<serde_json::Value> = serde_json::from_slice(include_bytes!(
+        "../../../../../tests/fixtures/oracle/argparse/int/stdout.json"
+    ))
+    .unwrap();
+    assert_eq!(cases.len(), expected.len());
     for (points, expected) in cases.iter().zip(expected) {
         let text = NormalizedText::from_points(points);
         let value = parse(text.borrowed());

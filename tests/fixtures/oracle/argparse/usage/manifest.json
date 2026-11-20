@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "source_test": {
+    "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/argparse_usage_tests.rs",
+    "function": "usage_matches_pinned_formatter_widths_and_lossless_programs"
+  },
+  "oracle": {
+    "environment": "MERGEMASTER_PYTHON_PARITY_ORACLE",
+    "path": "scripts/evidence-verify",
+    "rev": "1392a516e969be46d9516d904b76a4db98c55030",
+    "nar_hash": "sha256-NL/NWSn+YfpwP7h+CGZkeNmRh9hnQOH3OkF9GtyPXgM=",
+    "git_blob": "5ed6ade05b64b65825d4f6e6da812db1263c6148"
+  },
+  "runtime": {
+    "implementation": "CPython",
+    "version": "3.14.7"
+  },
+  "argv": [
+    "-I",
+    "-B",
+    "driver.py",
+    "${oracle}"
+  ],
+  "cwd": ".",
+  "environment": {
+    "PATH": "${python_bin}",
+    "NO_COLOR": "1",
+    "TERM": "dumb",
+    "COLUMNS": "80",
+    "LC_ALL": "C.UTF-8",
+    "TZ": "UTC",
+    "PYTHONHASHSEED": "0"
+  },
+  "stdin": "stdin.json",
+  "stdout": "stdout.json",
+  "stderr": "stderr.bin",
+  "exit_code": 0,
+  "row_count": 77,
+  "divergences": []
+}

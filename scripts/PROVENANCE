@@ -30,6 +30,14 @@
 # This initial corpus covers five cases (four exact Rust CLI comparisons).
 # It does not freeze every existing generated oracle matrix or divergence;
 # those existing tests/approvals remain authoritative until their corpus lands.
+# Full-matrix freezes are explicitly registered by tests/fixtures/oracle/matrices.json.
+# Each registered manifest names its source test, independent oracle blob/revision,
+# CPython version, complete preserved driver, stdin, argv/cwd/environment and raw
+# stdout/stderr/exit. The same corpus check replays all registered generators.
+# Rust comparisons load the frozen outputs; integer matrix generation additionally
+# asserts its complete inputs still equal frozen stdin. No cases are sampled out.
+# The argparse freeze includes diagnostics, help widths, usage/program codepoints,
+# parser metadata, namespaces and all 844 integer codepoint/limit cases.
 # R2 resync exception; exit: https://github.com/compoundingtech/mergemaster/issues/115
 # The original extraction Commit above is historical; this resync starts at the current fixture revision.
 # Pending requires oracle bytes; the target fixture activates exact upstream bytes and modes.
