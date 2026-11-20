@@ -6,6 +6,8 @@
     "argparse/int/manifest.json",
     "argparse/options/manifest.json",
     "argparse/parse/manifest.json",
-    "argparse/usage/manifest.json"
+    "argparse/usage/manifest.json",
+    "scalar/output/manifest.json",
+    "scalar/check-names/manifest.json"
   ]
 }
