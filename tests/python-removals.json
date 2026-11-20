@@ -125,6 +125,7 @@
   {"path": "tests/fixtures/oracle/v1/record.pack.base64", "wave": "wave-9-python-free", "state": "retained", "sha256": "3fe0c5d093d26d049b07b7d1e4bdf2d9c6165647962f176b95e69578f6ff4bfc", "executable": 0},
   {"path": "tests/fixtures/oracle/v1/recordings.json", "wave": "wave-9-python-free", "state": "retained", "sha256": "fc2c6bf2178c4357d23e0f16f0b1292cc66c1dd016abdeceeb10b8d4e34b2239", "executable": 0},
   {"path": "tests/fixtures/oracle/v1/untrusted-signers", "wave": "wave-9-python-free", "state": "retained", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "executable": 0},
+  {"path": "tests/fixtures/oracle/native-assertions.json", "wave": "wave-9-python-free", "state": "retained", "sha256": "6fc48b091d977376ba6dbc9254b81eb109b7f64c33ddf7aef56550589be2b32d", "executable": 0},
   {"path": "tests/fixtures/oracle/scalar/check-names/driver.py", "wave": "wave-9-python-free", "state": "retained", "sha256": "76c3972695f3c6c95628836065a5ac0468f899ba6e0799772a4f16cfbbd7fcfb", "executable": 0},
   {"path": "tests/fixtures/oracle/scalar/check-names/manifest.json", "wave": "wave-9-python-free", "state": "retained", "sha256": "cc0c25888427ac04e997e48b08169ece94b2fa72fe416f4cd554e5c675452408", "executable": 0},
   {"path": "tests/fixtures/oracle/scalar/check-names/stderr.bin", "wave": "wave-9-python-free", "state": "retained", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "executable": 0},

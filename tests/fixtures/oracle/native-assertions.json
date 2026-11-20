@@ -1,0 +1,2795 @@
+{
+  "version": 1,
+  "source_revision": "4e13fdb43e97326a9c36ca1aed1a9bc316eef4c1",
+  "contract": "Each entry names an already-native test assertion/callee path. This is not a file-wide exemption and does not retire Python-backed generators in the same file. Reclassify changed assertion/helper paths; preserved frozen data consumers are recorded separately by matrices.json.",
+  "entries": [
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_json.rs",
+      "function": "ordinary_json_objects_remain_objects_in_both_parsers",
+      "classification": "native",
+      "reason": "Parses adversarial serde-private object keys with serde_json and legacy_json::parse and checks they remain objects; both decoders run in-process.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_json.rs",
+          "symbol": "ordinary_json_objects_remain_objects_in_both_parsers",
+          "detail": "Parses adversarial serde-private object keys with serde_json and legacy_json::parse and checks they remain objects; both decoders run in-process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_json.rs",
+          "symbol": "parse -> Scanner::value",
+          "detail": "parse validates grammar with serde::de::IgnoredAny then builds local values with Scanner; no child process is involved."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_json.rs",
+      "function": "scanner_preserves_numbers_duplicates_and_standard_json_refusals",
+      "classification": "native",
+      "reason": "Feeds literal JSON bytes to the Rust scanner, checks retained number lexemes/last duplicate and rejects malformed literals entirely in-process.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_json.rs",
+          "symbol": "scanner_preserves_numbers_duplicates_and_standard_json_refusals",
+          "detail": "Feeds literal JSON bytes to the Rust scanner, checks retained number lexemes/last duplicate and rejects malformed literals entirely in-process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_json.rs",
+          "symbol": "parse -> Scanner::value",
+          "detail": "The local scanner stores numeric source slices as strings and recursively constructs arrays/objects after serde grammar validation."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_output_tests.rs",
+      "function": "legacy_output_latches_swallowed_errors_and_caught_panics",
+      "classification": "native",
+      "reason": "Uses Rust catch_unwind around a local refusing/panicking closure and verifies subsequent array/object writes and final completion fail; its complete sink path is native.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_output_tests.rs",
+          "symbol": "legacy_output_latches_swallowed_errors_and_caught_panics",
+          "detail": "Uses Rust catch_unwind around a local refusing/panicking closure and verifies subsequent array/object writes and final completion fail; its complete sink path is native."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_output.rs",
+          "symbol": "legacy_output::Sequence::{next,value,finish}",
+          "detail": "Sequence.pending latches unfinished child writes; fields/items call Rust closures and fmt::Write only."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_json.rs",
+          "symbol": "codepoints",
+          "detail": "Rust fmt::Write encoder emits quoted/escaped code points and returns fmt::Error for invalid points or sink refusal."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_output_tests.rs",
+      "function": "legacy_output_propagates_sink_and_codepoint_errors",
+      "classification": "native",
+      "reason": "Exercises a Rust fmt::Write implementation returning fmt::Error, invalid code points, and an erroring array closure; no oracle or process fixture is called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_output_tests.rs",
+          "symbol": "legacy_output_propagates_sink_and_codepoint_errors",
+          "detail": "Exercises a Rust fmt::Write implementation returning fmt::Error, invalid code points, and an erroring array closure; no oracle or process fixture is called."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_output.rs",
+          "symbol": "legacy_output::write -> ValueWriter::{object,string,array}",
+          "detail": "The writer invokes the supplied closure, writes to the supplied Rust sink, and delegates string escaping to legacy_json::codepoints."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_json.rs",
+          "symbol": "codepoints",
+          "detail": "Rust fmt::Write encoder emits quoted/escaped code points and returns fmt::Error for invalid points or sink refusal."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_policy/helper_diagnostics_tests.rs",
+      "function": "policy_text_helpers_enforce_resource_bounds",
+      "classification": "native",
+      "reason": "Constructs nested JSON in Rust and checks bounded policy selection, sorted names, header parsing and normalized rules; expected resource tags/messages are Rust constants, not Python output.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_policy/helper_diagnostics_tests.rs",
+          "symbol": "policy_text_helpers_enforce_resource_bounds",
+          "detail": "Constructs nested JSON in Rust and checks bounded policy selection, sorted names, header parsing and normalized rules; expected resource tags/messages are Rust constants, not Python output."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_policy/helper_diagnostics_tests.rs",
+          "symbol": "check_names::{selected,sorted} -> PolicyDocument::parse -> policy_document",
+          "detail": "The helpers build a native statement Document via from_policy_text; CheckHeader and kind_rules validate its selected Source in memory."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_policy.rs",
+          "symbol": "PolicyDocument::{parse,into_header,into_rules}; policy_document",
+          "detail": "Reads the selected native Source, invokes CheckHeader/kind schema validation, and converts Document resource errors into typed PolicyError."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/statement_document.rs",
+          "symbol": "Document::{from_policy_text,from_bytes_with_depth_limit,from_tokens}",
+          "detail": "Enforces source-byte/node/container bounds for policy ingress, or explicit optional depth bound; iterative token/node/frame processing is entirely Rust."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_policy/helper_diagnostics_tests.rs",
+      "function": "selected_payload_preserves_explicit_unbounded_document_api",
+      "classification": "native",
+      "reason": "Compares native bounded PolicyDocument rejection with native unbounded Document parsing and kind schema rejection on a deeply nested literal payload; no preparation or assertion subprocess.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_policy/helper_diagnostics_tests.rs",
+          "symbol": "selected_payload_preserves_explicit_unbounded_document_api",
+          "detail": "Compares native bounded PolicyDocument rejection with native unbounded Document parsing and kind schema rejection on a deeply nested literal payload; no preparation or assertion subprocess."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_policy/helper_diagnostics_tests.rs",
+          "symbol": "Document::from_bytes_with_depth_limit -> kind_rules::from_source",
+          "detail": "The explicit None depth limit uses the iterative Rust token/document stack; kind validation reads Source nodes and command_source reports the native schema error."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_policy.rs",
+          "symbol": "PolicyDocument::{parse,into_header,into_rules}; policy_document",
+          "detail": "Reads the selected native Source, invokes CheckHeader/kind schema validation, and converts Document resource errors into typed PolicyError."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/statement_document.rs",
+          "symbol": "Document::{from_policy_text,from_bytes_with_depth_limit,from_tokens}",
+          "detail": "Enforces source-byte/node/container bounds for policy ingress, or explicit optional depth bound; iterative token/node/frame processing is entirely Rust."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_policy/normalized_text.rs",
+      "function": "codepoint_text_refuses_serde_serialization",
+      "classification": "native",
+      "reason": "Serializes literal NormalizedText variants with serde_json and checks the code-point custom error and scalar string result; neither path executes Python.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_policy/normalized_text.rs",
+          "symbol": "codepoint_text_refuses_serde_serialization",
+          "detail": "Serializes literal NormalizedText variants with serde_json and checks the code-point custom error and scalar string result; neither path executes Python."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_policy/normalized_text.rs",
+          "symbol": "NormalizedText::serialize",
+          "detail": "The Scalar arm calls serializer.serialize_str; the Codepoints arm immediately returns serde::ser::Error::custom."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/argparse_diagnostic_tests.rs",
+      "function": "manually_constructed_option_indices_return_checked_errors",
+      "classification": "native",
+      "reason": "Constructs three invalid option-index ParseError values and checks message().is_err(); checked option-table lookup only, with no oracle or process.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/argparse_diagnostic_tests.rs",
+          "symbol": "manually_constructed_option_indices_return_checked_errors",
+          "detail": "Constructs three invalid option-index ParseError values and checks message().is_err(); checked option-table lookup only, with no oracle or process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/argparse_diagnostic.rs",
+          "symbol": "ParseError::message / name",
+          "detail": "OPTIONS.get(id).ok_or(InvalidOption) rejects invalid indices before rendering."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/candidates_tests.rs",
+      "function": "lane_once_caches_success_and_absence_but_not_errors",
+      "classification": "native",
+      "reason": "Exercises LaneOnce with a local Cell-counting Provider whose methods return local lane/error/None values; all cache and forwarding assertions are in memory.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/candidates_tests.rs",
+          "symbol": "lane_once_caches_success_and_absence_but_not_errors",
+          "detail": "Exercises LaneOnce with a local Cell-counting Provider whose methods return local lane/error/None values; all cache and forwarding assertions are in memory."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/candidates.rs",
+          "symbol": "LaneOnce::level_lane / blob_sha256",
+          "detail": "Caches successful/absent lane snapshots, retries errors, and delegates only to the local Source provider."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/cli_adapter_tests.rs",
+      "function": "subprocess_driver",
+      "classification": "native",
+      "reason": "Native subprocess driver: reads supplied argv files, runs Rust parser/preflight or native CLI dispatch, and writes streams/exits. It never calls the parent Python oracle generator; dispatched runtime processes are Git/SSH plumbing, not Python fixtures.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/cli_adapter_tests.rs",
+          "symbol": "subprocess_driver",
+          "detail": "Native subprocess driver: reads supplied argv files, runs Rust parser/preflight or native CLI dispatch, and writes streams/exits. It never calls the parent Python oracle generator; dispatched runtime processes are Git/SSH plumbing, not Python fixtures."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/cli_adapter.rs",
+          "symbol": "prepare / ParsedArguments::preflight",
+          "detail": "Driver uses Rust ingress and cli_dispatch resolve_tree/project/required plus cli_ordinary::verify; oracle-producing parent tests are separate entries."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/cli_keys_tests.rs",
+      "function": "preparation_driver",
+      "classification": "native",
+      "reason": "Consumes pre-supplied MERGEMASTER_KEY_CASES and compares Rust signers/log_keys, temporary-file contents/mode/cleanup and errors; no call to the separate Python case-generating parent. Reads use real Git, not a Python shim.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/cli_keys_tests.rs",
+          "symbol": "preparation_driver",
+          "detail": "Consumes pre-supplied MERGEMASTER_KEY_CASES and compares Rust signers/log_keys, temporary-file contents/mode/cleanup and errors; no call to the separate Python case-generating parent. Reads use real Git, not a Python shim."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/cli_keys.rs",
+          "symbol": "signers / log_keys",
+          "detail": "Use native path/metadata operations, cli_config Git reads and TemporaryFile; no interpreter process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/cli_tempfile.rs",
+      "function": "directory_search_driver",
+      "classification": "native",
+      "reason": "Consumes MERGEMASTER_TEMP_EXPECTED and compares the parent directory of a Rust-created temporary file; the Python expectation generator is in a separate parent test, not this callee path.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/cli_tempfile.rs",
+          "symbol": "directory_search_driver",
+          "detail": "Consumes MERGEMASTER_TEMP_EXPECTED and compares the parent directory of a Rust-created temporary file; the Python expectation generator is in a separate parent test, not this callee path."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/cli_tempfile.rs",
+          "symbol": "TemporaryFile::new / directory / in_directory",
+          "detail": "Native directory probing, OpenOptions and tempfile creation only."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/clock_tests.rs",
+      "function": "system_clock_conversion_is_checked",
+      "classification": "native",
+      "reason": "Checks fixed SystemTime-to-microsecond values and OverflowError cases without process or oracle calls.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/clock_tests.rs",
+          "symbol": "system_clock_conversion_is_checked",
+          "detail": "Checks fixed SystemTime-to-microsecond values and OverflowError cases without process or oracle calls."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/inputs.rs",
+          "symbol": "system_epoch_micros",
+          "detail": "Uses duration_since, integer div_euclid and datetime-range bounds."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/configured_tests.rs",
+      "function": "malformed_manual_records_refuse_selected_check_preparation",
+      "classification": "native",
+      "reason": "Builds a native policy and malformed in-memory Document, then checks the prepare_records invariant refusal and absent attempts.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/configured_tests.rs",
+          "symbol": "malformed_manual_records_refuse_selected_check_preparation",
+          "detail": "Builds a native policy and malformed in-memory Document, then checks the prepare_records invariant refusal and absent attempts."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/configured.rs",
+          "symbol": "prepare_records / document_candidates",
+          "detail": "DocumentFacts::for_check returns None and maps directly to invalid_statement_failure, before any Git provider."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/configured_tests.rs",
+      "function": "selected_commit_absent_from_manual_records_refuses",
+      "classification": "native",
+      "reason": "Checks record_position over one local record for present index and absent-commit invariant refusal; no I/O or oracle.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/configured_tests.rs",
+          "symbol": "selected_commit_absent_from_manual_records_refuses",
+          "detail": "Checks record_position over one local record for present index and absent-commit invariant refusal; no I/O or oracle."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/configured.rs",
+          "symbol": "record_position",
+          "detail": "Iterator position lookup maps absence to invalid_statement_failure."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/events.rs",
+      "function": "lazy_intersection_borrows_the_ordered_source",
+      "classification": "native",
+      "reason": "Checks borrowed event references, order and absent intersections using local String arrays only.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/events.rs",
+          "symbol": "lazy_intersection_borrows_the_ordered_source",
+          "detail": "Checks borrowed event references, order and absent intersections using local String arrays only."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/events.rs",
+          "symbol": "narrowed_event_iter",
+          "detail": "Borrows level.or(check), filters membership and returns str references."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/facts_tests.rs",
+      "function": "document_facts_do_not_panic_on_ill_shaped_views",
+      "classification": "native",
+      "reason": "Mutates local JSON document shapes and checks DocumentFacts::for_check returns None; parsing/fact extraction is Rust-only.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/facts_tests.rs",
+          "symbol": "document_facts_do_not_panic_on_ill_shaped_views",
+          "detail": "Mutates local JSON document shapes and checks DocumentFacts::for_check returns None; parsing/fact extraction is Rust-only."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/facts.rs",
+          "symbol": "DocumentFacts::for_check",
+          "detail": "Reads typed document fields, StringNodes, ValidatedInputs and native timestamp parsing; no provider/process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/inputs_tests.rs",
+      "function": "normalized_policy_text_preserves_native_command_comparisons",
+      "classification": "native",
+      "reason": "Compares scalar/codepoint NormalizedText command views against a local native Check, including a surrogate mismatch; all assertions are pure.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/inputs_tests.rs",
+          "symbol": "normalized_policy_text_preserves_native_command_comparisons",
+          "detail": "Compares scalar/codepoint NormalizedText command views against a local native Check, including a surrogate mismatch; all assertions are pure."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/inputs.rs",
+          "symbol": "CheckSource::matches_command",
+          "detail": "Length checks and iterator TextRef equality on Native/Text arm only."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/json_bytes_tests.rs",
+      "function": "byte_json_keeps_approved_unbounded_depth",
+      "classification": "native",
+      "reason": "Builds 100000 nested JSON arrays and asserts the native byte parser retains an Array root; no oracle fixture generation.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/json_bytes_tests.rs",
+          "symbol": "byte_json_keeps_approved_unbounded_depth",
+          "detail": "Builds 100000 nested JSON arrays and asserts the native byte parser retains an Array root; no oracle fixture generation."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/json_bytes.rs",
+          "symbol": "parse",
+          "detail": "Native decode_json_bytes_exact followed by Document::from_points."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/prefix_tests.rs",
+      "function": "joined_git_errors_are_not_successful_misses",
+      "classification": "native",
+      "reason": "Checks that candidate collection against a missing repository returns error without attempts; the only reached process is real Git discovery, not Python.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/prefix_tests.rs",
+          "symbol": "joined_git_errors_are_not_successful_misses",
+          "detail": "Checks that candidate collection against a missing repository returns error without attempts; the only reached process is real Git discovery, not Python."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/collection.rs",
+          "symbol": "CandidateCollector::collect",
+          "detail": "First calls discovery::legacy_refs; gate::git::text/command launches sanitized git and the missing repository fails before further collection."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/projection_tests.rs",
+      "function": "option_terminator_named_entries_do_not_contaminate_projections",
+      "classification": "native",
+      "reason": "Uses real Git-created files/trees to assert -- named entries do not contaminate selected projections; git helper and project stay on native Git plumbing.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/projection_tests.rs",
+          "symbol": "option_terminator_named_entries_do_not_contaminate_projections",
+          "detail": "Uses real Git-created files/trees to assert -- named entries do not contaminate selected projections; git helper and project stay on native Git plumbing."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/projection.rs",
+          "symbol": "project_with_fetch",
+          "detail": "Lists selected entries and writes a temporary Git index/tree through input_git_with_fetch; no interpreter."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/projection_tests.rs",
+      "function": "projection_fetch_overlay_is_child_local",
+      "classification": "native",
+      "reason": "Runs a Git shell alias using printf to inspect child-local GIT_NO_LAZY_FETCH and checks the parent environment is unchanged; shell/Git only, no Python.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/projection_tests.rs",
+          "symbol": "projection_fetch_overlay_is_child_local",
+          "detail": "Runs a Git shell alias using printf to inspect child-local GIT_NO_LAZY_FETCH and checks the parent environment is unchanged; shell/Git only, no Python."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/projection.rs",
+          "symbol": "input_git_with_fetch",
+          "detail": "Sets GIT_NO_LAZY_FETCH only on a Command::new(\"git\") child, then native exchange captures bytes."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/projection_tests.rs",
+      "function": "projection_plumbing_output_is_bounded_and_never_truncated",
+      "classification": "native",
+      "reason": "Creates real Git repositories and checks native bounded plumbing output, OID lengths, malformed-output errors and discard mode; no Python executable or Python fixture.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/projection_tests.rs",
+          "symbol": "projection_plumbing_output_is_bounded_and_never_truncated",
+          "detail": "Creates real Git repositories and checks native bounded plumbing output, OID lengths, malformed-output errors and discard mode; no Python executable or Python fixture."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/projection.rs",
+          "symbol": "input_git / input_git_with_fetch / projection_command",
+          "detail": "Builds Command::new(\"git\") and passes it to the native capture exchange."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/projection_tests.rs",
+      "function": "projection_validates_before_all_fast_paths",
+      "classification": "native",
+      "reason": "Asserts invalid tree IDs refuse before nonexistent-repo access and whole-tree selection returns a valid supplied tree ID; both branches finish before process I/O.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/projection_tests.rs",
+          "symbol": "projection_validates_before_all_fast_paths",
+          "detail": "Asserts invalid tree IDs refuse before nonexistent-repo access and whole-tree selection returns a valid supplied tree ID; both branches finish before process I/O."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/projection.rs",
+          "symbol": "project_with_fetch",
+          "detail": "oid validation precedes all work; whole path with no exclusions/chosen selectors returns Some(tree) directly."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/raw_batch_tests.rs",
+      "function": "actual_git_supports_both_formats_missing_objects_and_size_refusal",
+      "classification": "native",
+      "reason": "Creates real Git objects in SHA-1/SHA-256 repositories and asserts raw batch missing-object, body-size and capture refusal behavior; no call to fixture/fixture_timed.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/raw_batch_tests.rs",
+          "symbol": "actual_git_supports_both_formats_missing_objects_and_size_refusal",
+          "detail": "Creates real Git objects in SHA-1/SHA-256 repositories and asserts raw batch missing-object, body-size and capture refusal behavior; no call to fixture/fixture_timed."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/raw_batch.rs",
+          "symbol": "RawBatch::open",
+          "detail": "Uses gate::git::command(repo).args([\"cat-file\", \"--batch\"]) and native GitChild transport; second capture path also builds a Git command."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/raw_batch_tests.rs",
+      "function": "declared_limits_precede_body_reads_and_framing_is_exact",
+      "classification": "native",
+      "reason": "Calls frame directly with std::io::Cursor buffers for declared body/header boundaries, missing objects and malformed framing. Does not call the adjacent Python fixture helper.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/raw_batch_tests.rs",
+          "symbol": "declared_limits_precede_body_reads_and_framing_is_exact",
+          "detail": "Calls frame directly with std::io::Cursor buffers for declared body/header boundaries, missing objects and malformed framing. Does not call the adjacent Python fixture helper."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/raw_batch.rs",
+          "symbol": "frame / header_size",
+          "detail": "Reads the provided Read buffer, validates header before body allocation/read and requires a newline terminator."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/records_tests.rs",
+      "function": "malformed_manual_subject_views_return_the_library_invariant_refusal",
+      "classification": "native",
+      "reason": "Parses fixed malformed subject documents and checks the native invariant refusal; no record lookup or subprocess.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/records_tests.rs",
+          "symbol": "malformed_manual_subject_views_return_the_library_invariant_refusal",
+          "detail": "Parses fixed malformed subject documents and checks the native invariant refusal; no record lookup or subprocess."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/records.rs",
+          "symbol": "validated_subject",
+          "detail": "Typed subject/name extraction and char::from_u32 collection map invalid shapes/points to invalid_statement."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/records_tests.rs",
+      "function": "negative_entries_also_reach_the_entry_limit",
+      "classification": "native",
+      "reason": "Directly populates RecordCache negative entries and checks unit/entry limits and permitted hits; in-memory accounting only.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/records_tests.rs",
+          "symbol": "negative_entries_also_reach_the_entry_limit",
+          "detail": "Directly populates RecordCache negative entries and checks unit/entry limits and permitted hits; in-memory accounting only."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/records.rs",
+          "symbol": "RecordCache::charge",
+          "detail": "Updates remaining_units/exhausted and compares values.len() against MAX_RECORD_ENTRIES without loading records."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/result_tests.rs",
+      "function": "malformed_manual_success_decisions_return_a_textless_typed_error",
+      "classification": "native",
+      "reason": "Constructs malformed local success decisions/documents and asserts Satisfied::from_decision yields ViewError::InvalidDecision; all data and routing options are in memory.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/result_tests.rs",
+          "symbol": "malformed_manual_success_decisions_return_a_textless_typed_error",
+          "detail": "Constructs malformed local success decisions/documents and asserts Satisfied::from_decision yields ViewError::InvalidDecision; all data and routing options are in memory."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/result.rs",
+          "symbol": "Satisfied::from_decision",
+          "detail": "Checked candidate/subject/digest/walk access, age overflow and native kind lookup reject malformed values without I/O."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/routing_tests.rs",
+      "function": "policy_routes_always_supply_the_resolved_kind_and_level_inputs",
+      "classification": "native",
+      "reason": "Parses a fixed policy and local Check/Document, then compares native/document routing references and override commands; no provider reads.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/routing_tests.rs",
+          "symbol": "policy_routes_always_supply_the_resolved_kind_and_level_inputs",
+          "detail": "Parses a fixed policy and local Check/Document, then compares native/document routing references and override commands; no provider reads."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/routing.rs",
+          "symbol": "route / route_document / route_policy",
+          "detail": "Resolve kind and trust level in policy vectors and return borrowed level/kind input rules."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/selection_json_tests.rs",
+      "function": "lossless_selector_preserves_parse_before_lookup",
+      "classification": "native",
+      "reason": "Compares Rust scalar/codepoint selector behavior, parse-before-lookup refusals and workflow selection using fixed JSON/YAML strings; no oracle process.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/selection_json_tests.rs",
+          "symbol": "lossless_selector_preserves_parse_before_lookup",
+          "detail": "Compares Rust scalar/codepoint selector behavior, parse-before-lookup refusals and workflow selection using fixed JSON/YAML strings; no oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/selection_json.rs",
+          "symbol": "select_json",
+          "detail": "Native legacy_json parsing and lookup/encoding; workflow::workflow_job uses an in-memory line parser/dependency walk."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/signature_tests.rs",
+      "function": "missing_revocations_refuse_before_git_or_revision_validation",
+      "classification": "native",
+      "reason": "Calls signature with a missing revocation file and checks it refuses before Git execution or revision validation.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/signature_tests.rs",
+          "symbol": "missing_revocations_refuse_before_git_or_revision_validation",
+          "detail": "Calls signature with a missing revocation file and checks it refuses before Git execution or revision validation."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/signature.rs",
+          "symbol": "signature",
+          "detail": "std::fs::metadata failure is returned before File::open, oid(commit) and git(...)."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/source_io.rs",
+      "function": "not_capable_is_permission_error",
+      "classification": "native",
+      "reason": "Constructs an ENOTCAPABLE io::Error and asserts native PermissionError mapping on supported platforms; formatting is native.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/source_io.rs",
+          "symbol": "not_capable_is_permission_error",
+          "detail": "Constructs an ENOTCAPABLE io::Error and asserts native PermissionError mapping on supported platforms; formatting is native."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/source_io.rs",
+          "symbol": "error / class",
+          "detail": "Maps libc ENOTCAPABLE directly to PermissionError and uses Rust os_diagnostic, not Python."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/stale_tests.rs",
+      "function": "malformed_binary_tree_framing_is_an_error",
+      "classification": "native",
+      "reason": "Feeds malformed raw tree byte slices to other_blobs and checks framing errors; no Git or interpreter is started.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/stale_tests.rs",
+          "symbol": "malformed_binary_tree_framing_is_an_error",
+          "detail": "Feeds malformed raw tree byte slices to other_blobs and checks framing errors; no Git or interpreter is started."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/stale.rs",
+          "symbol": "other_blobs",
+          "detail": "Checks NUL/space framing and binary OID width directly over the supplied byte slice."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/statement_document_tests.rs",
+      "function": "container_limit_counts_arrays_objects_and_empty_roots",
+      "classification": "native",
+      "reason": "Generates fixed array/object nesting boundaries and checks Document parser acceptance/NestingLimit; purely native tokenizer and iterative parser.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/statement_document_tests.rs",
+          "symbol": "container_limit_counts_arrays_objects_and_empty_roots",
+          "detail": "Generates fixed array/object nesting boundaries and checks Document parser acceptance/NestingLimit; purely native tokenizer and iterative parser."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/statement_document.rs",
+          "symbol": "from_bytes / from_limited_tokens / from_tokens",
+          "detail": "Native Tokens feed a stack parser whose depth callback rejects depth >= MAX_CONTAINER_DEPTH."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/statement_document_tests.rs",
+      "function": "policy_depth_parameter_preserves_the_statement_default",
+      "classification": "native",
+      "reason": "Checks default and uncapped Rust document parser depth behavior for generated local nested arrays; no Python call.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/statement_document_tests.rs",
+          "symbol": "policy_depth_parameter_preserves_the_statement_default",
+          "detail": "Checks default and uncapped Rust document parser depth behavior for generated local nested arrays; no Python call."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/statement_document.rs",
+          "symbol": "from_bytes_with_depth_limit",
+          "detail": "Selects optional native stack-depth callback; None removes the limit without delegating parsing."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/statement_document_tests.rs",
+      "function": "sharing_retains_nested_values_and_surrogate_keys",
+      "classification": "native",
+      "reason": "Parses a local nested document with a surrogate key and checks Arc clones share object keys and array storage; no oracle.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/statement_document_tests.rs",
+          "symbol": "sharing_retains_nested_values_and_surrogate_keys",
+          "detail": "Parses a local nested document with a surrogate key and checks Arc clones share object keys and array storage; no oracle."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/statement_document.rs",
+          "symbol": "Document::from_bytes",
+          "detail": "Native iterative parser builds nodes; Arc::clone assertions compare retained storage pointers."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/statement_document_tests.rs",
+      "function": "uncapped_text_api_has_only_reachable_errors_and_identical_results",
+      "classification": "native",
+      "reason": "Compares the two native uncapped text parser APIs over 21 generated/fixed inputs, including error variants and deep nesting; neither side uses Python.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/statement_document_tests.rs",
+          "symbol": "uncapped_text_api_has_only_reachable_errors_and_identical_results",
+          "detail": "Compares the two native uncapped text parser APIs over 21 generated/fixed inputs, including error variants and deep nesting; neither side uses Python."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/statement_document.rs",
+          "symbol": "from_text / from_text_with_depth_limit",
+          "detail": "Both use native text_tokens and from_tokens; narrow TextError is compared to the legacy native Error mapping."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/statement_tokens_tests.rs",
+      "function": "token_boundaries_and_failure_are_explicit",
+      "classification": "native",
+      "reason": "Checks native token counts, punctuation, terminal syntax failure and -0 preservation over literal byte inputs.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/statement_tokens_tests.rs",
+          "symbol": "token_boundaries_and_failure_are_explicit",
+          "detail": "Checks native token counts, punctuation, terminal syntax failure and -0 preservation over literal byte inputs."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/statement_tokens.rs",
+          "symbol": "Tokens::from_bytes / Iterator::next",
+          "detail": "Native byte decoding and scanner produce tokens/errors; no subprocess-backed oracle."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/terminal_sink_tests.rs",
+      "function": "caller_constructed_sink_inputs_refuse_without_panics",
+      "classification": "native",
+      "reason": "Constructs malformed RenderedHelp ranges/codepoints/unsafe literal values and checks typed terminal-sink errors without processes.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/terminal_sink_tests.rs",
+          "symbol": "caller_constructed_sink_inputs_refuse_without_panics",
+          "detail": "Constructs malformed RenderedHelp ranges/codepoints/unsafe literal values and checks typed terminal-sink errors without processes."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/terminal_sink.rs",
+          "symbol": "RenderedHelp::write_terminal / value",
+          "detail": "Checks interpolation ranges and iterates Unicode codepoints; native escaped/char conversion reports InvalidCodepoint."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/toml_document_tests.rs",
+      "function": "deeply_nested_document_is_iterative",
+      "classification": "native",
+      "reason": "Builds deeply nested TOML and checks deterministic native ContainerDepth refusal, explicitly avoiding the nondeterministic CPython recursion boundary.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/toml_document_tests.rs",
+          "symbol": "deeply_nested_document_is_iterative",
+          "detail": "Builds deeply nested TOML and checks deterministic native ContainerDepth refusal, explicitly avoiding the nondeterministic CPython recursion boundary."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/toml_document.rs",
+          "symbol": "parse",
+          "detail": "Native Source/assignment/value parser charges depth and returns Resource::ContainerDepth."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/toml_tables_tests.rs",
+      "function": "deep_flag_subtree_removal_and_drop_do_not_recurse",
+      "classification": "native",
+      "reason": "Builds deep local Flags trees, checks unset_all and explicit/recursive flags, then drops them; native map traversal only.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/toml_tables_tests.rs",
+          "symbol": "deep_flag_subtree_removal_and_drop_do_not_recurse",
+          "detail": "Builds deep local Flags trees, checks unset_all and explicit/recursive flags, then drops them; native map traversal only."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/toml_tables.rs",
+          "symbol": "Flags::set / is / unset_all / Node::drop",
+          "detail": "Iterative map traversal and explicit pending stack for destructor; no interpreter/oracle."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/trust_tests.rs",
+      "function": "malformed_manual_candidates_refuse_before_signature_lookup",
+      "classification": "native",
+      "reason": "Checks malformed manual candidates refuse during field validation before any signature callback can run; local native document parsing only.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/trust_tests.rs",
+          "symbol": "malformed_manual_candidates_refuse_before_signature_lookup",
+          "detail": "Checks malformed manual candidates refuse during field validation before any signature callback can run; local native document parsing only."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/trust.rs",
+          "symbol": "partition / partition_with",
+          "detail": "Requires predicate/tier/signer via checked field extraction before signature(&candidate.commit); all supplied malformed cases fail those guards."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/legacy_verify/value_inputs_tests.rs",
+      "function": "validated_views_refuse_wrong_shapes_and_foreign_ids",
+      "classification": "native",
+      "reason": "Checks wrong document shapes and foreign node IDs are rejected, then iterates native validated string nodes including a surrogate; entirely in-memory.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/value_inputs_tests.rs",
+          "symbol": "validated_views_refuse_wrong_shapes_and_foreign_ids",
+          "detail": "Checks wrong document shapes and foreign node IDs are rejected, then iterates native validated string nodes including a surrogate; entirely in-memory."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/legacy_verify/value_inputs.rs",
+          "symbol": "ValidatedInputs::new / StringNodes::new",
+          "detail": "Checks Node shapes and try_node IDs and yields borrowed codepoint strings without external execution."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/signing.rs",
+      "function": "absolute_argv0_outside_closures_is_refused",
+      "classification": "native",
+      "reason": "Writes a temporary outside file, canonicalizes it through the resolver and checks Rust Path prefix membership against declared closure roots; no process fixture.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/signing.rs",
+          "symbol": "absolute_argv0_outside_closures_is_refused",
+          "detail": "Writes a temporary outside file, canonicalizes it through the resolver and checks Rust Path prefix membership against declared closure roots; no process fixture."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/signing.rs",
+          "symbol": "resolve_lane_executable -> inside_closure",
+          "detail": "Absolute argv0 is canonicalized using std::fs; inside_closure only applies Path::starts_with to roots."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/signing.rs",
+      "function": "bun_resolves_only_from_declared_runtime",
+      "classification": "native",
+      "reason": "Creates files in Rust temp directories, builds typed closure declarations and resolves/removes the runtime bun; filesystem canonicalization, not a running interpreter, supplies expectations.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/signing.rs",
+          "symbol": "bun_resolves_only_from_declared_runtime",
+          "detail": "Creates files in Rust temp directories, builds typed closure declarations and resolves/removes the runtime bun; filesystem canonicalization, not a running interpreter, supplies expectations."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/signing.rs",
+          "symbol": "closure_fixture -> resolve_lane_executable",
+          "detail": "closure_fixture constructs SignConfig/Toolchain values; resolver validates argv0 and canonicalizes config.toolchain.runtime/bin/bun."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/signing.rs",
+      "function": "closure_digest_mismatch_precedes_execution_claim_diagnostics",
+      "classification": "native",
+      "reason": "Mutates literal claim maps and checks the direct Rust comparison error gives closure digest precedence, including when execution claims are absent.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/signing.rs",
+          "symbol": "closure_digest_mismatch_precedes_execution_claim_diagnostics",
+          "detail": "Mutates literal claim maps and checks the direct Rust comparison error gives closure digest precedence, including when execution claims are absent."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/signing.rs",
+          "symbol": "verify_toolchain_claims",
+          "detail": "Iterates measured claims and fails immediately on a differing nix_closure_sha256 entry before the aggregate execution-claim error."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/signing.rs",
+      "function": "dependency_named_runtime_never_selects_or_requires_its_bun",
+      "classification": "native",
+      "reason": "Builds real symlinks with std::fs and typed runtime/dependency declarations, then verifies iterator-based artifact selection distinguishes the runtime flag from a dependency name.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/signing.rs",
+          "symbol": "dependency_named_runtime_never_selects_or_requires_its_bun",
+          "detail": "Builds real symlinks with std::fs and typed runtime/dependency declarations, then verifies iterator-based artifact selection distinguishes the runtime flag from a dependency name."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/signing.rs",
+          "symbol": "closure_fixture -> resolve_lane_executable -> provisioned_artifacts -> inside_closure",
+          "detail": "Resolution canonicalizes links; provisioned_artifacts tags the actual runtime true and dependencies false, and selection compares path prefixes without launching bun."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/signing.rs",
+      "function": "direct_runtime_rejects_non_bun_and_non_nix",
+      "classification": "native",
+      "reason": "Creates native typed closure fixtures and checks resolver errors for git and a non-Nix runtime identity without executing either tool.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/signing.rs",
+          "symbol": "direct_runtime_rejects_non_bun_and_non_nix",
+          "detail": "Creates native typed closure fixtures and checks resolver errors for git and a non-Nix runtime identity without executing either tool."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/signing.rs",
+          "symbol": "closure_fixture -> resolve_lane_executable",
+          "detail": "The resolver rejects relative argv0 unless it is bun and the declared runtime identity starts with nix:."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/signing.rs",
+      "function": "parent_directory_escapes_are_refused",
+      "classification": "native",
+      "reason": "Passes literal parent-directory escape argv0 values to the resolver using a typed Rust closure fixture and checks its error string.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/signing.rs",
+          "symbol": "parent_directory_escapes_are_refused",
+          "detail": "Passes literal parent-directory escape argv0 values to the resolver using a typed Rust closure fixture and checks its error string."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/signing.rs",
+          "symbol": "closure_fixture -> resolve_lane_executable",
+          "detail": "Path components are checked for ParentDir before canonicalization; no executable is launched."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/src/evidence/signing.rs",
+      "function": "signer_refuses_missing_or_tampered_script_and_absolute_executable_claims",
+      "classification": "native",
+      "reason": "Mutates in-memory measured/reported BTreeMaps and directly checks claim comparison success/refusal; no signing command or process fixture is used.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/signing.rs",
+          "symbol": "signer_refuses_missing_or_tampered_script_and_absolute_executable_claims",
+          "detail": "Mutates in-memory measured/reported BTreeMaps and directly checks claim comparison success/refusal; no signing command or process fixture is used."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/signing.rs",
+          "symbol": "verify_toolchain_claims",
+          "detail": "Compares reported values against measured entries, prioritizing closure digest mismatches, then returns a Rust ensure error."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "absent_repository_policy_preserves_bound_record_compatibility",
+      "classification": "native",
+      "reason": "Adds a foreign repository field to a Rust-created signed statement and checks native gate satisfaction when base policy has no repository binding. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "absent_repository_policy_preserves_bound_record_compatibility",
+          "detail": "Adds a foreign repository field to a Rust-created signed statement and checks native gate satisfaction when base policy has no repository binding."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "base_keys_and_policy_cannot_be_replaced_by_head",
+      "classification": "native",
+      "reason": "Changes candidate trust keys and policy but signs with original/stranger SSH keys, checking the native gate still rejects protected edits. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "base_keys_and_policy_cannot_be_replaced_by_head",
+          "detail": "Changes candidate trust keys and policy but signs with original/stranger SSH keys, checking the native gate still rejects protected edits."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "computed_refusal_and_satisfaction_publish_compatible_outputs",
+      "classification": "native",
+      "reason": "Checks native gate JSON/GitHub outputs before/after native signed-note publication, and native CLI usage failure. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "computed_refusal_and_satisfaction_publish_compatible_outputs",
+          "detail": "Checks native gate JSON/GitHub outputs before/after native signed-note publication, and native CLI usage failure."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "configured_maximum_age_rejects_old_signed_success",
+      "classification": "native",
+      "reason": "Commits max-age policy and a Rust timestamped signed note, checking native gate too_old refusal without consulting the Python clock oracle. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "configured_maximum_age_rejects_old_signed_success",
+          "detail": "Commits max-age policy and a Rust timestamped signed note, checking native gate too_old refusal without consulting the Python clock oracle."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "direct_exec_accepts_only_tracked_supported_script_extensions",
+      "classification": "native",
+      "reason": "Commits supported script paths and directly checks native config::load acceptance/rejection; fixture script content is never executed. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "direct_exec_accepts_only_tracked_supported_script_extensions",
+          "detail": "Commits supported script paths and directly checks native config::load acceptance/rejection; fixture script content is never executed."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "direct_exec_fixture",
+          "detail": "Writes declared Nix identity strings, policy and JS fixture bytes and commits them; does not execute bun, Nix or Python."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "direct_exec_configuration_refuses_non_script_bun_and_other_commands",
+      "classification": "native",
+      "reason": "Uses typed Rust/Git direct_exec fixtures and directly checks config::load rejects unsupported argv shapes; bun is never launched. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "direct_exec_configuration_refuses_non_script_bun_and_other_commands",
+          "detail": "Uses typed Rust/Git direct_exec fixtures and directly checks config::load rejects unsupported argv shapes; bun is never launched."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "direct_exec_fixture",
+          "detail": "Writes declared Nix identity strings, policy and JS fixture bytes and commits them; does not execute bun, Nix or Python."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "direct_exec_opt_in_changes_lane_hash_but_false_preserves_serialization",
+      "classification": "native",
+      "reason": "Directly compares native expected_inputs hashes and serde lane serialization for enabled/disabled/defaulted direct_exec. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "direct_exec_opt_in_changes_lane_hash_but_false_preserves_serialization",
+          "detail": "Directly compares native expected_inputs hashes and serde lane serialization for enabled/disabled/defaulted direct_exec."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "direct_exec_fixture",
+          "detail": "Writes declared Nix identity strings, policy and JS fixture bytes and commits them; does not execute bun, Nix or Python."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "direct_exec_script_must_be_tracked_at_base_and_at_check_head",
+      "classification": "native",
+      "reason": "Removes the committed script and writes an untracked replacement, checking native expected_inputs/load/gate errors without running bun. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "direct_exec_script_must_be_tracked_at_base_and_at_check_head",
+          "detail": "Removes the committed script and writes an untracked replacement, checking native expected_inputs/load/gate errors without running bun."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "direct_exec_fixture",
+          "detail": "Writes declared Nix identity strings, policy and JS fixture bytes and commits them; does not execute bun, Nix or Python."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "divergent_history_and_same_tree_different_commit_are_not_eligible",
+      "classification": "native",
+      "reason": "Uses Git empty/unrelated commits to check native exact-subject and accepted-base ancestry refusal. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "divergent_history_and_same_tree_different_commit_are_not_eligible",
+          "detail": "Uses Git empty/unrelated commits to check native exact-subject and accepted-base ancestry refusal."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "foreign_merges_anywhere_in_candidate_history_refuse",
+      "classification": "native",
+      "reason": "Builds actual Git merge/octopus graphs and native signed notes, checking Rust gate foreign_merge refusal at tip and deeper ancestry. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "foreign_merges_anywhere_in_candidate_history_refuse",
+          "detail": "Builds actual Git merge/octopus graphs and native signed notes, checking Rust gate foreign_merge refusal at tip and deeper ancestry."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "human_approval_does_not_transfer_to_a_new_push_or_head_policy",
+      "classification": "native",
+      "reason": "Advances candidate commits and changes head policy/hosted review JSON, checking native approval rejection for stale review and untrusted candidate approver changes. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "human_approval_does_not_transfer_to_a_new_push_or_head_policy",
+          "detail": "Advances candidate commits and changes head policy/hosted review JSON, checking native approval rejection for stale review and untrusted candidate approver changes."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "approval_fixture",
+          "detail": "Only writes base-approved policy/workflow JSON/text and commits them via Fixture Git helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "approval_evidence",
+          "detail": "Returns a static serde_json::json! value for exact-head reviews and workflow checks; no live API process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "immutable_ids_alone_are_not_a_local_live_authority",
+      "classification": "native",
+      "reason": "Moves/removes real local Git authority refs and checks the native gate publishes no decision; no live_api fixture is installed. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "immutable_ids_alone_are_not_a_local_live_authority",
+          "detail": "Moves/removes real local Git authority refs and checks the native gate publishes no decision; no live_api fixture is installed."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "inspection_only_missing_subject_never_authorizes_a_gate",
+      "classification": "native",
+      "reason": "Deletes a native Git subject object after signing, checks native evidence show still inspects it but the native gate cannot authorize it. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "inspection_only_missing_subject_never_authorizes_a_gate",
+          "detail": "Deletes a native Git subject object after signing, checks native evidence show still inspects it but the native gate cannot authorize it."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "invalid_base_config_is_not_misreported_as_missing",
+      "classification": "native",
+      "reason": "Commits malformed/directory/symlink config shapes and checks native config error type and absence of newly published output. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "invalid_base_config_is_not_misreported_as_missing",
+          "detail": "Commits malformed/directory/symlink config shapes and checks native config error type and absence of newly published output."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "linear_pull_request_history_still_uses_exact_head_evidence",
+      "classification": "native",
+      "reason": "Creates a native Git/SSH signed exact-head note and checks Rust gate skip decision. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "linear_pull_request_history_still_uses_exact_head_evidence",
+          "detail": "Creates a native Git/SSH signed exact-head note and checks Rust gate skip decision."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "malformed_base_configuration_is_not_a_computed_decision",
+      "classification": "native",
+      "reason": "Commits malformed/unsupported policy/environment/pin variations and checks the native gate errors without decision output. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "malformed_base_configuration_is_not_a_computed_decision",
+          "detail": "Commits malformed/unsupported policy/environment/pin variations and checks the native gate errors without decision output."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "malformed_or_misbound_hosted_evidence_never_writes_success",
+      "classification": "native",
+      "reason": "Writes malformed/misbound hosted JSON and checks the native gate fails without creating success output. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "malformed_or_misbound_hosted_evidence_never_writes_success",
+          "detail": "Writes malformed/misbound hosted JSON and checks the native gate fails without creating success output."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "approval_fixture",
+          "detail": "Only writes base-approved policy/workflow JSON/text and commits them via Fixture Git helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "approval_evidence",
+          "detail": "Returns a static serde_json::json! value for exact-head reviews and workflow checks; no live API process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "merge_graph_accepts_a_base_that_is_itself_a_merge",
+      "classification": "native",
+      "reason": "Builds an accepted merge base with Git and uses native merge_graph_decision signing/gate checks. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_graph_accepts_a_base_that_is_itself_a_merge",
+          "detail": "Builds an accepted merge base with Git and uses native merge_graph_decision signing/gate checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_graph_decision",
+          "detail": "Uses git commit-tree/checkout, Fixture::statement/note SSH signing and Fixture::decision only."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "merge_graph_all_trusted_non_first_octopus_parents_are_accepted",
+      "classification": "native",
+      "reason": "Builds trusted octopus ancestry with Git and native signed notes and checks Rust gate skip and actual parent count. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_graph_all_trusted_non_first_octopus_parents_are_accepted",
+          "detail": "Builds trusted octopus ancestry with Git and native signed notes and checks Rust gate skip and actual parent count."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_graph_decision",
+          "detail": "Uses git commit-tree/checkout, Fixture::statement/note SSH signing and Fixture::decision only."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "merge_graph_criss_cross_uses_accepted_base_ancestry_not_one_merge_base",
+      "classification": "native",
+      "reason": "Builds criss-cross commits with Git and signs native statements, checking native gate decisions against accepted-base ancestry. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_graph_criss_cross_uses_accepted_base_ancestry_not_one_merge_base",
+          "detail": "Builds criss-cross commits with Git and signs native statements, checking native gate decisions against accepted-base ancestry."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_graph_decision",
+          "detail": "Uses git commit-tree/checkout, Fixture::statement/note SSH signing and Fixture::decision only."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "merge_graph_parent_order_cannot_trust_a_foreign_second_parent",
+      "classification": "native",
+      "reason": "Uses merge_graph_decision to construct parent-order variants with Git and native signed notes, checking Rust ancestry decisions. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_graph_parent_order_cannot_trust_a_foreign_second_parent",
+          "detail": "Uses merge_graph_decision to construct parent-order variants with Git and native signed notes, checking Rust ancestry decisions."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_graph_decision",
+          "detail": "Uses git commit-tree/checkout, Fixture::statement/note SSH signing and Fixture::decision only."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "merge_group_human_approval_never_yields_satisfied",
+      "classification": "native",
+      "reason": "Builds approved hosted evidence JSON and Git protected edits under base-authorized policy, then checks native merge-group report-only refusal. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_group_human_approval_never_yields_satisfied",
+          "detail": "Builds approved hosted evidence JSON and Git protected edits under base-authorized policy, then checks native merge-group report-only refusal."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_group_decision",
+          "detail": "Writes supplied Rust JSON to merge-group.json, adds event CLI arguments and calls Fixture::decision."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "approval_fixture",
+          "detail": "Only writes base-approved policy/workflow JSON/text and commits them via Fixture Git helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "approval_evidence",
+          "detail": "Returns a static serde_json::json! value for exact-head reviews and workflow checks; no live API process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "merge_group_is_explicit_and_report_only_even_with_satisfying_evidence",
+      "classification": "native",
+      "reason": "Writes a Rust-generated merge-group event and signed note, then checks native report_only_queue_parent and GitHub refusal output. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_group_is_explicit_and_report_only_even_with_satisfying_evidence",
+          "detail": "Writes a Rust-generated merge-group event and signed note, then checks native report_only_queue_parent and GitHub refusal output."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_group_fixture",
+          "detail": "Only commits Rust-created merge_group policy and candidate files with Fixture Git helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_group_decision",
+          "detail": "Writes supplied Rust JSON to merge-group.json, adds event CLI arguments and calls Fixture::decision."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "merge_group_optional_fallback_never_emits_skip",
+      "classification": "native",
+      "reason": "Commits optional merge-group policy, creates missing/failed/passing signed evidence and checks native refusal reasons and skip=false output. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_group_optional_fallback_never_emits_skip",
+          "detail": "Commits optional merge-group policy, creates missing/failed/passing signed evidence and checks native refusal reasons and skip=false output."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_group_fixture",
+          "detail": "Only commits Rust-created merge_group policy and candidate files with Fixture Git helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_group_decision",
+          "detail": "Writes supplied Rust JSON to merge-group.json, adds event CLI arguments and calls Fixture::decision."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "merge_group_refuses_unbound_candidate_parent_or_queue_ref",
+      "classification": "native",
+      "reason": "Mutates merge-group head/base/ref fields in Rust JSON and checks native source_unbound refusal. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_group_refuses_unbound_candidate_parent_or_queue_ref",
+          "detail": "Mutates merge-group head/base/ref fields in Rust JSON and checks native source_unbound refusal."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_group_fixture",
+          "detail": "Only commits Rust-created merge_group policy and candidate files with Fixture Git helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_group_decision",
+          "detail": "Writes supplied Rust JSON to merge-group.json, adds event CLI arguments and calls Fixture::decision."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "merge_group_refuses_wrong_action_repository_or_missing_binding_fields",
+      "classification": "native",
+      "reason": "Mutates/removes merge-group action/repository/binding JSON fields and checks native structured refusal. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_group_refuses_wrong_action_repository_or_missing_binding_fields",
+          "detail": "Mutates/removes merge-group action/repository/binding JSON fields and checks native structured refusal."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_group_fixture",
+          "detail": "Only commits Rust-created merge_group policy and candidate files with Fixture Git helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_group_decision",
+          "detail": "Writes supplied Rust JSON to merge-group.json, adds event CLI arguments and calls Fixture::decision."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "merge_group_requires_lane_opt_in_and_event_file",
+      "classification": "native",
+      "reason": "Checks native merge-group opt-in and event-binding errors using Rust-created JSON events and Git fixtures. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_group_requires_lane_opt_in_and_event_file",
+          "detail": "Checks native merge-group opt-in and event-binding errors using Rust-created JSON events and Git fixtures."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_group_fixture",
+          "detail": "Only commits Rust-created merge_group policy and candidate files with Fixture Git helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_group_decision",
+          "detail": "Writes supplied Rust JSON to merge-group.json, adds event CLI arguments and calls Fixture::decision."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "merge_group_with_reused_hosted_evidence_is_still_report_only",
+      "classification": "native",
+      "reason": "Writes static Rust approval_evidence JSON and a signed note and checks native merge-group report-only refusal. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_group_with_reused_hosted_evidence_is_still_report_only",
+          "detail": "Writes static Rust approval_evidence JSON and a signed note and checks native merge-group report-only refusal."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_group_fixture",
+          "detail": "Only commits Rust-created merge_group policy and candidate files with Fixture Git helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_group_decision",
+          "detail": "Writes supplied Rust JSON to merge-group.json, adds event CLI arguments and calls Fixture::decision."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "approval_evidence",
+          "detail": "Returns a static serde_json::json! value for exact-head reviews and workflow checks; no live API process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "merge_resolution_cannot_hide_protected_policy_edits",
+      "classification": "native",
+      "reason": "Creates a resolution-only protected edit in a native Git merge fixture and checks Rust gate detects the protected path. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_resolution_cannot_hide_protected_policy_edits",
+          "detail": "Creates a resolution-only protected edit in a native Git merge fixture and checks Rust gate detects the protected path."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "base_merge_fixture",
+          "detail": "Constructs accepted-base and carry/resolution commits using git commit-tree/write-tree/checkout; no Python fixture."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "merge_resolution_lane_definition_requires_final_tree_measurement",
+      "classification": "native",
+      "reason": "Builds merge-resolution Git trees and stale/fresh Rust-generated signed lane hashes, checking native wrong_input then satisfaction. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "merge_resolution_lane_definition_requires_final_tree_measurement",
+          "detail": "Builds merge-resolution Git trees and stale/fresh Rust-generated signed lane hashes, checking native wrong_input then satisfaction."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "base_merge_fixture",
+          "detail": "Constructs accepted-base and carry/resolution commits using git commit-tree/write-tree/checkout; no Python fixture."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "missing_base_config_is_a_structured_refusal_even_if_head_supplies_it",
+      "classification": "native",
+      "reason": "Removes each committed base config and restores it only at head, checking native config_missing decision, typed error and output. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "missing_base_config_is_a_structured_refusal_even_if_head_supplies_it",
+          "detail": "Removes each committed base config and restores it only at head, checking native config_missing decision, typed error and output."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "missing_keys_precede_lane_expansion_but_no_record_still_validates_inputs",
+      "classification": "native",
+      "reason": "Removes keys or committed tool paths and checks native config_missing precedence versus missing committed input errors. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "missing_keys_precede_lane_expansion_but_no_record_still_validates_inputs",
+          "detail": "Removes keys or committed tool paths and checks native config_missing precedence versus missing committed input errors."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "queue_fixture",
+          "detail": "Delegates to queue_fixture_with_repository, which builds policy/candidate/two-parent Git commits using Fixture helpers only."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "native_status_json_and_github_output_are_a_single_contract",
+      "classification": "native",
+      "reason": "Uses Rust-created signed statements and native gate output to assert exact JSON field order/types and appended GitHub output bytes across policy/outcome combinations. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "native_status_json_and_github_output_are_a_single_contract",
+          "detail": "Uses Rust-created signed statements and native gate output to assert exact JSON field order/types and appended GitHub output bytes across policy/outcome combinations."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "nix_execution_receipts_are_required_and_bound_to_the_declared_artifact",
+      "classification": "native",
+      "reason": "Constructs claimed closure/executable/artifact fields as Rust JSON and signs them with Git, checking native gate validation without running Nix or bun. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "nix_execution_receipts_are_required_and_bound_to_the_declared_artifact",
+          "detail": "Constructs claimed closure/executable/artifact fields as Rust JSON and signs them with Git, checking native gate validation without running Nix or bun."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "direct_exec_fixture",
+          "detail": "Writes declared Nix identity strings, policy and JS fixture bytes and commits them; does not execute bun, Nix or Python."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "note_layouts_deduplicate_and_never_transfer_to_another_tree",
+      "classification": "native",
+      "reason": "Creates and aliases actual SSH-signed Git records using native fixture helpers, checking native gate deduplication and changed-tree refusal. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "note_layouts_deduplicate_and_never_transfer_to_another_tree",
+          "detail": "Creates and aliases actual SSH-signed Git records using native fixture helpers, checking native gate deduplication and changed-tree refusal."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "optional_fallback_foreign_merge_refuses_and_lists_protected_edits",
+      "classification": "native",
+      "reason": "Builds Git foreign merge graphs with optional policy and optional protected edits, checking native refusal/path listing/GitHub outputs. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "optional_fallback_foreign_merge_refuses_and_lists_protected_edits",
+          "detail": "Builds Git foreign merge graphs with optional policy and optional protected edits, checking native refusal/path listing/GitHub outputs."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "optional_fallback_runs_instead_of_refusing_missing_or_failed_evidence",
+      "classification": "native",
+      "reason": "Commits optional policy and native failed signed evidence, checking Rust gate run decisions for absent/failed notes. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "optional_fallback_runs_instead_of_refusing_missing_or_failed_evidence",
+          "detail": "Commits optional policy and native failed signed evidence, checking Rust gate run decisions for absent/failed notes."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "protected_aliases_and_symlink_replacements_never_skip",
+      "classification": "native",
+      "reason": "Creates alias paths/symlinks using Rust and Git, signs statements and checks native protected_paths refusal under base trust. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "protected_aliases_and_symlink_replacements_never_skip",
+          "detail": "Creates alias paths/symlinks using Rust and Git, signs statements and checks native protected_paths refusal under base trust."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "protected_base_merges_accept_older_and_current_base_parents",
+      "classification": "native",
+      "reason": "Uses base_merge_fixture Git plumbing and native note signing to check native gate accepts trusted base ancestry at/below tip. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "protected_base_merges_accept_older_and_current_base_parents",
+          "detail": "Uses base_merge_fixture Git plumbing and native note signing to check native gate accepts trusted base ancestry at/below tip."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "base_merge_fixture",
+          "detail": "Constructs accepted-base and carry/resolution commits using git commit-tree/write-tree/checkout; no Python fixture."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "protected_changes_include_both_sides_of_renames",
+      "classification": "native",
+      "reason": "Performs filesystem/Git changes and signs native statements, checking native protected-path handling for edits/deletes/renames and component boundaries. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "protected_changes_include_both_sides_of_renames",
+          "detail": "Performs filesystem/Git changes and signs native statements, checking native protected-path handling for edits/deletes/renames and component boundaries."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "protected_human_approval_requires_exact_review_and_workflow_identity",
+      "classification": "native",
+      "reason": "Mutates static approval_evidence JSON for review/check/workflow identities and checks native approval decisions; the push call in this test is Vec::push, not Fixture::push. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "protected_human_approval_requires_exact_review_and_workflow_identity",
+          "detail": "Mutates static approval_evidence JSON for review/check/workflow identities and checks native approval decisions; the push call in this test is Vec::push, not Fixture::push."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "approval_fixture",
+          "detail": "Only writes base-approved policy/workflow JSON/text and commits them via Fixture Git helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "approval_evidence",
+          "detail": "Returns a static serde_json::json! value for exact-head reviews and workflow checks; no live API process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "queue_input_comparison_never_satisfies_a_different_tree",
+      "classification": "native",
+      "reason": "Creates signed evidence and Git queue trees, changes unrelated/definition files, and checks native comparison hashes never authorize a different tree. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "queue_input_comparison_never_satisfies_a_different_tree",
+          "detail": "Creates signed evidence and Git queue trees, changes unrelated/definition files, and checks native comparison hashes never authorize a different tree."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "queue_fixture",
+          "detail": "Delegates to queue_fixture_with_repository, which builds policy/candidate/two-parent Git commits using Fixture helpers only."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "queue_protected_edits_cannot_be_satisfied_by_human_approval",
+      "classification": "native",
+      "reason": "Builds queue commits and static hosted approval JSON with/without signed notes, checking native human_approval_only refusal/output. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "queue_protected_edits_cannot_be_satisfied_by_human_approval",
+          "detail": "Builds queue commits and static hosted approval JSON with/without signed notes, checking native human_approval_only refusal/output."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "approval_fixture",
+          "detail": "Only writes base-approved policy/workflow JSON/text and commits them via Fixture Git helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "approval_evidence",
+          "detail": "Returns a static serde_json::json! value for exact-head reviews and workflow checks; no live API process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "queue_requires_base_keys_and_lane_opt_in",
+      "classification": "native",
+      "reason": "Commits policy/key changes with Git and checks native event_not_allowed and config_missing queue refusals. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "queue_requires_base_keys_and_lane_opt_in",
+          "detail": "Commits policy/key changes with Git and checks native event_not_allowed and config_missing queue refusals."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "queue_fixture",
+          "detail": "Delegates to queue_fixture_with_repository, which builds policy/candidate/two-parent Git commits using Fixture helpers only."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "queue_requires_two_parents_bound_base_and_no_event_file",
+      "classification": "native",
+      "reason": "Uses Git commit-tree to vary queue ancestry and checks native source_unbound refusals for event files, wrong parent count and nonparent base. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "queue_requires_two_parents_bound_base_and_no_event_file",
+          "detail": "Uses Git commit-tree to vary queue ancestry and checks native source_unbound refusals for event files, wrong parent count and nonparent base."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "queue_fixture",
+          "detail": "Delegates to queue_fixture_with_repository, which builds policy/candidate/two-parent Git commits using Fixture helpers only."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "read_only_gate_ignores_materialized_dependencies_and_scratch",
+      "classification": "native",
+      "reason": "Writes candidate-local node_modules/scratch files with Rust and checks native read-only gate decisions remain identical without altering scratch contents. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "read_only_gate_ignores_materialized_dependencies_and_scratch",
+          "detail": "Writes candidate-local node_modules/scratch files with Rust and checks native read-only gate decisions remain identical without altering scratch contents."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "repository_bound_gate_and_comparison_require_exact_signed_identity",
+      "classification": "native",
+      "reason": "Creates signed repository-bound records and tests exact/mismatched/absent identities in native PR and queue comparison decisions. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "repository_bound_gate_and_comparison_require_exact_signed_identity",
+          "detail": "Creates signed repository-bound records and tests exact/mismatched/absent identities in native PR and queue comparison decisions."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "queue_fixture_with_repository",
+          "detail": "Builds typed repository policy and queue commits with native Fixture/Git helpers only."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "repository_policy_is_validated_and_only_read_from_accepted_base",
+      "classification": "native",
+      "reason": "Mutates candidate/base repository policy JSON and checks native config::load accepts only valid repository identities from the pinned base. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "repository_policy_is_validated_and_only_read_from_accepted_base",
+          "detail": "Mutates candidate/base repository policy JSON and checks native config::load accepts only valid repository identities from the pinned base."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "signed_observations_require_every_lane_binding",
+      "classification": "native",
+      "reason": "Builds signed notes with Rust JSON and Git/SSH, mutates trust/command/subject/environment/time fields and checks native per-record acceptance/refusal. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "signed_observations_require_every_lane_binding",
+          "detail": "Builds signed notes with Rust JSON and Git/SSH, mutates trust/command/subject/environment/time fields and checks native per-record acceptance/refusal."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "unbound_path_lanes_do_not_require_a_host_toolchain_entry",
+      "classification": "native",
+      "reason": "Changes committed environment to a foreign system, creates a native signed statement and checks native gate satisfaction without a host runtime lookup. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "unbound_path_lanes_do_not_require_a_host_toolchain_entry",
+          "detail": "Changes committed environment to a foreign system, creates a native signed statement and checks native gate satisfaction without a host runtime lookup."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/gate.rs",
+      "function": "wrong_repository_failure_cannot_shadow_matching_success_or_comparison",
+      "classification": "native",
+      "reason": "Publishes Rust-created matching success and wrong/unbound failures and checks native queue selection retains the matching record and refusal count. The fixture/assertion path is Rust plus Git/ssh-keygen only; no Python process is prepared or called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "wrong_repository_failure_cannot_shadow_matching_success_or_comparison",
+          "detail": "Publishes Rust-created matching success and wrong/unbound failures and checks native queue selection retains the matching record and refusal count."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "Fixture::{new,with_repository,statement,note,raw_note,gate,decision}",
+          "detail": "Constructor writes fixtures using Rust and creates history/keys with Git/ssh-keygen. statement uses native config::load/expected_inputs; raw_note uses Git SSH commit signing; gate launches CARGO_BIN_EXE_mergemaster. Neither constructor nor ordinary decision invokes live_api/python/oracle helpers."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate.rs",
+          "symbol": "run -> compute; records; satisfy; verify_worker",
+          "detail": "Native gate parses JSON, reads Git objects, evaluates records/bindings/policy and rechecks local refs. Native verification delegates to evidence::verify_record (Git/SSH), not Python; merge_group/queue skip Live API checks."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/gate/config.rs",
+          "symbol": "load; expected_inputs -> read_tree/entries_from/blob_digests",
+          "detail": "Pinned-base policy/environment/keys and candidate input identities are decoded/hashed in Rust from committed Git blobs; no host lane execution or oracle process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/gate.rs",
+          "symbol": "queue_fixture_with_repository",
+          "detail": "Builds typed repository policy and queue commits with native Fixture/Git helpers only."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/generic_evidence.rs",
+      "function": "invalid_repository_binding_is_rejected_before_lane_execution",
+      "classification": "native",
+      "reason": "Passes malformed repository strings to the native wrapper and checks Rust stderr plus absence of the lane counter/evidence refs; fixture preparation is Rust/Git/SSH.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/generic_evidence.rs",
+          "symbol": "invalid_repository_binding_is_rejected_before_lane_execution",
+          "detail": "Passes malformed repository strings to the native wrapper and checks Rust stderr plus absence of the lane counter/evidence refs; fixture preparation is Rust/Git/SSH."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/generic_evidence.rs",
+          "symbol": "Fixture::new -> wrap_repository -> refs",
+          "detail": "The default wrapper and signer are CARGO_BIN_EXE_mergemaster; the measured shell lane is never executed in these refusal cases, and Fixture::python is not called."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/signing.rs",
+          "symbol": "run_sign -> run_worker; measure_toolchain -> measure",
+          "detail": "Native signer reexecutes current_exe as sign-worker with Git/ssh-keygen-only PATH. This fixture uses sha256 file measurements, so measure hashes Rust file reads rather than a Nix/Python process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/generic_evidence.rs",
+      "function": "postconditions_and_signing_or_publication_fail_closed",
+      "classification": "native",
+      "reason": "Runs measured sh lanes through the native wrapper, using the Rust signer or explicit false/sh response fixtures, and checks fail-closed publication/output contracts using Git and Rust reads.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/generic_evidence.rs",
+          "symbol": "postconditions_and_signing_or_publication_fail_closed",
+          "detail": "Runs measured sh lanes through the native wrapper, using the Rust signer or explicit false/sh response fixtures, and checks fail-closed publication/output contracts using Git and Rust reads."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/generic_evidence.rs",
+          "symbol": "Fixture::new -> Fixture::command(CARGO_BIN_EXE_mergemaster)",
+          "detail": "Explicit signer alternatives are /bin/false and measured sh; the normal signer is the Rust evidence sign CLI. Git publication and shell mutations introduce no Python process."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/signing.rs",
+          "symbol": "run_sign -> run_worker; measure_toolchain -> measure",
+          "detail": "Native signer reexecutes current_exe as sign-worker with Git/ssh-keygen-only PATH. This fixture uses sha256 file measurements, so measure hashes Rust file reads rather than a Nix/Python process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/generic_evidence.rs",
+      "function": "preconditions_fail_before_execution",
+      "classification": "native",
+      "reason": "Mutates native fixture files/config/argv and checks the Rust wrapper refuses before the measured shell lane or native signer can publish evidence.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/generic_evidence.rs",
+          "symbol": "preconditions_fail_before_execution",
+          "detail": "Mutates native fixture files/config/argv and checks the Rust wrapper refuses before the measured shell lane or native signer can publish evidence."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/generic_evidence.rs",
+          "symbol": "Fixture::new -> Fixture::wrap -> wrap_repository",
+          "detail": "Fixture construction uses Rust, Git and ssh-keygen; wrapper defaults to the Rust evidence sign executable and this test never invokes the Python verification helper."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/signing.rs",
+          "symbol": "run_sign -> run_worker; measure_toolchain -> measure",
+          "detail": "Native signer reexecutes current_exe as sign-worker with Git/ssh-keygen-only PATH. This fixture uses sha256 file measurements, so measure hashes Rust file reads rather than a Nix/Python process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/generic_evidence.rs",
+      "function": "repository_binding_is_signed_and_allowed_by_account_policy",
+      "classification": "native",
+      "reason": "Runs native wrap/sign/gate with Git/ssh-keygen and a measured sh lane, then decodes the signed Git blob in Rust to assert repository binding.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/generic_evidence.rs",
+          "symbol": "repository_binding_is_signed_and_allowed_by_account_policy",
+          "detail": "Runs native wrap/sign/gate with Git/ssh-keygen and a measured sh lane, then decodes the signed Git blob in Rust to assert repository binding."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/generic_evidence.rs",
+          "symbol": "Fixture::new -> wrap_repository -> gate",
+          "detail": "Fixture construction is Rust filesystem/Git/SSH; wrap_repository defaults to the Rust evidence sign command, and gate invokes the Rust binary. The Python verifier helper is not used."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/signing.rs",
+          "symbol": "run_sign -> run_worker; measure_toolchain -> measure",
+          "detail": "Native signer reexecutes current_exe as sign-worker with Git/ssh-keygen-only PATH. This fixture uses sha256 file measurements, so measure hashes Rust file reads rather than a Nix/Python process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/generic_evidence.rs",
+      "function": "signer_independently_rejects_forged_requests_and_unsafe_configuration",
+      "classification": "native",
+      "reason": "Builds and tampers requests in Rust and pipes bytes directly to the Rust evidence sign CLI; PYTHONPATH is an unsafe-loader input under test, not a Python invocation.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/generic_evidence.rs",
+          "symbol": "signer_independently_rejects_forged_requests_and_unsafe_configuration",
+          "detail": "Builds and tampers requests in Rust and pipes bytes directly to the Rust evidence sign CLI; PYTHONPATH is an unsafe-loader input under test, not a Python invocation."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/generic_evidence.rs",
+          "symbol": "config::{load,expected_inputs} -> Fixture::command(CARGO_BIN_EXE_mergemaster)",
+          "detail": "Fixture construction uses Rust/Git/SSH; expected_inputs reads/hashes committed Git objects, and the only signer child is the compiled Rust binary."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/signing.rs",
+          "symbol": "run_sign -> run_worker; measure_toolchain -> measure",
+          "detail": "Native signer reexecutes current_exe as sign-worker with Git/ssh-keygen-only PATH. This fixture uses sha256 file measurements, so measure hashes Rust file reads rather than a Nix/Python process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/generic_evidence.rs",
+      "function": "signer_repository_allowlist_refuses_wrong_or_missing_binding",
+      "classification": "native",
+      "reason": "Changes signer allowlist JSON in Rust and checks native wrapper/signer refusal, empty Git evidence refs and shell lane counter for each binding.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/generic_evidence.rs",
+          "symbol": "signer_repository_allowlist_refuses_wrong_or_missing_binding",
+          "detail": "Changes signer allowlist JSON in Rust and checks native wrapper/signer refusal, empty Git evidence refs and shell lane counter for each binding."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/generic_evidence.rs",
+          "symbol": "Fixture::new -> wrap_repository -> refs",
+          "detail": "wrap_repository invokes the Rust wrap CLI and native sign CLI by default; refs uses git for-each-ref, not Python."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/signing.rs",
+          "symbol": "run_sign -> run_worker; measure_toolchain -> measure",
+          "detail": "Native signer reexecutes current_exe as sign-worker with Git/ssh-keygen-only PATH. This fixture uses sha256 file measurements, so measure hashes Rust file reads rather than a Nix/Python process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/generic_evidence.rs",
+      "function": "undeclared_inputs_mutations_and_signer_time_tampering_refuse",
+      "classification": "native",
+      "reason": "Prepares materialized files in Rust and exercises refusal through the Rust wrapper/signer with shell lane/tampering commands, then checks refs/counter; no Python verifier is called.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/generic_evidence.rs",
+          "symbol": "undeclared_inputs_mutations_and_signer_time_tampering_refuse",
+          "detail": "Prepares materialized files in Rust and exercises refusal through the Rust wrapper/signer with shell lane/tampering commands, then checks refs/counter; no Python verifier is called."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/generic_evidence.rs",
+          "symbol": "materialized_fixture -> Fixture::wrap -> Fixture::wrap_repository",
+          "detail": "wrap_repository launches CARGO_BIN_EXE_mergemaster evidence wrap with the native evidence sign default, or the explicitly supplied measured sh interposer invoking that same native signer."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/signing.rs",
+          "symbol": "run_sign -> run_worker; measure_toolchain -> measure",
+          "detail": "Native signer reexecutes current_exe as sign-worker with Git/ssh-keygen-only PATH. This fixture uses sha256 file measurements, so measure hashes Rust file reads rather than a Nix/Python process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/generic_evidence.rs",
+      "function": "workspace_binding_is_object_only_and_binds_the_base_declaration",
+      "classification": "native",
+      "reason": "The materialized fixture is prepared with Rust filesystem calls, Git and ssh-keygen; this test only calls native config load/expected_inputs and checks committed declaration hashes survive deleting materialized files.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/generic_evidence.rs",
+          "symbol": "workspace_binding_is_object_only_and_binds_the_base_declaration",
+          "detail": "The materialized fixture is prepared with Rust filesystem calls, Git and ssh-keygen; this test only calls native config load/expected_inputs and checks committed declaration hashes survive deleting materialized files."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/generic_evidence.rs",
+          "symbol": "materialized_fixture -> Fixture::new; config::{load,expected_inputs}",
+          "detail": "Fixture::new uses sh only as a measured runtime path and does not run the lane here. expected_inputs reads Git objects, hashes serde data and validates workspace declarations; it never calls Fixture::python."
+        },
+        {
+          "path": "crates/mergemaster-evidence/src/evidence/signing.rs",
+          "symbol": "run_sign -> run_worker; measure_toolchain -> measure",
+          "detail": "Native signer reexecutes current_exe as sign-worker with Git/ssh-keygen-only PATH. This fixture uses sha256 file measurements, so measure hashes Rust file reads rather than a Nix/Python process."
+        }
+      ]
+    },
+    {
+      "source": "crates/mergemaster-evidence/tests/git_evidence.rs",
+      "function": "put_show_verify_work_offline_for_tests_review_and_explicit_degraded_tier",
+      "classification": "native",
+      "reason": "The isolation helper reexecutes the Rust test binary, then the body creates Git objects/SSH keys, uses native evidence APIs/CLI, and checks policy/signature/degraded results. Python is only symlinked onto the isolated PATH and is never invoked on this path.",
+      "evidence": [
+        {
+          "path": "crates/mergemaster-evidence/tests/git_evidence.rs",
+          "symbol": "put_show_verify_work_offline_for_tests_review_and_explicit_degraded_tier",
+          "detail": "The isolation helper reexecutes the Rust test binary, then the body creates Git objects/SSH keys, uses native evidence APIs/CLI, and checks policy/signature/degraded results. Python is only symlinked onto the isolated PATH and is never invoked on this path."
+        },
+        {
+          "path": "crates/mergemaster-evidence/tests/git_evidence.rs",
+          "symbol": "isolated -> evidence::{sign_observation,record_degraded,verify_record}; cli",
+          "detail": "isolated launches current_exe, not python3. git/cli helpers launch Git and CARGO_BIN_EXE_mergemaster; native evidence signing/verification uses Git SSH signatures and serde JSON."
+        }
+      ]
+    }
+  ]
+}
