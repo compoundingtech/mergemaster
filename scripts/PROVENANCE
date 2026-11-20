@@ -47,6 +47,9 @@
 # Rust hashes through a formatting sink; on a mismatching block it consults only
 # the pinned oracle to identify the first differing codepoint. Corpus replay
 # independently regenerates all identities; no encoded stream blob is committed.
+# policy-kind-level/ freezes six complete kind and level schema/diagnostic
+# matrices. Original native generator inputs match frozen stdin byte-for-byte;
+# all exception provenance, single/global diagnostics and zero overrides remain.
 # policy-header/ freezes all six root/header and input declaration matrices.
 # Rust input generators match exact frozen stdin; full diagnostics and policy
 # seconds remain covered, including wide values and last-member semantics.
