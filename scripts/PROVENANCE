@@ -101,6 +101,16 @@
 # Assertions: crates/mergemaster-evidence/tests/runner_report.rs. Frozen fixed-clock
 # inputs and Python streams: tests/fixtures/oracle/runner-report.json; independently
 # replayed by replay_runner_report in tests/oracle_corpus.py.
+# Keygen caller adoption (LOCAL_PATCHES in tests/oracle_scripts.py lists only these two):
+# evidence-prepush remediation text names the native command; its self-test
+# asserts the new instruction. Runtime signing and suppression remain unchanged.
+# Remove these exceptions when the independent oracle includes native keygen.
+# local-patch scripts/evidence-prepush 9c5dd848149ef8a4d1387eb0459cbbf21d38deea 4da13cad8a0a918caf7ea0da578f0c23a565239a
+# local-patch scripts/evidence-prepush-test e6c6b5187e39e59cd533ff1768d6ab2b68efecfa 542165b8183c31b98dcaac7d02351b1367a9dfd9
+# Keygen assertions now live in crates/mergemaster-evidence/tests/keygen.rs.
+# tests/fixtures/oracle/keygen.json freezes host/agent provisioning and reuse
+# streams using a deliberately public fixed test key and explicit home template;
+# oracle_corpus.py replays independently, and Rust compares both implementations.
 # local-patch scripts/ci-signed-tree 77a560621f8182d2ca19f622782ff24c95e7d514 2bdd0922a31a6dad544bf6826666efeec68a3466
 # local-patch scripts/ci-signed-tree-test 91612975e7ae383ca5c55b94a19af20b0b1c7df2 9b1877c7407fe1128620fb94e376b66a7fcca8d2
 # Intentional local gate adoption: verification and project subprocesses use the

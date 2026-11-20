@@ -102,6 +102,32 @@ sys.exit(module.main(sys.argv[3:], now=now))
     print(f"Replayed {len(fixture['cases'])} frozen runner-report cases")
 
 
+def replay_keygen(interpreter):
+    """Public fixed-key recordings retain raw streams, expanding only the home path."""
+    manifest = json.loads((CORPUS.parent / "keygen.json").read_text())
+    source = Path(os.environ[manifest["oracle"]["environment"]]) / manifest["oracle"]["path"]
+    assert git_blob(source.read_bytes()) == manifest["oracle"]["git_blob"]
+    with tempfile.TemporaryDirectory(prefix="mergemaster-keygen-corpus-") as temporary:
+        home = Path(temporary)
+        directory = home / ".config/st"
+        directory.mkdir(parents=True, mode=0o700)
+        key = directory / "evidence-sign-key"
+        key.write_bytes(base64.b64decode(manifest["public_test_private_key_base64"]))
+        key.chmod(0o600)
+        for case in manifest["cases"]:
+            if case["id"] == "agent-0":
+                (directory / "evidence-sign.json").unlink()
+            expand = lambda value: value.replace("${home}", temporary)
+            done = subprocess.run([interpreter, "-I", str(source), *map(expand, case["argv"])],
+                                  cwd=ROOT, stdin=subprocess.DEVNULL, capture_output=True)
+            assert (done.stdout, done.stderr, done.returncode) == (
+                expand(case["stdout"]).encode(), expand(case["stderr"]).encode(), case["exit_code"]), case["id"]
+            assert directory.stat().st_mode & 0o777 == 0o700
+            assert key.stat().st_mode & 0o777 == 0o600
+            assert (directory / "evidence-sign.json").stat().st_mode & 0o777 == 0o600
+    print(f"Replayed {len(manifest['cases'])} frozen keygen cases")
+
+
 def replay(record=False):
     manifest = json.loads((CORPUS / "manifest.json").read_text())
     interpreter = Path(os.environ["MERGEMASTER_ORACLE_PYTHON"])
@@ -168,6 +194,7 @@ def replay(record=False):
         expected = json.loads((CORPUS / "recordings.json").read_text())
         assert expected == {"version": 1, "cases": observations}, "frozen oracle observations changed"
         print(f"Replayed {len(observations)} frozen oracle cases")
+        replay_keygen(interpreter)
         replay_matrices(interpreter)
         replay_runner_report(interpreter)
 
