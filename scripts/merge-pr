@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 import zipfile
 
 REPO = 'compoundingtech/mergemaster'
@@ -18,15 +19,27 @@ HUMAN_NOREPLY = re.compile(r'^(?:\d+\+)?schickling@users\.noreply\.github\.com$'
 HUMAN_NAME = 'Johannes Schickling'
 
 
-def command(*args, binary=False):
+def command(*args, binary=False, allow_conflict=False):
     result = subprocess.run(args, capture_output=True, timeout=120)
-    if result.returncode:
+    conflict = allow_conflict and re.match(rb'^HTTP/\S+ 409\b', result.stdout)
+    if result.returncode and not conflict:
         raise RuntimeError(f'{" ".join(args)}: {result.stderr.decode(errors="replace").strip()}')
     return result.stdout if binary else result.stdout.decode().strip()
 
 
-def api(path):
-    return json.loads(command('gh', 'api', f'repos/{REPO}/{path}'))
+def api(path, *args, allow_conflict=False):
+    if allow_conflict:
+        response = command('gh', 'api', f'repos/{REPO}/{path}', *args,
+                           '--include', allow_conflict=True)
+        parts = re.split(r'\r?\n\r?\n', response, maxsplit=1)
+        if len(parts) != 2 or not re.match(r'^HTTP/\S+ (200|202|409)\b', parts[0]):
+            raise RuntimeError(f'unexpected async merge HTTP response: {response}')
+        data = json.loads(parts[1])
+        if re.match(r'^HTTP/\S+ 409\b', parts[0]) and (
+                not isinstance(data, dict) or data.get('status') != 'pending'):
+            raise RuntimeError(f'unexpected async merge conflict response: {data}')
+        return data
+    return json.loads(command('gh', 'api', f'repos/{REPO}/{path}', *args))
 
 
 def pages(path, key=None):
@@ -185,13 +198,48 @@ def current_main():
     return value
 
 
-def verify_merged(pr, base, head, expected_tree):
-    merged = 'unknown'
+def merge_async(pr, head):
+    deadline = time.monotonic() + 600
+    path = f'pulls/{pr}/merge-async'
+    response = api(path, '--method', 'PUT', '-f', f'sha={head}',
+                   '-f', 'merge_method=merge', '-f', 'merge_action=direct_merge',
+                   allow_conflict=True)
+    result_path = None
+    while True:
+        if not isinstance(response, dict) or not isinstance(response.get('details'), dict):
+            raise RuntimeError(f'unreadable async merge response: {response}')
+        status, details = response.get('status'), response['details']
+        if status == 'merged':
+            merged = details.get('sha')
+            if not isinstance(merged, str) or not SHA.fullmatch(merged):
+                raise RuntimeError(f'async merge did not identify a full merge commit SHA: {response}')
+            return merged
+        if status != 'pending':
+            raise RuntimeError(f'async merge status={status}: {details}')
+        if result_path is None:
+            if (details.get('expected_head_sha') != head
+                    or details.get('merge_method') != 'merge'
+                    or details.get('merge_action') != 'direct_merge'):
+                raise RuntimeError(f'async merge pending request does not match approved head/method/action: {details}')
+            uuid = details.get('uuid')
+            if not isinstance(uuid, str) or not re.fullmatch(r'[0-9a-fA-F-]{36}', uuid):
+                raise RuntimeError(f'async merge pending request has invalid uuid: {details}')
+            result_path = f'{path}/{uuid}'
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeError(f'async merge deadline exceeded (600 seconds); inspect {result_path}; merge may still complete')
+        time.sleep(min(3, remaining))
+        if time.monotonic() >= deadline:
+            raise RuntimeError(f'async merge deadline exceeded (600 seconds); inspect {result_path}; merge may still complete')
+        response = api(result_path)
+
+
+def verify_merged(pr, base, head, expected_tree, merged):
     actual_parents, actual_tree = [], 'unknown'
     try:
-        merged = api(f'pulls/{pr}')['merge_commit_sha']
-        if not isinstance(merged, str) or not SHA.fullmatch(merged):
-            raise RuntimeError('GitHub did not identify the merged commit')
+        reported = api(f'pulls/{pr}')['merge_commit_sha']
+        if reported != merged:
+            raise RuntimeError(f'GitHub PR merge commit {reported} differs from async merge commit {merged}')
         git('fetch', '--no-tags', 'origin', merged)
         actual_parents = parents(merged)
         actual_tree = git('rev-parse', f'{merged}^{{tree}}')
@@ -244,8 +292,11 @@ Mechanical checks:
   Intersect changed(CI base, main) with PR changes from CI base...approved head.
   Require open, non-draft, mergeable against main, exact head, merge-ref parents
   (main, head), and tree equality with local git merge-tree --write-tree.
-  Recheck refs, verdicts, and readiness before gh pr merge --merge
-  --match-head-commit HEAD. Any unreadable or uncomputable check refuses merging.
+  Recheck refs, verdicts, and readiness before PUT pulls/N/merge-async with
+  sha=HEAD, merge_method=merge, merge_action=direct_merge (no rule bypass).
+  Requiring base=main excludes open downstack PRs: their branches would be the base.
+  Poll completion every 3 seconds for at most 10 minutes; only merged is accepted.
+  Any unreadable or uncomputable check refuses merging.
   Serialize local runs with an exclusive flock in the Git common directory.
   Re-read main immediately before merging, then fetch the resulting merge commit
   and verify its first parent and tree against the validated base and merge-tree.
@@ -271,7 +322,7 @@ Tests: python3 tests/test-merge-pr.py
         with (common / 'merge-pr.lock').open('a') as lock:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
             return run_gate(args)
-    except (RuntimeError, OSError, subprocess.TimeoutExpired) as error:
+    except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired) as error:
         print(f'FAIL merge-pr: {error}', file=sys.stderr)
         return 1
 
@@ -382,7 +433,8 @@ def run_gate(args):
         current = api(f'pulls/{args.pr}')
         require(verdicts(mailbox(), args.pr, args.go_head) == latest, 'Fractal message sender (same-uid asserted identity) verdicts unchanged during checks')
         return require(refs is not None and remote_refs(args.pr) == refs and current['head']['sha'] == args.go_head
-                       and current['state'] == 'open' and not current['draft'] and current['mergeable'] is True,
+                       and current['state'] == 'open' and not current['draft'] and current['mergeable'] is True
+                       and current['base']['ref'] == 'main',
                        'main/head/merge refs and PR readiness unchanged during checks')
     check('final-snapshot', stable)
     def human_authorship():
@@ -401,8 +453,8 @@ def run_gate(args):
     if not args.dry_run:
         if current_main() != base:
             raise RuntimeError(f'main changed immediately before merge; validated base={base}')
-        command('gh', 'pr', 'merge', str(args.pr), '--repo', REPO, '--merge', '--match-head-commit', args.go_head)
-        print(f'PASS post-merge: {verify_merged(args.pr, base, head, tree)}')
+        merged = merge_async(args.pr, args.go_head)
+        print(f'PASS post-merge: {verify_merged(args.pr, base, head, tree, merged)}')
     return 0
 
 

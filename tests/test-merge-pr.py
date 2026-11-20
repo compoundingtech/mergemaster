@@ -48,15 +48,31 @@ class GateTests(unittest.TestCase):
         self.files = 'src/main.rs\0'
         self.raced = False
         self.merge_calls = []
+        self.merge_status = 200
+        self.merge_response = {'status': 'merged', 'details': {'sha': MERGE}}
+        self.poll_responses = []
+        self.poll_calls = []
+        self.pending = {'status': 'pending', 'details': {
+            'uuid': '11111111-1111-1111-1111-111111111111',
+            'expected_head_sha': HEAD, 'merge_method': 'merge', 'merge_action': 'direct_merge'}}
         self.messages = [message(), message(SECOND, 'agent/second', index=2)]
         self.jobs = [{'status': 'completed', 'conclusion': 'success', 'runner_group_name': 'GitHub Actions'}]
         agent = ('schickling-assistant', 'agent@example.invalid')
         self.commit_rows = [(HEAD, *agent, *agent)]
         self.merge_rows = [(MERGE, *agent, *agent)]
 
-    def mock_command(self, *args, binary=False):
+    def mock_command(self, *args, binary=False, allow_conflict=False):
         if args[:2] == ('gh', 'api'):
             path = args[2].removeprefix(f'repos/{gate.REPO}/')
+            if path == 'pulls/376/merge-async':
+                self.merge_calls.append(args)
+                self.assertTrue(allow_conflict)
+                self.assertIn('--include', args)
+                return f'HTTP/2.0 {self.merge_status} Response\r\nContent-Type: application/json\r\n\r\n{json.dumps(self.merge_response)}'
+            if path.startswith('pulls/376/merge-async/'):
+                self.poll_calls.append(path)
+                self.assertEqual(path, f'pulls/376/merge-async/{self.pending["details"]["uuid"]}')
+                return json.dumps(self.poll_responses.pop(0))
             if path == 'pulls/376':
                 data = self.pr
             elif path == 'git/ref/heads/main':
@@ -77,9 +93,6 @@ class GateTests(unittest.TestCase):
             else:
                 raise AssertionError(args)
             return json.dumps(data)
-        if args[:3] == ('gh', 'pr', 'merge'):
-            self.merge_calls.append(args)
-            return ''
         if args[:3] == ('st', 'conversations', 'ls'):
             return json.dumps([] if '--archive' in args else self.messages)
         if args[0] == 'git':
@@ -128,7 +141,129 @@ class GateTests(unittest.TestCase):
         self.assertIn('PASS ci-base-overlap', output)
         self.assertEqual(self.merge_calls, [])
         self.assertEqual(self.run_gate()[0], 0)
-        self.assertEqual(self.merge_calls[0][-3:], ('--merge', '--match-head-commit', HEAD))
+        self.assertEqual(self.merge_calls[0][3:], (
+            '--method', 'PUT', '-f', f'sha={HEAD}', '-f', 'merge_method=merge',
+            '-f', 'merge_action=direct_merge', '--include'))
+
+    def test_async_accepted_pending_then_merged(self):
+        self.merge_status = 202
+        self.merge_response = self.pending
+        self.poll_responses = [self.pending, {'status': 'merged', 'details': {'sha': MERGE}}]
+        with patch.object(gate.time, 'sleep') as sleep:
+            code, output = self.run_gate()
+        self.assertEqual(code, 0, output)
+        self.assertIn('PASS post-merge', output)
+        self.assertEqual(len(self.poll_calls), 2)
+        self.assertEqual(sleep.call_args_list, [unittest.mock.call(3), unittest.mock.call(3)])
+
+    def test_async_already_merged_verifies_matching_commit(self):
+        code, output = self.run_gate()
+        self.assertEqual(code, 0, output)
+        self.assertIn(f'PASS post-merge: merge={MERGE}', output)
+        self.assertEqual(self.poll_calls, [])
+
+    def test_async_failed_enqueued_and_unknown_refuse(self):
+        for status in ('failed', 'enqueued', 'unknown'):
+            with self.subTest(status=status):
+                self.merge_response = {'status': status, 'details': {'message': 'merge refused'}}
+                code, output = self.run_gate()
+                self.assertEqual(code, 1, output)
+                self.assertIn(f'async merge status={status}', output)
+                self.assertIn('merge refused', output)
+                self.assertNotIn('PASS post-merge', output)
+
+    def test_async_pending_failure_refuses(self):
+        self.merge_status = 202
+        self.merge_response = self.pending
+        self.poll_responses = [{'status': 'failed', 'details': {'message': 'head changed'}}]
+        with patch.object(gate.time, 'sleep'):
+            code, output = self.run_gate()
+        self.assertEqual(code, 1, output)
+        self.assertIn('head changed', output)
+
+    def test_async_conflicting_request_options_refuse(self):
+        self.merge_status = 409
+        for field, value in (('expected_head_sha', BASE), ('merge_method', 'squash'),
+                             ('merge_action', 'merge_queue')):
+            with self.subTest(field=field):
+                self.merge_response = {'status': 'pending', 'details': {**self.pending['details'], field: value}}
+                code, output = self.run_gate()
+                self.assertEqual(code, 1, output)
+                self.assertIn('does not match approved head/method/action', output)
+                self.assertEqual(self.poll_calls, [])
+
+    def test_async_matching_conflict_resumes_polling(self):
+        self.merge_status = 409
+        self.merge_response = self.pending
+        self.poll_responses = [{'status': 'merged', 'details': {'sha': MERGE}}]
+        with patch.object(gate.time, 'sleep'):
+            code, output = self.run_gate()
+        self.assertEqual(code, 0, output)
+        self.assertEqual(len(self.poll_calls), 1)
+
+    def test_async_deadline_exceeded(self):
+        self.merge_status = 202
+        self.merge_response = self.pending
+        self.poll_responses = [self.pending]
+        with patch.object(gate.time, 'monotonic', side_effect=[0, 0, 3, 600]), patch.object(gate.time, 'sleep'):
+            code, output = self.run_gate()
+        self.assertEqual(code, 1, output)
+        self.assertIn('async merge deadline exceeded', output)
+        self.assertIn('merge may still complete', output)
+        self.assertEqual(len(self.poll_calls), 1)
+
+    def test_async_merge_commit_must_match_pr_commit(self):
+        self.merge_response = {'status': 'merged', 'details': {'sha': CI_MERGE}}
+        code, output = self.run_gate()
+        self.assertEqual(code, 1, output)
+        self.assertIn('POST-MERGE MISMATCH', output)
+        self.assertIn('differs from async merge commit', output)
+
+    def test_async_merged_without_commit_refuses(self):
+        self.merge_response = {'status': 'merged', 'details': {}}
+        code, output = self.run_gate()
+        self.assertEqual(code, 1, output)
+        self.assertIn('did not identify a full merge commit SHA', output)
+
+    def test_open_downstack_base_refuses(self):
+        self.pr['base']['ref'] = 'open-downstack-branch'
+        code, output = self.run_gate()
+        self.assertEqual(code, 1, output)
+        self.assertIn('FAIL ready', output)
+        self.assertEqual(self.merge_calls, [])
+
+    def test_final_snapshot_rechecks_downstack_base(self):
+        original = self.mock_command
+        reads = 0
+        def retarget(*args, **kwargs):
+            nonlocal reads
+            if args[:3] == ('gh', 'api', f'repos/{gate.REPO}/pulls/376'):
+                reads += 1
+                if reads == 2:
+                    self.pr['base']['ref'] = 'open-downstack-branch'
+            return original(*args, **kwargs)
+        with patch.object(self, 'mock_command', retarget):
+            code, output = self.run_gate()
+        self.assertEqual(code, 1, output)
+        self.assertIn('FAIL final-snapshot', output)
+        self.assertEqual(self.merge_calls, [])
+
+    def test_async_http_conflict_body_survives_gh_nonzero_exit(self):
+        response = f'HTTP/2.0 409 Conflict\r\nContent-Type: application/json\r\n\r\n{json.dumps(self.pending)}'
+        completed = gate.subprocess.CompletedProcess([], 1, response.encode(), b'gh: conflict (HTTP 409)')
+        with patch.object(gate.subprocess, 'run', return_value=completed):
+            self.assertEqual(gate.api('pulls/376/merge-async', allow_conflict=True), self.pending)
+            with self.assertRaisesRegex(RuntimeError, 'HTTP 409'):
+                gate.command('gh', 'api', 'ordinary-read')
+
+    def test_async_other_http_errors_refuse(self):
+        for status in (400, 403, 500):
+            with self.subTest(status=status):
+                completed = gate.subprocess.CompletedProcess(
+                    [], 1, f'HTTP/2.0 {status} Error\r\n\r\n{{}}'.encode(), b'gh: refused')
+                with patch.object(gate.subprocess, 'run', return_value=completed):
+                    with self.assertRaisesRegex(RuntimeError, 'refused'):
+                        gate.api('pulls/376/merge-async', allow_conflict=True)
 
     def test_agent_identities_pass_before_and_after_merge(self):
         code, output = self.run_gate()
