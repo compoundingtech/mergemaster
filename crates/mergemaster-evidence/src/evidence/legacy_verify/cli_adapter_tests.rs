@@ -153,9 +153,8 @@ for columns in ['80','20','0','-1','garbage','  +９_０  ']:
  for argv in cases:
   env=dict(os.environ,COLUMNS=columns,NO_COLOR='1'); env.pop('FORCE_COLOR',None)
   done=subprocess.run([sys.executable,'-I',str(p),*argv],env=env,capture_output=True)
-  # Approved #245 interpolation divergence: only this raw-byte unknown argument needs escaping.
-  err=done.stderr.replace(b'--unknown\xff',b'--unknown\\udcff')
-  rows.append([columns,[list(os.fsencode(s)) for s in argv],list(done.stdout),list(err),done.returncode])
+  # Resolved #245 raw-byte interpolation contract: pinned Python and Rust escape alike.
+  rows.append([columns,[list(os.fsencode(s)) for s in argv],list(done.stdout),list(done.stderr),done.returncode])
 for argv in [['--tree','a'*40],['--revision','HEAD','--check',chr(0xdcff),'--run-input','x=1','--run-input','x=2','--project']]:
  ns=parser.parse_args(argv); values=[]
  for action in parser._actions:
@@ -263,4 +262,52 @@ print(json.dumps(rows))
             "{argv:?}"
         );
     }
+}
+
+#[test]
+fn capture_raw_unknown_argument_divergence() {
+    if std::env::var_os("MERGEMASTER_WITNESS_DIRECTORY").is_none() {
+        return;
+    }
+    let script = r#"
+import json, os, pathlib, subprocess, sys
+p = pathlib.Path(os.environ['MERGEMASTER_PYTHON_PARITY_ORACLE']) / 'scripts/evidence-verify'
+env = dict(os.environ, COLUMNS='80', NO_COLOR='1'); env.pop('FORCE_COLOR', None)
+done = subprocess.run([sys.executable, '-I', str(p), '--tree', 'a'*40, b'--unknown\xff'], env=env, capture_output=True)
+print(json.dumps(dict(stdout=list(done.stdout), stderr=list(done.stderr), exit_code=done.returncode)))
+"#;
+    let oracle = crate::pinned_python::command()
+        .args(["-c", script])
+        .output()
+        .unwrap();
+    assert!(oracle.status.success(), "{:?}", oracle.stderr);
+    let python: serde_json::Value = serde_json::from_slice(&oracle.stdout).unwrap();
+    let argv = vec![
+        b"--tree".to_vec(),
+        vec![b'a'; 40],
+        b"--unknown\xff".to_vec(),
+    ];
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("argv"), serde_json::to_vec(&argv).unwrap()).unwrap();
+    let done = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "evidence::legacy_verify::cli_adapter::tests::subprocess_driver",
+            "--nocapture",
+        ])
+        .env("MM_ADAPTER_DRIVER", root.path())
+        .env("COLUMNS", "80")
+        .output()
+        .unwrap();
+    let rust = serde_json::json!({
+        "stdout": std::fs::read(root.path().join("stdout")).unwrap(),
+        "stderr": std::fs::read(root.path().join("stderr")).unwrap(),
+        "exit_code": done.status.code()
+    });
+    super::super::divergence_witnesses::capture(
+        "cli-raw-byte-unknown-argument",
+        serde_json::json!({"argv_bytes": argv, "columns": "80"}),
+        python,
+        rust,
+    );
 }

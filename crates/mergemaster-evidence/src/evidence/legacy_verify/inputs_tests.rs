@@ -28,14 +28,18 @@ def add(label, observed='2026-01-01T00:00:00Z', now='2026-01-01T00:00:05Z', age=
     if prepared:
         v['rules']['kinds']['observed'].update(command=prepared['command'],runner_prefix=prepared['prefix'])
         statement['predicate']['observed']['runner']=prepared['runner']
+    python_exception=None
     try: expected = v['judge'](('record',statement,'agent/alice'))
     except v['Failure'] as failure:
         expected = dict(reason=failure.reason,attempts=failure.extra['attempts'])
         if failure.reason in ('missing_input','check_failed','wrong_command','too_old'): expected['detail']=list(map(ord,failure.detail))
-    except OverflowError as e: expected = dict(reason='error',attempts=0,detail=list(map(ord,str(e)))) # normalized absent attempts only
+    except OverflowError as e:
+        expected = dict(reason='error',attempts=0,detail=list(map(ord,str(e)))) # normalized absent attempts only
+        python_exception=dict(origin=type(e).__name__,detail=list(map(ord,str(e))))
     if prepared: assert expected['reason']==prepared['reason'], (label,expected,prepared['reason'])
     delta = v['now'] - datetime(1970,1,1,tzinfo=timezone.utc)
     cases.append(dict(label=ascii(label),policy=policy,raw=json.dumps(statement),expected=expected,intended=None if prepared is None else prepared['reason'],exit_code=str(code),now=(delta.days*86400+delta.seconds)*1000000+delta.microseconds,prepared=None if prepared is None else dict(command=[list(map(ord,x)) for x in prepared['command']],prefix=list(map(ord,prepared['prefix'])))))
+    cases[-1]['python_exception']=python_exception
 for offset in ['00:02:00','00:02:00.0000009','00:02:00.000001','00:02:01']:
     add('future '+offset,observed='2026-01-01T'+offset+'Z',now='2026-01-01T00:00:00Z',age=86400000000000,changes={})
 for now in ['2026-01-01T00:00:10Z','2026-01-01T00:00:10.0000009Z','2026-01-01T00:00:10.000001Z','2025-12-31T23:59:59Z']:
@@ -187,6 +191,28 @@ print(json.dumps(cases))
             );
             points
         };
+        let witness = match case["label"].as_str().unwrap() {
+            "'UTC overflow 9999-12-31T23:58:00Z'" => Some("utc-clock-overflow"),
+            "'duration 86400000000000'" => Some("max-age-duration-overflow"),
+            _ => None,
+        };
+        if let Some(id) = witness {
+            let rust = match &checked {
+                Ok(()) => json!({"reason":"satisfied"}),
+                Err(error) => json!({
+                    "reason":error.reason,
+                    "attempts":error.attempts,
+                    "origin":format!("{:?}",error.origin),
+                    "detail":error.detail.borrowed().points().collect::<Vec<_>>(),
+                }),
+            };
+            crate::evidence::legacy_verify::divergence_witnesses::capture(
+                id,
+                json!({"statement":case["raw"],"policy":case["policy"],"now_microseconds":case["now"],"run_inputs":run,"attempts":7}),
+                case["python_exception"].clone(),
+                rust,
+            );
+        }
         if let Err(error) = &checked {
             // This fixture catches OverflowError separately; explicit refusals never use error.
             assert_eq!(

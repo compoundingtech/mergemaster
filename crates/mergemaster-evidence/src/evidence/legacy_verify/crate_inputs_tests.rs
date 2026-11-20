@@ -103,6 +103,19 @@ print(json.dumps(out))
             "nodes" => Some("TOML node count exceeds 262144"),
             _ => None,
         } {
+            let directory = case["directory"].as_str().unwrap();
+            let id = match directory {
+                "depth" => "toml-depth-cap",
+                "bytes" => "toml-byte-cap",
+                "nodes" => "toml-node-cap",
+                _ => unreachable!(),
+            };
+            super::super::divergence_witnesses::capture(
+                id,
+                json!({"directory": directory, "manifest": std::fs::read_to_string(repo.join(directory).join("Cargo.toml")).unwrap()}),
+                case["result"].clone(),
+                result.clone(),
+            );
             assert_eq!(case["result"], json!({"ok":true})); // Approved #257 divergence.
             assert_eq!(
                 result,

@@ -50,6 +50,15 @@
 # tests/fixtures/oracle/native-assertions.json records each already-native test
 # and its assertion/helper evidence at an exact source revision. It is not a
 # shared-file exemption: Python-backed siblings retain independent freeze work.
+# tests/fixtures/oracle/divergences.json classifies the original 37 references
+# into individual witness contracts, non-divergences, duplicates and known gaps.
+# Accepted-main references include exact source lines/revision and landing PR;
+# review-requested cases do not become reviewed merely by capturing results.
+# tests/oracle_witnesses.py builds only the evidence library test binary and
+# runs its registered differential tests, preserving real inputs/results in a
+# CI artifact and publishing bounded result identities in logs/job summaries.
+# Pending fields remain null until actual execution; no Rust result is claimed
+# for the separately labeled upstream/local Python ci-signed-tree patch.
 # R2 resync exception; exit: https://github.com/compoundingtech/mergemaster/issues/115
 # The original extraction Commit above is historical; this resync starts at the current fixture revision.
 # Pending requires oracle bytes; the target fixture activates exact upstream bytes and modes.
@@ -231,14 +240,17 @@
 # Not covered by parity: detail-text. Policy diagnostics retain a string detail
 # but not Python's exact parser/repr wording. Fractal ci-evidence-gate prints
 # diagnostics; it branches on reason/outcome, not on detail text.
-# Conservative divergence: max-age-above-u64. Python accepts arbitrarily large
-# positive max_age_s integers; Rust rejects values above u64::MAX as an invalid
-# policy, without saturation or a global JSON-number feature change.
-# No JSON feature changes: native/push Value and number parsing stay unchanged.
-# Selected command 1e1000 errors in both; max-age-above-u64 is the exception.
-# Conservative divergence: shadowed-invalid-value. Rust rejects an earlier
-# duplicate version/checks/selected entry that fails conversion even when Python
-# accepts its later replacement. Differential cases cover all three positions.
+# Resolved contract: max-age-above-u64. Both Python and Rust preserve positive
+# max_age_s integers above u64::MAX without saturation. Hosted CI runs
+# 44658909438 (#391) and 44658926100 (#397) observed the exact decimal
+# 18446744073709551616 on both sides, with observed_difference=false.
+# Native/push Value parsing stays unchanged; selected command 1e1000 errors in both.
+# Resolved policy contracts: shadowed-invalid-version/checks/selected-check.
+# The Document last-wins cutover in 82ef3be6 (PR #238) validates the final values,
+# matching Python. CI runs 44658909438 and 44658926100 observed equal rules for all
+# three witnesses, observed_difference=false. Shared-lane shadowing stays divergent.
+# Resolved CLI contract: raw-byte unknown arguments reach the same exit-2 diagnostic
+# with identical escaped stderr in those runs; resolution commit not identified.
 # Conservative divergence: unicode-shard-count. Rust accepts ASCII digits only;
 # Arabic-Indic/fullwidth/mathematical digits produce wrong_input, not acceptance.
 # Leading ASCII zeros match Python through 4300 digits. Above 4300 digits and

@@ -37,6 +37,7 @@ for fmt in ['sha1','sha256']:
    assert cli.returncode==1 and result['reason']=='bad_signature'
    assert 'RecursionError' not in result['detail']
   cases.append(dict(repo=str(repo),name=fmt+'-'+name,commit=c,tree=expected_tree,expected=expected,oversize=padding>1024*1024,listing_over=name=='listing-over',depth=depth))
+  if name.startswith('wide-'): cases[-1]['loaded']=o['load'](str(repo),c) is not None
   return c
  add('valid'); add('unbound',expected_tree=None); add('wrong-request',expected_tree='0'*len(subject))
  add('empty',rows=[]); b=blob(b'x'); add('multiple',rows=[('100644','blob',b,'a'),('100644','blob',b,'b')])
@@ -56,6 +57,8 @@ for fmt in ['sha1','sha256']:
   add('wide-'+str(index),value=json.dumps(valid).encode()[:-1]+b',"extra":['+b'0,'*500000+str(index).encode()+b']}')
  for index in range(125): add('member-'+str(index),message='member '+str(index))
  good=next(c['commit'] for c in cases if c['name']==fmt+'-valid')
+ alias=good[:12]
+ cases.append(dict(repo=str(repo),name=fmt+'-record-alias',commit=alias,tree=empty,expected=o['read_statement'](str(repo),alias,empty) is not None,oversize=False,listing_over=False,depth=0))
  bad=next(c['commit'] for c in cases if c['name']==fmt+'-malformed-json'); wrong='0'*len(subject)
  first=o['load'](str(repo),good); first['predicate']['change_id']='mutated'
  flags={'independent':o['load'](str(repo),good)['predicate']['change_id']=='change'}
@@ -100,6 +103,43 @@ print(json.dumps(dict(records=cases,cache=cached)))
             case["commit"].as_str().unwrap(),
             tree,
         );
+        if matches!(transport, Transport::Native) {
+            let name = case["name"].as_str().unwrap();
+            let id = match name {
+                "sha1-cap-over" => Some("statement-byte-cap"),
+                "sha1-depth-257" => Some("statement-container-cap"),
+                "sha1-listing-over" => Some("git-capture-byte-cap"),
+                "sha1-record-alias" => Some("record-oid-validation"),
+                _ => None,
+            };
+            if let Some(id) = id {
+                crate::evidence::legacy_verify::divergence_witnesses::capture(
+                    id,
+                    serde_json::json!({"case":name,"commit":case["commit"],"tree":case["tree"],"padding_bytes":if case["oversize"] == true {Some(1048577)} else {None},"depth":case["depth"],"git":crate::evidence::legacy_verify::divergence_witnesses::git_input(Path::new(case["repo"].as_str().unwrap()))}),
+                    serde_json::json!({"statement_present":case["expected"]}),
+                    match &actual {
+                        Ok(value) => serde_json::json!({"statement_present":value.is_some()}),
+                        Err(error) => {
+                            serde_json::json!({"error":{"reason":error.reason,"detail":error.detail.to_string()}})
+                        }
+                    },
+                );
+            }
+        }
+        if case["name"].as_str().unwrap().ends_with("-record-alias") {
+            assert!(case["expected"].as_bool().unwrap());
+            // Native-only scope: divergences.json case "record-oid-validation".
+            // CLI retains the independent oracle's alias lookup.
+            if matches!(transport, Transport::Native) {
+                assert_eq!(actual.unwrap_err().reason, "error");
+            } else {
+                assert_eq!(
+                    actual.unwrap().is_some(),
+                    case["expected"].as_bool().unwrap()
+                );
+            }
+            continue;
+        }
         if case["oversize"] == true {
             assert!(case["expected"].as_bool().unwrap());
             assert_eq!(actual.unwrap_err().reason, "statement-too-large");
@@ -206,6 +246,19 @@ print(json.dumps(dict(records=cases,cache=cached)))
                 .find(|c| c["name"] == name)
                 .unwrap();
             let result = wide.load(repo, record["commit"].as_str().unwrap(), None);
+            if index == 2 && !cli && case["format"] == "sha1" {
+                crate::evidence::legacy_verify::divergence_witnesses::capture(
+                    "record-budget",
+                    serde_json::json!({"case":"third-wide-record","commit":record["commit"],"preceding_wide_records":2,"git":crate::evidence::legacy_verify::divergence_witnesses::git_input(repo)}),
+                    serde_json::json!({"statement_present":record["loaded"]}),
+                    match &result {
+                        Ok(value) => serde_json::json!({"statement_present":value.is_some()}),
+                        Err(error) => {
+                            serde_json::json!({"error":{"reason":error.reason,"detail":error.detail.to_string()}})
+                        }
+                    },
+                );
+            }
             if index < 2 {
                 assert!(result.unwrap().is_some());
             } else {

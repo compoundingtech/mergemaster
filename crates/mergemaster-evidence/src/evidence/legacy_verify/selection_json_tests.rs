@@ -178,6 +178,26 @@ print(json.dumps(results))
     let expected: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(actual.len(), expected.len());
     for (i, (_, _, reason, token)) in cases.iter().enumerate() {
+        if let Some(id) = reason {
+            // Select one stable representative for each grouped contract.
+            let representative = match *id {
+                "input-selection-float-text" => cases[i].0 == r#"{"selected":1.0}"#,
+                "input-selection-json-extensions" => cases[i].0 == r#"{"selected":NaN}"#,
+                "input-selection-nesting-depth" => {
+                    cases[i].0.starts_with(r#"{"selected":"#)
+                        && cases[i].0.matches('[').count() == 127
+                }
+                _ => false,
+            };
+            if representative {
+                crate::evidence::legacy_verify::divergence_witnesses::capture(
+                    id,
+                    json!({"text":cases[i].0,"selector":cases[i].1,"path":"fixture.json"}),
+                    expected[i]["oracle"].clone(),
+                    actual[i].clone(),
+                );
+            }
+        }
         println!("{}", json!({"rust":actual[i],"oracle":expected[i]}));
         if let Some(reason) = reason {
             assert_eq!(actual[i]["reason"], *reason);
@@ -207,5 +227,87 @@ print(json.dumps(results))
                 format!("unsupported JSON token {token} at byte offset {at}")
             );
         }
+    }
+}
+
+#[test]
+fn policy_divergence_witnesses_execute_both_parsers() {
+    use crate::evidence::legacy_policy::PolicyDocument;
+    let entry = r#"{"trust_levels":["agent"],"kinds":{"wrapper":{"command":["true"]}}}"#;
+    let checks = format!(r#"{{"check":{entry}}}"#);
+    let cases = [
+        (
+            "max-age-above-u64",
+            format!(r#"{{"version":1,"checks":{checks}}}"#).replacen(
+                r#""trust_levels":"#,
+                r#""max_age_s":18446744073709551616,"trust_levels":"#,
+                1,
+            ),
+        ),
+        (
+            "shadowed-invalid-version",
+            format!(r#"{{"version":1e400,"version":1,"checks":{checks}}}"#),
+        ),
+        (
+            "shadowed-invalid-checks",
+            format!(r#"{{"version":1,"checks":1e400,"checks":{checks}}}"#),
+        ),
+        (
+            "shadowed-invalid-selected-check",
+            format!(r#"{{"version":1,"checks":{{"check":1e400,"check":{entry}}}}}"#),
+        ),
+    ];
+    let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap();
+    let output = crate::pinned_python::command()
+        .args(["-c", r#"
+import json,runpy,sys
+o=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify')
+results=[]
+for id,text in json.loads(sys.argv[2]):
+ try:
+  rules=o['policy_rules'](text,'check','owner/repo')
+  result={'max_age_s_decimal':str(rules['max_age_s'])} if id=='max-age-above-u64' else {'rules':rules}
+ except o['Failure'] as e: result={'reason':e.reason,'detail':list(map(ord,e.detail)),'origin':'Failure'}
+ except Exception as e: result={'origin':type(e).__name__,'detail':list(map(ord,str(e)))}
+ results.append(result)
+print(json.dumps(results))
+"#, &root, &json!(cases).to_string()])
+        .output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let python: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(python.len(), cases.len());
+    for ((id, text), python) in cases.iter().zip(python) {
+        let rust = PolicyDocument::parse(text, "check")
+            .and_then(|document| document.into_rules("owner/repo"))
+            .map(|rules| {
+                if *id == "max-age-above-u64" {
+                    let seconds = rules.header.max_age_s.as_ref().unwrap();
+                    let mut decimal = String::new();
+                    crate::evidence::legacy_output::write(&mut decimal, |writer| {
+                        writer.policy_seconds(seconds)
+                    })
+                    .unwrap();
+                    json!({"max_age_s_decimal":decimal})
+                } else {
+                    json!({"rules":rules})
+                }
+            })
+            .unwrap_or_else(|error| {
+                json!({
+                    "reason":error.reason,
+                    "detail":error.detail.borrowed().points().collect::<Vec<_>>(),
+                    "origin":format!("{:?}",error.origin),
+                })
+            });
+        crate::evidence::legacy_verify::divergence_witnesses::capture(
+            id,
+            json!({"text":text,"check":"check","repository":"owner/repo"}),
+            python,
+            rust,
+        );
     }
 }
