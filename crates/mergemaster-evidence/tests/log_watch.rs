@@ -455,6 +455,14 @@ fn log_watch_pinned_python_assertions_and_differential() {
     success(Command::new(python()).args(["-B", "-c", "import sys; sys.path.insert(0, 'tests'); from oracle_corpus import replay_log_watch; from pathlib import Path; replay_log_watch(Path(sys.executable))"]).current_dir(root).output().unwrap());
 }
 
+/// aarch64 Linux has no plain rename syscall; libc uses renameat there.
+#[cfg(target_os = "linux")]
+fn is_rename(line: &str) -> bool {
+    ["rename(", "renameat(", "renameat2("]
+        .iter()
+        .any(|call| line.contains(&format!(" {call}")))
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn log_watch_state_syncs_before_rename_and_after_directory_update() {
@@ -479,13 +487,11 @@ fn log_watch_state_syncs_before_rename_and_after_directory_update() {
     let trace = fs::read_to_string(trace).unwrap();
     let events: Vec<_> = trace
         .lines()
-        .filter(|line| {
-            line.contains("watch.json") && (line.contains("fsync(") || line.contains("rename("))
-        })
+        .filter(|line| line.contains("watch.json") && (line.contains("fsync(") || is_rename(line)))
         .collect();
     assert_eq!(events.len(), 2, "{trace}");
     assert!(events[0].contains("fsync("), "{trace}");
-    assert!(events[1].contains("rename("), "{trace}");
+    assert!(is_rename(events[1]), "{trace}");
     let rename = trace.find(events[1]).unwrap();
     assert!(
         trace[rename..].lines().any(|line| line.contains("fsync(")
