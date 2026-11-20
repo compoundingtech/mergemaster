@@ -490,6 +490,132 @@ fn queue_fixture_with_repository(repository: Option<&str>) -> Fixture {
     f
 }
 
+fn batch_fixture(size: usize) -> (Fixture, Vec<String>) {
+    let mut f = queue_fixture();
+    let first = f.git(&["rev-parse", &format!("{}^2", f.head)], b"");
+    let mut members = vec![first];
+    for index in 1..size {
+        let member = f.git(
+            &[
+                "commit-tree",
+                &f.tree,
+                "-p",
+                &f.base,
+                "-m",
+                &format!("member {index}"),
+            ],
+            b"",
+        );
+        f.head = f.git(
+            &[
+                "commit-tree",
+                &f.tree,
+                "-p",
+                &f.head,
+                "-p",
+                &member,
+                "-m",
+                "train",
+            ],
+            b"",
+        );
+        members.push(member);
+    }
+    (f, members)
+}
+
+fn batch_decision(f: &Fixture, members: &[String]) -> Value {
+    let mut args = vec!["--event", "queue"];
+    for member in members {
+        args.extend(["--member", member.as_str()]);
+    }
+    f.decision(&args)
+}
+
+#[test]
+fn queue_explicit_members_bind_one_and_four_member_candidates() {
+    for size in [1, 4] {
+        let (f, members) = batch_fixture(size);
+        let record = f.note(&f.statement(), &f.key, "tree");
+        let d = batch_decision(&f, &members);
+        assert_eq!(d["reason"], "satisfied");
+        assert_eq!(d["outcome"], "satisfied");
+        assert_eq!(d["record"], record);
+        assert_eq!(d["decision"], "refuse");
+        assert_eq!(d["report_only"], true);
+        assert_eq!(
+            d["queue_binding"],
+            json!({
+                "base": f.base, "members": members, "tree": f.tree
+            })
+        );
+    }
+}
+
+#[test]
+fn queue_explicit_members_refuse_unbound_chains() {
+    for case in [
+        "wrong order",
+        "missing member",
+        "extra merge",
+        "non-merge step",
+        "wrong base",
+        "invalid member",
+    ] {
+        let (mut f, mut members) = batch_fixture(4);
+        match case {
+            "wrong order" => members.swap(0, 1),
+            "missing member" => {
+                members.remove(0);
+            }
+            "extra merge" => {
+                f.head = f.git(
+                    &[
+                        "commit-tree",
+                        &f.tree,
+                        "-p",
+                        &f.head,
+                        "-p",
+                        &f.base,
+                        "-m",
+                        "extra",
+                    ],
+                    b"",
+                );
+            }
+            "non-merge step" => {
+                f.head = f.git(
+                    &["commit-tree", &f.tree, "-p", &f.head, "-m", "non-merge"],
+                    b"",
+                );
+            }
+            "wrong base" => {
+                f.base = f.git(&["rev-parse", &format!("{}^", f.base)], b"");
+            }
+            "invalid member" => members[0] = "not-a-sha".into(),
+            _ => unreachable!(),
+        }
+        let d = batch_decision(&f, &members);
+        assert_eq!(d["reason"], "source_unbound", "{case}: {d}");
+        assert_eq!(d["outcome"], "rejected", "{case}");
+        assert_eq!(d["decision"], "refuse", "{case}");
+        assert_eq!(d["report_only"], true, "{case}");
+        assert!(
+            d["summary"].as_str().unwrap().contains("queue"),
+            "{case}: {d}"
+        );
+        assert!(d.get("queue_binding").is_none(), "{case}");
+    }
+}
+
+#[test]
+fn queue_member_argument_requires_queue_event() {
+    let f = Fixture::new();
+    let output = f.gate(&["--member", &f.head]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--member requires --event queue"));
+}
+
 #[test]
 fn absent_repository_policy_preserves_bound_record_compatibility() {
     let f = Fixture::new();

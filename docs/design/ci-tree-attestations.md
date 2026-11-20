@@ -270,14 +270,30 @@ expectations, including existing PR/push paths; its schema version remains 1.
 `gate --event queue --base B --head M --check L --format json` supports
 dotfiles-merge report-only verification where GitHub merge queue is unavailable.
 Lane `events` must explicitly include `queue`. B and M must be full commit IDs;
-M must have exactly two parents, with B in either position. Invalid bindings or
-any `--event-file` refuse `source_unbound`. No live GitHub/ref authorization is
+with no `--member`, M must have exactly two parents, with B in either position.
+For a batch, repeat `--member H1 --member H2 ...` in merge order. Walking M's
+first-parent chain backwards must encounter exactly that many two-parent merges,
+whose second parents match the declared members in reverse order, and end at B.
+Every member must be a full existing commit ID. This matches the dotfiles train's
+`commit-tree TREE -p PREFIX -p ADMITTED` shape, including regenerated projections
+inside each merge tree, not extra fixup commits. Wrong order, undeclared merges,
+non-merge steps, or a different base refuse `source_unbound` with a diagnostic
+summary. Any `--event-file` also refuses. No live GitHub/ref authorization is
 performed: `expectation_source` is `caller` and `report_only` is true.
+Successful source binding adds optional `queue_binding: {base, members, tree}`
+to Decision JSON, recording B, ordered exact member heads, and M's actual tree.
+The legacy no-member form infers its single member. This is additive; Decision
+version remains 1. Unbound sources omit `queue_binding`.
 
 BASE supplies configuration, keys, lane definitions and protected paths. Only
 verified evidence for the exact tree of M can satisfy the evidence evaluation;
 the signed subject may be a different commit with that same tree. Inputs,
 signer tier/level, command, cleanliness and age retain their ordinary checks.
+Thus the train must produce and publish a trusted, signed observation for each
+requested lane on the final combined candidate tree, using BASE's lane command,
+input/environment definitions and signer policy. Per-PR evidence on different
+trees is insufficient; `--compare-head` does not promote it. Source binding alone
+does not produce evidence or authorize the train to merge.
 The JSON decision is always `refuse`, while outcome/reason retain the actual
 evidence result (including `satisfied`). GitHub outputs always have `skip=false`
 and `refuse=true`; this report never authorizes skipping a check or merging.

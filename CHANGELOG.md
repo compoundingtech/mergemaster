@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Bind report-only queue batches with ordered repeatable `--member` heads, exact two-parent first-parent-chain validation back to BASE, precise `source_unbound` diagnostics, and additive v1 `queue_binding` metadata; preserve the no-member single-PR form.
 - Add a fail-closed merge-time PR gate with durable independent exact-head verdicts, sensitive-path second review, hosted CI attempt/overlap checks, and local merge-tree verification.
 - Accept explicit `GO compoundingtech/mergemaster#N` / `NO-GO compoundingtech/mergemaster#N` reviewer subjects with the head SHA in the content; keep the merge rule brief and put operational detail in `merge-pr --help`.
 - Bind verdicts only to explicit GO/NO-GO subjects and full head SHAs; ignore casual content and abbreviated SHAs, and resolve named verdicts without consuming mailbox messages.
