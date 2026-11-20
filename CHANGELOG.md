@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Rust port wave 1: `mergemaster evidence log-watch` replaces `scripts/evidence-log-watch` and its self-test; the source systemd unit runs the native command.
 - merge-pr: match personal names case-insensitively and print actionable async-result recovery commands with a verification-only mode for late merges.
 - Enforce the corpus-wide 256 KiB raw-stdout ceiling; preserve larger argparse outputs with verified input recipes/result identities and raw stderr/exit codes.
 - Freeze complete statement byte/document/token/time compatibility matrices with compact identities above 256 KiB.

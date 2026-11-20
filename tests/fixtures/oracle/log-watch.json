@@ -1,0 +1,462 @@
+{
+  "version": 1,
+  "oracle": {
+    "environment": "MERGEMASTER_PYTHON_ORACLE",
+    "path": "scripts/evidence-log-watch",
+    "git_blob": "f580ed13fe4f8130ec936dfeefb64f6c3b97b2f1",
+    "runtime": "CPython 3.14.7"
+  },
+  "recipe": "Pinned Python step() transitions plus real-Git CLI subject cases; exact notification/stdout/stderr bytes and exit codes, state JSON compared numerically, no path normalization. Commits use empty trees, chained parents, author/committer l <l@x>, epoch 1800000000 +0000.",
+  "subjects": [
+    {
+      "subject": "as_of=2027-01-15T08:00:00Z",
+      "now": 1800000000,
+      "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"1dcde6fa01f0b55d9f9f3fa4e02c3b10834000ea\", \"problem\": null, \"notified\": false}\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+    {
+      "subject": "as_of=2027-01-15T09:00:00+01:00",
+      "now": 1800000000,
+      "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"22742b9f037d4b1bc54b239b2e1c291ebe28f1a8\", \"problem\": null, \"notified\": false}\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+    {
+      "subject": "as_of=20270115T100000+0200",
+      "now": 1800000000,
+      "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"70c0d88699e4c1df464916f0a1f2ab81a801eac4\", \"problem\": null, \"notified\": false}\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+    {
+      "subject": "as_of=2027-W02-5T08:00:00Z",
+      "now": 1800000000,
+      "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"8b9e954ff425e1de67b4f45963c56be100f5a45b\", \"problem\": null, \"notified\": false}\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+    {
+      "subject": "as_of=2027-01-15X08:00:00.500000+00:00",
+      "now": 1800000000,
+      "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"026fffe6401288df2e1539c57b4adb5a837972ce\", \"problem\": null, \"notified\": false}\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+    {
+      "subject": "as_of=2027-01-15T08:00:00",
+      "now": 1800000000,
+      "stdout": "{\"stalled\": false, \"as_of\": null, \"head\": null, \"problem\": \"the log head 654798953f56 names a time without a zone\", \"notified\": false}\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+    {
+      "subject": "as_of=20270115T08",
+      "now": 1800000000,
+      "stdout": "{\"stalled\": false, \"as_of\": null, \"head\": null, \"problem\": \"the log head 9e10effd3153 names a time without a zone\", \"notified\": false}\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+    {
+      "subject": "as_of=2027-01-15",
+      "now": 1800000000,
+      "stdout": "{\"stalled\": false, \"as_of\": null, \"head\": null, \"problem\": \"the log head e932c55cf0c7 names a time without a zone\", \"notified\": false}\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+    {
+      "subject": "as_of=2027-W02-5",
+      "now": 1800000000,
+      "stdout": "{\"stalled\": false, \"as_of\": null, \"head\": null, \"problem\": \"the log head b583b1ea49b9 names a time without a zone\", \"notified\": false}\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+    {
+      "subject": "as_of=bad",
+      "now": 1800000000,
+      "stdout": "{\"stalled\": false, \"as_of\": null, \"head\": null, \"problem\": \"the log head 0675b6d1e63c has an unreadable time 'bad'\", \"notified\": false}\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+    {
+      "subject": "as_of=bad'quote",
+      "now": 1800000000,
+      "stdout": "{\"stalled\": false, \"as_of\": null, \"head\": null, \"problem\": \"the log head 93c460ed486c has an unreadable time \\\"bad'quote\\\"\", \"notified\": false}\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+    {
+      "subject": "no time",
+      "now": 1800000000,
+      "stdout": "{\"stalled\": false, \"as_of\": null, \"head\": null, \"problem\": \"the log head dec4f18bdf2d names no time\", \"notified\": false}\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+    {
+      "subject": "as_of=2027-01-15T08:00:00+00:00:00.5",
+      "now": 1800000000,
+      "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T07:59:59Z\", \"head\": \"ab9e3f83a9dfffeae668b51c8da1d3c342bc34ce\", \"problem\": null, \"notified\": false}\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+    {
+      "subject": "as_of=2027-01-15T08:00:01Z",
+      "now": 1800000000,
+      "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:01Z\", \"head\": \"7d32a5ee4aa266b7db791b5d16df3215367ce1c3\", \"problem\": null, \"notified\": false}\n",
+      "stderr": "",
+      "exit_code": 0
+    }
+  ],
+  "cases": [
+    {
+      "id": "lifecycle-0",
+      "before": {},
+      "now": 1800000130,
+      "as_of": 1800000000,
+      "detail": "abcdef0123456789",
+      "max_age": 360,
+      "repeat": 3600,
+      "expected": {
+        "state": {
+          "last_as_of": 1800000000,
+          "last_head": "abcdef0123456789"
+        },
+        "line": null,
+        "stalled": false
+      }
+    },
+    {
+      "id": "lifecycle-1",
+      "before": {
+        "last_as_of": 1800000000,
+        "last_head": "abcdef0123456789"
+      },
+      "now": 1800000360,
+      "as_of": 1800000000,
+      "detail": "abcdef0123456789",
+      "max_age": 360,
+      "repeat": 3600,
+      "expected": {
+        "state": {
+          "last_as_of": 1800000000,
+          "last_head": "abcdef0123456789"
+        },
+        "line": null,
+        "stalled": false
+      }
+    },
+    {
+      "id": "lifecycle-2",
+      "before": {
+        "last_as_of": 1800000000,
+        "last_head": "abcdef0123456789"
+      },
+      "now": 1800000400,
+      "as_of": 1800000000,
+      "detail": "abcdef0123456789",
+      "max_age": 360,
+      "repeat": 3600,
+      "expected": {
+        "state": {
+          "last_as_of": 1800000000,
+          "last_head": "abcdef0123456789",
+          "stalled_since": 1800000360,
+          "told_at": 1800000400
+        },
+        "line": "evidence log STALLED: the published evidence log head abcdef012345 is 400s old (as_of 2027-01-15T08:00:00Z; at most 360s expected). The log host's pull (evidence-log.timer) is not publishing.",
+        "stalled": true
+      }
+    },
+    {
+      "id": "lifecycle-3",
+      "before": {
+        "last_as_of": 1800000000,
+        "last_head": "abcdef0123456789",
+        "stalled_since": 1800000360,
+        "told_at": 1800000400
+      },
+      "now": 1800000520,
+      "as_of": 1800000000,
+      "detail": "abcdef0123456789",
+      "max_age": 360,
+      "repeat": 3600,
+      "expected": {
+        "state": {
+          "last_as_of": 1800000000,
+          "last_head": "abcdef0123456789",
+          "stalled_since": 1800000360,
+          "told_at": 1800000400
+        },
+        "line": null,
+        "stalled": true
+      }
+    },
+    {
+      "id": "lifecycle-4",
+      "before": {
+        "last_as_of": 1800000000,
+        "last_head": "abcdef0123456789",
+        "stalled_since": 1800000360,
+        "told_at": 1800000400
+      },
+      "now": 1800004000,
+      "as_of": 1800000000,
+      "detail": "abcdef0123456789",
+      "max_age": 360,
+      "repeat": 3600,
+      "expected": {
+        "state": {
+          "last_as_of": 1800000000,
+          "last_head": "abcdef0123456789",
+          "stalled_since": 1800000360,
+          "told_at": 1800004000
+        },
+        "line": "evidence log still stalled since 2027-01-15T08:06:00Z: the published evidence log head abcdef012345 is 4000s old (as_of 2027-01-15T08:00:00Z; at most 360s expected).",
+        "stalled": true
+      }
+    },
+    {
+      "id": "lifecycle-5",
+      "before": {
+        "last_as_of": 1800000000,
+        "last_head": "abcdef0123456789",
+        "stalled_since": 1800000360,
+        "told_at": 1800004000
+      },
+      "now": 1800004120,
+      "as_of": 1800004100,
+      "detail": "abcdef9999999999",
+      "max_age": 360,
+      "repeat": 3600,
+      "expected": {
+        "state": {
+          "last_as_of": 1800004100,
+          "last_head": "abcdef9999999999"
+        },
+        "line": "evidence log moving again: the published evidence log head abcdef999999 is 20s old (as_of 2027-01-15T09:08:20Z; at most 360s expected); it was stalled from 2027-01-15T08:06:00Z (3760s).",
+        "stalled": false
+      }
+    },
+    {
+      "id": "lifecycle-6",
+      "before": {
+        "last_as_of": 1800004100,
+        "last_head": "abcdef9999999999"
+      },
+      "now": 1800004240,
+      "as_of": 1800004100,
+      "detail": "abcdef9999999999",
+      "max_age": 360,
+      "repeat": 3600,
+      "expected": {
+        "state": {
+          "last_as_of": 1800004100,
+          "last_head": "abcdef9999999999"
+        },
+        "line": null,
+        "stalled": false
+      }
+    },
+    {
+      "id": "unreadable-0",
+      "before": {},
+      "now": 1800000000,
+      "as_of": null,
+      "detail": "no ref",
+      "max_age": 360,
+      "repeat": 3600,
+      "expected": {
+        "state": {
+          "unreadable_since": 1800000000
+        },
+        "line": null,
+        "stalled": false
+      }
+    },
+    {
+      "id": "unreadable-1",
+      "before": {
+        "unreadable_since": 1800000000
+      },
+      "now": 1800000360,
+      "as_of": null,
+      "detail": "no ref",
+      "max_age": 360,
+      "repeat": 3600,
+      "expected": {
+        "state": {
+          "unreadable_since": 1800000000
+        },
+        "line": null,
+        "stalled": false
+      }
+    },
+    {
+      "id": "unreadable-2",
+      "before": {
+        "unreadable_since": 1800000000
+      },
+      "now": 1800000361,
+      "as_of": null,
+      "detail": "no ref",
+      "max_age": 360,
+      "repeat": 3600,
+      "expected": {
+        "state": {
+          "unreadable_since": 1800000000,
+          "stalled_since": 1800000360,
+          "told_at": 1800000361
+        },
+        "line": "evidence log STALLED: the published evidence log head cannot be read for 361s: no ref. The log host's pull (evidence-log.timer) is not publishing.",
+        "stalled": true
+      }
+    },
+    {
+      "id": "unreadable-3",
+      "before": {
+        "unreadable_since": 1800000000,
+        "stalled_since": 1800000360,
+        "told_at": 1800000361
+      },
+      "now": 1800000400,
+      "as_of": null,
+      "detail": "fetch failed",
+      "max_age": 360,
+      "repeat": 3600,
+      "expected": {
+        "state": {
+          "unreadable_since": 1800000000,
+          "stalled_since": 1800000360,
+          "told_at": 1800000361
+        },
+        "line": null,
+        "stalled": true
+      }
+    },
+    {
+      "id": "unreadable-4",
+      "before": {
+        "unreadable_since": 1800000000,
+        "stalled_since": 1800000360,
+        "told_at": 1800000361
+      },
+      "now": 1800004000,
+      "as_of": null,
+      "detail": "fetch failed",
+      "max_age": 360,
+      "repeat": 3600,
+      "expected": {
+        "state": {
+          "unreadable_since": 1800000000,
+          "stalled_since": 1800000360,
+          "told_at": 1800004000
+        },
+        "line": "evidence log still stalled since 2027-01-15T08:06:00Z: the published evidence log head cannot be read for 4000s: fetch failed.",
+        "stalled": true
+      }
+    },
+    {
+      "id": "unreadable-5",
+      "before": {
+        "unreadable_since": 1800000000,
+        "stalled_since": 1800000360,
+        "told_at": 1800004000
+      },
+      "now": 1800004100,
+      "as_of": 1800004099,
+      "detail": "abc",
+      "max_age": 360,
+      "repeat": 3600,
+      "expected": {
+        "state": {
+          "last_as_of": 1800004099,
+          "last_head": "abc"
+        },
+        "line": "evidence log moving again: the published evidence log head abc is 1s old (as_of 2027-01-15T09:08:19Z; at most 360s expected); it was stalled from 2027-01-15T08:06:00Z (3740s).",
+        "stalled": false
+      }
+    },
+    {
+      "id": "fractional-0",
+      "before": {},
+      "now": 1800000360.5,
+      "as_of": 1800000000,
+      "detail": "head",
+      "max_age": 360,
+      "repeat": 3600,
+      "expected": {
+        "state": {
+          "last_as_of": 1800000000,
+          "last_head": "head",
+          "stalled_since": 1800000360.0,
+          "told_at": 1800000360.5
+        },
+        "line": "evidence log STALLED: the published evidence log head head is 360s old (as_of 2027-01-15T08:00:00Z; at most 360s expected). The log host's pull (evidence-log.timer) is not publishing.",
+        "stalled": true
+      }
+    },
+    {
+      "id": "fractional-1",
+      "before": {
+        "last_as_of": 1800000000,
+        "last_head": "head",
+        "stalled_since": 1800000360.0,
+        "told_at": 1800000360.5
+      },
+      "now": 1800000361.5,
+      "as_of": 1800000000,
+      "detail": "head",
+      "max_age": 360,
+      "repeat": 3600,
+      "expected": {
+        "state": {
+          "last_as_of": 1800000000,
+          "last_head": "head",
+          "stalled_since": 1800000360.0,
+          "told_at": 1800000360.5
+        },
+        "line": null,
+        "stalled": true
+      }
+    },
+    {
+      "id": "fractional-2",
+      "before": {
+        "last_as_of": 1800000000,
+        "last_head": "head",
+        "stalled_since": 1800000360.0,
+        "told_at": 1800000360.5
+      },
+      "now": 1800000362.5,
+      "as_of": 1800000362,
+      "detail": "new",
+      "max_age": 360,
+      "repeat": 3600,
+      "expected": {
+        "state": {
+          "last_as_of": 1800000362,
+          "last_head": "new"
+        },
+        "line": "evidence log moving again: the published evidence log head new is 0s old (as_of 2027-01-15T08:06:02Z; at most 360s expected); it was stalled from 2027-01-15T08:06:00Z (2s).",
+        "stalled": false
+      }
+    },
+    {
+      "id": "future-0",
+      "before": {},
+      "now": 1800000000,
+      "as_of": 1800000060,
+      "detail": "future",
+      "max_age": 360,
+      "repeat": 3600,
+      "expected": {
+        "state": {
+          "last_as_of": 1800000060,
+          "last_head": "future"
+        },
+        "line": null,
+        "stalled": false
+      }
+    }
+  ]
+}

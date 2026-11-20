@@ -129,7 +129,8 @@
             '';
           evidence = (packageFor system).overrideAttrs (_: {
             doCheck = true;
-            nativeCheckInputs = [ pkgs.git pkgs.openssh pkgs.openssl pkgs.coreutils oraclePython ];
+            nativeCheckInputs = [ pkgs.git pkgs.openssh pkgs.openssl pkgs.coreutils oraclePython ]
+              ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.strace ];
             MERGEMASTER_ORACLE_PYTHON = "${oraclePython}/bin/python3.14";
             MERGEMASTER_PYTHON_KEYS_ORACLE = "${python-keys-oracle}";
             MERGEMASTER_PYTHON_ORACLE = "${python-oracle}";

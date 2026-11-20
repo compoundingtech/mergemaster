@@ -100,6 +100,16 @@ admitted scope; build and seat-lane caps still require memory and CPU limits.
 The accompanying systemd service and timer files are shipped as source only:
 the flake does not install, enable or run them.
 
+`mergemaster evidence log-watch` replaces the Python watcher. It fetches the
+published `refs/evidence-log/main`, persists `watch.json` compatibly, and invokes
+the JSON `--notify` argv on stalls, hourly reminders and recovery. Exit codes
+remain 0 current, 1 stalled, 2 usage, 3 notification failure. The source-only
+`evidence-log-watch.service` now invokes `%h/.local/bin/mergemaster`; operators
+installing that unit must install the native binary there. No deployment in this
+repository installs these units. The timer and notification configuration are unchanged.
+Frozen transition recordings and native/independent pinned Python differential
+coverage run with `cargo test -p mergemaster-evidence --lib --test log_watch log_watch`.
+
 The pool runner preserves Fractal's two-hour queue aging and free-tree waiter
 liveness rules. Kept cargo targets are tagged on creation and emptied above
 the 80 GB cap only when tagged or owned by the pool; untagged caller-owned
