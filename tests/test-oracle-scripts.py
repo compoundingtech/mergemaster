@@ -124,7 +124,8 @@ class ResyncGuard(unittest.TestCase):
         path.write_text(path.read_text() + f"# local-patch scripts/{name} {blob(source)} {blob(destination)}\n")
 
     def test_local_patch_pins_both_blobs_and_mode(self):
-        for name in ("ci-signed-tree", "ci-signed-tree-test", "ci-evidence-gate", "ci-evidence-gate-test", "evidence-log-watch.service"):
+        for name in ("ci-signed-tree", "ci-signed-tree-test", "ci-evidence-gate", "ci-evidence-gate-test",
+                     "evidence-prepush", "evidence-prepush-test", "evidence-log-watch.service"):
             self.write(self.src, name, b"patched")
             self.write(self.oracle, name, b"old")
             self.patch_manifest(name)
@@ -137,6 +138,16 @@ class ResyncGuard(unittest.TestCase):
             self.write(root, "ci-signed-tree", b"patched" if root == self.src else b"old")
         self.write(self.oracle, "ci-signed-tree", b"patched")
         with self.assertRaisesRegex(ValueError, "expired local patch"):
+            self.run_check()
+
+    def test_keygen_adoption_does_not_authorize_unlisted_copied_script(self):
+        self.write(self.src, "evidence-prepush", b"patched")
+        self.write(self.oracle, "evidence-prepush", b"old")
+        self.patch_manifest("evidence-prepush")
+        self.run_check()
+        self.write(self.src, "two", b"unapproved")
+        self.write(self.oracle, "two", b"original")
+        with self.assertRaisesRegex(ValueError, "differs from pinned oracle"):
             self.run_check()
 
     def test_local_patch_rejects_unapproved_duplicate_overlap_and_bad_blobs(self):
