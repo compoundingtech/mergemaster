@@ -1,13 +1,14 @@
 use super::*;
 #[test]
 fn subprocess_streams_and_exit_match_pinned_python() {
-    let rows: Vec<serde_json::Value> = serde_json::from_slice(include_bytes!(
+    let rows = crate::oracle_digest::rows(include_bytes!(
         "../../../../../tests/fixtures/oracle/argparse/diagnostic/stdout.json"
-    ))
-    .unwrap();
+    ));
+    let rows = rows.as_array().unwrap();
     assert!(rows.len() > 60);
     for row in rows {
-        let argv: Vec<Vec<u32>> = serde_json::from_value(row["argv"].clone()).unwrap();
+        let argv: Vec<Vec<u32>> =
+            serde_json::from_value(crate::oracle_digest::json(&row["argv"])).unwrap();
         let args: Vec<_> = argv.iter().map(|s| TextRef::Points(s)).collect();
         let result = streams(&args, TextRef::Str("evidence-verify"), 78).unwrap();
         if row["parsed"] == true {
@@ -20,7 +21,6 @@ fn subprocess_streams_and_exit_match_pinned_python() {
             ("stdout", result.stdout.text),
             ("stderr", result.stderr.text),
         ] {
-            let expected: Vec<u8> = serde_json::from_value(row[field].clone()).unwrap();
             let actual: Vec<u8> = text
                 .borrowed()
                 .points()
@@ -30,7 +30,15 @@ fn subprocess_streams_and_exit_match_pinned_python() {
                         .into_bytes()
                 })
                 .collect();
-            assert_eq!(actual, expected, "{row}");
+            if field == "stdout" {
+                crate::oracle_digest::assert_value(
+                    &serde_json::to_value(actual).unwrap(),
+                    &row[field],
+                );
+            } else {
+                let expected: Vec<u8> = serde_json::from_value(row[field].clone()).unwrap();
+                assert_eq!(actual, expected, "{row}");
+            }
         }
         assert_eq!(result.exit, row["exit"].as_i64().unwrap() as i32, "{row}");
     }

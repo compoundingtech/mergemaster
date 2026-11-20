@@ -42,4 +42,7 @@ for argv in samples:
   strip=lambda s:re.sub(rb'\x1b\[[0-9;]*m',b'',s)
   assert (strip(c.stdout),strip(c.stderr),c.returncode)==(r.stdout,r.stderr,r.returncode)
 assert len(rows)==len(samples)
-print(json.dumps(rows))
+raw_stdout=(json.dumps(rows)+'\n').encode()
+h=runpy.run_path(str(pathlib.Path(__file__).resolve().parents[4]/'oracle_digest.py'))
+compact=[dict(row,argv=h['json_recipe'](row['argv']),stdout=h['identity'](row['stdout'])) for row in rows]
+print(json.dumps(h['document'](compact,raw_stdout),separators=(',',':')))

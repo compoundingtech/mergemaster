@@ -23,6 +23,8 @@ def replay_matrices(interpreter):
     registry = json.loads((directory / "matrices.json").read_text())
     lock = json.loads((ROOT / "flake.lock").read_text())
     assert registry["version"] == 1
+    policy = registry["stdout_policy"]
+    assert policy["raw_max_bytes"] == 262144
     for relative in registry["manifests"]:
         fixture = directory / relative
         manifest = json.loads(fixture.read_text())
@@ -48,7 +50,21 @@ def replay_matrices(interpreter):
             done = subprocess.run([interpreter, *argv], input=(fixture.parent / manifest["stdin"]).read_bytes(),
                                   cwd=Path(temporary) / manifest["cwd"], env=environment, capture_output=True)
         assert done.returncode == manifest["exit_code"], (relative, done.stderr)
-        assert done.stdout == (fixture.parent / manifest["stdout"]).read_bytes(), relative
+        expected = (fixture.parent / manifest["stdout"]).read_bytes()
+        form = manifest.get("stdout_form", "stream-identities" if "stream_identity" in manifest else "raw")
+        assert form in ("raw", "digest-recipes", "stream-identities"), relative
+        if form == "raw":
+            assert len(expected) <= policy["raw_max_bytes"], (relative, "raw stdout exceeds corpus limit")
+        elif form == "digest-recipes":
+            document = json.loads(expected)
+            assert document["version"] == 1, relative
+            assert manifest["raw_stdout_bytes"] > policy["raw_max_bytes"], relative
+            assert document["raw_stdout"] == {
+                "bytes": manifest["raw_stdout_bytes"], "sha256": manifest["raw_stdout_sha256"]
+            }, relative
+        else:
+            assert "stream_identity" in manifest, relative
+        assert done.stdout == expected, relative
         assert done.stderr == (fixture.parent / manifest["stderr"]).read_bytes(), relative
     print(f"Replayed {len(registry['manifests'])} frozen source matrices")
 
