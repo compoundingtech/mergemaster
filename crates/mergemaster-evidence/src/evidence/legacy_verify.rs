@@ -38,6 +38,8 @@ pub mod crate_manifest_ops;
 pub mod crate_paths;
 pub mod crate_sources;
 pub mod discovery;
+#[cfg(test)]
+pub(crate) mod divergence_witnesses;
 pub mod events;
 pub mod facts;
 pub mod failure_json;
@@ -87,6 +89,8 @@ pub mod statement_document;
 pub mod statement_tokens;
 pub mod terminal_sink;
 pub mod toml;
+#[cfg(test)]
+mod transport_witness_tests;
 pub mod trust;
 pub mod utf8_stream;
 pub(crate) mod value_inputs;

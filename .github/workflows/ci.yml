@@ -32,6 +32,18 @@ jobs:
           nix --version
           nix config show | { grep -E '^(download-attempts|filetransfer-retry-attempts|http-connections|connect-timeout|stalled-download-timeout|download-buffer-size|substituters) = ' || true; }
       - run: nix flake check --print-build-logs
+      - name: Record independent divergence witnesses
+        if: always() && matrix.runner == 'ubuntu-24.04'
+        run: |
+          nix develop -c python3 -I -B tests/oracle_witnesses.py \
+            --output "$RUNNER_TEMP/oracle-witnesses.json"
+      - name: Retain real divergence observations
+        if: always() && matrix.runner == 'ubuntu-24.04'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: oracle-divergence-witnesses
+          path: ${{ runner.temp }}/oracle-witnesses.json
+          if-no-files-found: error
       - name: Linux search-only cwd regression (non-root)
         if: runner.os == 'Linux'
         run: |

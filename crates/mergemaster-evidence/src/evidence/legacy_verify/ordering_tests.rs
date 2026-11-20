@@ -54,7 +54,8 @@ try:
     return ['ok',found[0] if found else None,None,skipped,attempts]
 except Failure as e:
     return [e.reason,None,e.extra.get('decided_by'),e.extra.get('skipped_newer',[]),attempts]
-except OverflowError:
+except OverflowError as error:
+    globals()['witness_exception']=dict(origin=type(error).__name__,detail=list(map(ord,str(error))))
     return ['error',None,None,skipped,attempts]
 ''').body
 exec(compile(ast.fix_missing_locations(ast.Module(body=[fn,selection],type_ignores=[])),'<pinned-walk>','exec'),ns)
@@ -115,12 +116,14 @@ cases.extend([
     ['select-provider',[passing,passing],[]]])
 cases += [[case[0].replace('select','select-unconfigured'),copy.deepcopy(case[1]),copy.deepcopy(case[2]),levels]
           for case in list(cases) if case[0].startswith('select') for levels in (None,[],['agent'],['fleet','\ud800'])]
-actual=[]; details=[]
+actual=[]; details=[]; exceptions=[]
 for case in cases:
     mode,specs=case[:2]
     detail=None
+    exception=None
     ns['mode']=mode
     ns['blob_reads']=0
+    ns['witness_exception']=None
     ns['entries']=[(commit,dict(subject=[dict(digest=dict(gitTree='tree'))],predicate=dict(tier='full',observed_at=time,observed=dict(runner=runner,inputs=dict(lane_definition_sha256=definition,bound='hash'),checks=dict(unit=dict(exit_code=exit,command=['true']))))),level+'/key') for commit,time,exit,level,definition,runner in specs]
     try:
         if mode.startswith('select'):
@@ -131,13 +134,15 @@ for case in cases:
     except ns['Failure'] as e:
         verdict=[e.reason,None,e.extra.get('decided_by'),e.extra.get('skipped_newer',[]),len(specs)]
         if e.reason == 'check_failed' and 'dated after the pass' in e.detail: detail=e.detail
-    except OverflowError:
+    except OverflowError as error:
+        exception=dict(origin=type(error).__name__,detail=list(map(ord,str(error))))
         verdict=['error',None,None,[],len(specs)]
     actual.append(verdict+[ns['blob_reads']])
     details.append(detail)
+    exceptions.append(exception if exception is not None else ns['witness_exception'])
     if mode.startswith('select'): case[2] = [list(map(ord,level)) for level in case[2]]
     if 'unconfigured' in mode and case[3] is not None: case[3] = [list(map(ord,level)) for level in case[3]]
-print(json.dumps([cases,actual,details]))
+print(json.dumps([cases,actual,details,exceptions]))
 "#;
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
     let output = crate::pinned_python::command()
@@ -149,8 +154,12 @@ print(json.dumps([cases,actual,details]))
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let (cases, expected, details): (Vec<Value>, Vec<Value>, Vec<Option<String>>) =
-        serde_json::from_slice(&output.stdout).unwrap();
+    let (cases, expected, details, exceptions): (
+        Vec<Value>,
+        Vec<Value>,
+        Vec<Option<String>>,
+        Vec<Value>,
+    ) = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(cases.len(), 1230);
     let mut actual = Vec::new();
     for (case_index, case) in cases.iter().enumerate() {
@@ -295,6 +304,23 @@ print(json.dumps([cases,actual,details]))
                     .map(|found| found.map(|(i, _)| i))
             }
         };
+        if case[0] == "shadow" && entries[0][1] == "0001-01-01T00:01:59Z" && entries[1][2] == 1 {
+            let rust = match &result {
+                Ok(found) => json!({"candidate":found.map(|i| prepared.candidates[i].commit)}),
+                Err(error) => json!({
+                    "reason":error.reason,
+                    "attempts":error.attempts,
+                    "origin":format!("{:?}",error.origin),
+                    "detail":error.detail.borrowed().points().collect::<Vec<_>>(),
+                }),
+            };
+            crate::evidence::legacy_verify::divergence_witnesses::capture(
+                "shadow-clock-overflow",
+                json!({"mode":case[0],"entries":case[1],"policy":policy,"selected_index":0}),
+                exceptions[case_index].clone(),
+                rust,
+            );
+        }
         if let Err(error) = &result {
             assert_eq!(
                 matches!(

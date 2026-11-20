@@ -168,6 +168,35 @@ print(json.dumps(cases))
             case["keys"].as_str().unwrap(),
             case["revocations"].as_str().unwrap(),
         );
+        let name = case["name"].as_str().unwrap();
+        let witness = if name == "sha1-hostile-pgp" {
+            Some("non-ssh-signature-dispatch")
+        } else if name == "sha1-missing-revocations" {
+            Some("revocations-absent")
+        } else if name == "sha1-revocations-dangling" {
+            Some("revocations-dangling")
+        } else if name == "sha1-revocations-directory" {
+            Some("revocations-directory")
+        } else if name == "sha1-revocations-unreadable" {
+            Some("revocations-unreadable")
+        } else {
+            None
+        };
+        if let Some(id) = witness {
+            crate::evidence::legacy_verify::divergence_witnesses::capture(
+                id,
+                serde_json::json!({"case":name,"commit":case["commit"],"keys":case["keys"],"keys_hex":std::fs::read(case["keys"].as_str().unwrap()).map(hex::encode).ok(),"revocations":case["revocations"],"git":crate::evidence::legacy_verify::divergence_witnesses::git_input(Path::new(case["repo"].as_str().unwrap()))}),
+                serde_json::json!({"result":case["expected"],"error":case["error"],"configured_program_invoked":case.get("python_invoked")}),
+                match &actual {
+                    Ok((status, principal)) => {
+                        serde_json::json!({"result":[status,principal],"configured_program_invoked":case["marker"].as_str().map(|p| Path::new(p).exists())})
+                    }
+                    Err(error) => {
+                        serde_json::json!({"error":{"reason":error.reason,"detail":error.detail.to_string()}})
+                    }
+                },
+            );
+        }
         if case["revocation_refusal"] == true {
             let error = actual.unwrap_err();
             assert_eq!(error.reason, "error", "{}", case["name"]);

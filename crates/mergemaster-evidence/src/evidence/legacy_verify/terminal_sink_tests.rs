@@ -141,3 +141,41 @@ fn caller_constructed_sink_inputs_refuse_without_panics() {
         Err(Error::InvalidCodepoint)
     );
 }
+
+#[test]
+fn capture_terminal_interpolation_divergences() {
+    if std::env::var_os("MERGEMASTER_WITNESS_DIRECTORY").is_none() {
+        return;
+    }
+    let cases = [
+        ("terminal-tab", 9),
+        ("terminal-lf", 10),
+        ("terminal-cr", 13),
+        ("terminal-backslash", 92),
+        ("terminal-c0", 27),
+        ("terminal-c1", 133),
+        ("terminal-surrogate", 0xd800),
+    ];
+    let output = crate::pinned_python::command()
+        .args([
+            "-c",
+            r#"
+import json
+print(json.dumps([list(map(ord, '{}'.format(chr(p)))) for p in [9,10,13,92,27,133,0xd800]]))
+"#,
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{:?}", output.stderr);
+    let python: Vec<Vec<u32>> = serde_json::from_slice(&output.stdout).unwrap();
+    for ((id, point), python) in cases.into_iter().zip(python) {
+        let mut rust = String::new();
+        value(TextRef::Points(&[point]), &mut rust).unwrap();
+        super::super::divergence_witnesses::capture(
+            id,
+            json!({"codepoints": [point], "operation": "interpolated value"}),
+            json!({"text_codepoints": python}),
+            json!({"text_codepoints": rust.chars().map(u32::from).collect::<Vec<_>>()}),
+        );
+    }
+}

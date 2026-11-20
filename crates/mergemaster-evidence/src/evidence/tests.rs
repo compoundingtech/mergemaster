@@ -632,6 +632,28 @@ fn degraded_and_test_tiers_are_explicit_and_never_satisfy_daemon_policy() {
     let f = Fixture::new();
     let mut degraded = f.tests("fixture-runner", 0);
     degraded.predicate.tier = TrustTier::Degraded;
+    let raw = serde_json::to_string(&degraded).unwrap();
+    let oracle = crate::pinned_python::command()
+        .args(["-c", "import json,runpy,sys;o=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify');s=json.loads(sys.argv[2]);print(json.dumps({'statement_present':o['statement_of'](sys.argv[2].encode(),s['subject'][0]['digest']['gitTree']) is not None}))"])
+        .arg(std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap())
+        .arg(&raw)
+        .output()
+        .unwrap();
+    assert!(
+        oracle.status.success(),
+        "{}",
+        String::from_utf8_lossy(&oracle.stderr)
+    );
+    let validation = degraded.validate(f.repo());
+    legacy_verify::divergence_witnesses::capture(
+        "degraded-with-signer",
+        serde_json::json!({"statement":serde_json::from_str::<serde_json::Value>(&raw).unwrap()}),
+        serde_json::from_slice(&oracle.stdout).unwrap(),
+        match &validation {
+            Ok(_) => serde_json::json!({"valid":true}),
+            Err(error) => serde_json::json!({"valid":false,"error":error.to_string()}),
+        },
+    );
     assert!(
         degraded.validate(f.repo()).is_err(),
         "degraded evidence must not carry a signer"

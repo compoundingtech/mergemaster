@@ -40,6 +40,8 @@ add(shards,{'n':'\ud800','r':'0=success'})
 for count in [None,'0','17','001','16']:
  add(shards,{} if count is None else {'n':count})
 add({'shard_inputs':{'count':'\ud800','results':'\udfff'}},{})
+for count in ['١','１','𝟙','²','9'*4301]:
+ add(shards,{'n':count,'r':'0=success'})
 print(json.dumps(cases))
 "#;
     let oracle = std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap();
@@ -60,21 +62,36 @@ print(json.dumps(cases))
             .unwrap();
         let document = Document::from_bytes(case[1].as_str().unwrap().as_bytes()).unwrap();
         let run = serde_json::from_value(case[2].clone()).unwrap();
-        let actual = value_checks_document(
-            &rules.kinds[0].1,
-            super::ValidatedInputs::new(&document, document.root()).unwrap(),
-            &run,
-            7,
-        )
-        .map(|()| json!({"reason":"satisfied"}))
-        .unwrap_or_else(|e| {
-            let mut result = json!({"reason":e.reason,"attempts":e.attempts});
-            if case[3].get("detail").is_some() {
-                result["detail"] = json!(e.detail.borrowed().points().collect::<Vec<_>>());
-            }
-            result
-        });
-        if case[3]["reason"] == "ValueError" {
+        let inputs = super::ValidatedInputs::new(&document, document.root()).unwrap();
+        let actual = value_checks_document(&rules.kinds[0].1, inputs, &run, 7)
+            .map(|()| json!({"reason":"satisfied"}))
+            .unwrap_or_else(|e| {
+                let mut result = json!({"reason":e.reason,"attempts":e.attempts});
+                if case[3].get("detail").is_some() {
+                    result["detail"] = json!(e.detail.borrowed().points().collect::<Vec<_>>());
+                }
+                result
+            });
+        // Witness selection must use the same lossless view: unrelated keys and
+        // values deliberately contain lone surrogates that serde_json rejects.
+        let count = super::InputMap::get_text(&inputs, "n".into());
+        let id = match count {
+            Some(value) if value.equals("١") => Some("shard-arabic-indic"),
+            Some(value) if value.equals("１") => Some("shard-fullwidth"),
+            Some(value) if value.equals("𝟙") => Some("shard-mathematical"),
+            Some(value) if value.equals("²") => Some("shard-superscript-two"),
+            Some(value) if value.len() == 4301 => Some("shard-ascii-over-4300"),
+            _ => None,
+        };
+        if let Some(id) = id {
+            crate::evidence::legacy_verify::divergence_witnesses::capture(
+                id,
+                json!({"policy":case[0],"inputs":case[1],"run_inputs":case[2],"attempts":7}),
+                case[3].clone(),
+                actual.clone(),
+            );
+        }
+        if id.is_some() || case[3]["reason"] == "ValueError" {
             // Existing unicode-shard-count divergence, not a new parser refusal.
             assert_eq!(actual, json!({"reason":"wrong_input","attempts":7}));
         } else {

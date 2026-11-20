@@ -1,0 +1,122 @@
+"""Build evidence test targets, then record real differential witnesses."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+
+ROOT = Path(__file__).resolve().parent.parent
+REGISTRY = ROOT / "tests/fixtures/oracle/divergences.json"
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
+    registry = json.loads(REGISTRY.read_text())
+    interpreter = Path(os.environ["MERGEMASTER_ORACLE_PYTHON"])
+    assert interpreter.is_absolute()
+    runtime = subprocess.check_output([interpreter, "-I", "-c",
+        "import json,sys; print(json.dumps(dict(implementation=sys.implementation.name,version=list(sys.version_info[:3]))))"])
+    assert json.loads(runtime) == {"implementation": "cpython", "version": [3, 14, 7]}
+    lock = json.loads((ROOT / "flake.lock").read_text())
+    inputs = lock["nodes"]["root"]["inputs"]
+    names = {"verifier": "python-oracle", "parity_verifier": "python-oracle-parity", "keys": "fractal-fixture"}
+    for name, pin in registry["source_pins"].items():
+        source = Path(os.environ[pin["environment"]]) / pin["path"]
+        data = source.read_bytes()
+        blob = hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+        assert blob == pin["git_blob"], name
+        locked = lock["nodes"][inputs[names[name]]]["locked"]
+        assert (locked["rev"], locked["narHash"]) == (pin["rev"], pin["nar_hash"]), name
+    tests = sorted({(case.get("capture_target", "mergemaster_evidence"), case["capture_test"])
+                    for case in registry["cases"]})
+    assert tests, "no witness tests registered"
+    targets = {target for target, _ in tests}
+    compile_argv = ["cargo", "test", "--package", "mergemaster-evidence", "--lib"]
+    for target in sorted(targets - {"mergemaster_evidence"}):
+        compile_argv.extend(["--test", target])
+    compile_argv.extend(["--locked", "--no-run", "--message-format=json"])
+    compiled = subprocess.run(compile_argv, cwd=ROOT, capture_output=True)
+    sys.stderr.buffer.write(compiled.stderr)
+    if compiled.returncode:
+        sys.stdout.buffer.write(compiled.stdout)
+        return compiled.returncode
+    executables = {message["target"]["name"]: message["executable"]
+                   for line in compiled.stdout.splitlines()
+                   if (message := json.loads(line)).get("reason") == "compiler-artifact"
+                   and message.get("executable") and message["profile"]["test"]
+                   and message["target"]["name"] in targets}
+    assert set(executables) == targets, executables
+    test_runs = []
+    failures = []
+    with tempfile.TemporaryDirectory(prefix="mergemaster-witness-") as directory:
+        environment = dict(os.environ, MERGEMASTER_WITNESS_DIRECTORY=directory)
+        for target, test in tests:
+            argv = [executables[target], "--exact", test, "--nocapture", "--test-threads=1"]
+            done = subprocess.run(argv, cwd=ROOT, env=environment, capture_output=True)
+            test_runs.append({"argv": argv, "cwd": str(ROOT), "stdin": None,
+                              "stdout_hex": done.stdout.hex(), "stderr_hex": done.stderr.hex(),
+                              "exit_code": done.returncode})
+            sys.stdout.buffer.write(done.stdout)
+            sys.stderr.buffer.write(done.stderr)
+            if done.returncode or b"1 passed" not in done.stdout:
+                failures.append({"test": test, "exit_code": done.returncode,
+                                 "stdout_hex": done.stdout.hex(), "stderr_hex": done.stderr.hex()})
+        observed = {}
+        for path in sorted(Path(directory).glob("*.json")):
+            row = json.loads(path.read_text())
+            assert row["id"] == path.stem and row["execution_status"] == "observed"
+            observed[row["id"]] = row
+    cases = []
+    for expected in registry["cases"]:
+        row = dict(expected)
+        actual = observed.pop(row["id"], None)
+        if actual is not None:
+            row.update(actual)
+            if actual["test"] != expected["capture_test"]:
+                failures.append({"id": row["id"], "error": "capture came from a different test",
+                                 "actual_test": actual["test"], "expected_test": expected["capture_test"]})
+            comparison = row.get("local_python") if row.get("comparison") == "python-local-patch" else row["rust"]
+            row["observed_difference"] = row["python"] != comparison
+            expected_difference = expected.get("expected_difference", True)
+            if row["observed_difference"] != expected_difference:
+                failures.append({"id": row["id"], "error":
+                                 "named divergence did not differ" if expected_difference
+                                 else "resolved contract diverged"})
+        else:
+            failures.append({"id": row["id"], "error": "no observed witness"})
+        cases.append(row)
+    assert not observed, ("unregistered witness IDs", sorted(observed))
+    result = {"version": 1, "runtime": registry["runtime"], "source_pins": registry["source_pins"],
+              "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT).decode().strip(),
+              "compile_argv": compile_argv, "test_runs": test_runs, "cases": cases, "failures": failures}
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(result, indent=2) + "\n")
+    summary = ["## Divergence witness observations", "",
+               "Real executions only. Review-requested statuses are not promoted by CI.", "",
+               f"Observed {sum(row['execution_status'] == 'observed' for row in cases)}/{len(cases)} cases; failures: {len(failures)}.", ""]
+    for row in cases:
+        presented = dict(row)
+        for field in ("input", "python", "rust", "local_python"):
+            if field not in presented:
+                continue
+            encoded = json.dumps(presented[field], ensure_ascii=True, sort_keys=True).encode()
+            if len(encoded) > 4096:
+                presented[field] = {"json_bytes": len(encoded), "sha256": hashlib.sha256(encoded).hexdigest(),
+                                    "complete_value": f"oracle-divergence-witnesses artifact: cases[id={row['id']}].{field}"}
+        text = json.dumps(presented, ensure_ascii=True).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        summary.extend([f"<details><summary>{row['id']}: {row['execution_status']} / {row['review_status']}</summary>",
+                        "", "<pre>" + text + "</pre>", "", "</details>", ""])
+        print("MERGEMASTER_WITNESS_RESULT " + json.dumps(presented, ensure_ascii=True))
+    if os.environ.get("GITHUB_STEP_SUMMARY"):
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as output:
+            output.write("\n".join(summary))
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
