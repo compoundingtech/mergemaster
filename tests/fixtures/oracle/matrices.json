@@ -9,6 +9,12 @@
     "argparse/usage/manifest.json",
     "scalar/output/manifest.json",
     "scalar/check-names/manifest.json",
-    "scalar/codepoint-encoder/manifest.json"
+    "scalar/codepoint-encoder/manifest.json",
+    "policy-header/base-order/manifest.json",
+    "policy-header/command-base/manifest.json",
+    "policy-header/declared-paths/manifest.json",
+    "policy-header/header-diagnostics/manifest.json",
+    "policy-header/headers/manifest.json",
+    "policy-header/root-shape/manifest.json"
   ]
 }

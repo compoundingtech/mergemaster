@@ -47,6 +47,9 @@
 # Rust hashes through a formatting sink; on a mismatching block it consults only
 # the pinned oracle to identify the first differing codepoint. Corpus replay
 # independently regenerates all identities; no encoded stream blob is committed.
+# policy-header/ freezes all six root/header and input declaration matrices.
+# Rust input generators match exact frozen stdin; full diagnostics and policy
+# seconds remain covered, including wide values and last-member semantics.
 # tests/fixtures/oracle/native-assertions.json records each already-native test
 # and its assertion/helper evidence at an exact source revision. It is not a
 # shared-file exemption: Python-backed siblings retain independent freeze work.

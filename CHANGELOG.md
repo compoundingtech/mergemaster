@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Freeze all six policy root/header, command/base-input and declared-path matrices with exact generator-input equality and preserved refusal/diagnostic assertions.
 - Capture real Python/Rust divergence witnesses in hosted CI, preserving accepted-main review provenance and explicitly pending or review-requested cases without fabricating observations or approval.
 - Freeze exhaustive JSON encoder streams using per-stream byte counts/SHA-256 and fixed-codepoint diagnostic blocks instead of committing multi-megabyte output.
 - Record per-test native-only assertion/callee evidence for 111 shared-file inventory entries, without exempting Python-backed tests in the same files.
