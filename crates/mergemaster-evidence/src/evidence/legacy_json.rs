@@ -420,32 +420,111 @@ mod tests {
 
     #[test]
     fn codepoint_encoder_matches_pinned_python_bytes() {
-        let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").expect("pinned oracle");
-        let output = crate::pinned_python::command()
-            .args([
-                "-c",
-                r"
-import runpy,sys
-json=runpy.run_path(sys.argv[1]+'/scripts/evidence-verify')['json']
-print(json.dumps(''.join(map(chr,range(0x110000)))))
-print(json.dumps(''.join(chr(p) for p in range(0x110000) if not 0xd800<=p<=0xdfff)))
-",
-                &root,
-            ])
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let mut actual = String::new();
-        codepoints(0..=0x10ffff, &mut actual).unwrap();
-        actual.push('\n');
-        let scalars: String = (0..=0x10ffff).filter_map(char::from_u32).collect();
-        string(&scalars, &mut actual).unwrap();
-        actual.push('\n');
-        assert_eq!(actual.as_bytes(), output.stdout);
+        use sha2::{Digest, Sha256};
+
+        #[derive(Default)]
+        struct Identity {
+            bytes: u64,
+            digest: Sha256,
+        }
+        impl Write for Identity {
+            fn write_str(&mut self, text: &str) -> fmt::Result {
+                self.bytes += text.len() as u64;
+                self.digest.update(text.as_bytes());
+                Ok(())
+            }
+        }
+        fn encode(start: u32, end: u32, scalars_only: bool, out: &mut impl Write) {
+            if scalars_only {
+                let text: String = (start..end).filter_map(char::from_u32).collect();
+                string(&text, out).unwrap();
+            } else {
+                codepoints(start..end, out).unwrap();
+            }
+        }
+        fn diagnose(start: u32, end: u32, scalars_only: bool) -> ! {
+            let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap();
+            let output = crate::pinned_python::command()
+                .args([
+                    "-c",
+                    r#"
+import json, runpy, sys
+oracle = runpy.run_path(sys.argv[1] + '/scripts/evidence-verify')['json']
+print(json.dumps([[p, oracle.dumps(chr(p))] for p in range(int(sys.argv[2]), int(sys.argv[3]))
+                  if sys.argv[4] == 'false' or not 0xd800 <= p <= 0xdfff]))
+"#,
+                    &root,
+                    &start.to_string(),
+                    &end.to_string(),
+                    &scalars_only.to_string(),
+                ])
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "oracle diagnostic failed: {:?}",
+                output.stderr
+            );
+            let expected: Vec<(u32, String)> = serde_json::from_slice(&output.stdout).unwrap();
+            for (point, expected) in expected {
+                let mut actual = String::new();
+                encode(point, point + 1, scalars_only, &mut actual);
+                assert_eq!(actual, expected, "first differing codepoint U+{point:04X}");
+            }
+            panic!(
+                "stream framing differs in block beginning U+{start:04X}; individual codepoints agree"
+            );
+        }
+
+        let document: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../../../tests/fixtures/oracle/scalar/codepoint-encoder/identity.json"
+        ))
+        .unwrap();
+        let block = document["block_codepoints"].as_u64().unwrap() as u32;
+        assert_eq!(block, 4096);
+        let streams = document["streams"].as_array().unwrap();
+        assert_eq!(streams.len(), 2);
+        for (index, expected) in streams.iter().enumerate() {
+            let scalars_only = index == 1;
+            assert_eq!(
+                expected["name"],
+                if scalars_only {
+                    "scalars"
+                } else {
+                    "codepoints"
+                }
+            );
+            let mut actual = Identity::default();
+            encode(0, 0x110000, scalars_only, &mut actual);
+            actual.write_char('\n').unwrap();
+            let actual_bytes = actual.bytes;
+            let actual_sha256 = hex::encode(actual.digest.finalize());
+            let blocks = expected["blocks"].as_array().unwrap();
+            assert_eq!(blocks.len(), (0x110000 / block) as usize);
+            for (index, expected) in blocks.iter().enumerate() {
+                let start = index as u32 * block;
+                assert_eq!(expected["start"].as_u64().unwrap(), u64::from(start));
+                let mut actual = Identity::default();
+                encode(start, start + block, scalars_only, &mut actual);
+                let bytes = actual.bytes;
+                let digest = hex::encode(actual.digest.finalize());
+                if expected["bytes"].as_u64().unwrap() != bytes
+                    || expected["sha256"].as_str().unwrap() != digest
+                {
+                    diagnose(start, start + block, scalars_only);
+                }
+            }
+            assert_eq!(
+                actual_bytes,
+                expected["bytes"].as_u64().unwrap(),
+                "full stream byte count"
+            );
+            assert_eq!(
+                actual_sha256,
+                expected["sha256"].as_str().unwrap(),
+                "full stream SHA-256 (including final LF)"
+            );
+        }
         assert!(codepoints([0x110000], &mut String::new()).is_err());
         struct Refuse;
         impl Write for Refuse {

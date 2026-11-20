@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Freeze exhaustive JSON encoder streams using per-stream byte counts/SHA-256 and fixed-codepoint diagnostic blocks instead of committing multi-megabyte output.
 - Record per-test native-only assertion/callee evidence for 111 shared-file inventory entries, without exempting Python-backed tests in the same files.
 - Freeze complete legacy JSON output and policy check-name matrices, preserving their raw codepoint, duplicate-key, invalid-input and selected-value assertions.
 - Freeze all six argparse oracle matrices as versioned driver/input/stdout/stderr/exit fixtures; compare Rust directly with frozen bytes while the existing corpus check independently replays the complete generators.
