@@ -32,6 +32,14 @@
     "policy-helpers/repository-substitution-preserves-original-codepoints/manifest.json",
     "policy-helpers/rule-helper-diagnostics-match-pinned-handlers-losslessly/manifest.json",
     "policy-helpers/value-schemas-match-the-pinned-oracle/manifest.json",
-    "request-core/validation/manifest.json"
+    "request-core/validation/manifest.json",
+    "judgment-core/borrowed-level-membership/manifest.json",
+    "judgment-core/candidate-prelude/manifest.json",
+    "judgment-core/document-facts/manifest.json",
+    "judgment-core/failure-json/manifest.json",
+    "judgment-core/require-all-json/manifest.json",
+    "judgment-core/result-dictionary/manifest.json",
+    "judgment-core/routing/manifest.json",
+    "judgment-core/shard-part-no-record/manifest.json"
   ]
 }
