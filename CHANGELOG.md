@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Enforce the corpus-wide 256 KiB raw-stdout ceiling; preserve larger argparse outputs with verified input recipes/result identities and raw stderr/exit codes.
 - Freeze complete statement byte/document/token/time compatibility matrices with compact identities above 256 KiB.
 - Freeze eight complete candidate, fact, routing and result/error-envelope matrices, preserving lossless diagnostics, ordering and all wire-format assertions.
 - Freeze the complete 141-case legacy signer request-validation matrix against the independently pinned evidence-sign source; sort omitted Nix input cases explicitly so isolated Python replay is independent of randomized set order.
