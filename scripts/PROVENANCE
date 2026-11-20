@@ -42,6 +42,9 @@
 # 79 policy check-name cases, including raw/surrogate keys, duplicate selection,
 # numeric values and every raw/escaped C0 control. Input-generator equality
 # prevents policy matrix drift; pre-existing refusal/sink assertions remain.
+# tests/fixtures/oracle/native-assertions.json records each already-native test
+# and its assertion/helper evidence at an exact source revision. It is not a
+# shared-file exemption: Python-backed siblings retain independent freeze work.
 # R2 resync exception; exit: https://github.com/compoundingtech/mergemaster/issues/115
 # The original extraction Commit above is historical; this resync starts at the current fixture revision.
 # Pending requires oracle bytes; the target fixture activates exact upstream bytes and modes.
