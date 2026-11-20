@@ -82,7 +82,7 @@ def human_authorship_check(commits, label, remedy):
         if any(email.casefold() == HUMAN_EMAIL or HUMAN_NOREPLY.fullmatch(email)
                for email in (author_email, committer_email)):
             offenders.append(sha)
-        elif HUMAN_NAME in (author_name, committer_name):
+        elif any(name.casefold() == HUMAN_NAME.casefold() for name in (author_name, committer_name)):
             offenders.append(sha)
     if offenders:
         raise RuntimeError(
@@ -198,40 +198,54 @@ def current_main():
     return value
 
 
-def merge_async(pr, head):
+def merge_async(pr, head, base):
     deadline = time.monotonic() + 600
     path = f'pulls/{pr}/merge-async'
     response = api(path, '--method', 'PUT', '-f', f'sha={head}',
                    '-f', 'merge_method=merge', '-f', 'merge_action=direct_merge',
                    allow_conflict=True)
     result_path = None
-    while True:
-        if not isinstance(response, dict) or not isinstance(response.get('details'), dict):
-            raise RuntimeError(f'unreadable async merge response: {response}')
-        status, details = response.get('status'), response['details']
-        if status == 'merged':
-            merged = details.get('sha')
-            if not isinstance(merged, str) or not SHA.fullmatch(merged):
-                raise RuntimeError(f'async merge did not identify a full merge commit SHA: {response}')
-            return merged
-        if status != 'pending':
-            raise RuntimeError(f'async merge status={status}: {details}')
+    try:
+        while True:
+            if not isinstance(response, dict) or not isinstance(response.get('details'), dict):
+                raise RuntimeError(f'unreadable async merge response: {response}')
+            status, details = response.get('status'), response['details']
+            if status == 'merged':
+                merged = details.get('sha')
+                if not isinstance(merged, str) or not SHA.fullmatch(merged):
+                    raise RuntimeError(f'async merge did not identify a full merge commit SHA: {response}')
+                return merged
+            if status != 'pending':
+                raise RuntimeError(f'async merge status={status}: {details}')
+            if result_path is None:
+                uuid = details.get('uuid')
+                if not isinstance(uuid, str) or not re.fullmatch(r'[0-9a-fA-F-]{36}', uuid):
+                    raise RuntimeError(f'async merge pending request has invalid uuid: {details}')
+                result_path = f'{path}/{uuid}'
+                if (details.get('expected_head_sha') != head
+                        or details.get('merge_method') != 'merge'
+                        or details.get('merge_action') != 'direct_merge'):
+                    raise RuntimeError(f'async merge pending request does not match approved head/method/action: {details}')
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError('async merge deadline exceeded (600 seconds)')
+            time.sleep(min(3, remaining))
+            if time.monotonic() >= deadline:
+                raise RuntimeError('async merge deadline exceeded (600 seconds)')
+            response = api(result_path)
+    except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired) as error:
         if result_path is None:
-            if (details.get('expected_head_sha') != head
-                    or details.get('merge_method') != 'merge'
-                    or details.get('merge_action') != 'direct_merge'):
-                raise RuntimeError(f'async merge pending request does not match approved head/method/action: {details}')
-            uuid = details.get('uuid')
-            if not isinstance(uuid, str) or not re.fullmatch(r'[0-9a-fA-F-]{36}', uuid):
-                raise RuntimeError(f'async merge pending request has invalid uuid: {details}')
-            result_path = f'{path}/{uuid}'
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise RuntimeError(f'async merge deadline exceeded (600 seconds); inspect {result_path}; merge may still complete')
-        time.sleep(min(3, remaining))
-        if time.monotonic() >= deadline:
-            raise RuntimeError(f'async merge deadline exceeded (600 seconds); inspect {result_path}; merge may still complete')
-        response = api(result_path)
+            raise
+        endpoint = f'repos/{REPO}/{result_path}'
+        raise RuntimeError(
+            f'{error}; merge may still complete.\n'
+            f'Re-read the result (retained for 24 hours):\n'
+            f'  gh api {endpoint}\n'
+            f'If status is merged, verify details.sha against the original validated base/head:\n'
+            f'  MERGE_SHA=$(gh api {endpoint} --jq \'select(.status == "merged") | .details.sha\')\n'
+            f'  scripts/merge-pr {pr} --go-head {head} --verify-base {base} --verify-merged "$MERGE_SHA"\n'
+            f'Verification never merges or automatically reverts. A pending request that did not\n'
+            f'match the approved head/method/action is not approved; verification refuses its merge.') from error
 
 
 def verify_merged(pr, base, head, expected_tree, merged):
@@ -305,22 +319,50 @@ Mechanical checks:
   Only Mergemaster-authored PRs are supported; --author-agent is an explicit
   author assertion, since the shared GitHub login cannot distinguish agents.
 
+Late completion:
+  After a pending request fails locally, re-read the printed merge-async result.
+  If it merged, run --verify-merged MERGE_SHA --verify-base ORIGINAL_BASE_SHA
+  with --go-head ORIGINAL_APPROVED_HEAD. This fetches objects and runs the PR-commit
+  authorship check over BASE..HEAD and the merge parent, tree and merge-commit
+  authorship checks, without merging or reverting.
+  It does not repeat approval/CI gates or require --author-agent/--go-ref.
+
 Run from a trusted base checkout, not the PR's copy. Use the agent gh config
 for read-only runs. Dry runs fetch Git objects locally but never write GitHub.
 Tests: python3 tests/test-merge-pr.py
 """)
     parser.add_argument('pr', type=int, help='PR number in compoundingtech/mergemaster')
-    parser.add_argument('--author-agent', required=True, help='must be agent/compoundingtech/mergemaster; other author agents require manual review')
+    parser.add_argument('--author-agent', help='must be agent/compoundingtech/mergemaster; required unless verifying a completed merge')
     parser.add_argument('--go-head', required=True, help='full 40-hex approved head SHA')
-    parser.add_argument('--go-ref', required=True, help='message/ID naming the first GO; Fractal message sender (same-uid asserted identity)')
+    parser.add_argument('--go-ref', help='message/ID naming the first GO; required unless verifying a completed merge')
     parser.add_argument('--second-go-ref', help='distinct current-head reviewer GO; required for .github/ or iac/ changes')
     parser.add_argument('--rerun-reason', help='explicit reason required when the CI run attempt is greater than 1')
     parser.add_argument('--dry-run', action='store_true', help='report PASS/FAIL evidence without merging; exit nonzero on refusal')
+    parser.add_argument('--verify-merged', metavar='MERGE_SHA', help='verify a completed merge only; never submit another merge')
+    parser.add_argument('--verify-base', metavar='BASE_SHA', help='original validated base SHA; required with --verify-merged')
     args = parser.parse_args(argv)
+    if args.verify_merged is not None:
+        if args.dry_run or not args.verify_base:
+            parser.error('--verify-merged requires --verify-base and cannot be used with --dry-run')
+        if not all(SHA.fullmatch(value) for value in (args.verify_merged, args.verify_base, args.go_head)):
+            parser.error('verification requires full 40-hex merge, base and approved head SHAs')
+    elif args.verify_base is not None:
+        parser.error('--verify-base requires --verify-merged')
+    elif not args.author_agent or not args.go_ref:
+        parser.error('--author-agent and --go-ref are required unless using --verify-merged')
     try:
         common = Path(git('rev-parse', '--git-common-dir'))
         with (common / 'merge-pr.lock').open('a') as lock:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            if args.verify_merged is not None:
+                git('fetch', '--no-tags', 'origin', args.verify_base, args.go_head)
+                tree = git('merge-tree', '--write-tree', args.verify_base, args.go_head)
+                human_authorship_check(
+                    commit_identities(f'{args.verify_base}..{args.go_head}'),
+                    f'BASE..HEAD_SHA {args.verify_base}..{args.go_head}',
+                    'revert the merge and re-author on a new signed branch, as Manager decides')
+                print(f'PASS post-merge: {verify_merged(args.pr, args.verify_base, args.go_head, tree, args.verify_merged)}')
+                return 0
             return run_gate(args)
     except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired) as error:
         print(f'FAIL merge-pr: {error}', file=sys.stderr)
@@ -453,7 +495,7 @@ def run_gate(args):
     if not args.dry_run:
         if current_main() != base:
             raise RuntimeError(f'main changed immediately before merge; validated base={base}')
-        merged = merge_async(args.pr, args.go_head)
+        merged = merge_async(args.pr, args.go_head, base)
         print(f'PASS post-merge: {verify_merged(args.pr, base, head, tree, merged)}')
     return 0
 
