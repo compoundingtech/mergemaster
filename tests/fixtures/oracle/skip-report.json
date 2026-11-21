@@ -1,0 +1,1149 @@
+{
+  "version": 1,
+  "oracle": {
+    "environment": "MERGEMASTER_PYTHON_ORACLE",
+    "path": "scripts/evidence-skip-report",
+    "git_blob": "2bdb6c3ebee8bb381c93c736cc99c22cbb82c0b3",
+    "runtime": "CPython 3.14.7",
+    "source_store": "/nix/store/bbj5s0bmhsv4a9mjqb97x80r8dvkas45-source"
+  },
+  "now": "2026-11-20T12:00:00Z",
+  "recipe": "Independent pinned Python main(now=...) with fixed UTC clock; strict gh/git executable shims; raw stdout/stderr; only canonical call ordering and temporary-root placeholders. Native CLI uses --now. Repeated cases reuse the same cache and assert no second log downloads.",
+  "shim": "import json, os, sys\nfrom pathlib import Path\napi = json.loads(Path(os.environ['FLIP_SKIP_API']).read_text())\nargs = sys.argv[1:]\ntool = Path(sys.argv[0]).name\nif tool == 'git' and args[:1] == ['-C']: args = args[2:]\nwith open(os.environ['FLIP_SKIP_CALLS'], 'a') as out: out.write(json.dumps([tool, *args]) + '\\n')\nif tool == 'git':\n    if args[0] == 'fetch':\n        if api.get('git_error'):\n            sys.stderr.write(api['git_error']); sys.exit(1)\n    elif args[:2] == ['remote', 'get-url']:\n        sys.exit(1)\n    elif args[0] == 'ls-tree':\n        if api.get('fractal'): sys.stdout.write('100644 blob fixture\\t' + args[-1] + '\\0')\n    elif args[0] == 'show':\n        path = args[-1].split(':', 1)[1]\n        if path.endswith('evidence-skip-policy.json'): print(json.dumps({'checks': api['policy']}))\n        elif path.endswith('required-lanes.json'): print(json.dumps({'lanes': api.get('lanes', {})}))\n        elif path == '.github/workflows/fleet.yml': sys.stdout.write(api['workflow'])\n        else: raise AssertionError(args)\n    else: raise AssertionError(args)\nelse:\n    assert tool == 'gh' and args[0] == 'api', args\n    path = next(arg for arg in args[1:] if arg.startswith('repos/'))\n    error = api.get('gh_error') or api.get('errors', {}).get(path)\n    if error: sys.stderr.write(error); sys.exit(1)\n    if '/workflows/' in path:\n        key = path.split('/workflows/')[1].split('/')[0]\n        runs = api.get('release_runs' if key == 'release-fractal.yml' else 'runs', [])\n        print(json.dumps({'workflow_runs': runs, 'total_count': len(runs)}))\n    elif path.endswith('/logs'):\n        job = path.split('/jobs/')[1].split('/')[0]\n        sys.stdout.write(api['logs'][job])\n    elif '/jobs?' in path:\n        run = path.split('/runs/')[1].split('/')[0]\n        print(json.dumps([{'jobs': api.get('jobs', {}).get(run, [])}]))\n    elif '/files?' in path:\n        print(json.dumps([[{'filename': name} for name in api.get('files', [])]]))\n    elif '/commits/' in path and path.endswith('/pulls'):\n        print(json.dumps([{'number': 17}]))\n    else: raise AssertionError(args)\n",
+  "launcher": "import datetime, importlib.machinery, importlib.util, pathlib, sys\npath, now, root, *args = sys.argv[1:]\nloader = importlib.machinery.SourceFileLoader('frozen_oracle', path)\nmodule = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))\nloader.exec_module(module)\nsys.exit(module.main(args, now=datetime.datetime.fromisoformat(now.replace('Z', '+00:00')), root=pathlib.Path(root)))\n",
+  "cases": [
+    {
+      "id": "categories-release-json",
+      "api": {
+        "policy": {
+          "skip": {
+            "enforce": true
+          },
+          "irrelevant": {
+            "enforce": true
+          },
+          "lane": {
+            "enforce": true
+          },
+          "merge": {
+            "enforce": true
+          },
+          "unsigned": {
+            "enforce": true
+          },
+          "failed": {
+            "enforce": true
+          },
+          "protected": {
+            "enforce": true
+          },
+          "sampled": {
+            "enforce": true
+          },
+          "shadow": {
+            "enforce": true
+          },
+          "shadow_unsigned": {
+            "enforce": false
+          },
+          "other": {
+            "enforce": true
+          }
+        },
+        "workflow": "jobs:\n  lint:\n    runs-on: ubuntu-latest\n",
+        "runs": [
+          {
+            "id": 1,
+            "created_at": "2026-11-20T10:00:00Z",
+            "status": "completed",
+            "conclusion": "success",
+            "actor": {
+              "login": "alice"
+            },
+            "pull_requests": [],
+            "head_branch": "feature",
+            "head_sha": "head"
+          }
+        ],
+        "jobs": {
+          "1": [
+            {
+              "id": 100,
+              "name": "evidence-gate-skip",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 101,
+              "name": "evidence-gate-irrelevant",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 102,
+              "name": "evidence-gate-lane",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 103,
+              "name": "evidence-gate-merge",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 104,
+              "name": "evidence-gate-unsigned",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 105,
+              "name": "evidence-gate-failed",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 106,
+              "name": "evidence-gate-protected",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 107,
+              "name": "evidence-gate-sampled",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 108,
+              "name": "evidence-gate-shadow",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 109,
+              "name": "evidence-gate-shadow_unsigned",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 110,
+              "name": "evidence-gate-other",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 200,
+              "name": "irrelevant-execution",
+              "status": "completed",
+              "conclusion": "skipped",
+              "run_attempt": 1
+            },
+            {
+              "id": 201,
+              "name": "irrelevant",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            }
+          ],
+          "3": [
+            {
+              "id": 301,
+              "name": "mac",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1,
+              "started_at": "2026-11-20T10:00:00Z",
+              "completed_at": "2026-11-20T10:03:30Z",
+              "labels": [
+                "macos-14"
+              ]
+            },
+            {
+              "id": 302,
+              "name": "linux",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1,
+              "started_at": "2026-11-20T10:00:00Z",
+              "completed_at": "2026-11-20T10:02:00Z",
+              "labels": [
+                "ubuntu"
+              ]
+            },
+            {
+              "id": 303,
+              "name": "skipped",
+              "status": "completed",
+              "conclusion": "skipped",
+              "run_attempt": 1,
+              "started_at": "2026-11-20T10:00:00Z",
+              "completed_at": "2026-11-20T11:00:00Z"
+            }
+          ]
+        },
+        "logs": {
+          "100": "2026-11-20T10:00:01Z evidence-decision v1 check=skip decision=skip outcome=satisfied base=base\n",
+          "101": "2026-11-20T10:00:01Z evidence-decision v1 check=irrelevant decision=run outcome=no_note base=base\n",
+          "102": "2026-11-20T10:00:01Z evidence-decision v1 check=lane decision=run outcome=no_note base=base\n",
+          "103": "2026-11-20T10:00:01Z evidence-decision v1 check=merge decision=run outcome=no_note tree_of=merge base=base\n",
+          "104": "2026-11-20T10:00:01Z evidence-decision v1 check=unsigned decision=run outcome=no_note base=base\n",
+          "105": "2026-11-20T10:00:01Z evidence-decision v1 check=failed decision=run outcome=rejected reason=check_failed base=base\n",
+          "106": "2026-11-20T10:00:01Z evidence-decision v1 check=protected decision=run outcome=satisfied reason=a_file_that_decides base=base\n",
+          "107": "2026-11-20T10:00:01Z evidence-decision v1 check=sampled decision=run outcome=satisfied reason=sampled base=base\n",
+          "108": "2026-11-20T10:00:01Z evidence-decision v1 check=shadow decision=run outcome=satisfied reason=shadow base=base\n",
+          "109": "2026-11-20T10:00:01Z evidence-decision v1 check=shadow_unsigned decision=run outcome=no_note base=base\n",
+          "110": "2026-11-20T10:00:01Z evidence-decision v1 check=other decision=run outcome=unavailable reason=missing_key base=base\n"
+        },
+        "lanes": {
+          "lane": {
+            "definition_paths": [
+              "lane/"
+            ]
+          }
+        },
+        "files": [
+          "lane/config.json"
+        ],
+        "release_runs": [
+          {
+            "id": 3,
+            "created_at": "2026-11-20T10:00:00Z",
+            "status": "completed",
+            "conclusion": "success",
+            "actor": {
+              "login": "alice"
+            },
+            "pull_requests": [
+              {
+                "number": 17,
+                "base": {
+                  "sha": "base"
+                }
+              }
+            ],
+            "head_branch": "feature",
+            "head_sha": "head"
+          }
+        ]
+      },
+      "argv": [
+        "--actor",
+        "alice",
+        "--receipts",
+        "${root}/receipts"
+      ],
+      "repeat": 2,
+      "files": {
+        "receipts": "not json\n{\"branch\":\"feature\",\"agent\":\"old\"}\n{\"branch\":\"feature\",\"agent\":\"seat-one\"}\n"
+      },
+      "observations": [
+        {
+          "stdout": "{\n  \"window\": {\n    \"since\": \"2026-11-19T12:00:00Z\",\n    \"until\": \"2026-11-20T12:00:00Z\"\n  },\n  \"actors\": [\n    \"alice\"\n  ],\n  \"runs\": 1,\n  \"checks\": {\n    \"failed\": {\n      \"skipped\": 0,\n      \"not_relevant\": 0,\n      \"lane_edit\": 0,\n      \"merge_tree\": 0,\n      \"not_signed\": 0,\n      \"failed\": 1,\n      \"protected\": 0,\n      \"sampled\": 0,\n      \"shadow\": 0,\n      \"shadow_unsigned\": 0,\n      \"other\": 0\n    },\n    \"irrelevant\": {\n      \"skipped\": 0,\n      \"not_relevant\": 1,\n      \"lane_edit\": 0,\n      \"merge_tree\": 0,\n      \"not_signed\": 0,\n      \"failed\": 0,\n      \"protected\": 0,\n      \"sampled\": 0,\n      \"shadow\": 0,\n      \"shadow_unsigned\": 0,\n      \"other\": 0\n    },\n    \"lane\": {\n      \"skipped\": 0,\n      \"not_relevant\": 0,\n      \"lane_edit\": 1,\n      \"merge_tree\": 0,\n      \"not_signed\": 0,\n      \"failed\": 0,\n      \"protected\": 0,\n      \"sampled\": 0,\n      \"shadow\": 0,\n      \"shadow_unsigned\": 0,\n      \"other\": 0\n    },\n    \"merge\": {\n      \"skipped\": 0,\n      \"not_relevant\": 0,\n      \"lane_edit\": 0,\n      \"merge_tree\": 1,\n      \"not_signed\": 0,\n      \"failed\": 0,\n      \"protected\": 0,\n      \"sampled\": 0,\n      \"shadow\": 0,\n      \"shadow_unsigned\": 0,\n      \"other\": 0\n    },\n    \"other\": {\n      \"skipped\": 0,\n      \"not_relevant\": 0,\n      \"lane_edit\": 0,\n      \"merge_tree\": 0,\n      \"not_signed\": 0,\n      \"failed\": 0,\n      \"protected\": 0,\n      \"sampled\": 0,\n      \"shadow\": 0,\n      \"shadow_unsigned\": 0,\n      \"other\": 1\n    },\n    \"protected\": {\n      \"skipped\": 0,\n      \"not_relevant\": 0,\n      \"lane_edit\": 0,\n      \"merge_tree\": 0,\n      \"not_signed\": 0,\n      \"failed\": 0,\n      \"protected\": 1,\n      \"sampled\": 0,\n      \"shadow\": 0,\n      \"shadow_unsigned\": 0,\n      \"other\": 0\n    },\n    \"sampled\": {\n      \"skipped\": 0,\n      \"not_relevant\": 0,\n      \"lane_edit\": 0,\n      \"merge_tree\": 0,\n      \"not_signed\": 0,\n      \"failed\": 0,\n      \"protected\": 0,\n      \"sampled\": 1,\n      \"shadow\": 0,\n      \"shadow_unsigned\": 0,\n      \"other\": 0\n    },\n    \"shadow\": {\n      \"skipped\": 0,\n      \"not_relevant\": 0,\n      \"lane_edit\": 0,\n      \"merge_tree\": 0,\n      \"not_signed\": 0,\n      \"failed\": 0,\n      \"protected\": 0,\n      \"sampled\": 0,\n      \"shadow\": 1,\n      \"shadow_unsigned\": 0,\n      \"other\": 0\n    },\n    \"shadow_unsigned\": {\n      \"skipped\": 0,\n      \"not_relevant\": 0,\n      \"lane_edit\": 0,\n      \"merge_tree\": 0,\n      \"not_signed\": 0,\n      \"failed\": 0,\n      \"protected\": 0,\n      \"sampled\": 0,\n      \"shadow\": 0,\n      \"shadow_unsigned\": 1,\n      \"other\": 0\n    },\n    \"skip\": {\n      \"skipped\": 1,\n      \"not_relevant\": 0,\n      \"lane_edit\": 0,\n      \"merge_tree\": 0,\n      \"not_signed\": 0,\n      \"failed\": 0,\n      \"protected\": 0,\n      \"sampled\": 0,\n      \"shadow\": 0,\n      \"shadow_unsigned\": 0,\n      \"other\": 0\n    },\n    \"unsigned\": {\n      \"skipped\": 0,\n      \"not_relevant\": 0,\n      \"lane_edit\": 0,\n      \"merge_tree\": 0,\n      \"not_signed\": 1,\n      \"failed\": 0,\n      \"protected\": 0,\n      \"sampled\": 0,\n      \"shadow\": 0,\n      \"shadow_unsigned\": 0,\n      \"other\": 0\n    }\n  },\n  \"other_reasons\": {\n    \"other\": {\n      \"unavailable:missing_key\": 1\n    }\n  },\n  \"not_signed\": [\n    {\n      \"pr\": 17,\n      \"branch\": \"feature\",\n      \"seat\": \"seat-one\",\n      \"checks\": [\n        \"unsigned\"\n      ],\n      \"runs\": 1\n    }\n  ],\n  \"release_surface\": {\n    \"workflow\": \"release-fractal.yml\",\n    \"runs\": 1,\n    \"minutes\": 5.5,\n    \"macos_minutes\": 3.5,\n    \"prs\": [\n      17\n    ]\n  }\n}\n",
+          "stderr": "",
+          "exit_code": 0,
+          "calls": [
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/100/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/101/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/102/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/103/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/104/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/105/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/106/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/107/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/108/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/109/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/110/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/runs/1/jobs?per_page=100&filter=latest"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/runs/3/jobs?per_page=100&filter=all"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/workflows/release-fractal.yml/runs?event=pull_request&per_page=100&page=1"
+            ],
+            [
+              "gh",
+              "repos/org/repo/commits/head/pulls"
+            ],
+            [
+              "gh",
+              "repos/org/repo/pulls/17/files?per_page=100"
+            ],
+            [
+              "git",
+              "ls-tree",
+              ".fractal/evidence-skip-policy.json"
+            ],
+            [
+              "git",
+              "ls-tree",
+              ".fractal/required-lanes.json"
+            ],
+            [
+              "git",
+              "show",
+              "base:.st/evidence-skip-policy.json"
+            ],
+            [
+              "git",
+              "show",
+              "base:.st/required-lanes.json"
+            ]
+          ]
+        },
+        {
+          "stdout": "{\n  \"window\": {\n    \"since\": \"2026-11-19T12:00:00Z\",\n    \"until\": \"2026-11-20T12:00:00Z\"\n  },\n  \"actors\": [\n    \"alice\"\n  ],\n  \"runs\": 1,\n  \"checks\": {\n    \"failed\": {\n      \"skipped\": 0,\n      \"not_relevant\": 0,\n      \"lane_edit\": 0,\n      \"merge_tree\": 0,\n      \"not_signed\": 0,\n      \"failed\": 1,\n      \"protected\": 0,\n      \"sampled\": 0,\n      \"shadow\": 0,\n      \"shadow_unsigned\": 0,\n      \"other\": 0\n    },\n    \"irrelevant\": {\n      \"skipped\": 0,\n      \"not_relevant\": 1,\n      \"lane_edit\": 0,\n      \"merge_tree\": 0,\n      \"not_signed\": 0,\n      \"failed\": 0,\n      \"protected\": 0,\n      \"sampled\": 0,\n      \"shadow\": 0,\n      \"shadow_unsigned\": 0,\n      \"other\": 0\n    },\n    \"lane\": {\n      \"skipped\": 0,\n      \"not_relevant\": 0,\n      \"lane_edit\": 1,\n      \"merge_tree\": 0,\n      \"not_signed\": 0,\n      \"failed\": 0,\n      \"protected\": 0,\n      \"sampled\": 0,\n      \"shadow\": 0,\n      \"shadow_unsigned\": 0,\n      \"other\": 0\n    },\n    \"merge\": {\n      \"skipped\": 0,\n      \"not_relevant\": 0,\n      \"lane_edit\": 0,\n      \"merge_tree\": 1,\n      \"not_signed\": 0,\n      \"failed\": 0,\n      \"protected\": 0,\n      \"sampled\": 0,\n      \"shadow\": 0,\n      \"shadow_unsigned\": 0,\n      \"other\": 0\n    },\n    \"other\": {\n      \"skipped\": 0,\n      \"not_relevant\": 0,\n      \"lane_edit\": 0,\n      \"merge_tree\": 0,\n      \"not_signed\": 0,\n      \"failed\": 0,\n      \"protected\": 0,\n      \"sampled\": 0,\n      \"shadow\": 0,\n      \"shadow_unsigned\": 0,\n      \"other\": 1\n    },\n    \"protected\": {\n      \"skipped\": 0,\n      \"not_relevant\": 0,\n      \"lane_edit\": 0,\n      \"merge_tree\": 0,\n      \"not_signed\": 0,\n      \"failed\": 0,\n      \"protected\": 1,\n      \"sampled\": 0,\n      \"shadow\": 0,\n      \"shadow_unsigned\": 0,\n      \"other\": 0\n    },\n    \"sampled\": {\n      \"skipped\": 0,\n      \"not_relevant\": 0,\n      \"lane_edit\": 0,\n      \"merge_tree\": 0,\n      \"not_signed\": 0,\n      \"failed\": 0,\n      \"protected\": 0,\n      \"sampled\": 1,\n      \"shadow\": 0,\n      \"shadow_unsigned\": 0,\n      \"other\": 0\n    },\n    \"shadow\": {\n      \"skipped\": 0,\n      \"not_relevant\": 0,\n      \"lane_edit\": 0,\n      \"merge_tree\": 0,\n      \"not_signed\": 0,\n      \"failed\": 0,\n      \"protected\": 0,\n      \"sampled\": 0,\n      \"shadow\": 1,\n      \"shadow_unsigned\": 0,\n      \"other\": 0\n    },\n    \"shadow_unsigned\": {\n      \"skipped\": 0,\n      \"not_relevant\": 0,\n      \"lane_edit\": 0,\n      \"merge_tree\": 0,\n      \"not_signed\": 0,\n      \"failed\": 0,\n      \"protected\": 0,\n      \"sampled\": 0,\n      \"shadow\": 0,\n      \"shadow_unsigned\": 1,\n      \"other\": 0\n    },\n    \"skip\": {\n      \"skipped\": 1,\n      \"not_relevant\": 0,\n      \"lane_edit\": 0,\n      \"merge_tree\": 0,\n      \"not_signed\": 0,\n      \"failed\": 0,\n      \"protected\": 0,\n      \"sampled\": 0,\n      \"shadow\": 0,\n      \"shadow_unsigned\": 0,\n      \"other\": 0\n    },\n    \"unsigned\": {\n      \"skipped\": 0,\n      \"not_relevant\": 0,\n      \"lane_edit\": 0,\n      \"merge_tree\": 0,\n      \"not_signed\": 1,\n      \"failed\": 0,\n      \"protected\": 0,\n      \"sampled\": 0,\n      \"shadow\": 0,\n      \"shadow_unsigned\": 0,\n      \"other\": 0\n    }\n  },\n  \"other_reasons\": {\n    \"other\": {\n      \"unavailable:missing_key\": 1\n    }\n  },\n  \"not_signed\": [\n    {\n      \"pr\": 17,\n      \"branch\": \"feature\",\n      \"seat\": \"seat-one\",\n      \"checks\": [\n        \"unsigned\"\n      ],\n      \"runs\": 1\n    }\n  ],\n  \"release_surface\": {\n    \"workflow\": \"release-fractal.yml\",\n    \"runs\": 1,\n    \"minutes\": 5.5,\n    \"macos_minutes\": 3.5,\n    \"prs\": [\n      17\n    ]\n  }\n}\n",
+          "stderr": "",
+          "exit_code": 0,
+          "calls": [
+            [
+              "gh",
+              "repos/org/repo/actions/runs/1/jobs?per_page=100&filter=latest"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/runs/3/jobs?per_page=100&filter=all"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/workflows/release-fractal.yml/runs?event=pull_request&per_page=100&page=1"
+            ],
+            [
+              "gh",
+              "repos/org/repo/commits/head/pulls"
+            ],
+            [
+              "gh",
+              "repos/org/repo/pulls/17/files?per_page=100"
+            ],
+            [
+              "git",
+              "ls-tree",
+              ".fractal/evidence-skip-policy.json"
+            ],
+            [
+              "git",
+              "ls-tree",
+              ".fractal/required-lanes.json"
+            ],
+            [
+              "git",
+              "show",
+              "base:.st/evidence-skip-policy.json"
+            ],
+            [
+              "git",
+              "show",
+              "base:.st/required-lanes.json"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "categories-release-markdown",
+      "api": {
+        "policy": {
+          "skip": {
+            "enforce": true
+          },
+          "irrelevant": {
+            "enforce": true
+          },
+          "lane": {
+            "enforce": true
+          },
+          "merge": {
+            "enforce": true
+          },
+          "unsigned": {
+            "enforce": true
+          },
+          "failed": {
+            "enforce": true
+          },
+          "protected": {
+            "enforce": true
+          },
+          "sampled": {
+            "enforce": true
+          },
+          "shadow": {
+            "enforce": true
+          },
+          "shadow_unsigned": {
+            "enforce": false
+          },
+          "other": {
+            "enforce": true
+          }
+        },
+        "workflow": "jobs:\n  lint:\n    runs-on: ubuntu-latest\n",
+        "runs": [
+          {
+            "id": 1,
+            "created_at": "2026-11-20T10:00:00Z",
+            "status": "completed",
+            "conclusion": "success",
+            "actor": {
+              "login": "alice"
+            },
+            "pull_requests": [],
+            "head_branch": "feature",
+            "head_sha": "head"
+          }
+        ],
+        "jobs": {
+          "1": [
+            {
+              "id": 100,
+              "name": "evidence-gate-skip",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 101,
+              "name": "evidence-gate-irrelevant",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 102,
+              "name": "evidence-gate-lane",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 103,
+              "name": "evidence-gate-merge",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 104,
+              "name": "evidence-gate-unsigned",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 105,
+              "name": "evidence-gate-failed",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 106,
+              "name": "evidence-gate-protected",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 107,
+              "name": "evidence-gate-sampled",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 108,
+              "name": "evidence-gate-shadow",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 109,
+              "name": "evidence-gate-shadow_unsigned",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 110,
+              "name": "evidence-gate-other",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 200,
+              "name": "irrelevant-execution",
+              "status": "completed",
+              "conclusion": "skipped",
+              "run_attempt": 1
+            },
+            {
+              "id": 201,
+              "name": "irrelevant",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            }
+          ],
+          "3": [
+            {
+              "id": 301,
+              "name": "mac",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1,
+              "started_at": "2026-11-20T10:00:00Z",
+              "completed_at": "2026-11-20T10:03:30Z",
+              "labels": [
+                "macos-14"
+              ]
+            },
+            {
+              "id": 302,
+              "name": "linux",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1,
+              "started_at": "2026-11-20T10:00:00Z",
+              "completed_at": "2026-11-20T10:02:00Z",
+              "labels": [
+                "ubuntu"
+              ]
+            },
+            {
+              "id": 303,
+              "name": "skipped",
+              "status": "completed",
+              "conclusion": "skipped",
+              "run_attempt": 1,
+              "started_at": "2026-11-20T10:00:00Z",
+              "completed_at": "2026-11-20T11:00:00Z"
+            }
+          ]
+        },
+        "logs": {
+          "100": "2026-11-20T10:00:01Z evidence-decision v1 check=skip decision=skip outcome=satisfied base=base\n",
+          "101": "2026-11-20T10:00:01Z evidence-decision v1 check=irrelevant decision=run outcome=no_note base=base\n",
+          "102": "2026-11-20T10:00:01Z evidence-decision v1 check=lane decision=run outcome=no_note base=base\n",
+          "103": "2026-11-20T10:00:01Z evidence-decision v1 check=merge decision=run outcome=no_note tree_of=merge base=base\n",
+          "104": "2026-11-20T10:00:01Z evidence-decision v1 check=unsigned decision=run outcome=no_note base=base\n",
+          "105": "2026-11-20T10:00:01Z evidence-decision v1 check=failed decision=run outcome=rejected reason=check_failed base=base\n",
+          "106": "2026-11-20T10:00:01Z evidence-decision v1 check=protected decision=run outcome=satisfied reason=a_file_that_decides base=base\n",
+          "107": "2026-11-20T10:00:01Z evidence-decision v1 check=sampled decision=run outcome=satisfied reason=sampled base=base\n",
+          "108": "2026-11-20T10:00:01Z evidence-decision v1 check=shadow decision=run outcome=satisfied reason=shadow base=base\n",
+          "109": "2026-11-20T10:00:01Z evidence-decision v1 check=shadow_unsigned decision=run outcome=no_note base=base\n",
+          "110": "2026-11-20T10:00:01Z evidence-decision v1 check=other decision=run outcome=unavailable reason=missing_key base=base\n"
+        },
+        "lanes": {
+          "lane": {
+            "definition_paths": [
+              "lane/"
+            ]
+          }
+        },
+        "files": [
+          "lane/config.json"
+        ],
+        "release_runs": [
+          {
+            "id": 3,
+            "created_at": "2026-11-20T10:00:00Z",
+            "status": "completed",
+            "conclusion": "success",
+            "actor": {
+              "login": "alice"
+            },
+            "pull_requests": [
+              {
+                "number": 17,
+                "base": {
+                  "sha": "base"
+                }
+              }
+            ],
+            "head_branch": "feature",
+            "head_sha": "head"
+          }
+        ]
+      },
+      "argv": [
+        "--actor",
+        "alice",
+        "--receipts",
+        "${root}/receipts",
+        "--markdown"
+      ],
+      "repeat": 1,
+      "files": {
+        "receipts": "not json\n{\"branch\":\"feature\",\"agent\":\"old\"}\n{\"branch\":\"feature\",\"agent\":\"seat-one\"}\n"
+      },
+      "observations": [
+        {
+          "stdout": "**Our pull request runs**, 2026-11-19T12:00:00Z .. 2026-11-20T12:00:00Z: 1 runs (accounts: alice)\n\n| check | skipped | not run: not relevant | ran: lane edit | ran: merge tree | ran: not signed | ran: failed | ran: protected file | ran: sampled | ran: shadow | ran: shadow, unsigned | ran: other |\n|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n| failed | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 |\n| irrelevant | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |\n| lane | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |\n| merge | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |\n| other | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |\n| protected | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 |\n| sampled | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 |\n| shadow | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 0 |\n| shadow_unsigned | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 |\n| skip | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |\n| unsigned | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 |\n\nNot signed (pushed without a covering note, lane untouched):\n\n- #17 `feature`, seat seat-one: unsigned (1 run(s))\n\n**Release-surface PR runs** (release-fractal.yml on pull_request, real release builds): 1 runs, 5.5 job minutes (3.5 on macOS): #17\n\n",
+          "stderr": "",
+          "exit_code": 0,
+          "calls": [
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/100/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/101/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/102/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/103/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/104/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/105/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/106/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/107/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/108/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/109/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/110/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/runs/1/jobs?per_page=100&filter=latest"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/runs/3/jobs?per_page=100&filter=all"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/workflows/release-fractal.yml/runs?event=pull_request&per_page=100&page=1"
+            ],
+            [
+              "gh",
+              "repos/org/repo/commits/head/pulls"
+            ],
+            [
+              "gh",
+              "repos/org/repo/pulls/17/files?per_page=100"
+            ],
+            [
+              "git",
+              "ls-tree",
+              ".fractal/evidence-skip-policy.json"
+            ],
+            [
+              "git",
+              "ls-tree",
+              ".fractal/required-lanes.json"
+            ],
+            [
+              "git",
+              "show",
+              "base:.st/evidence-skip-policy.json"
+            ],
+            [
+              "git",
+              "show",
+              "base:.st/required-lanes.json"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "actor-filter",
+      "api": {
+        "policy": {
+          "skip": {
+            "enforce": true
+          },
+          "irrelevant": {
+            "enforce": true
+          },
+          "lane": {
+            "enforce": true
+          },
+          "merge": {
+            "enforce": true
+          },
+          "unsigned": {
+            "enforce": true
+          },
+          "failed": {
+            "enforce": true
+          },
+          "protected": {
+            "enforce": true
+          },
+          "sampled": {
+            "enforce": true
+          },
+          "shadow": {
+            "enforce": true
+          },
+          "shadow_unsigned": {
+            "enforce": false
+          },
+          "other": {
+            "enforce": true
+          }
+        },
+        "workflow": "jobs:\n  lint:\n    runs-on: ubuntu-latest\n",
+        "runs": [
+          {
+            "id": 1,
+            "created_at": "2026-11-20T10:00:00Z",
+            "status": "completed",
+            "conclusion": "success",
+            "actor": {
+              "login": "alice"
+            },
+            "pull_requests": [],
+            "head_branch": "feature",
+            "head_sha": "head"
+          }
+        ],
+        "jobs": {
+          "1": [
+            {
+              "id": 100,
+              "name": "evidence-gate-skip",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 101,
+              "name": "evidence-gate-irrelevant",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 102,
+              "name": "evidence-gate-lane",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 103,
+              "name": "evidence-gate-merge",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 104,
+              "name": "evidence-gate-unsigned",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 105,
+              "name": "evidence-gate-failed",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 106,
+              "name": "evidence-gate-protected",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 107,
+              "name": "evidence-gate-sampled",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 108,
+              "name": "evidence-gate-shadow",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 109,
+              "name": "evidence-gate-shadow_unsigned",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 110,
+              "name": "evidence-gate-other",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 200,
+              "name": "irrelevant-execution",
+              "status": "completed",
+              "conclusion": "skipped",
+              "run_attempt": 1
+            },
+            {
+              "id": 201,
+              "name": "irrelevant",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            }
+          ],
+          "3": [
+            {
+              "id": 301,
+              "name": "mac",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1,
+              "started_at": "2026-11-20T10:00:00Z",
+              "completed_at": "2026-11-20T10:03:30Z",
+              "labels": [
+                "macos-14"
+              ]
+            },
+            {
+              "id": 302,
+              "name": "linux",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1,
+              "started_at": "2026-11-20T10:00:00Z",
+              "completed_at": "2026-11-20T10:02:00Z",
+              "labels": [
+                "ubuntu"
+              ]
+            },
+            {
+              "id": 303,
+              "name": "skipped",
+              "status": "completed",
+              "conclusion": "skipped",
+              "run_attempt": 1,
+              "started_at": "2026-11-20T10:00:00Z",
+              "completed_at": "2026-11-20T11:00:00Z"
+            }
+          ]
+        },
+        "logs": {
+          "100": "2026-11-20T10:00:01Z evidence-decision v1 check=skip decision=skip outcome=satisfied base=base\n",
+          "101": "2026-11-20T10:00:01Z evidence-decision v1 check=irrelevant decision=run outcome=no_note base=base\n",
+          "102": "2026-11-20T10:00:01Z evidence-decision v1 check=lane decision=run outcome=no_note base=base\n",
+          "103": "2026-11-20T10:00:01Z evidence-decision v1 check=merge decision=run outcome=no_note tree_of=merge base=base\n",
+          "104": "2026-11-20T10:00:01Z evidence-decision v1 check=unsigned decision=run outcome=no_note base=base\n",
+          "105": "2026-11-20T10:00:01Z evidence-decision v1 check=failed decision=run outcome=rejected reason=check_failed base=base\n",
+          "106": "2026-11-20T10:00:01Z evidence-decision v1 check=protected decision=run outcome=satisfied reason=a_file_that_decides base=base\n",
+          "107": "2026-11-20T10:00:01Z evidence-decision v1 check=sampled decision=run outcome=satisfied reason=sampled base=base\n",
+          "108": "2026-11-20T10:00:01Z evidence-decision v1 check=shadow decision=run outcome=satisfied reason=shadow base=base\n",
+          "109": "2026-11-20T10:00:01Z evidence-decision v1 check=shadow_unsigned decision=run outcome=no_note base=base\n",
+          "110": "2026-11-20T10:00:01Z evidence-decision v1 check=other decision=run outcome=unavailable reason=missing_key base=base\n"
+        },
+        "lanes": {
+          "lane": {
+            "definition_paths": [
+              "lane/"
+            ]
+          }
+        },
+        "files": [
+          "lane/config.json"
+        ],
+        "release_runs": [
+          {
+            "id": 3,
+            "created_at": "2026-11-20T10:00:00Z",
+            "status": "completed",
+            "conclusion": "success",
+            "actor": {
+              "login": "alice"
+            },
+            "pull_requests": [
+              {
+                "number": 17,
+                "base": {
+                  "sha": "base"
+                }
+              }
+            ],
+            "head_branch": "feature",
+            "head_sha": "head"
+          }
+        ]
+      },
+      "argv": [
+        "--actor",
+        "bob"
+      ],
+      "observations": [
+        {
+          "stdout": "{\n  \"window\": {\n    \"since\": \"2026-11-19T12:00:00Z\",\n    \"until\": \"2026-11-20T12:00:00Z\"\n  },\n  \"actors\": [\n    \"bob\"\n  ],\n  \"runs\": 0,\n  \"checks\": {},\n  \"other_reasons\": {},\n  \"not_signed\": [],\n  \"release_surface\": {\n    \"workflow\": \"release-fractal.yml\",\n    \"runs\": 0,\n    \"minutes\": 0.0,\n    \"macos_minutes\": 0.0,\n    \"prs\": []\n  }\n}\n",
+          "stderr": "",
+          "exit_code": 0,
+          "calls": [
+            [
+              "gh",
+              "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/workflows/release-fractal.yml/runs?event=pull_request&per_page=100&page=1"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "empty-window",
+      "api": {
+        "policy": {
+          "lint": {
+            "enforce": false
+          }
+        },
+        "workflow": "jobs:\n  lint:\n    runs-on: ubuntu-latest\n",
+        "runs": [
+          {
+            "id": 1,
+            "created_at": "2000-01-01T00:00:00Z",
+            "status": "completed",
+            "conclusion": "success",
+            "actor": {
+              "login": "alice"
+            },
+            "pull_requests": [
+              {
+                "number": 17,
+                "base": {
+                  "sha": "base"
+                }
+              }
+            ],
+            "head_branch": "feature",
+            "head_sha": "head"
+          }
+        ],
+        "jobs": {
+          "1": [
+            {
+              "id": 11,
+              "name": "evidence-gate-lint",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 12,
+              "name": "lint",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            }
+          ]
+        },
+        "logs": {
+          "11": "2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n"
+        },
+        "release_runs": [
+          {
+            "id": 9,
+            "created_at": "2000-01-01T00:00:00Z",
+            "status": "completed",
+            "conclusion": "success",
+            "actor": {"login": "alice"},
+            "pull_requests": [{"number": 17, "base": {"sha": "base"}}],
+            "head_branch": "feature",
+            "head_sha": "head"
+          }
+        ]
+      },
+      "argv": [],
+      "observations": [
+        {
+          "stdout": "{\n  \"window\": {\n    \"since\": \"2026-11-19T12:00:00Z\",\n    \"until\": \"2026-11-20T12:00:00Z\"\n  },\n  \"actors\": [],\n  \"runs\": 0,\n  \"checks\": {},\n  \"other_reasons\": {},\n  \"not_signed\": [],\n  \"release_surface\": {\n    \"workflow\": \"release-fractal.yml\",\n    \"runs\": 0,\n    \"minutes\": 0.0,\n    \"macos_minutes\": 0.0,\n    \"prs\": []\n  }\n}\n",
+          "stderr": "",
+          "exit_code": 0,
+          "calls": [
+            [
+              "gh",
+              "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/workflows/release-fractal.yml/runs?event=pull_request&per_page=100&page=1"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "github-error",
+      "api": {
+        "policy": {
+          "lint": {
+            "enforce": false
+          }
+        },
+        "workflow": "jobs:\n  lint:\n    runs-on: ubuntu-latest\n",
+        "runs": [
+          {
+            "id": 1,
+            "created_at": "2026-11-20T10:00:00Z",
+            "status": "completed",
+            "conclusion": "success",
+            "actor": {
+              "login": "alice"
+            },
+            "pull_requests": [
+              {
+                "number": 17,
+                "base": {
+                  "sha": "base"
+                }
+              }
+            ],
+            "head_branch": "feature",
+            "head_sha": "head"
+          }
+        ],
+        "jobs": {
+          "1": [
+            {
+              "id": 11,
+              "name": "evidence-gate-lint",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 12,
+              "name": "lint",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            }
+          ]
+        },
+        "logs": {
+          "11": "2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n"
+        },
+        "gh_error": "denied"
+      },
+      "argv": [],
+      "observations": [
+        {
+          "stdout": "",
+          "stderr": "could not read GitHub or selected base: gh api repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1: denied\n",
+          "exit_code": 2,
+          "calls": [
+            [
+              "gh",
+              "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+            ]
+          ]
+        }
+      ]
+    }
+  ]
+}

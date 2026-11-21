@@ -1,0 +1,1577 @@
+{
+  "version": 1,
+  "oracle": {
+    "environment": "MERGEMASTER_PYTHON_ORACLE",
+    "path": "scripts/evidence-flip-ready",
+    "git_blob": "ce94216c0435711419e1b2bc5acc996e2ac926b9",
+    "runtime": "CPython 3.14.7",
+    "source_store": "/nix/store/bbj5s0bmhsv4a9mjqb97x80r8dvkas45-source"
+  },
+  "now": "2026-11-20T12:00:00Z",
+  "recipe": "Independent pinned Python main(now=...) with fixed UTC clock; strict gh/git executable shims; raw stdout/stderr; only canonical call ordering and temporary-root placeholders. Native CLI uses --now. Repeated cases reuse the same cache and assert no second log downloads.",
+  "shim": "import json, os, sys\nfrom pathlib import Path\napi = json.loads(Path(os.environ['FLIP_SKIP_API']).read_text())\nargs = sys.argv[1:]\ntool = Path(sys.argv[0]).name\nif tool == 'git' and args[:1] == ['-C']: args = args[2:]\nwith open(os.environ['FLIP_SKIP_CALLS'], 'a') as out: out.write(json.dumps([tool, *args]) + '\\n')\nif tool == 'git':\n    if args[0] == 'fetch':\n        if api.get('git_error'):\n            sys.stderr.write(api['git_error']); sys.exit(1)\n    elif args[:2] == ['remote', 'get-url']:\n        sys.exit(1)\n    elif args[0] == 'ls-tree':\n        if api.get('fractal'): sys.stdout.write('100644 blob fixture\\t' + args[-1] + '\\0')\n    elif args[0] == 'show':\n        path = args[-1].split(':', 1)[1]\n        if path.endswith('evidence-skip-policy.json'): print(json.dumps({'checks': api['policy']}))\n        elif path.endswith('required-lanes.json'): print(json.dumps({'lanes': api.get('lanes', {})}))\n        elif path == '.github/workflows/fleet.yml': sys.stdout.write(api['workflow'])\n        else: raise AssertionError(args)\n    else: raise AssertionError(args)\nelse:\n    assert tool == 'gh' and args[0] == 'api', args\n    path = next(arg for arg in args[1:] if arg.startswith('repos/'))\n    seen = sum(1 for line in Path(os.environ['FLIP_SKIP_CALLS']).read_text().splitlines() if json.loads(line)[0] == 'gh' and path in json.loads(line)[1:])\n    if api.get('fail_first') and seen <= api['fail_first']:\n        sys.stderr.write('transient'); sys.exit(1)\n    if '/workflows/' in path and api.get('listing'):\n        mode = api['listing']\n        page = int(path.rsplit('page=', 1)[1])\n        ancient = {'id': 1, 'created_at': '2000-01-01T00:00:00Z', 'status': 'in_progress'}\n        current = lambda i: {'id': i, 'created_at': '2026-11-20T10:00:00Z', 'status': 'in_progress'}\n        if mode == 'empty': payload = {'workflow_runs': [], 'total_count': 0}\n        elif mode == 'short': payload = {'workflow_runs': [ancient], 'total_count': 2}\n        elif mode == 'recover': payload = {'workflow_runs': [ancient] * (1 if seen == 1 else 2), 'total_count': 2}\n        elif mode == 'quiet': payload = {'workflow_runs': [dict(ancient, id=i) for i in range(100)], 'total_count': 1000}\n        elif mode == 'two-pages': payload = {'workflow_runs': [current(i) for i in range(100)] if page == 1 else [ancient], 'total_count': 101}\n        elif mode == 'cap': payload = {'workflow_runs': [current(page * 100 + i) for i in range(100)], 'total_count': 1001}\n        else: raise AssertionError(mode)\n        print(json.dumps(payload)); sys.exit(0)\n    error = api.get('gh_error') or api.get('errors', {}).get(path)\n    if error: sys.stderr.write(error); sys.exit(1)\n    if '/workflows/' in path:\n        key = path.split('/workflows/')[1].split('/')[0]\n        runs = api.get('release_runs' if key == 'release-fractal.yml' else 'runs', [])\n        print(json.dumps({'workflow_runs': runs, 'total_count': len(runs)}))\n    elif path.endswith('/logs'):\n        job = path.split('/jobs/')[1].split('/')[0]\n        sys.stdout.write(api['logs'][job])\n    elif '/jobs?' in path:\n        run = path.split('/runs/')[1].split('/')[0]\n        print(json.dumps([{'jobs': api.get('jobs', {}).get(run, [])}]))\n    elif '/files?' in path:\n        print(json.dumps([[{'filename': name} for name in api.get('files', [])]]))\n    elif '/commits/' in path and path.endswith('/pulls'):\n        print(json.dumps([{'number': 17}]))\n    else: raise AssertionError(args)\n",
+  "launcher": "import datetime, importlib.machinery, importlib.util, pathlib, sys\npath, now, root, *args = sys.argv[1:]\nloader = importlib.machinery.SourceFileLoader('frozen_oracle', path)\nmodule = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))\nloader.exec_module(module)\nsys.exit(module.main(args, now=datetime.datetime.fromisoformat(now.replace('Z', '+00:00')), root=pathlib.Path(root)))\n",
+  "cases": [
+    {
+      "id": "ready-cache-reuse",
+      "api": {
+        "policy": {
+          "lint": {
+            "enforce": false
+          }
+        },
+        "workflow": "jobs:\n  lint:\n    runs-on: ubuntu-latest\n",
+        "runs": [
+          {
+            "id": 1,
+            "created_at": "2026-11-20T10:00:00Z",
+            "status": "completed",
+            "conclusion": "success",
+            "actor": {
+              "login": "alice"
+            },
+            "pull_requests": [
+              {
+                "number": 17,
+                "base": {
+                  "sha": "base"
+                }
+              }
+            ],
+            "head_branch": "feature",
+            "head_sha": "head"
+          },
+          {
+            "id": 2,
+            "created_at": "2026-11-19T11:00:00Z",
+            "status": "completed",
+            "conclusion": "success",
+            "actor": {
+              "login": "alice"
+            },
+            "pull_requests": [
+              {
+                "number": 17,
+                "base": {
+                  "sha": "base"
+                }
+              }
+            ],
+            "head_branch": "feature",
+            "head_sha": "head"
+          }
+        ],
+        "jobs": {
+          "1": [
+            {
+              "id": 11,
+              "name": "evidence-gate-lint",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 12,
+              "name": "lint",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            }
+          ],
+          "2": [
+            {
+              "id": 21,
+              "name": "evidence-gate-lint",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 22,
+              "name": "lint",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            }
+          ]
+        },
+        "logs": {
+          "11": "2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n",
+          "21": "2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n"
+        }
+      },
+      "argv": [],
+      "repeat": 2,
+      "observations": [
+        {
+          "stdout": "{\n  \"as_of\": \"2026-11-20T12:00:00Z\",\n  \"window_s\": 86400,\n  \"log_clock\": \"observed_at (origin has no URL)\",\n  \"checks\": {\n    \"lint\": {\n      \"enforce\": false,\n      \"lines\": 30,\n      \"satisfied_log_ok\": 30,\n      \"log_missing\": 0,\n      \"unlogged_pass_unexplained\": 0,\n      \"hidden_red\": [],\n      \"visible_red\": [],\n      \"log_window_start\": \"2026-11-19T11:00:00Z\",\n      \"old_base_lines\": {},\n      \"cancelled_runs\": [],\n      \"ready\": true,\n      \"why_not\": []\n    }\n  },\n  \"presign\": {\n    \"alice\": {\n      \"heads\": 1,\n      \"presigned\": 1,\n      \"ci_note\": 0,\n      \"no_note\": 0,\n      \"presigned_share\": 1.0\n    }\n  }\n}\n",
+          "stderr": "",
+          "exit_code": 0,
+          "calls": [
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/11/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/21/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/runs/1/jobs?per_page=100&filter=all"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/runs/2/jobs?per_page=100&filter=all"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+            ],
+            [
+              "git",
+              "fetch"
+            ],
+            [
+              "git",
+              "ls-tree",
+              ".fractal/evidence-skip-policy.json"
+            ],
+            [
+              "git",
+              "remote"
+            ],
+            [
+              "git",
+              "show",
+              "origin/main:.github/workflows/fleet.yml"
+            ],
+            [
+              "git",
+              "show",
+              "origin/main:.st/evidence-skip-policy.json"
+            ]
+          ]
+        },
+        {
+          "stdout": "{\n  \"as_of\": \"2026-11-20T12:00:00Z\",\n  \"window_s\": 86400,\n  \"log_clock\": \"observed_at (origin has no URL)\",\n  \"checks\": {\n    \"lint\": {\n      \"enforce\": false,\n      \"lines\": 30,\n      \"satisfied_log_ok\": 30,\n      \"log_missing\": 0,\n      \"unlogged_pass_unexplained\": 0,\n      \"hidden_red\": [],\n      \"visible_red\": [],\n      \"log_window_start\": \"2026-11-19T11:00:00Z\",\n      \"old_base_lines\": {},\n      \"cancelled_runs\": [],\n      \"ready\": true,\n      \"why_not\": []\n    }\n  },\n  \"presign\": {\n    \"alice\": {\n      \"heads\": 1,\n      \"presigned\": 1,\n      \"ci_note\": 0,\n      \"no_note\": 0,\n      \"presigned_share\": 1.0\n    }\n  }\n}\n",
+          "stderr": "",
+          "exit_code": 0,
+          "calls": [
+            [
+              "gh",
+              "repos/org/repo/actions/runs/1/jobs?per_page=100&filter=all"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/runs/2/jobs?per_page=100&filter=all"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+            ],
+            [
+              "git",
+              "fetch"
+            ],
+            [
+              "git",
+              "ls-tree",
+              ".fractal/evidence-skip-policy.json"
+            ],
+            [
+              "git",
+              "remote"
+            ],
+            [
+              "git",
+              "show",
+              "origin/main:.github/workflows/fleet.yml"
+            ],
+            [
+              "git",
+              "show",
+              "origin/main:.st/evidence-skip-policy.json"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hidden-red-and-missing",
+      "api": {
+        "policy": {
+          "lint": {
+            "enforce": false
+          }
+        },
+        "workflow": "jobs:\n  lint:\n    runs-on: ubuntu-latest\n",
+        "runs": [
+          {
+            "id": 1,
+            "created_at": "2026-11-20T10:00:00Z",
+            "status": "completed",
+            "conclusion": "success",
+            "actor": {
+              "login": "alice"
+            },
+            "pull_requests": [
+              {
+                "number": 17,
+                "base": {
+                  "sha": "base"
+                }
+              }
+            ],
+            "head_branch": "feature",
+            "head_sha": "head"
+          }
+        ],
+        "jobs": {
+          "1": [
+            {
+              "id": 11,
+              "name": "evidence-gate-lint",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 12,
+              "name": "lint",
+              "status": "completed",
+              "conclusion": "failure",
+              "run_attempt": 1
+            }
+          ]
+        },
+        "logs": {
+          "11": "2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=missing trust_level=fleet pr=17 pr_head=head\n"
+        }
+      },
+      "argv": [],
+      "observations": [
+        {
+          "stdout": "{\n  \"as_of\": \"2026-11-20T12:00:00Z\",\n  \"window_s\": 86400,\n  \"log_clock\": \"observed_at (origin has no URL)\",\n  \"checks\": {\n    \"lint\": {\n      \"enforce\": false,\n      \"lines\": 2,\n      \"satisfied_log_ok\": 1,\n      \"log_missing\": 1,\n      \"unlogged_pass_unexplained\": 0,\n      \"hidden_red\": [\n        1\n      ],\n      \"visible_red\": [],\n      \"log_window_start\": \"2026-11-20T10:00:00Z\",\n      \"old_base_lines\": {},\n      \"cancelled_runs\": [],\n      \"ready\": false,\n      \"why_not\": [\n        \"log window started 2026-11-20T10:00:00Z, less than 24 h ago\",\n        \"1 satisfied lines with log=ok, fewer than 30\",\n        \"1 lines with log=missing\",\n        \"1 runs with a hidden red\"\n      ]\n    }\n  },\n  \"presign\": {\n    \"alice\": {\n      \"heads\": 1,\n      \"presigned\": 1,\n      \"ci_note\": 0,\n      \"no_note\": 0,\n      \"presigned_share\": 1.0\n    }\n  }\n}\n",
+          "stderr": "",
+          "exit_code": 0,
+          "calls": [
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/11/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/runs/1/jobs?per_page=100&filter=all"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+            ],
+            [
+              "git",
+              "fetch"
+            ],
+            [
+              "git",
+              "ls-tree",
+              ".fractal/evidence-skip-policy.json"
+            ],
+            [
+              "git",
+              "remote"
+            ],
+            [
+              "git",
+              "show",
+              "origin/main:.github/workflows/fleet.yml"
+            ],
+            [
+              "git",
+              "show",
+              "origin/main:.st/evidence-skip-policy.json"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cancelled-run",
+      "api": {
+        "policy": {
+          "lint": {
+            "enforce": false
+          }
+        },
+        "workflow": "jobs:\n  lint:\n    runs-on: ubuntu-latest\n",
+        "runs": [
+          {
+            "id": 1,
+            "created_at": "2026-11-20T10:00:00Z",
+            "status": "completed",
+            "conclusion": "cancelled",
+            "actor": {
+              "login": "alice"
+            },
+            "pull_requests": [
+              {
+                "number": 17,
+                "base": {
+                  "sha": "base"
+                }
+              }
+            ],
+            "head_branch": "feature",
+            "head_sha": "head"
+          }
+        ],
+        "jobs": {
+          "1": [
+            {
+              "id": 11,
+              "name": "evidence-gate-lint",
+              "status": "completed",
+              "conclusion": "cancelled",
+              "run_attempt": 1
+            },
+            {
+              "id": 12,
+              "name": "lint",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            }
+          ]
+        },
+        "logs": {
+          "11": "2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied log=ok trust_level=host\n"
+        }
+      },
+      "argv": [],
+      "observations": [
+        {
+          "stdout": "{\n  \"as_of\": \"2026-11-20T12:00:00Z\",\n  \"window_s\": 86400,\n  \"log_clock\": \"observed_at (origin has no URL)\",\n  \"checks\": {\n    \"lint\": {\n      \"enforce\": false,\n      \"lines\": 1,\n      \"satisfied_log_ok\": 0,\n      \"log_missing\": 0,\n      \"unlogged_pass_unexplained\": 0,\n      \"hidden_red\": [],\n      \"visible_red\": [],\n      \"log_window_start\": \"2026-11-20T10:00:00Z\",\n      \"old_base_lines\": {},\n      \"cancelled_runs\": [\n        1\n      ],\n      \"ready\": false,\n      \"why_not\": [\n        \"log window started 2026-11-20T10:00:00Z, less than 24 h ago\",\n        \"0 satisfied lines with log=ok, fewer than 30\"\n      ]\n    }\n  },\n  \"presign\": {\n    \"alice\": {\n      \"heads\": 1,\n      \"presigned\": 1,\n      \"ci_note\": 0,\n      \"no_note\": 0,\n      \"presigned_share\": 1.0\n    }\n  }\n}\n",
+          "stderr": "",
+          "exit_code": 0,
+          "calls": [
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/11/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/runs/1/jobs?per_page=100&filter=all"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+            ],
+            [
+              "git",
+              "fetch"
+            ],
+            [
+              "git",
+              "ls-tree",
+              ".fractal/evidence-skip-policy.json"
+            ],
+            [
+              "git",
+              "remote"
+            ],
+            [
+              "git",
+              "show",
+              "origin/main:.github/workflows/fleet.yml"
+            ],
+            [
+              "git",
+              "show",
+              "origin/main:.st/evidence-skip-policy.json"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "latency-observed-fallback",
+      "api": {
+        "policy": {
+          "lint": {
+            "enforce": false
+          }
+        },
+        "workflow": "jobs:\n  lint:\n    runs-on: ubuntu-latest\n",
+        "runs": [
+          {
+            "id": 1,
+            "created_at": "2026-11-20T10:00:00Z",
+            "status": "completed",
+            "conclusion": "success",
+            "actor": {
+              "login": "alice"
+            },
+            "pull_requests": [
+              {
+                "number": 17,
+                "base": {
+                  "sha": "base"
+                }
+              }
+            ],
+            "head_branch": "feature",
+            "head_sha": "head"
+          }
+        ],
+        "jobs": {
+          "1": [
+            {
+              "id": 11,
+              "name": "evidence-gate-lint",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 12,
+              "name": "lint",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            }
+          ]
+        },
+        "logs": {
+          "11": "2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied log=unlogged_pass observed_at=2026-11-20T09:59:00Z record=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+        }
+      },
+      "argv": [],
+      "observations": [
+        {
+          "stdout": "{\n  \"as_of\": \"2026-11-20T12:00:00Z\",\n  \"window_s\": 86400,\n  \"log_clock\": \"observed_at (origin has no URL)\",\n  \"checks\": {\n    \"lint\": {\n      \"enforce\": false,\n      \"lines\": 1,\n      \"satisfied_log_ok\": 0,\n      \"log_missing\": 0,\n      \"unlogged_pass_unexplained\": 0,\n      \"hidden_red\": [],\n      \"visible_red\": [],\n      \"log_window_start\": \"2026-11-20T10:00:00Z\",\n      \"old_base_lines\": {},\n      \"cancelled_runs\": [],\n      \"ready\": false,\n      \"why_not\": [\n        \"log window started 2026-11-20T10:00:00Z, less than 24 h ago\",\n        \"0 satisfied lines with log=ok, fewer than 30\"\n      ]\n    }\n  },\n  \"presign\": {\n    \"alice\": {\n      \"heads\": 1,\n      \"presigned\": 0,\n      \"ci_note\": 0,\n      \"no_note\": 1,\n      \"presigned_share\": 0.0\n    }\n  }\n}\n",
+          "stderr": "",
+          "exit_code": 0,
+          "calls": [
+            [
+              "gh",
+              "repos/org/repo/actions/jobs/11/logs"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/runs/1/jobs?per_page=100&filter=all"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+            ],
+            [
+              "git",
+              "fetch"
+            ],
+            [
+              "git",
+              "ls-tree",
+              ".fractal/evidence-skip-policy.json"
+            ],
+            [
+              "git",
+              "remote"
+            ],
+            [
+              "git",
+              "show",
+              "origin/main:.github/workflows/fleet.yml"
+            ],
+            [
+              "git",
+              "show",
+              "origin/main:.st/evidence-skip-policy.json"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fractal-config-empty-window-propose",
+      "api": {
+        "policy": {
+          "lint": {
+            "enforce": false
+          }
+        },
+        "workflow": "jobs:\n  lint:\n    runs-on: ubuntu-latest\n",
+        "runs": [
+          {
+            "id": 1,
+            "created_at": "2000-01-01T00:00:00Z",
+            "status": "completed",
+            "conclusion": "success",
+            "actor": {
+              "login": "alice"
+            },
+            "pull_requests": [
+              {
+                "number": 17,
+                "base": {
+                  "sha": "base"
+                }
+              }
+            ],
+            "head_branch": "feature",
+            "head_sha": "head"
+          }
+        ],
+        "jobs": {
+          "1": [
+            {
+              "id": 11,
+              "name": "evidence-gate-lint",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 12,
+              "name": "lint",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            }
+          ]
+        },
+        "logs": {
+          "11": "2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n"
+        },
+        "fractal": true
+      },
+      "argv": [
+        "--propose",
+        "--dry-run"
+      ],
+      "observations": [
+        {
+          "stdout": "{\n  \"as_of\": \"2026-11-20T12:00:00Z\",\n  \"window_s\": 86400,\n  \"log_clock\": \"observed_at (origin has no URL)\",\n  \"checks\": {\n    \"lint\": {\n      \"enforce\": false,\n      \"lines\": 0,\n      \"satisfied_log_ok\": 0,\n      \"log_missing\": 0,\n      \"unlogged_pass_unexplained\": 0,\n      \"hidden_red\": [],\n      \"visible_red\": [],\n      \"log_window_start\": null,\n      \"old_base_lines\": {},\n      \"cancelled_runs\": [],\n      \"ready\": false,\n      \"why_not\": [\n        \"no line with a log value\",\n        \"0 satisfied lines with log=ok, fewer than 30\"\n      ]\n    }\n  },\n  \"presign\": {}\n}\n",
+          "stderr": "",
+          "exit_code": 0,
+          "calls": [
+            [
+              "gh",
+              "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+            ],
+            [
+              "git",
+              "fetch"
+            ],
+            [
+              "git",
+              "ls-tree",
+              ".fractal/evidence-skip-policy.json"
+            ],
+            [
+              "git",
+              "remote"
+            ],
+            [
+              "git",
+              "show",
+              "origin/main:.fractal/evidence-skip-policy.json"
+            ],
+            [
+              "git",
+              "show",
+              "origin/main:.github/workflows/fleet.yml"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "git-error",
+      "api": {
+        "policy": {
+          "lint": {
+            "enforce": false
+          }
+        },
+        "workflow": "jobs:\n  lint:\n    runs-on: ubuntu-latest\n",
+        "runs": [
+          {
+            "id": 1,
+            "created_at": "2026-11-20T10:00:00Z",
+            "status": "completed",
+            "conclusion": "success",
+            "actor": {
+              "login": "alice"
+            },
+            "pull_requests": [
+              {
+                "number": 17,
+                "base": {
+                  "sha": "base"
+                }
+              }
+            ],
+            "head_branch": "feature",
+            "head_sha": "head"
+          }
+        ],
+        "jobs": {
+          "1": [
+            {
+              "id": 11,
+              "name": "evidence-gate-lint",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 12,
+              "name": "lint",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            }
+          ]
+        },
+        "logs": {
+          "11": "2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n"
+        },
+        "git_error": "denied"
+      },
+      "argv": [],
+      "observations": [
+        {
+          "stdout": "",
+          "stderr": "could not read GitHub or origin/main: git fetch: denied\n",
+          "exit_code": 2,
+          "calls": [
+            [
+              "git",
+              "fetch"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "gh-error",
+      "api": {
+        "policy": {
+          "lint": {
+            "enforce": false
+          }
+        },
+        "workflow": "jobs:\n  lint:\n    runs-on: ubuntu-latest\n",
+        "runs": [
+          {
+            "id": 1,
+            "created_at": "2026-11-20T10:00:00Z",
+            "status": "completed",
+            "conclusion": "success",
+            "actor": {
+              "login": "alice"
+            },
+            "pull_requests": [
+              {
+                "number": 17,
+                "base": {
+                  "sha": "base"
+                }
+              }
+            ],
+            "head_branch": "feature",
+            "head_sha": "head"
+          }
+        ],
+        "jobs": {
+          "1": [
+            {
+              "id": 11,
+              "name": "evidence-gate-lint",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            },
+            {
+              "id": 12,
+              "name": "lint",
+              "status": "completed",
+              "conclusion": "success",
+              "run_attempt": 1
+            }
+          ]
+        },
+        "logs": {
+          "11": "2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n"
+        },
+        "gh_error": "denied"
+      },
+      "argv": [],
+      "observations": [
+        {
+          "stdout": "",
+          "stderr": "could not read GitHub or origin/main: gh api repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1: denied\n",
+          "exit_code": 2,
+          "calls": [
+            [
+              "gh",
+              "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+            ],
+            [
+              "gh",
+              "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+            ],
+            [
+              "git",
+              "fetch"
+            ],
+            [
+              "git",
+              "ls-tree",
+              ".fractal/evidence-skip-policy.json"
+            ],
+            [
+              "git",
+              "show",
+              "origin/main:.github/workflows/fleet.yml"
+            ],
+            [
+              "git",
+              "show",
+              "origin/main:.st/evidence-skip-policy.json"
+            ]
+          ]
+        }
+      ]
+    }
+,
+{
+  "id": "listing-empty",
+  "api": {
+    "policy": {
+      "lint": {
+        "enforce": false
+      }
+    },
+    "workflow": "jobs:\n  lint:\n    runs-on: ubuntu-latest\n",
+    "listing": "empty"
+  },
+  "argv": [],
+  "observations": [
+    {
+      "stdout": "",
+      "stderr": "could not read GitHub or origin/main: page 1 of the pull request run listing came back with 0 of the 1 runs it holds\n",
+      "exit_code": 2,
+      "calls": [
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+        ],
+        [
+          "git",
+          "fetch"
+        ],
+        [
+          "git",
+          "ls-tree",
+          ".fractal/evidence-skip-policy.json"
+        ],
+        [
+          "git",
+          "show",
+          "origin/main:.github/workflows/fleet.yml"
+        ],
+        [
+          "git",
+          "show",
+          "origin/main:.st/evidence-skip-policy.json"
+        ]
+      ]
+    }
+  ]
+},
+{
+  "id": "listing-short",
+  "api": {
+    "policy": {
+      "lint": {
+        "enforce": false
+      }
+    },
+    "workflow": "jobs:\n  lint:\n    runs-on: ubuntu-latest\n",
+    "listing": "short"
+  },
+  "argv": [],
+  "observations": [
+    {
+      "stdout": "",
+      "stderr": "could not read GitHub or origin/main: page 1 of the pull request run listing came back with 1 of the 2 runs it holds\n",
+      "exit_code": 2,
+      "calls": [
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+        ],
+        [
+          "git",
+          "fetch"
+        ],
+        [
+          "git",
+          "ls-tree",
+          ".fractal/evidence-skip-policy.json"
+        ],
+        [
+          "git",
+          "show",
+          "origin/main:.github/workflows/fleet.yml"
+        ],
+        [
+          "git",
+          "show",
+          "origin/main:.st/evidence-skip-policy.json"
+        ]
+      ]
+    }
+  ]
+},
+{
+  "id": "listing-recover",
+  "api": {
+    "policy": {
+      "lint": {
+        "enforce": false
+      }
+    },
+    "workflow": "jobs:\n  lint:\n    runs-on: ubuntu-latest\n",
+    "listing": "recover"
+  },
+  "argv": [],
+  "observations": [
+    {
+      "stdout": "{\n  \"as_of\": \"2026-11-20T12:00:00Z\",\n  \"window_s\": 86400,\n  \"log_clock\": \"observed_at (origin has no URL)\",\n  \"checks\": {\n    \"lint\": {\n      \"enforce\": false,\n      \"lines\": 0,\n      \"satisfied_log_ok\": 0,\n      \"log_missing\": 0,\n      \"unlogged_pass_unexplained\": 0,\n      \"hidden_red\": [],\n      \"visible_red\": [],\n      \"log_window_start\": null,\n      \"old_base_lines\": {},\n      \"cancelled_runs\": [],\n      \"ready\": false,\n      \"why_not\": [\n        \"no line with a log value\",\n        \"0 satisfied lines with log=ok, fewer than 30\"\n      ]\n    }\n  },\n  \"presign\": {}\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "calls": [
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+        ],
+        [
+          "git",
+          "fetch"
+        ],
+        [
+          "git",
+          "ls-tree",
+          ".fractal/evidence-skip-policy.json"
+        ],
+        [
+          "git",
+          "remote"
+        ],
+        [
+          "git",
+          "show",
+          "origin/main:.github/workflows/fleet.yml"
+        ],
+        [
+          "git",
+          "show",
+          "origin/main:.st/evidence-skip-policy.json"
+        ]
+      ]
+    }
+  ]
+},
+{
+  "id": "listing-two-pages",
+  "api": {
+    "policy": {
+      "lint": {
+        "enforce": false
+      }
+    },
+    "workflow": "jobs:\n  lint:\n    runs-on: ubuntu-latest\n",
+    "listing": "two-pages"
+  },
+  "argv": [],
+  "observations": [
+    {
+      "stdout": "{\n  \"as_of\": \"2026-11-20T12:00:00Z\",\n  \"window_s\": 86400,\n  \"log_clock\": \"observed_at (origin has no URL)\",\n  \"checks\": {\n    \"lint\": {\n      \"enforce\": false,\n      \"lines\": 0,\n      \"satisfied_log_ok\": 0,\n      \"log_missing\": 0,\n      \"unlogged_pass_unexplained\": 0,\n      \"hidden_red\": [],\n      \"visible_red\": [],\n      \"log_window_start\": null,\n      \"old_base_lines\": {},\n      \"cancelled_runs\": [],\n      \"ready\": false,\n      \"why_not\": [\n        \"no line with a log value\",\n        \"0 satisfied lines with log=ok, fewer than 30\"\n      ]\n    }\n  },\n  \"presign\": {}\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "calls": [
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=2"
+        ],
+        [
+          "git",
+          "fetch"
+        ],
+        [
+          "git",
+          "ls-tree",
+          ".fractal/evidence-skip-policy.json"
+        ],
+        [
+          "git",
+          "remote"
+        ],
+        [
+          "git",
+          "show",
+          "origin/main:.github/workflows/fleet.yml"
+        ],
+        [
+          "git",
+          "show",
+          "origin/main:.st/evidence-skip-policy.json"
+        ]
+      ]
+    }
+  ]
+},
+{
+  "id": "listing-quiet",
+  "api": {
+    "policy": {
+      "lint": {
+        "enforce": false
+      }
+    },
+    "workflow": "jobs:\n  lint:\n    runs-on: ubuntu-latest\n",
+    "listing": "quiet"
+  },
+  "argv": [],
+  "observations": [
+    {
+      "stdout": "{\n  \"as_of\": \"2026-11-20T12:00:00Z\",\n  \"window_s\": 86400,\n  \"log_clock\": \"observed_at (origin has no URL)\",\n  \"checks\": {\n    \"lint\": {\n      \"enforce\": false,\n      \"lines\": 0,\n      \"satisfied_log_ok\": 0,\n      \"log_missing\": 0,\n      \"unlogged_pass_unexplained\": 0,\n      \"hidden_red\": [],\n      \"visible_red\": [],\n      \"log_window_start\": null,\n      \"old_base_lines\": {},\n      \"cancelled_runs\": [],\n      \"ready\": false,\n      \"why_not\": [\n        \"no line with a log value\",\n        \"0 satisfied lines with log=ok, fewer than 30\"\n      ]\n    }\n  },\n  \"presign\": {}\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "calls": [
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+        ],
+        [
+          "git",
+          "fetch"
+        ],
+        [
+          "git",
+          "ls-tree",
+          ".fractal/evidence-skip-policy.json"
+        ],
+        [
+          "git",
+          "remote"
+        ],
+        [
+          "git",
+          "show",
+          "origin/main:.github/workflows/fleet.yml"
+        ],
+        [
+          "git",
+          "show",
+          "origin/main:.st/evidence-skip-policy.json"
+        ]
+      ]
+    }
+  ]
+},
+{
+  "id": "listing-cap",
+  "api": {
+    "policy": {
+      "lint": {
+        "enforce": false
+      }
+    },
+    "workflow": "jobs:\n  lint:\n    runs-on: ubuntu-latest\n",
+    "listing": "cap"
+  },
+  "argv": [],
+  "observations": [
+    {
+      "stdout": "",
+      "stderr": "could not read GitHub or origin/main: more than the listing's 1,000 runs since 2026-11-19T10:00:00Z\n",
+      "exit_code": 2,
+      "calls": [
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=10"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=2"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=3"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=4"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=5"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=6"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=7"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=8"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=9"
+        ],
+        [
+          "git",
+          "fetch"
+        ],
+        [
+          "git",
+          "ls-tree",
+          ".fractal/evidence-skip-policy.json"
+        ],
+        [
+          "git",
+          "show",
+          "origin/main:.github/workflows/fleet.yml"
+        ],
+        [
+          "git",
+          "show",
+          "origin/main:.st/evidence-skip-policy.json"
+        ]
+      ]
+    }
+  ]
+},
+{
+  "id": "gh-retry-recovery",
+  "api": {
+    "policy": {
+      "lint": {
+        "enforce": false
+      }
+    },
+    "workflow": "jobs:\n  lint:\n    runs-on: ubuntu-latest\n",
+    "runs": [
+      {
+        "id": 1,
+        "created_at": "2026-11-20T10:00:00Z",
+        "status": "completed",
+        "conclusion": "success",
+        "actor": {
+          "login": "alice"
+        },
+        "pull_requests": [
+          {
+            "number": 17,
+            "base": {
+              "sha": "base"
+            }
+          }
+        ],
+        "head_branch": "feature",
+        "head_sha": "head"
+      }
+    ],
+    "jobs": {
+      "1": [
+        {
+          "id": 11,
+          "name": "evidence-gate-lint",
+          "status": "completed",
+          "conclusion": "success",
+          "run_attempt": 1
+        },
+        {
+          "id": 12,
+          "name": "lint",
+          "status": "completed",
+          "conclusion": "success",
+          "run_attempt": 1
+        }
+      ]
+    },
+    "logs": {
+      "11": "2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n"
+    },
+    "fail_first": 2
+  },
+  "argv": [],
+  "observations": [
+    {
+      "stdout": "{\n  \"as_of\": \"2026-11-20T12:00:00Z\",\n  \"window_s\": 86400,\n  \"log_clock\": \"observed_at (origin has no URL)\",\n  \"checks\": {\n    \"lint\": {\n      \"enforce\": false,\n      \"lines\": 1,\n      \"satisfied_log_ok\": 1,\n      \"log_missing\": 0,\n      \"unlogged_pass_unexplained\": 0,\n      \"hidden_red\": [],\n      \"visible_red\": [],\n      \"log_window_start\": \"2026-11-20T10:00:00Z\",\n      \"old_base_lines\": {},\n      \"cancelled_runs\": [],\n      \"ready\": false,\n      \"why_not\": [\n        \"log window started 2026-11-20T10:00:00Z, less than 24 h ago\",\n        \"1 satisfied lines with log=ok, fewer than 30\"\n      ]\n    }\n  },\n  \"presign\": {\n    \"alice\": {\n      \"heads\": 1,\n      \"presigned\": 1,\n      \"ci_note\": 0,\n      \"no_note\": 0,\n      \"presigned_share\": 1.0\n    }\n  }\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "calls": [
+        [
+          "gh",
+          "repos/org/repo/actions/jobs/11/logs"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/jobs/11/logs"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/jobs/11/logs"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/runs/1/jobs?per_page=100&filter=all"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/runs/1/jobs?per_page=100&filter=all"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/runs/1/jobs?per_page=100&filter=all"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+        ],
+        [
+          "git",
+          "fetch"
+        ],
+        [
+          "git",
+          "ls-tree",
+          ".fractal/evidence-skip-policy.json"
+        ],
+        [
+          "git",
+          "remote"
+        ],
+        [
+          "git",
+          "show",
+          "origin/main:.github/workflows/fleet.yml"
+        ],
+        [
+          "git",
+          "show",
+          "origin/main:.st/evidence-skip-policy.json"
+        ]
+      ]
+    }
+  ]
+},
+{
+  "id": "cancelled-missing-log",
+  "api": {
+    "policy": {
+      "lint": {
+        "enforce": false
+      }
+    },
+    "workflow": "jobs:\n  lint:\n    runs-on: ubuntu-latest\n",
+    "runs": [
+      {
+        "id": 1,
+        "created_at": "2026-11-20T10:00:00Z",
+        "status": "completed",
+        "conclusion": "success",
+        "actor": {
+          "login": "alice"
+        },
+        "pull_requests": [
+          {
+            "number": 17,
+            "base": {
+              "sha": "base"
+            }
+          }
+        ],
+        "head_branch": "feature",
+        "head_sha": "head"
+      }
+    ],
+    "jobs": {
+      "1": [
+        {
+          "id": 11,
+          "name": "evidence-gate-lint",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "run_attempt": 1
+        },
+        {
+          "id": 12,
+          "name": "lint",
+          "status": "completed",
+          "conclusion": "success",
+          "run_attempt": 1
+        }
+      ]
+    },
+    "logs": {
+      "11": "2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n"
+    },
+    "errors": {
+      "repos/org/repo/actions/jobs/11/logs": "HTTP 404: Not Found"
+    }
+  },
+  "argv": [],
+  "observations": [
+    {
+      "stdout": "{\n  \"as_of\": \"2026-11-20T12:00:00Z\",\n  \"window_s\": 86400,\n  \"log_clock\": \"observed_at (origin has no URL)\",\n  \"checks\": {\n    \"lint\": {\n      \"enforce\": false,\n      \"lines\": 0,\n      \"satisfied_log_ok\": 0,\n      \"log_missing\": 0,\n      \"unlogged_pass_unexplained\": 0,\n      \"hidden_red\": [],\n      \"visible_red\": [],\n      \"log_window_start\": null,\n      \"old_base_lines\": {},\n      \"cancelled_runs\": [],\n      \"ready\": false,\n      \"why_not\": [\n        \"no line with a log value\",\n        \"0 satisfied lines with log=ok, fewer than 30\"\n      ]\n    }\n  },\n  \"presign\": {}\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "calls": [
+        [
+          "gh",
+          "repos/org/repo/actions/jobs/11/logs"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/jobs/11/logs"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/jobs/11/logs"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/runs/1/jobs?per_page=100&filter=all"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+        ],
+        [
+          "git",
+          "fetch"
+        ],
+        [
+          "git",
+          "ls-tree",
+          ".fractal/evidence-skip-policy.json"
+        ],
+        [
+          "git",
+          "remote"
+        ],
+        [
+          "git",
+          "show",
+          "origin/main:.github/workflows/fleet.yml"
+        ],
+        [
+          "git",
+          "show",
+          "origin/main:.st/evidence-skip-policy.json"
+        ]
+      ]
+    }
+  ]
+},
+{
+  "id": "completed-missing-log",
+  "api": {
+    "policy": {
+      "lint": {
+        "enforce": false
+      }
+    },
+    "workflow": "jobs:\n  lint:\n    runs-on: ubuntu-latest\n",
+    "runs": [
+      {
+        "id": 1,
+        "created_at": "2026-11-20T10:00:00Z",
+        "status": "completed",
+        "conclusion": "success",
+        "actor": {
+          "login": "alice"
+        },
+        "pull_requests": [
+          {
+            "number": 17,
+            "base": {
+              "sha": "base"
+            }
+          }
+        ],
+        "head_branch": "feature",
+        "head_sha": "head"
+      }
+    ],
+    "jobs": {
+      "1": [
+        {
+          "id": 11,
+          "name": "evidence-gate-lint",
+          "status": "completed",
+          "conclusion": "success",
+          "run_attempt": 1
+        },
+        {
+          "id": 12,
+          "name": "lint",
+          "status": "completed",
+          "conclusion": "success",
+          "run_attempt": 1
+        }
+      ]
+    },
+    "logs": {
+      "11": "2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\n"
+    },
+    "errors": {
+      "repos/org/repo/actions/jobs/11/logs": "HTTP 404: Not Found"
+    }
+  },
+  "argv": [],
+  "observations": [
+    {
+      "stdout": "",
+      "stderr": "could not read GitHub or origin/main: gh api --allow-escape-sequences: HTTP 404: Not Found\n",
+      "exit_code": 2,
+      "calls": [
+        [
+          "gh",
+          "repos/org/repo/actions/jobs/11/logs"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/jobs/11/logs"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/jobs/11/logs"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/runs/1/jobs?per_page=100&filter=all"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+        ],
+        [
+          "git",
+          "fetch"
+        ],
+        [
+          "git",
+          "ls-tree",
+          ".fractal/evidence-skip-policy.json"
+        ],
+        [
+          "git",
+          "show",
+          "origin/main:.github/workflows/fleet.yml"
+        ],
+        [
+          "git",
+          "show",
+          "origin/main:.st/evidence-skip-policy.json"
+        ]
+      ]
+    }
+  ]
+},
+{
+  "id": "template-ansi-cache",
+  "api": {
+    "policy": {
+      "lint": {
+        "enforce": false
+      }
+    },
+    "workflow": "jobs:\n  lint:\n    runs-on: ubuntu-latest\n",
+    "runs": [
+      {
+        "id": 1,
+        "created_at": "2026-11-20T10:00:00Z",
+        "status": "completed",
+        "conclusion": "success",
+        "actor": {
+          "login": "alice"
+        },
+        "pull_requests": [
+          {
+            "number": 17,
+            "base": {
+              "sha": "base"
+            }
+          }
+        ],
+        "head_branch": "feature",
+        "head_sha": "head"
+      }
+    ],
+    "jobs": {
+      "1": [
+        {
+          "id": 11,
+          "name": "evidence-gate-lint",
+          "status": "completed",
+          "conclusion": "success",
+          "run_attempt": 1
+        },
+        {
+          "id": 12,
+          "name": "lint",
+          "status": "completed",
+          "conclusion": "success",
+          "run_attempt": 1
+        }
+      ]
+    },
+    "logs": {
+      "11": "echo evidence-decision v1 check=lint outcome=satisfied log=missing\nevidence-decision v1 check=$CHECK outcome=satisfied log=missing\n\u001b[32m2026-11-20T10:00:01Z evidence-decision v1 check=lint outcome=satisfied decision=run log=ok trust_level=host pr=17 pr_head=head base=base\u001b[0m\n"
+    }
+  },
+  "argv": [],
+  "repeat": 2,
+  "observations": [
+    {
+      "stdout": "{\n  \"as_of\": \"2026-11-20T12:00:00Z\",\n  \"window_s\": 86400,\n  \"log_clock\": \"observed_at (origin has no URL)\",\n  \"checks\": {\n    \"lint\": {\n      \"enforce\": false,\n      \"lines\": 1,\n      \"satisfied_log_ok\": 1,\n      \"log_missing\": 0,\n      \"unlogged_pass_unexplained\": 0,\n      \"hidden_red\": [],\n      \"visible_red\": [],\n      \"log_window_start\": \"2026-11-20T10:00:00Z\",\n      \"old_base_lines\": {},\n      \"cancelled_runs\": [],\n      \"ready\": false,\n      \"why_not\": [\n        \"log window started 2026-11-20T10:00:00Z, less than 24 h ago\",\n        \"1 satisfied lines with log=ok, fewer than 30\"\n      ]\n    }\n  },\n  \"presign\": {\n    \"alice\": {\n      \"heads\": 1,\n      \"presigned\": 1,\n      \"ci_note\": 0,\n      \"no_note\": 0,\n      \"presigned_share\": 1.0\n    }\n  }\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "calls": [
+        [
+          "gh",
+          "repos/org/repo/actions/jobs/11/logs"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/runs/1/jobs?per_page=100&filter=all"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+        ],
+        [
+          "git",
+          "fetch"
+        ],
+        [
+          "git",
+          "ls-tree",
+          ".fractal/evidence-skip-policy.json"
+        ],
+        [
+          "git",
+          "remote"
+        ],
+        [
+          "git",
+          "show",
+          "origin/main:.github/workflows/fleet.yml"
+        ],
+        [
+          "git",
+          "show",
+          "origin/main:.st/evidence-skip-policy.json"
+        ]
+      ]
+    },
+    {
+      "stdout": "{\n  \"as_of\": \"2026-11-20T12:00:00Z\",\n  \"window_s\": 86400,\n  \"log_clock\": \"observed_at (origin has no URL)\",\n  \"checks\": {\n    \"lint\": {\n      \"enforce\": false,\n      \"lines\": 1,\n      \"satisfied_log_ok\": 1,\n      \"log_missing\": 0,\n      \"unlogged_pass_unexplained\": 0,\n      \"hidden_red\": [],\n      \"visible_red\": [],\n      \"log_window_start\": \"2026-11-20T10:00:00Z\",\n      \"old_base_lines\": {},\n      \"cancelled_runs\": [],\n      \"ready\": false,\n      \"why_not\": [\n        \"log window started 2026-11-20T10:00:00Z, less than 24 h ago\",\n        \"1 satisfied lines with log=ok, fewer than 30\"\n      ]\n    }\n  },\n  \"presign\": {\n    \"alice\": {\n      \"heads\": 1,\n      \"presigned\": 1,\n      \"ci_note\": 0,\n      \"no_note\": 0,\n      \"presigned_share\": 1.0\n    }\n  }\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "calls": [
+        [
+          "gh",
+          "repos/org/repo/actions/runs/1/jobs?per_page=100&filter=all"
+        ],
+        [
+          "gh",
+          "repos/org/repo/actions/workflows/fleet.yml/runs?event=pull_request&per_page=100&page=1"
+        ],
+        [
+          "git",
+          "fetch"
+        ],
+        [
+          "git",
+          "ls-tree",
+          ".fractal/evidence-skip-policy.json"
+        ],
+        [
+          "git",
+          "remote"
+        ],
+        [
+          "git",
+          "show",
+          "origin/main:.github/workflows/fleet.yml"
+        ],
+        [
+          "git",
+          "show",
+          "origin/main:.st/evidence-skip-policy.json"
+        ]
+      ]
+    }
+  ]
+}
+  ]
+}

@@ -14,6 +14,10 @@ pub struct EvidenceArgs {
 pub enum EvidenceCommand {
     /// Provision this account's signing key and print its public enrollment line.
     Keygen(super::keygen::KeygenArgs),
+    /// Evaluate the 24-hour evidence skip trigger; optionally propose ready flips.
+    FlipReady(super::flip_ready::Args),
+    /// Count pull-request skips and explain checks that ran.
+    SkipReport(super::skip_report::Args),
     /// Run a BASE-declared lane once, sign its observation, and publish its note.
     Wrap(super::generic::WrapArgs),
     /// Sign a wrapper request using explicit account-local configuration.
@@ -77,6 +81,20 @@ pub enum EvidenceCommand {
 pub fn run(args: EvidenceArgs) -> Result<()> {
     let value = match args.command {
         EvidenceCommand::Keygen(args) => return super::keygen::run_keygen(args),
+        EvidenceCommand::FlipReady(args) => {
+            let code = super::flip_ready::run(args)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+            return Ok(());
+        }
+        EvidenceCommand::SkipReport(args) => {
+            let code = super::skip_report::run(args)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+            return Ok(());
+        }
         EvidenceCommand::Wrap(args) => {
             let code = super::generic::run_wrap(&args)?;
             if code != 0 {

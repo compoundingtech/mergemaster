@@ -906,6 +906,20 @@ Git calls (pinned scripts/parity-drift:33-37), its native default-root lookup fo
 tool consistency, and keygen's scratch Git init (independent pinned oracle
 `scripts/evidence-keygen:55-56,135`, not a working-tree executable).
 A deadline for those paths would need a separately approved divergence.
+
+`mergemaster evidence flip-ready [--repo OWNER/NAME] [--cache DIR]`
+evaluates the 24-hour skip trigger using finished Workspace CI decision lines.
+`--propose` retains the explicit write path (temporary worktree, policy/doc/test-list
+edits, release note, branch push and pull request); `--propose --dry-run` prints only
+the staged diff. Without `--propose`, GitHub access is read-only.
+`mergemaster evidence skip-report [--hours 24] [--actor LOGIN]... [--receipts FILE]...
+[--markdown]` explains skipped and executed checks, unsigned push attribution and
+release-surface job minutes. Both commands share retry, run paging and immutable
+job-log caching; `.fractal` configuration takes precedence over `.st` at the
+selected revision. They replace the removed Python flip-ready/skip-report leaves
+and self-tests; frozen independent-Python recordings live in
+`tests/fixtures/oracle/{flip-ready,skip-report}.json`.
+
 The protected CI fetch instead retains its existing external `timeout` wrapper:
 30 seconds with a 2-second kill-after, not a GitChild deadline. Direct Git fixture
 setup under tests is outside this production deadline inventory.

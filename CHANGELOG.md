@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Rust port wave 1: `mergemaster evidence flip-ready` and `mergemaster evidence skip-report` replace `scripts/evidence-flip-ready`, `scripts/evidence-skip-report` and their self-tests; 22 frozen cases are compared against the pinned Python oracle.
 - Rust port wave 1: remove the Python keygen (`scripts/evidence-keygen`, its self-test and `tests/test-native-keygen.py`); `mergemaster evidence keygen` owns every former assertion, with frozen recordings compared against the pinned Python oracle.
 - merge-pr: match personal names case-insensitively and print actionable async-result recovery commands with a verification-only mode for late merges.
 - Enforce the corpus-wide 256 KiB raw-stdout ceiling; preserve larger argparse outputs with verified input recipes/result identities and raw stderr/exit codes.

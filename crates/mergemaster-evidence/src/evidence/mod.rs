@@ -14,6 +14,7 @@ mod ci_reattest;
 mod ci_transport;
 pub mod cli;
 pub(crate) mod derivation;
+pub mod flip_ready;
 pub mod generic;
 pub mod keygen;
 mod legacy_json;
@@ -26,6 +27,7 @@ pub mod observers;
 pub mod producer_proof;
 pub mod signer_input;
 pub mod signing;
+pub mod skip_report;
 #[cfg(test)]
 mod tests;
 pub mod workspace;
