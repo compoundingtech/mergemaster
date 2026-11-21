@@ -146,6 +146,12 @@
 # tests/fixtures/oracle/keygen.json freezes host/agent provisioning and reuse
 # streams using a deliberately public fixed test key and explicit home template;
 # oracle_corpus.py replays independently, and Rust compares both implementations.
+# Flip-ready and skip-report are native `mergemaster evidence` subcommands.
+# Their Python leaves and self-tests are removed together; native trigger,
+# proposal, classification and transport assertions replace the self-tests.
+# tests/fixtures/oracle/{flip-ready,skip-report}.json retain independent pinned
+# Python observations, replayed by tests/oracle_corpus.py and flip_skip_oracle.rs.
+# The copied-script rows below remain historical source provenance, not callers.
 # Native notice migration: mergemaster evidence presign-notice replaces the
 # copied notice entrypoint and its Python self-test. The 29 independent CPython
 # 3.14.7 recordings in tests/fixtures/oracle/presign-notice.json freeze complete

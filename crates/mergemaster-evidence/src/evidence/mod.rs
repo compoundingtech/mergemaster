@@ -10,10 +10,13 @@ use std::{
     process::{Command, Stdio},
 };
 
+mod argparse_compat;
 mod ci_reattest;
 mod ci_transport;
 pub mod cli;
 pub(crate) mod derivation;
+pub mod flip_ready;
+mod flip_skip_python;
 pub mod generic;
 pub mod keygen;
 mod legacy_json;
@@ -33,6 +36,7 @@ mod runner_report_numbers;
 mod runner_report_value;
 pub mod signer_input;
 pub mod signing;
+pub mod skip_report;
 pub mod slo;
 pub mod source;
 #[cfg(test)]

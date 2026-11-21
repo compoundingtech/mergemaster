@@ -265,6 +265,66 @@ def replay_keygen(interpreter):
     print(f"Replayed {len(manifest['cases'])} frozen keygen cases")
 
 
+def operational_calls(path):
+    """Keep endpoint identities and counts; concurrent downloads need no ordering."""
+    calls = []
+    for line in path.read_text().splitlines():
+        executable, *args = json.loads(line)
+        if executable == "gh":
+            calls.append(["gh", next(arg for arg in args if arg.startswith("repos/"))])
+        elif args[0] in ("show", "ls-tree"):
+            calls.append(["git", args[0], args[-1]])
+        else:
+            calls.append(["git", args[0]])
+    return sorted(calls)
+
+
+def replay_flip_skip(interpreter, binary=None, commands=("flip-ready", "skip-report")):
+    """Replay fixed-clock operational recordings, including repeated-cache invocations."""
+    binary = binary or os.environ["MERGEMASTER_BIN"]
+    for command in commands:
+        fixture = json.loads((CORPUS.parent / f"{command}.json").read_text())
+        pin = fixture["oracle"]
+        source = Path(os.environ[pin["environment"]]) / pin["path"]
+        assert git_blob(source.read_bytes()) == pin["git_blob"], (command, "source drift")
+        # skip-report imports this exact sibling implementation.
+        if command == "skip-report":
+            sibling = json.loads((CORPUS.parent / "flip-ready.json").read_text())["oracle"]
+            assert git_blob(source.with_name("evidence-flip-ready").read_bytes()) == sibling["git_blob"]
+        for case in fixture["cases"]:
+            for implementation in ("python", "native"):
+                with tempfile.TemporaryDirectory(prefix="mergemaster-flip-skip-") as temporary:
+                    root = Path(temporary)
+                    for executable in ("gh", "git"):
+                        shim = root / executable
+                        shim.write_text(f"#!{interpreter}\n" + fixture["shim"])
+                        shim.chmod(0o700)
+                    (root / "api.json").write_text(json.dumps(case["api"]))
+                    for name, content in case.get("files", {}).items():
+                        (root / name).write_text(content)
+                    environment = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
+                                       FLIP_SKIP_API=str(root / "api.json"), FLIP_SKIP_CALLS=str(root / "calls"))
+                    arguments = ["--repo", "org/repo", "--cache", str(root / "cache"),
+                                 *[arg.replace("${root}", str(root)) for arg in case["argv"]]]
+                    if implementation == "python":
+                        invocation = [str(interpreter), "-I", "-B", "-c", fixture["launcher"],
+                                      str(source), fixture["now"], str(root), *arguments]
+                    else:
+                        invocation = [str(binary), "evidence", command, "--now", fixture["now"], *arguments]
+                    for index, expected in enumerate(case["observations"]):
+                        (root / "calls").write_text("")
+                        done = subprocess.run(invocation, cwd=root, env=environment, capture_output=True)
+                        label = (command, case["id"], implementation, index)
+                        assert done.returncode == expected["exit_code"], (label, done.stderr)
+                        assert done.stdout == expected["stdout"].replace("${root}", str(root)).encode(), (label, "stdout", done.stdout)
+                        assert done.stderr == expected["stderr"].replace("${root}", str(root)).encode(), (label, "stderr", done.stderr)
+                        calls = operational_calls(root / "calls")
+                        assert calls == expected["calls"], (label, "calls", calls)
+                        if index:
+                            assert not any(call[0] == "gh" and call[1].endswith("/logs") for call in calls), label
+        print(f"Replayed {len(fixture['cases'])} frozen {command} cases against Python and Rust")
+
+
 def replay_presign_notice(interpreter):
     """Compare both entrypoints to independent frozen stdout and summary bytes."""
     manifest = json.loads((CORPUS.parent / "presign-notice.json").read_text())
@@ -374,6 +434,7 @@ def replay(record=False):
         replay_slo(interpreter)
         replay_keygen(interpreter)
         replay_matrices(interpreter)
+        replay_flip_skip(interpreter)
         replay_log_watch(interpreter)
         replay_runner_report(interpreter)
         replay_presign_notice(interpreter)

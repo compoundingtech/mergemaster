@@ -4,6 +4,9 @@ use crate::cli_println as println;
 use super::*;
 use clap::{Args, Subcommand};
 
+#[path = "flip_skip_args.rs"]
+mod flip_skip_args;
+
 #[derive(Args)]
 pub struct EvidenceArgs {
     #[command(subcommand)]
@@ -14,6 +17,18 @@ pub struct EvidenceArgs {
 pub enum EvidenceCommand {
     /// Provision this account's signing key and print its public enrollment line.
     Keygen(super::keygen::KeygenArgs),
+    /// Evaluate the 24-hour evidence skip trigger; optionally propose ready flips.
+    #[command(disable_help_flag = true)]
+    FlipReady {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        argv: Vec<String>,
+    },
+    /// Count pull-request skips and explain checks that ran.
+    #[command(disable_help_flag = true)]
+    SkipReport {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        argv: Vec<String>,
+    },
     LogWatch(super::log_watch::LogWatchArgs),
     RunnerReport(super::runner_report::RunnerReportArgs),
     /// Explain which signable gates ran without a pre-signed note; never fails.
@@ -89,6 +104,30 @@ pub enum EvidenceCommand {
 pub fn run(args: EvidenceArgs) -> Result<()> {
     let value = match args.command {
         EvidenceCommand::Keygen(args) => return super::keygen::run_keygen(args),
+        EvidenceCommand::FlipReady { argv } => {
+            let argv = flip_skip_args::process_argv("flip-ready", argv);
+            let args = match flip_skip_args::flip(&argv) {
+                Ok(args) => args,
+                Err(exit) => return flip_skip_args::finish(exit),
+            };
+            let code = super::flip_ready::run(args)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+            return Ok(());
+        }
+        EvidenceCommand::SkipReport { argv } => {
+            let argv = flip_skip_args::process_argv("skip-report", argv);
+            let args = match flip_skip_args::skip(&argv) {
+                Ok(args) => args,
+                Err(exit) => return flip_skip_args::finish(exit),
+            };
+            let code = super::skip_report::run(args)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+            return Ok(());
+        }
         EvidenceCommand::LogWatch(args) => return super::log_watch::run(args),
         EvidenceCommand::RunnerReport(args) => return super::runner_report::run(args),
         EvidenceCommand::PresignNotice => {
