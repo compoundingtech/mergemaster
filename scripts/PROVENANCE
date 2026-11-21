@@ -93,8 +93,9 @@
 # tests/oracle_witnesses.py builds only the evidence library test binary and
 # runs its registered differential tests, preserving real inputs/results in a
 # CI artifact and publishing bounded result identities in logs/job summaries.
-# Pending fields remain null until actual execution; no Rust result is claimed
-# for the separately labeled upstream/local Python ci-signed-tree patch.
+# Pending fields remain null until actual execution. The ci-signed-tree witness
+# compares upstream Python with the local Python adapter's native-binary transport;
+# its registry names signed_tree_local_patch_preserves_binary_transport_bytes.
 # R2 resync exception; exit: https://github.com/compoundingtech/mergemaster/issues/115
 # The original extraction Commit above is historical; this resync starts at the current fixture revision.
 # Pending requires oracle bytes; the target fixture activates exact upstream bytes and modes.
