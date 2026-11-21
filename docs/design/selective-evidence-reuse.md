@@ -26,7 +26,7 @@ the check reads has changed.
 | Lane definition (argv, definition paths) | `lane_definition_sha256` over `[1, check, lane, definition_files]` read at BASE | Yes, through expected_inputs (config.rs:809) |
 | Environment and toolchain | `env_sha256`, `toolchain_sha256`, system | Yes, through expected_inputs |
 | Workspace (non-Nix lanes) | declared inputs and scratch, plus `workspace_clean` and no untracked files | Declared subset only. It is not a closure of what the command reads. |
-| Producer binary | `wrapper_sha256` = sha256 of the producer's own executable (generic.rs) | **Only its shape (64 hex; gate.rs:1158), not equality with a pin. See §6.** |
+| Producer binary | `wrapper_sha256` = sha256 of the producer's own executable (generic.rs) | See §6. |
 | Trust | signer principal `<level>/<name>`, tier, runner kind, repository | Yes: tier must be full; level in the lane's trust_levels; runner in nix, wrapper, sekrets or github:*; repository_refusal (gate.rs:1068-1100) |
 
 ## 3. Options
@@ -94,8 +94,7 @@ result at E's head.
 - How it runs: Nix settings, store kind and daemon trust are bound by their
   hashes and checked again.
 - What produced the claim: the producer binary is bound by `wrapper_sha256`
-  equal to the BASE tool pin (step 3), which also closes the §6 gap for
-  reused notes.
+  equal to the BASE tool pin (step 3).
 - Who vouches: the same signer level and a full tier (§5).
 
 Assumption to review: the check's result depends only on the build. That is
@@ -106,21 +105,19 @@ Those lanes are not `nix_check` lanes and never qualify.
 
 ## 5. Trust classes
 
-- Reuse never crosses a signer level. The new note's signer level must equal
-  E's, and the gate then applies the lane's trust_levels as usual.
+- A rebinding signer is never of a lower trust class than E's signer. This
+  design requires the same signer level, which is stricter. The gate then
+  applies the lane's trust_levels as usual.
+- A rebind never crosses repositories: E's repository, the candidate's
+  repository and the new note's repository must be equal.
 - Tier must be full for E. Degraded and test tiers never qualify.
 - Runner kind must be `nix`. The wrapper, sekrets and github:* runners never
   qualify.
-- The repository must be equal.
 
-## 6. Existing gap found during this design
+## 6. Prerequisite
 
-The gate checks `wrapper_sha256` only for shape (gate.rs:1158), not against
-the BASE tool pin. So a full-tier note from a trusted signer that used an
-unpinned producer binary is accepted. Proposal: in a separate step before
-reuse lands, require `wrapper_sha256` to equal the BASE pin's
-`release.sha256`, with a typed `untrusted_producer` reason. Reuse depends on
-this.
+Reuse depends on the producer digest binding (`wrapper_sha256` against the
+BASE tool pin) in the gate. That lands as a separate change first.
 
 ## 7. Out of scope
 
@@ -135,8 +132,5 @@ this.
 1. Is the pure-eval drv a complete input closure for `nix_check` lanes? Are
    there escapes, such as `builtins.fetch*` without a hash under pure eval,
    `__impure` derivations, or `allowed-uris`?
-2. Should a reuse note's signer level be at least E's, or exactly equal to it?
-   This design says exactly equal.
-3. Is §6 a separate prerequisite fix, or acceptable to fold into the reuse
-   change?
-4. Is a maximum age for E needed in addition to the lane's `max_age_seconds`?
+2. Is the same signer level the right rule, or is "not lower" sufficient?
+3. Is a maximum age for E needed in addition to the lane's `max_age_seconds`?
