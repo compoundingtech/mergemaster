@@ -1,4 +1,5 @@
 //! Retain the effective checkout as data; never execute candidate code or sign.
+use super::legacy_verify::statement_document::{Document, Node};
 use super::*;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -97,51 +98,146 @@ fn positive(value: &str) -> Result<()> {
     Ok(())
 }
 
+fn event_get<'a>(
+    document: &'a Document,
+    node: Option<&Node>,
+    key: &str,
+) -> Result<Option<&'a Node>> {
+    let Some(node) = node else {
+        // The producer's nested .get(key, {}) uses an empty object when absent.
+        return Ok(None);
+    };
+    let Node::Object(fields) = node else {
+        bail!(
+            "AttributeError: '{}' object has no attribute 'get'",
+            event_type(node)
+        );
+    };
+    Ok(fields.iter().find_map(|(name, id)| {
+        name.iter()
+            .copied()
+            .eq(key.chars().map(u32::from))
+            .then(|| document.node(*id))
+    }))
+}
+
+fn event_type(node: &Node) -> &'static str {
+    match node {
+        Node::Null => "NoneType",
+        Node::Bool(_) => "bool",
+        Node::Integer(_) => "int",
+        Node::Float(_) => "float",
+        Node::String(_) => "str",
+        Node::Array(_) => "list",
+        Node::Object(_) => "dict",
+    }
+}
+
+fn event_text_is(node: Option<&Node>, expected: &str) -> bool {
+    matches!(node, Some(Node::String(points)) if points.iter().copied().eq(expected.chars().map(u32::from)))
+}
+
+fn event_integer_is(node: Option<&Node>, expected: &str) -> bool {
+    match node {
+        Some(Node::Integer(number)) => number == expected,
+        Some(Node::Bool(value)) => *value && expected == "1",
+        // Python compares ints and floats numerically, without rounding the int
+        // to f64. Format the exact integral float instead of narrowing the int.
+        Some(Node::Float(number)) if number.is_finite() && number.fract() == 0.0 => {
+            format!("{number:.0}") == expected
+        }
+        _ => false,
+    }
+}
+
 fn change_identity(
     repository: &str,
     event_name: &str,
-    event: &Value,
+    event: &Document,
     source: &str,
 ) -> Result<String> {
-    let (owner, name) = repository.split_once('/').context("invalid repository")?;
+    let valid_part = |part: &str| {
+        !part.is_empty()
+            && part
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+    };
+    let valid_repository = repository
+        .split_once('/')
+        .is_some_and(|(owner, name)| valid_part(owner) && valid_part(name));
+    ensure!(valid_repository, "ValueError: invalid repository");
+    let event_repository = event_get(event, Some(event.root()), "repository")?;
     ensure!(
-        [owner, name].iter().all(|p| !p.is_empty()
-            && p.bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))),
-        "invalid repository"
-    );
-    ensure!(
-        event["repository"]["full_name"] == repository,
-        "event repository mismatch"
+        event_text_is(event_get(event, event_repository, "full_name")?, repository),
+        "ValueError: event repository mismatch"
     );
     match event_name {
         "pull_request" => {
-            let number = event["number"]
-                .as_u64()
-                .filter(|n| *n > 0)
-                .context("invalid pull request identity")?;
+            let number = event_get(event, Some(event.root()), "number")?;
+            let Some(Node::Integer(number)) = number else {
+                bail!("ValueError: invalid pull request identity");
+            };
+            // Python ints remain arbitrary precision after json.loads(bytes).
             ensure!(
-                event["pull_request"]["number"].as_u64() == Some(number),
-                "invalid pull request identity"
+                !number.starts_with('-') && number != "0",
+                "ValueError: invalid pull request identity"
+            );
+            let pull = event_get(event, Some(event.root()), "pull_request")?;
+            ensure!(
+                event_integer_is(event_get(event, pull, "number")?, number),
+                "ValueError: invalid pull request identity"
             );
             Ok(format!("github:{repository}#{number}"))
         }
         "merge_group" => {
-            let group = &event["merge_group"];
-            let branch = group["head_ref"].as_str().context("merge group head ref")?;
-            let entry = branch
-                .strip_prefix("refs/heads/gh-readonly-queue/main/pr-")
-                .context("unsupported merge group identity")?;
-            let (number, suffix) = entry.split_once('-').context("queue entry identity")?;
-            positive(number)?;
+            let group = event_get(event, Some(event.root()), "merge_group")?;
+            let branch = event_get(event, group, "head_ref")?;
+            let points = match branch {
+                None => &[][..],
+                Some(Node::String(points)) => points.as_slice(),
+                Some(node) => bail!(
+                    "TypeError: expected string or bytes-like object, got '{}'",
+                    event_type(node)
+                ),
+            };
+            let prefix = b"refs/heads/gh-readonly-queue/main/pr-";
             ensure!(
-                lower_hex(suffix, 40) && group["head_sha"] == source,
-                "unsupported or mismatched merge group identity"
+                points.len() >= prefix.len()
+                    && points
+                        .iter()
+                        .copied()
+                        .zip(prefix.iter().copied().map(u32::from))
+                        .all(|(a, b)| a == b),
+                "ValueError: unsupported or mismatched merge group identity"
             );
-            Ok(format!("github:{repository}#{number}"))
+            let entry = &points[prefix.len()..];
+            let Some(separator) = entry.iter().position(|point| *point == u32::from(b'-')) else {
+                bail!("ValueError: unsupported or mismatched merge group identity");
+            };
+            let number = &entry[..separator];
+            let suffix = &entry[separator + 1..];
+            // Match the ASCII regex directly against Python codepoints, never
+            // converting an unpaired surrogate into a Rust string.
+            ensure!(
+                !number.is_empty()
+                    && number[0] != u32::from(b'0')
+                    && number
+                        .iter()
+                        .all(|point| (u32::from(b'0')..=u32::from(b'9')).contains(point))
+                    && suffix.len() == 40
+                    && suffix
+                        .iter()
+                        .all(|point| (u32::from(b'0')..=u32::from(b'9')).contains(point)
+                            || (u32::from(b'a')..=u32::from(b'f')).contains(point))
+                    && event_text_is(event_get(event, group, "head_sha")?, source),
+                "ValueError: unsupported or mismatched merge group identity"
+            );
+            let mut identity = format!("github:{repository}#");
+            identity.extend(number.iter().map(|point| char::from(*point as u8)));
+            Ok(identity)
         }
         "workflow_dispatch" => Ok(format!("github:{repository}@{source}")),
-        _ => bail!("unsupported workflow event"),
+        _ => bail!("ValueError: unsupported workflow event"),
     }
 }
 
@@ -183,7 +279,14 @@ pub fn run() -> Result<()> {
     );
     let repository = environment("GITHUB_REPOSITORY")?;
     let event_name = environment("GITHUB_EVENT_NAME")?;
-    let event: Value = serde_json::from_slice(&fs::read(environment("GITHUB_EVENT_PATH")?)?)?;
+    let event =
+        super::legacy_verify::json_bytes::parse(&fs::read(environment("GITHUB_EVENT_PATH")?)?)
+            .map_err(|error| match error.origin {
+                super::legacy_policy::ErrorOrigin::Exception { class } => {
+                    anyhow::anyhow!("{class}: {}", error.detail)
+                }
+                _ => error.into(),
+            })?;
     let change_id = change_identity(&repository, &event_name, &event, &source)?;
     let run_id = environment("GITHUB_RUN_ID")?;
     let run_attempt = environment("GITHUB_RUN_ATTEMPT")?;
@@ -306,8 +409,12 @@ mod tests {
         ] {
             let mut bad = event.clone();
             bad["number"] = number;
+            let bad = super::legacy_verify::json_bytes::parse(&serde_json::to_vec(&bad).unwrap())
+                .unwrap();
             assert!(change_identity("example/project", "pull_request", &bad, "source").is_err());
         }
+        let event =
+            super::legacy_verify::json_bytes::parse(&serde_json::to_vec(&event).unwrap()).unwrap();
         for repo in ["other/project", "../project", "example/project/extra"] {
             assert!(change_identity(repo, "pull_request", &event, "source").is_err());
         }

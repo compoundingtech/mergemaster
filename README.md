@@ -292,6 +292,11 @@ The informational job retains its existing names, `continue-on-error`, and
 `ci-evidence-source-${{ github.run_attempt }}` upload containing exactly
 `source.pack` and `receipt.json` under `${{ runner.temp }}/ci-evidence-source/`.
 
+The event file follows the pinned Python `json.loads(bytes)` boundary, including
+UTF-8 BOM and UTF-16/32 detection, non-finite numbers, and lone-surrogate escapes.
+Unused event text is not copied into receipts; event-derived identities contain
+only validated ASCII queue digits or arbitrary-precision positive PR integers.
+
 The source receipt is version 2. Its `tool` identity is
 `{repository, revision, release_version, binary_sha256}`, matching BASE's pin;
 the executable hash must equal the pinned release digest. The pin is version 1,

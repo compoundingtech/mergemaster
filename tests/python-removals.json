@@ -388,5 +388,6 @@
   {"path": "tests/test-oracle-scripts.py", "wave": "wave-9-python-free", "state": "retained"},
   {"path": "tests/test-release-workflow.py", "wave": "wave-9-python-free", "state": "retained"},
   {"path": "tests/test-workflow-adapters.py", "wave": "wave-4-ci-adapters", "state": "retained"},
+  {"path": "tests/fixtures/oracle/source-events.json", "wave": "wave-9-python-free", "state": "retained", "sha256": "9d329b2f22e23169f31663ce8cf9e1bd629951c9dc697f173dccc1e7f1f841a1", "executable": 0},
   {"path": "tests/fixtures/oracle/slo.json", "wave": "wave-9-python-free", "state": "retained", "sha256": "7a01773e1f67ff27b6875cb2b44f857a18942c7ad4cc3d2c21dbd5d075791ee4", "executable": 0}
 ]}

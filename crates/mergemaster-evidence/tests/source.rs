@@ -301,6 +301,100 @@ fn source_shallow_pack_oracle_and_version_two_contract() {
     }
 }
 #[test]
+fn source_event_bytes_match_frozen_cpython_identity_and_errors() {
+    // Generated with CPython 3.14.7 json.loads(bytes) and the independently pinned
+    // source.change_identity. Only queue source OIDs are rebound to this repository.
+    let oracle: Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/oracle/source-events.json"
+    ))
+    .unwrap();
+    assert_eq!(oracle["python"], "3.14.7");
+    let recorded_source = oracle["source"].as_str().unwrap();
+    let f = Fixture::new();
+    let python = std::env::var("MERGEMASTER_ORACLE_PYTHON").unwrap_or_else(|_| {
+        "/nix/store/d64q19q1xjdwfhqx6czvrjgrhq0n3lcc-python3-3.14.7/bin/python3.14".into()
+    });
+    for case in oracle["cases"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let kind = case["event_name"].as_str().unwrap();
+        let temp = f.root.path().join(format!("event-{name}"));
+        let mut command = f.command(&f.repo, &temp, kind);
+        let mut event = hex::decode(case["event_hex"].as_str().unwrap()).unwrap();
+        if case["substitute_source"].as_bool().unwrap() {
+            event = String::from_utf8(event)
+                .unwrap()
+                .replace(recorded_source, &f.source)
+                .into_bytes();
+        }
+        fs::write(temp.join("event.json"), event).unwrap();
+        let out = command.output().unwrap();
+        let expected = &case["expected"];
+        assert_eq!(
+            out.status.code(),
+            Some(expected["exit"].as_i64().unwrap() as i32),
+            "{name}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        if expected["exit"] == 1 {
+            let exception = format!(
+                "{}: {}",
+                expected["class"].as_str().unwrap(),
+                expected["message"].as_str().unwrap()
+            );
+            let stderr = String::from_utf8(out.stderr).unwrap();
+            assert!(
+                stderr.lines().any(|line| line == exception),
+                "{name}: expected {exception:?}, got {stderr:?}"
+            );
+            assert!(
+                !temp.join("ci-evidence-source/receipt.json").exists(),
+                "{name}: failed event must not produce a receipt"
+            );
+            continue;
+        }
+        let native: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(native, receipt(&temp), "{name}: stdout and receipt");
+        assert_eq!(
+            native["change_id"],
+            expected["change_id"]
+                .as_str()
+                .unwrap()
+                .replace(recorded_source, &f.source),
+            "{name}"
+        );
+        assert_eq!(native["repository"], "example/project", "{name}");
+        assert_eq!(native["event"], kind, "{name}");
+        assert_eq!(native["run_id"], "123", "{name}");
+        assert_eq!(native["run_attempt"], "2", "{name}");
+        assert_eq!(native["source"], f.source, "{name}");
+        assert_eq!(native["tree"], f.tree, "{name}");
+        assert_eq!(native["version"], 2, "{name}");
+        let receipt_path = temp.join("ci-evidence-source/receipt.json");
+        // As in the full-producer oracle test, serialize the same v2 fields with
+        // Python's actual dumps, including default separators and final newline.
+        let expected_bytes = Command::new(&python)
+            .args([
+                "-B",
+                "-c",
+                "import json,pathlib,sys; sys.stdout.write(json.dumps(json.loads(pathlib.Path(sys.argv[1]).read_bytes()), sort_keys=True) + '\\n')",
+            ])
+            .arg(&receipt_path)
+            .output()
+            .unwrap();
+        assert!(
+            expected_bytes.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&expected_bytes.stderr)
+        );
+        assert_eq!(
+            fs::read(receipt_path).unwrap(),
+            expected_bytes.stdout,
+            "{name}: exact Python receipt bytes"
+        );
+    }
+}
+
+#[test]
 fn source_replacements_reruns_wrong_checkout_existing_destination_and_base_pin() {
     let f = Fixture::new();
     git(&f.repo, &["replace", &f.source, &f.author]);
