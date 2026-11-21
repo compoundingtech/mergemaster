@@ -1287,6 +1287,206 @@ fn missing_base_config_is_a_structured_refusal_even_if_head_supplies_it() {
     }
 }
 
+fn producer_manifest() -> Value {
+    json!({
+        "version":1,
+        "producers":[{
+            "system":mergemaster_evidence::gate::config::current_system(),
+            "flavor":"nix",
+            "executable_sha256":"c".repeat(64),
+            "provenance":{
+                "mergemaster_revision":"a".repeat(40),
+                "package":"packages.x86_64-linux.default",
+                "nix_output_path":"/nix/store/00000000000000000000000000000000-mergemaster"
+            }
+        }]
+    })
+}
+
+#[test]
+fn producer_digest_binding_to_base_manifest_is_report_only() {
+    for case in [
+        "listed",
+        "release",
+        "unlisted",
+        "other_system",
+        "no_manifest",
+    ] {
+        let mut f = Fixture::new();
+        if case != "no_manifest" {
+            let mut manifest = producer_manifest();
+            match case {
+                "release" => {
+                    manifest["producers"][0]["flavor"] = json!("release");
+                    manifest["producers"][0]["provenance"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("nix_output_path");
+                }
+                "unlisted" => manifest["producers"][0]["executable_sha256"] = json!("d".repeat(64)),
+                "other_system" => {
+                    manifest["producers"][0]["system"] =
+                        json!(if mergemaster_evidence::gate::config::current_system()
+                            == "aarch64-linux"
+                        {
+                            "x86_64-linux"
+                        } else {
+                            "aarch64-linux"
+                        });
+                }
+                _ => {}
+            }
+            f.write(".mergemaster/producers.json", manifest.to_string());
+            f.base = f.commit("BASE producer manifest");
+            f.refresh_head();
+        }
+        let statement = f.statement();
+        let record = f.note(&statement, &f.key, "tree");
+        let decision = f.decision(&[]);
+        assert_eq!(decision["record"], record, "{case}");
+        assert_eq!(decision["decision"], "skip", "{case}: {decision}");
+        assert_eq!(decision["outcome"], "satisfied", "{case}");
+        assert_eq!(decision["reason"], "satisfied", "{case}");
+        assert_eq!(
+            decision["producer_digest"],
+            match case {
+                "listed" | "release" => "listed",
+                "no_manifest" => "no_manifest",
+                _ => "unlisted",
+            },
+            "{case}"
+        );
+    }
+}
+
+#[test]
+fn producer_manifest_matches_digest_and_optional_signed_system_only() {
+    let mut f = Fixture::new();
+    let mut manifest = producer_manifest();
+    let producer = manifest["producers"][0].clone();
+    manifest["producers"].as_array_mut().unwrap().push(producer);
+    manifest["producers"][1]["flavor"] = json!("release");
+    // The duplicate key includes flavor; provenance never participates in matching.
+    manifest["producers"][1]["provenance"]["package"] = json!("mergemaster-release");
+    f.write(".mergemaster/producers.json", manifest.to_string());
+    f.base = f.commit("BASE producer flavors");
+    f.refresh_head();
+    let config = load(&f.repo, &f.base).unwrap();
+    let inputs = std::collections::BTreeMap::from([("wrapper_sha256".into(), "c".repeat(64))]);
+    assert_eq!(
+        mergemaster_evidence::gate::config::producer_digest(config.producers.as_ref(), &inputs),
+        mergemaster_evidence::gate::config::ProducerDigest::Listed
+    );
+    let mut statement = f.statement();
+    statement["predicate"]["observed"]["inputs"]
+        .as_object_mut()
+        .unwrap()
+        .remove("system");
+    f.note(&statement, &f.key, "tree");
+    let decision = f.decision(&[]);
+    assert_eq!(decision["producer_digest"], "listed");
+    // Existing input binding still requires the signed system, independently of reporting.
+    assert_eq!(decision["reason"], "wrong_input");
+}
+
+#[test]
+fn malformed_base_producer_manifest_is_an_error_like_malformed_tool_pin() {
+    for case in [
+        "json",
+        "version",
+        "empty",
+        "duplicate",
+        "unknown_manifest",
+        "unknown_producer",
+        "unknown_provenance",
+        "system",
+        "flavor",
+        "digest_length",
+        "digest_uppercase",
+        "revision",
+        "package",
+        "store_path",
+        "tool_pin",
+    ] {
+        let mut f = Fixture::new();
+        let mut manifest = producer_manifest();
+        match case {
+            "version" => manifest["version"] = json!(2),
+            "empty" => manifest["producers"] = json!([]),
+            "duplicate" => {
+                let producer = manifest["producers"][0].clone();
+                manifest["producers"].as_array_mut().unwrap().push(producer);
+            }
+            "unknown_manifest" => manifest["extra"] = json!(true),
+            "unknown_producer" => manifest["producers"][0]["extra"] = json!(true),
+            "unknown_provenance" => manifest["producers"][0]["provenance"]["extra"] = json!(true),
+            "system" => manifest["producers"][0]["system"] = json!("unknown"),
+            "flavor" => manifest["producers"][0]["flavor"] = json!("unknown"),
+            "digest_length" => manifest["producers"][0]["executable_sha256"] = json!("c"),
+            "digest_uppercase" => {
+                manifest["producers"][0]["executable_sha256"] = json!("C".repeat(64))
+            }
+            "revision" => {
+                manifest["producers"][0]["provenance"]["mergemaster_revision"] = json!("a")
+            }
+            "package" => manifest["producers"][0]["provenance"]["package"] = json!(""),
+            "store_path" => {
+                manifest["producers"][0]["provenance"]["nix_output_path"] =
+                    json!("/nix/store/not-an-output");
+            }
+            _ => {}
+        }
+        let path = if case == "tool_pin" {
+            ".mergemaster/tool-pin.json"
+        } else {
+            ".mergemaster/producers.json"
+        };
+        f.write(
+            path,
+            if matches!(case, "json" | "tool_pin") {
+                "{".into()
+            } else {
+                manifest.to_string()
+            },
+        );
+        f.base = f.commit("malformed BASE declaration");
+        f.refresh_head();
+        let error = load(&f.repo, &f.base).unwrap_err();
+        assert!(
+            !error.is::<mergemaster_evidence::gate::config::MissingConfig>(),
+            "{case}: {error}"
+        );
+        let output_path = f.root.path().join("github-output");
+        fs::write(&output_path, "previous=value\n").unwrap();
+        let output = f.gate(&["--github-output", output_path.to_str().unwrap()]);
+        assert!(!output.status.success(), "{case}");
+        assert!(output.stdout.is_empty(), "{case}");
+        assert!(!output.stderr.is_empty(), "{case}");
+        assert_eq!(
+            fs::read_to_string(output_path).unwrap(),
+            "previous=value\n",
+            "{case}"
+        );
+    }
+}
+
+#[test]
+fn head_only_producer_manifest_is_ignored() {
+    let mut f = Fixture::new();
+    // Malformed HEAD data must not be parsed as a BASE declaration.
+    f.write(".mergemaster/producers.json", "{");
+    f.refresh_head();
+    assert!(load(&f.repo, &f.base).unwrap().producers.is_none());
+    let statement = f.statement();
+    f.note(&statement, &f.key, "tree");
+    let decision = f.decision(&[]);
+    // Introducing a manifest still follows the existing protected-edit policy.
+    assert_eq!(decision["decision"], "refuse");
+    assert_eq!(decision["reason"], "protected_paths");
+    assert!(decision["record"].is_null());
+    assert!(decision["producer_digest"].is_null());
+}
+
 #[test]
 fn native_status_json_and_github_output_are_a_single_contract() {
     // These are the native protocol, NOT the legacy satisfied/tier/policy
@@ -1303,6 +1503,7 @@ fn native_status_json_and_github_output_are_a_single_contract() {
         "reason",
         "record",
         "report_only",
+        "producer_digest",
         "signer",
         "observed_at",
         "age_seconds",
@@ -1375,6 +1576,7 @@ fn native_status_json_and_github_output_are_a_single_contract() {
                     "version":1, "check":CHECK, "base":f.base, "head":f.head, "tree":f.tree,
                     "expectation_source":"caller", "decision":decision, "outcome":outcome,
                     "reason":reason, "record":record, "report_only":false,
+                    "producer_digest":if present { json!("no_manifest") } else { Value::Null },
                     "signer":if present { json!(PRINCIPAL) } else { Value::Null },
                     "observed_at":if present { statement["predicate"]["observed_at"].clone() } else { Value::Null },
                     "age_seconds":age,

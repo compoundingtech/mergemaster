@@ -4,7 +4,10 @@ use anyhow::{Context, Result, ensure};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
 /// The signing or verifying host's platform, matching the keys of
 /// `Environment::systems`.
@@ -35,6 +38,104 @@ struct ToolPin {
 struct ReleasePin {
     version: String,
     sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProducerManifest {
+    version: u32,
+    producers: Vec<Producer>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Producer {
+    system: String,
+    flavor: ProducerFlavor,
+    executable_sha256: String,
+    provenance: ProducerProvenance,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+enum ProducerFlavor {
+    Nix,
+    Release,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProducerProvenance {
+    mergemaster_revision: String,
+    package: String,
+    nix_output_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProducerDigest {
+    Listed,
+    Unlisted,
+    NoManifest,
+}
+
+impl ProducerManifest {
+    fn validate(&self) -> Result<()> {
+        ensure!(
+            self.version == 1 && !self.producers.is_empty(),
+            "unsupported or empty producer manifest"
+        );
+        let mut entries = BTreeSet::new();
+        for producer in &self.producers {
+            ensure!(
+                matches!(
+                    producer.system.as_str(),
+                    "x86_64-linux" | "aarch64-linux" | "x86_64-darwin" | "aarch64-darwin"
+                ) && producer.executable_sha256.len() == 64
+                    && producer
+                        .executable_sha256
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                    && full_commit(&producer.provenance.mergemaster_revision)
+                    && nonempty(&producer.provenance.package)
+                    && producer
+                        .provenance
+                        .nix_output_path
+                        .as_deref()
+                        .is_none_or(nix_store_path),
+                "invalid producer manifest entry"
+            );
+            ensure!(
+                entries.insert((
+                    &producer.system,
+                    &producer.flavor,
+                    &producer.executable_sha256
+                )),
+                "duplicate producer manifest entry"
+            );
+        }
+        Ok(())
+    }
+}
+
+/// Report producer digest binding to a BASE manifest, without authorizing it.
+pub fn producer_digest(
+    manifest: Option<&ProducerManifest>,
+    inputs: &BTreeMap<String, String>,
+) -> ProducerDigest {
+    let Some(manifest) = manifest else {
+        return ProducerDigest::NoManifest;
+    };
+    if manifest.producers.iter().any(|producer| {
+        inputs.get("wrapper_sha256") == Some(&producer.executable_sha256)
+            && inputs
+                .get("system")
+                .is_none_or(|system| system == &producer.system)
+    }) {
+        ProducerDigest::Listed
+    } else {
+        ProducerDigest::Unlisted
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -191,6 +292,7 @@ pub struct Config {
     pub environment: Environment,
     pub environment_bytes: Vec<u8>,
     pub keys: Vec<u8>,
+    pub producers: Option<ProducerManifest>,
 }
 
 pub fn full_commit(value: &str) -> bool {
@@ -425,6 +527,15 @@ pub fn load(repo: &Path, base: &str) -> Result<Config> {
             "invalid release pin"
         );
     }
+    let producers = match config_blob(repo, base, ".mergemaster/producers.json") {
+        Ok(bytes) => {
+            let manifest: ProducerManifest = decode(&bytes, "producer manifest")?;
+            manifest.validate()?;
+            Some(manifest)
+        }
+        Err(error) if error.is::<MissingConfig>() => None,
+        Err(error) => return Err(error),
+    };
     let mut policy: Policy = decode(
         &config_blob(repo, base, ".mergemaster/lanes.json")?,
         "lanes policy",
@@ -586,6 +697,7 @@ pub fn load(repo: &Path, base: &str) -> Result<Config> {
         environment,
         environment_bytes,
         keys,
+        producers,
     })
 }
 
