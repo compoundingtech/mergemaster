@@ -716,13 +716,17 @@ resource/security prerequisites remain open but unreachable, not silently satisf
 `mergemaster legacy-evidence-verify-helper` exposes the verifier's gate, policy,
 lane, statement and signature operations without loading Python modules.
 
-The local `scripts/ci-evidence-gate` uses the provisioned `mergemaster` binary for
-verification, helpers and crate keys, validating its repository, compiled release
-version and measured digest against BASE `.mergemaster/tool-pin.json`; BASE still
-supplies policy, keys, lanes and inputs. The decision line's `verifier_sha256`
-is that validated binary digest, and `tool_pin_sha256` hashes the raw BASE pin;
-the pin's revision is provenance bound by provisioning's release attestation,
-not binary-embedded revision metadata.
+The local `scripts/ci-evidence-gate` uses the provisioned `mergemaster` binary
+for verification, helpers and crate keys; BASE still supplies policy, keys,
+lanes and inputs. Only the measured binary digest binds binary identity to BASE
+`.mergemaster/tool-pin.json` (repository and compiled release version must also
+match); the pin's revision is provenance and is not checked against the binary.
+Nothing in this repository verifies the #405 release attestation: the provisioning
+workflow does that before the binary reaches `MERGEMASTER_BIN`.
+The gate and binary inherit the workflow's Git environment (`GIT_DIR` and similar),
+like every other gate Git call; this is trusted workflow configuration, not
+candidate input. The decision line's `verifier_sha256` is the validated binary
+digest, and `tool_pin_sha256` hashes the raw BASE pin.
 
 An accepted base without `.mergemaster/tool-pin.json`, or whose pin does not
 match the running binary, makes this local gate report `unavailable`: CI runs

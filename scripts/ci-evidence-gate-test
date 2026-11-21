@@ -207,6 +207,20 @@ class BaseReadPermissions(unittest.TestCase):
         closure = load('gate_test_lane_closure', 'scripts/lane-definition-closure')
         self.assertEqual(closure.protected_files(closure.Repo(ROOT)), set(gate.PROTECTED) - set(gate.BASE_READ))
 
+    def test_observe_refuses_symbolic_base_without_calling_the_binary(self):
+        for base in ('HEAD', 'main'):
+            with self.subTest(base=base), mock.patch.object(gate, 'run') as run:
+                context = {'base': base, 'check': 'demo', 'repository': 'org/repo'}
+                self.assertEqual(gate.observe(context),
+                                 ('unavailable', None, 'the accepted base is not a commit id', None))
+                run.assert_not_called()
+
+    def test_ci_inputs_refuses_symbolic_base_without_calling_the_binary(self):
+        for base in ('HEAD', 'main'):
+            with self.subTest(base=base), mock.patch.object(gate, 'run') as run:
+                self.assertFalse(gate.ci_inputs_kept('demo', 'a' * 40, base, 'b' * 40))
+                run.assert_not_called()
+
     def test_ci_inputs_exemption_selects_base_lanes_in_either_layout_and_refuses_preferred_errors(self):
         # arn:lmig:smalltalk:2026-10-27-dot-fractal-config — real pinned Git reads, with projection delegated to the base verifier.
         for layout in ('old', 'new', 'both', 'malformed'):

@@ -320,6 +320,8 @@ def observe(context, revision='HEAD', protected=None):
     base, check, repository = context['base'], context['check'], context['repository']
     if not base:
         return 'unavailable', None, 'no accepted base commit for this event', None
+    if not OID.match(base):
+        return 'unavailable', None, 'the accepted base is not a commit id', None
     # A head tree's history is already here (choose_tree deepened it and has the base): a depth-1 fetch of the base would cut it
     # there, and the verifier checks that the branch point is an ancestor of the base.
     present = context.get('tree_of') == 'head' and run('git', 'cat-file', '-e', f'{base}^{{commit}}').returncode == 0
@@ -556,7 +558,7 @@ def ci_inputs_kept(check, branch_point, base, current):
     """True when `check` declares its CI inputs at the base (its lane's ci_inputs) and they are the same at the branch point, the base
     and `current`: main moved protected files, but none this check uses, so its own tree may still be asked about. False when the base
     declares none for it, or the Rust helper refuses its lane file or trees."""
-    if not check:
+    if not check or not base or not OID.match(base):
         return False
     try:
         pinned = run(VERIFIER_BINARY, 'legacy-evidence-verify-helper', 'verify-tool-pin',
