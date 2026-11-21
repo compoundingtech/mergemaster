@@ -68,7 +68,6 @@ fn row(id: u64, hours: i64) -> Row {
         check: "web".to_owned(),
         run: id,
         created,
-        created_local: created,
         actor: "alice".to_owned(),
         base: String::new(),
         fields: json!({"check":"web", "outcome":"satisfied", "log":"ok", "pr":id.to_string(), "pr_head":id.to_string()}),
