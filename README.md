@@ -1765,10 +1765,16 @@ Intentional `legacy-sign` divergences from the pinned Python oracle:
 - Native signing first checks object completeness with `git rev-list --objects
   --missing=print`, refusing missing objects before signing. The pinned Python
   has no completeness preflight: an absent commit first fails at `git cat-file -t`.
-  Recorded valid requests with synthetic absent commits therefore produce
-  `git rev-list failed:` natively versus `git cat-file failed:` in the oracle.
+  Recorded requests naming an absent 40-character object therefore produce
+  `1 missing objects before signing; hydrate the source repository in the caller
+  first` natively versus `git cat-file failed:` in the oracle. Request spellings
+  that Git rejects as revisions instead produce `git rev-list failed:` natively.
   This preflight matches the in-tree resynced `scripts/evidence-sign`
   (`require_complete_commit`), not the pinned oracle.
+- Native signing reproduces Python's lone-surrogate escapes byte for byte, but
+  the native typed v1 verifier (`evidence verify`) refuses such statements
+  (fail-closed), whereas the removed Python `evidence-verify` accepted them.
+  Verifier parity for these statements remains a tracked follow-up.
 - Missing configuration errors name the configuration path without Python's
   `[Errno ...]` text. Malformed configuration types produce normalized
   refusals instead of Python crash tracebacks.

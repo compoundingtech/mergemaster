@@ -102,7 +102,7 @@ def init(repo, bare=False):
 
 def invoke(native, home, repo, raw, extra=None):
     argv = [binary, 'evidence', 'legacy-sign'] if native else [sys.executable, '-I', '-B', script]
-    return run(argv, raw, repo, dict(HOME=str(home), EVIDENCE_SIGN_NOW=NOW, **(extra or {})))
+    return run(argv, raw, repo, {'HOME': str(home), 'EVIDENCE_SIGN_NOW': NOW, **(extra or {})})
 
 def refusal(done):
     assert done.returncode == 1 and done.stdout == b'', (done.args, done.returncode, done.stdout, done.stderr)
@@ -159,7 +159,16 @@ with tempfile.TemporaryDirectory() as directory:
                 # Native hardening adds a completeness preflight; the pinned
                 # Python instead reaches its original cat-file binding check.
                 assert expected.startswith('git cat-file failed:'), (case['label'], expected)
-                assert observed.startswith('git rev-list failed:'), (case['label'], observed)
+                commit = json.loads(raw)['commit']
+                if len(commit) == 40:
+                    assert observed == '1 missing objects before signing; hydrate the source repository in the caller first', (case['label'], observed)
+                else:
+                    # The 64-character and final-newline forms pass Python's
+                    # validator but are not object names in this SHA-1 repo.
+                    preflight = run(['git', '-C', repo, 'rev-list', '--objects', '--missing=print', commit])
+                    assert preflight.returncode != 0, (case['label'], preflight.stdout)
+                    message = 'git rev-list failed: ' + preflight.stderr.decode(errors='replace').strip()[-500:]
+                    assert observed == message, (case['label'], message, observed)
             else:
                 assert not expected.startswith(('git ', 'tool path ', 'configuration ', 'invalid signer')), (case['label'], expected)
                 # Ignore only Git's host/version-specific detail after the class
@@ -295,12 +304,17 @@ with tempfile.TemporaryDirectory() as directory:
             packed = {line.split()[0] for line in git(target, 'cat-file', '--batch-all-objects', '--batch-check=%(objectname)').decode().splitlines()}
             assert packed == reachable, (packed, reachable)
             git(target, 'update-ref', 'refs/notes/evidence/' + tree + '/' + record, record)
-            # Both actual implementations' packs must pass both existing
-            # verifiers, not just a structural or signature-shaped check.
+            # Both verifiers accept each pack, except the native typed verifier's
+            # documented fail-closed refusal of lone-surrogate statement text.
             for verifier in ([sys.executable, '-I', '-B', oracle / 'scripts/evidence-verify', '--repo', target,
                               '--tree', tree, '--check', check, '--keys', allowed],
                              [binary, 'evidence', 'verify', '--repo', target, '--record', record, '--trusted-signers', allowed]):
-                result = json.loads(good(run(verifier)))
+                verified = run(verifier)
+                if group == 'signing-surrogate' and verifier[0] == binary:
+                    assert verified.returncode == 1 and verified.stdout == b'', (verified.returncode, verified.stdout, verified.stderr)
+                    assert verified.stderr.startswith(b'decode evidence statement:'), verified.stderr
+                    continue
+                result = json.loads(good(verified))
                 assert result['record'] == record, result
                 if verifier[0] == binary:
                     assert result['subject_binding'] == 'verified', result
