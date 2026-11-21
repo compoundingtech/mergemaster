@@ -20,8 +20,8 @@ with the process's working directory (tracked through chdir and clone, starting 
 log prints for the dirfd; `unresolved_calls` counts the calls that could not be placed (an unannotated dirfd), and a lane with any is
 not closed by this trace.
 
-Exit 0 when both uncovered lists are empty, 1 otherwise, 2 for a usage error. It needs only Python for --analyze; --run needs strace
-and runs the command from --root with the caller's environment (take the trace in the same dev shell the lane uses).
+Exit 0 when both uncovered lists are empty, 1 otherwise, 2 for a usage error. Needs Python and the pinned mergemaster binary;
+running a command also needs strace and uses --root with the caller's environment (take the trace in the same dev shell the lane uses).
 """
 import argparse
 import json
@@ -155,14 +155,14 @@ def report(rules, opened, missing, unresolved):
 
 
 def load_rules(args):
-    here = os.path.dirname(os.path.abspath(__file__))
-    from importlib.machinery import SourceFileLoader
-    from importlib.util import module_from_spec, spec_from_loader
-    loader = SourceFileLoader('evidence_verify_for_trace', os.path.join(here, 'evidence-verify'))
-    verifier = module_from_spec(spec_from_loader(loader.name, loader))
-    loader.exec_module(verifier)
     with open(args.lanes_file) as handle:
-        return verifier.lane_rules(handle.read(), args.lane)
+        done = subprocess.run([os.environ.get('MERGEMASTER_BIN', 'mergemaster'), 'legacy-evidence-verify-helper',
+                               'lane-rules', '--check', args.lane], input=handle.read(), capture_output=True, text=True)
+    if done.returncode == 3:
+        raise ValueError(json.loads(done.stdout)['detail'])
+    if done.returncode:
+        raise ValueError(done.stderr.strip() or 'lane-rules helper failed')
+    return json.loads(done.stdout)
 
 
 def main(argv):

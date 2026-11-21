@@ -42,6 +42,24 @@ class Trace(unittest.TestCase):
                                '--analyze', str(path), *extra], capture_output=True)
         return done.returncode, done.stdout.decode(), done.stderr.decode()
 
+    def test_bad_lane_rules_remain_a_usage_refusal_with_the_helper_detail(self):
+        self.lanes.write_text('{"version": 1, "lanes": {}}')
+        code, out, err = self.run_main([])
+        self.assertEqual(code, 2)
+        self.assertEqual(out, '')
+        self.assertIn('lane file:', err)
+        self.assertIn('unit', err)
+
+    def test_a_missing_binary_never_falls_back_to_the_python_verifier(self):
+        raw = Path(self.tmp.name) / 'empty.raw'
+        raw.write_text('')
+        done = subprocess.run([sys.executable, str(SCRIPT), '--lane', 'unit', '--lanes-file', str(self.lanes),
+                               '--root', self.root, '--analyze', str(raw)], capture_output=True, text=True,
+                              env=dict(os.environ, MERGEMASTER_BIN=str(Path(self.tmp.name) / 'missing-mergemaster')))
+        self.assertEqual(done.returncode, 2)
+        self.assertEqual(done.stdout, '')
+        self.assertIn('lane file:', done.stderr)
+
     def test_declared_reads_are_covered_and_an_undeclared_one_is_reported_with_its_ancestors_of_declared_paths_ignored(self):
         r = self.root
         result = self.analyze(

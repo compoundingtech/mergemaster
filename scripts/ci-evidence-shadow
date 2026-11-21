@@ -19,8 +19,8 @@ One grep-able line per lane, then one total:
   evidence-shadow v1 total lanes=N ok=N would_reject=N not_run=N refs_added=N seconds=N
 
 The same lines go to $GITHUB_STEP_SUMMARY as a table. The exit status is 0 whatever the lanes say;
-only a usage error is 2. Take this script and the verifier from the accepted base, not from the
-tree under test.
+only a usage error is 2. Take this script from the accepted base and the Rust verifier from the
+trusted tool pin, not from the tree under test.
 """
 import argparse
 import json
@@ -39,7 +39,6 @@ CHECK = re.compile(r'^[a-z0-9][a-z0-9._-]{0,63}\Z')
 NOTES = 'refs/notes/evidence/'
 REF = re.compile(r'^(?:refs/notes/evidence/(?:[0-9a-f]{40,64}/)?|refs/tags/evidence/[0-9a-f]{40,64}/)[0-9a-f]{40,64}\Z')
 TOKEN = re.compile(r'^[A-Za-z0-9._:/@+=-]+\Z')
-HERE = Path(__file__).resolve().parent
 
 
 def run(*args, cwd=None, timeout=120):
@@ -68,7 +67,7 @@ def lane_lines(lanes, published, fetched, scratch, tree, verifier, keys, optiona
         if record not in fetched:
             results.append((check, False, 'not_on_remote', {}, time.monotonic() - started))
             continue
-        done = run(sys.executable, verifier, '--repo', str(scratch), '--tree', tree, '--check', check, '--keys', keys, timeout=60)
+        done = run(verifier, 'legacy-evidence-verify', '--repo', str(scratch), '--tree', tree, '--check', check, '--keys', keys, timeout=60)
         try:
             result = json.loads(done.stdout)
         except ValueError:
@@ -84,7 +83,7 @@ def main(argv):
     parser.add_argument('--publish-result', required=True, help="the JSON evidence-publish printed")
     parser.add_argument('--keys', required=True, help='allowed-signers file from the base commit')
     parser.add_argument('--checks', required=True, help='comma-separated lanes to report')
-    parser.add_argument('--verifier', default=str(HERE / 'evidence-verify'))
+    parser.add_argument('--verifier', default=os.environ.get('MERGEMASTER_BIN', 'mergemaster'), help='pinned mergemaster binary')
     parser.add_argument('--optional', default='', help='lanes that only run when their paths changed: no record reads n/a')
     parser.add_argument('--remote', default='origin')
     parser.add_argument('--repo', default='.')

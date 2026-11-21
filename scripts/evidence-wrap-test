@@ -6,8 +6,6 @@
 """
 import base64
 import hashlib
-import importlib.machinery
-import importlib.util
 import json
 import os
 import re
@@ -22,6 +20,15 @@ from evidence_test_support import clean_loader_environment, tool_path  # noqa: E
 clean_loader_environment()
 ROOT = Path(__file__).resolve().parent.parent
 WRAP, SIGN = ROOT / 'scripts/evidence-wrap', ROOT / 'scripts/evidence-sign'
+MERGEMASTER = os.environ.get('MERGEMASTER_BIN', 'mergemaster')
+
+
+def lane_definition(repo, base, tree, lanes):
+    done = subprocess.run([MERGEMASTER, 'legacy-evidence-verify-helper', 'lane-definition',
+                           '--repo', str(repo), '--base-tree', base, '--tree', tree, '--check', 'linux-gate'],
+                          input=lanes.encode(), capture_output=True, env=ENV)
+    assert done.returncode == 0, (done.stdout, done.stderr)
+    return json.loads(done.stdout)
 FIXTURES = ROOT / 'scripts/testdata/evidence/wrapper-note'
 DATE = '2026-10-14T12:00:00Z'
 ENV = dict(os.environ, GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_SYSTEM='/dev/null', LC_ALL='C',
@@ -587,13 +594,9 @@ os.execv({real_git!r}, ['git', *args])
         noted = json.loads(done.stderr.decode()[done.stderr.decode().index('{'):])
         lane_inputs = json.loads(git(tmp / 'scratch.git', 'cat-file', 'blob', git(tmp / 'scratch.git', 'ls-tree', '-r', noted['record']).split()[2])
                                  )['predicate']['observed']['inputs']
-        loader = importlib.machinery.SourceFileLoader('ev', str(ROOT / 'scripts/evidence-verify'))
-        spec = importlib.util.spec_from_file_location(loader.name, loader.path, loader=loader)
-        verifier = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(verifier)
-        expected_digest = verifier.lane_definition(
-            str(lane_repo), git(lane_repo, 'rev-parse', base + '^{tree}'), git(lane_repo, 'rev-parse', 'HEAD^{tree}'),
-            verifier.lane_rules(git(lane_repo, 'show', base + ':.st/required-lanes.json'), 'linux-gate'))['sha256']
+        expected_digest = lane_definition(
+            lane_repo, git(lane_repo, 'rev-parse', base + '^{tree}'), git(lane_repo, 'rev-parse', 'HEAD^{tree}'),
+            git(lane_repo, 'show', base + ':.st/required-lanes.json'))['sha256']
         assert lane_inputs['lane_definition_sha256'] == expected_digest, lane_inputs
         for refusal, command, extra, check in (
                 ('another argv', ['sh', '-c', 'echo fewer'], ('--lanes-from', base), 'linux-gate'),
@@ -611,9 +614,9 @@ os.execv({real_git!r}, ['git', *args])
         noted = json.loads(edited.stderr.decode()[edited.stderr.decode().index('{'):])
         edited_inputs = json.loads(git(tmp / 'scratch.git', 'cat-file', 'blob', git(tmp / 'scratch.git', 'ls-tree', '-r', noted['record']).split()[2])
                                    )['predicate']['observed']['inputs']
-        definition = verifier.lane_definition(
-            str(lane_repo), git(lane_repo, 'rev-parse', base + '^{tree}'), git(lane_repo, 'rev-parse', 'HEAD^{tree}'),
-            verifier.lane_rules(git(lane_repo, 'show', base + ':.st/required-lanes.json'), 'linux-gate'))
+        definition = lane_definition(
+            lane_repo, git(lane_repo, 'rev-parse', base + '^{tree}'), git(lane_repo, 'rev-parse', 'HEAD^{tree}'),
+            git(lane_repo, 'show', base + ':.st/required-lanes.json'))
         assert definition['changed'] == ['scripts/lane.sh'] and definition['tree_sha256'] != definition['sha256'], definition
         assert edited_inputs['lane_definition_sha256'] == definition['tree_sha256'], edited_inputs
         plain = lane_wrap(lane_argv)  # without the flag nothing about lanes is recorded
@@ -641,10 +644,10 @@ os.execv({real_git!r}, ['git', *args])
             selected_inputs = json.loads(git(
                 tmp / 'scratch.git', 'cat-file', 'blob',
                 git(tmp / 'scratch.git', 'ls-tree', '-r', noted['record']).split()[2]))['predicate']['observed']['inputs']
-            selected_definition = verifier.lane_definition(
-                str(lane_repo), git(lane_repo, 'rev-parse', selected_base + '^{tree}'),
+            selected_definition = lane_definition(
+                lane_repo, git(lane_repo, 'rev-parse', selected_base + '^{tree}'),
                 git(lane_repo, 'rev-parse', 'HEAD^{tree}'),
-                verifier.lane_rules(git(lane_repo, 'show', selected_base + ':.fractal/required-lanes.json'), 'linux-gate'))
+                git(lane_repo, 'show', selected_base + ':.fractal/required-lanes.json'))
             assert selected_inputs['lane_definition_sha256'] == selected_definition['tree_sha256'], selected_inputs
             rejected = lane_wrap(lane_argv, '--lanes-from', selected_base)
             assert rejected.returncode == 1, (layout, rejected.stderr.decode())
@@ -659,7 +662,7 @@ os.execv({real_git!r}, ['git', *args])
         def crate_wrap(crate, command, keys_file=signers, *extra):
             tree_id = git(repo, 'rev-parse', 'HEAD^{tree}')
             done = run([sys.executable, str(WRAP), '--check', 'rust-tests', '--toolchain-sha256', toolchain, '--signer', signer, '--keys', str(keys_file),
-                        '--verifier', str(ROOT / 'scripts/evidence-verify'), '--input', f'crate={crate}', '--input', f'source_inputs={tree_id}', *extra,
+                        '--verifier', MERGEMASTER, '--input', f'crate={crate}', '--input', f'source_inputs={tree_id}', *extra,
                         '--', *command], repo, home)
             text = done.stderr.decode()
             return done.returncode, json.loads(text[text.index('{'):])
@@ -677,7 +680,7 @@ os.execv({real_git!r}, ['git', *args])
         code, unknown = crate_wrap('gamma', ['true'], wrong_keys)
         assert code == 0 and unknown['verified'] is False, 'a crate whose own record does not verify is still not verified'
         refused = run([sys.executable, str(WRAP), '--check', 'rust-tests', '--toolchain-sha256', toolchain, '--signer', signer, '--keys', str(wrong_keys),
-                       '--verifier', str(ROOT / 'scripts/evidence-verify'), '--input', 'crate=delta', '--input', f'source_inputs={git(repo, "rev-parse", "HEAD^{tree}")}',
+                       '--verifier', MERGEMASTER, '--input', 'crate=delta', '--input', f'source_inputs={git(repo, "rev-parse", "HEAD^{tree}")}',
                        '--push', 'origin', '--', 'true'], repo, home)
         assert refused.returncode == 1 and b'did not verify locally' in refused.stderr, refused.stderr
         print('passed: a per-crate record is verified as that crate\'s: a failed record of another crate does not decide it, its own unverified record still blocks a push')

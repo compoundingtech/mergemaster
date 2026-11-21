@@ -43,7 +43,7 @@ print(json.dumps(cases))
     let repo = tempfile::tempdir().unwrap();
     let oracle = std::env::var_os("MERGEMASTER_PYTHON_ORACLE")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .expect("MERGEMASTER_PYTHON_ORACLE must name the pinned Python oracle")
         .join("scripts/evidence-verify");
     let out = crate::pinned_python::command()
         .args(["-c", script])

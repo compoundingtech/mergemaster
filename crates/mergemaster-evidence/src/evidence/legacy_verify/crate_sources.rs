@@ -1,4 +1,4 @@
-//! st-test accepted-base tool/input selection, before executing or keying anything.
+//! st-test accepted-base input selection for native crate keying.
 use super::{
     crate_inputs::failure, crate_manifest_ops::exception, json_bytes, projection_oid::space,
     source_io,
@@ -14,11 +14,7 @@ use std::{
     path::Path,
     process::Command,
 };
-const TOOL: &str = "scripts/rust-test-keys";
-const VERIFIER: &str = "scripts/evidence-verify";
 pub struct SelectedSources {
-    pub tool: Vec<u8>,
-    pub verifier: Vec<u8>,
     pub inputs_from: String,
 }
 /// AcceptedSource must be bounded before any production caller is added.
@@ -147,15 +143,9 @@ impl AcceptedSource<'_> {
     }
     pub fn resolve(
         &self,
-        candidate_directory: &Path,
         candidate_tree: &str,
         judged_by_policy: impl FnOnce() -> Result<bool, PolicyError>,
     ) -> Result<SelectedSources, PolicyError> {
-        let shown = if self.present(TOOL)? {
-            Some(self.show(TOOL)?)
-        } else {
-            None
-        };
         let mut inputs = None;
         for path in [
             ".fractal/rust-test-inputs.json",
@@ -169,24 +159,16 @@ impl AcceptedSource<'_> {
         if let Some(bytes) = &inputs {
             json_bytes::parse(bytes)?;
         }
-        let (tool, inputs_from) = match (shown, inputs) {
-            (Some(tool), Some(_)) => (tool, self.base),
-            _ if judged_by_policy()? => {
+        let inputs_from = match inputs {
+            Some(_) => self.base,
+            None if judged_by_policy()? => {
                 return Err(failure(
-                    "the accepted base judges rust-tests but has no scripts/rust-test-keys and rust-test-inputs.json: only the base's tool and inputs may key a note",
+                    "the accepted base judges rust-tests but has no rust-test-inputs.json: only the base's inputs may key a note",
                 ));
             }
-            _ => {
-                let path = candidate_directory.join(TOOL);
-                let tool = std::fs::read(&path)
-                    .map_err(|error| source_io::error(path.as_os_str(), &error))?;
-                (tool, candidate_tree)
-            }
+            None => candidate_tree,
         };
-        let verifier = self.show(VERIFIER)?;
         Ok(SelectedSources {
-            tool,
-            verifier,
             inputs_from: inputs_from.into(),
         })
     }

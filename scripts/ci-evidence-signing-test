@@ -414,7 +414,7 @@ with tempfile.TemporaryDirectory() as directory:
         assert refused.returncode == 1, (bad, refused.stdout)
     print('passed: extra step inputs are recorded as named strings; a malformed set or one that replaces a fixed input makes no note')
 
-    # --- source_inputs: recorded only when the BASE evidence-verify projects the check's declared inputs
+    # --- source_inputs: the trusted Rust tool projects the accepted BASE policy.
     stub_dir = tmp / 'stub-scripts'
     stub_dir.mkdir()
     shutil_copy = __import__('shutil').copy
@@ -422,10 +422,13 @@ with tempfile.TemporaryDirectory() as directory:
     KEY = 'a' * 40
 
     def with_verify(body):
-        (stub_dir / 'evidence-verify').write_text(body)
+        binary = stub_dir / 'mergemaster'
+        binary.write_text(f'#!{sys.executable}\nimport sys\nassert sys.argv.pop(1) == "legacy-evidence-verify"\n' + body)
+        binary.chmod(0o755)
 
     def project_run(extra=None):
-        env_ = dict(base_env, STEP_OUTCOMES=json.dumps({'driver': 'success'}), PROJECT_BASE_SHA='b' * 40, GITHUB_REPOSITORY='example/repo')
+        env_ = dict(base_env, STEP_OUTCOMES=json.dumps({'driver': 'success'}), PROJECT_BASE_SHA='b' * 40,
+                    GITHUB_REPOSITORY='example/repo', MERGEMASTER_BIN=str(stub_dir / 'mergemaster'))
         env_.update(extra or {})
         done = subprocess.run([sys.executable, str(stub_dir / 'ci-evidence-signing'), 'step-facts', str(out)], capture_output=True, text=True,
                               env=dict(BASE, **env_))
@@ -440,14 +443,15 @@ with tempfile.TemporaryDirectory() as directory:
     assert 'source_inputs' not in project_run()[1]['inputs'], 'a check without declared inputs stays an exact-tree note'
     with_verify('import sys\nsys.exit(2)\n')
     done, facts = project_run()
-    assert done.returncode == 0 and 'source_inputs' not in facts['inputs'], 'a base whose evidence-verify has no --project signs an exact-tree note'
+    assert done.returncode == 0 and 'source_inputs' not in facts['inputs'], 'a refusing Rust verifier signs an exact-tree note'
     with_verify('print(\'{"source_inputs": "not-a-tree"}\')\n')
     assert 'source_inputs' not in project_run()[1]['inputs'], 'a malformed key is dropped, never signed'
     with_verify(f'print(\'{{"source_inputs": "{KEY}\\\\n"}}\')\n')
     assert 'source_inputs' not in project_run()[1]['inputs'], 'a key with a trailing newline is dropped'
     with_verify(f'import json\nprint(json.dumps({{"source_inputs": {KEY!r}}}))\n')
     assert 'source_inputs' not in project_run(dict(PROJECT_BASE_SHA=''))[1]['inputs'], 'no base commit, no key'
-    print('passed: source_inputs is signed only when the base evidence-verify projects a well-formed key; every other case is an exact-tree note')
+    assert 'source_inputs' not in project_run(dict(MERGEMASTER_BIN=str(tmp / 'missing-binary')))[1]['inputs']
+    print('passed: source_inputs is signed only when the trusted Rust verifier projects a well-formed key; every other case is an exact-tree note')
 
     # --- base_inputs: the digest of a base file the verdict depends on, taken at the base the job compared against (BASE_INPUTS_SHA)
     DIGEST = 'e' * 64
@@ -475,7 +479,8 @@ with tempfile.TemporaryDirectory() as directory:
         event = tmp / 'event.json'
         event.write_text(payload if isinstance(payload, str) else json.dumps(payload))
         env_ = dict(NEEDS_JSON=json.dumps({'linux-gate': {'result': 'success'}, 'linux-tests': {'result': 'success'}}),
-                    GITHUB_EVENT_NAME='merge_group', GITHUB_EVENT_PATH=str(event), GITHUB_REPOSITORY='example/repo', GITHUB_SHA='d' * 40)
+                    GITHUB_EVENT_NAME='merge_group', GITHUB_EVENT_PATH=str(event), GITHUB_REPOSITORY='example/repo', GITHUB_SHA='d' * 40,
+                    MERGEMASTER_BIN=str(stub_dir / 'mergemaster'))
         env_.update(extra or {})
         done = subprocess.run([sys.executable, str(stub_dir / 'ci-evidence-signing'), 'aggregate', str(out)], capture_output=True, text=True,
                               env=dict(BASE, **env_))

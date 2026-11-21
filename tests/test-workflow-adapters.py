@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render extracted adapters; retain parity except trusted native notice/source cutovers."""
+"""Render extracted adapters; retain parity except trusted native notice/source/verifier cutovers."""
 import difflib
 import hashlib
 import json
@@ -124,6 +124,59 @@ def source_migration(actual, expected, notice_script):
     assert script.endswith('test -n "$BASE_SHA" && git fetch --no-tags --depth=1 -q origin "$BASE_SHA" && provision_evidence_tool && "$MERGEMASTER" evidence source')
     assert script.split('\nsource_base=', 1)[0] == notice_script.split('\ngit fetch', 1)[0]
     return script
+
+
+def shadow_migration(actual, expected, notice_script):
+    actual_job = yaml.load(actual, Loader=yaml.BaseLoader)
+    expected_job = yaml.load(expected, Loader=yaml.BaseLoader)
+    key = 'evidence-note-linux-gate'
+    assert list(actual_job) == list(expected_job) == [key]
+    actual_step, = [step for step in actual_job[key]['steps'] if step.get('name') == 'Shadow-verify the published notes']
+    expected_step, = [step for step in expected_job[key]['steps'] if step.get('name') == 'Shadow-verify the published notes']
+    script = actual_step.pop('run').rstrip('\n')
+    old_script = expected_step.pop('run').rstrip('\n')
+    assert actual_step.pop('env') == {
+        'BASE_SHA': '${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha || github.sha }}',
+        'GH_TOKEN': '${{ github.token }}',
+    }
+    assert actual_job == expected_job, 'Signing job metadata, permissions or non-shadow steps changed'
+    assert actual_step['continue-on-error'] == 'true'
+    provisioning, body = script.split('\nshadow=', 1)
+    assert provisioning == notice_script.split('\ngit fetch', 1)[0]
+    expected_body = old_script.replace('python3 "$shadow"', 'provision_evidence_tool || exit 1\npython3 "$shadow"')
+    expected_body = expected_body.replace('--verifier "$RUNNER_TEMP/evidence-base/scripts/evidence-verify"',
+                                          '--verifier "$MERGEMASTER"')
+    assert 'shadow=' + body == expected_body, 'Shadow driver contract changed beyond the trusted verifier cutover'
+    assert '--verifier "$MERGEMASTER"' in body
+    return script
+
+
+def verifier_job_migration(actual, expected, notice_script, gate=False):
+    actual_job = yaml.load(actual, Loader=yaml.BaseLoader)
+    expected_job = yaml.load(expected, Loader=yaml.BaseLoader)
+    key, = actual_job
+    assert list(expected_job) == [key]
+    actual_step = actual_job[key]['steps'][1]
+    expected_step = expected_job[key]['steps'][1]
+    script = actual_step.pop('run').rstrip('\n')
+    old_script = expected_step.pop('run').rstrip('\n')
+    assert actual_step['env'].pop('GH_TOKEN') == '${{ github.token }}'
+    if not gate:
+        assert actual_step['env'].pop('BASE_SHA') == '${{ github.event.pull_request.base.sha }}'
+    assert actual_job == expected_job, 'Verifier job changed beyond provisioning'
+    provisioning = notice_script.split('\ngit fetch', 1)[0]
+    assert script.startswith(provisioning + '\n')
+    body = script[len(provisioning) + 1:]
+    if gate:
+        expected_body = old_script.replace('&& git show "$BASE_SHA:scripts/ci-evidence-gate"',
+                                          '&& provision_evidence_tool && git show "$BASE_SHA:scripts/ci-evidence-gate"')
+        expected_body = expected_body.replace('&& python3 "$RUNNER_TEMP/ci-evidence-gate"',
+                                              '&& MERGEMASTER_BIN="$MERGEMASTER" python3 "$RUNNER_TEMP/ci-evidence-gate"')
+    else:
+        assert old_script == 'python3 scripts/ci-signed-tree'
+        expected_body = ('git fetch --no-tags --depth=1 -q origin "$BASE_SHA" && provision_evidence_tool '
+                         '&& MERGEMASTER_BIN="$MERGEMASTER" python3 scripts/ci-signed-tree')
+    assert body == expected_body, 'Verifier invocation/base selection/fallback changed'
 
 
 def tool_provisioning(script, scratch, command):
@@ -305,15 +358,25 @@ with tempfile.TemporaryDirectory(prefix='workflow-adapters-', dir=ROOT / 'tmp') 
             tool_provisioning(notice_script, scratch, 'presign-notice')
             source_script = source_migration(actual_blocks['evidence-source'], baseline_blocks['evidence-source'], notice_script)
             tool_provisioning(source_script, scratch, 'source')
+            shadow_migration(actual_blocks['evidence-note-linux-gate'], baseline_blocks['evidence-note-linux-gate'], notice_script)
+            gate_keys = [key for key in actual_blocks if key.startswith('evidence-gate-')]
+            assert gate_keys
+            for key in gate_keys:
+                verifier_job_migration(actual_blocks[key], baseline_blocks[key], notice_script, gate=True)
             comparable = actual.decode()
-            for key in (notice_key, 'evidence-source'):
+            for key in (notice_key, 'evidence-source', 'evidence-note-linux-gate', *gate_keys):
                 comparable = comparable.replace(actual_blocks[key], baseline_blocks[key], 1)
             comparable = comparable.encode()
+        elif name == 'signed-tree':
+            actual_block = job_blocks(actual.decode())['signed-tree']
+            baseline_block = job_blocks(baseline[name].decode())['signed-tree']
+            verifier_job_migration(actual_block, baseline_block, notice_script)
+            comparable = actual.decode().replace(actual_block, baseline_block, 1).encode()
         assert comparable == baseline[name], ''.join(difflib.unified_diff(
             baseline[name].decode().splitlines(keepends=True),
             comparable.decode().splitlines(keepends=True),
             fromfile=f'consumer-generator/{name}', tofile=f'adapter-generator/{name}'))
-        print(f'{name}.yml: generator parity YES (notice/source native cutovers only)')
+        print(f'{name}.yml: generator parity YES (notice/source/verifier native cutovers only)')
         expected = (FIXTURE / f'.github/workflows/{name}.yml').read_bytes()
         if name == 'fleet':
             actual_jobs = job_blocks(actual.decode())
@@ -328,15 +391,26 @@ with tempfile.TemporaryDirectory(prefix='workflow-adapters-', dir=ROOT / 'tmp') 
                 if key == 'evidence-source':
                     source_migration(actual_jobs[key], expected_jobs[key], notice_script)
                     continue
+                if key == 'evidence-note-linux-gate':
+                    shadow_migration(actual_jobs[key], expected_jobs[key], notice_script)
+                    continue
+                if key.startswith('evidence-gate-'):
+                    verifier_job_migration(actual_jobs[key], expected_jobs[key], notice_script, gate=True)
+                    continue
                 assert actual_jobs[key].encode() == expected_jobs[key].encode(), ''.join(
                     difflib.unified_diff(expected_jobs[key].splitlines(keepends=True),
                                          actual_jobs[key].splitlines(keepends=True),
                                          fromfile=f'pinned/{name}/{key}', tofile=f'rendered/{name}/{key}'))
+        elif name == 'signed-tree':
+            actual_block = job_blocks(actual.decode())['signed-tree']
+            expected_block = job_blocks(expected.decode())['signed-tree']
+            verifier_job_migration(actual_block, expected_block, notice_script)
+            assert actual.decode().replace(actual_block, expected_block, 1).encode() == expected
         else:
             assert actual == expected, ''.join(difflib.unified_diff(
                 expected.decode().splitlines(keepends=True), actual.decode().splitlines(keepends=True),
                 fromfile=f'pinned/{name}', tofile=f'rendered/{name}'))
-        print(f'{name}.yml: pinned evidence parity YES (notice/source native cutovers only)')
+        print(f'{name}.yml: pinned evidence parity YES (notice/source/verifier native cutovers only)')
     print('Workflow adapter strict typecheck and golden test passed')
 
 subprocess.run(['python3', str(ROOT / 'tests/test-generic-evidence.py')], check=True)

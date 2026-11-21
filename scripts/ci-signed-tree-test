@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 """scripts/ci-signed-tree against real repositories: it judges a pull request head as DATA, from the base's scripts, and never fails."""
-import importlib.machinery
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -14,9 +12,8 @@ import unittest
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / 'scripts/ci-signed-tree'
-loader = importlib.machinery.SourceFileLoader('evidence_verify_test', str(ROOT / 'scripts/evidence-verify-test'))
-support = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
-loader.exec_module(support)
+sys.path.insert(0, str(ROOT / 'scripts'))
+import evidence_test_support as support
 Fixture, OBSERVED, two_check_policy = support.Fixture, support.OBSERVED, support.two_check_policy
 COMMAND = ('github-actions', 'org/repo', '.github/workflows/fleet.yml', 'unit')
 LANES = {'version': 1, 'lanes': {'unit': {'argv': ['github-actions', 'org/repo', '.github/workflows/fleet.yml', 'unit'],
@@ -29,7 +26,7 @@ class SignedTree(unittest.TestCase):
         self.addCleanup(self.f.tmp.cleanup)
         self.ci = self.f.key('ci', 'machine/ci1')
         (self.f.repo / 'scripts').mkdir()
-        for name in ('ci-signed-tree', 'evidence-verify'):
+        for name in ('ci-signed-tree',):
             shutil.copy(ROOT / 'scripts' / name, self.f.repo / 'scripts' / name)
         (self.f.repo / 'scripts/lane.sh').write_text('lane\n')
         (self.f.repo / '.st').mkdir()
@@ -110,7 +107,7 @@ class SignedTree(unittest.TestCase):
         self.f.git('add', '-A')
         self.f.git('commit', '-q', '-m', 'consumer verifier decoy and input policy')
         old_head, old_tree = self.pull_request({'src.txt': 'same\n', 'other.txt': 'one\n'}, number=1)
-        key = support.evidence_verify.project(str(self.f.repo), old_tree, ['src.txt'])
+        key = support.project(str(self.f.repo), old_tree, ['src.txt'])
         record = self.note(old_head, old_tree, inputs={'source_inputs': key})
         self.f.git('update-ref', f'refs/notes/evidence-input/unit/{key}/{record}', record)
         head, tree = self.pull_request({'src.txt': 'same\n', 'other.txt': 'two\n'}, number=2)
@@ -147,8 +144,10 @@ class SignedTree(unittest.TestCase):
 
     def test_a_trusted_note_for_the_head_tree_satisfies_the_requirement(self):
         head, tree = self.pull_request({'src.txt': 'two\n'})
-        rules = support.evidence_verify.lane_rules((self.f.repo / '.st/required-lanes.json').read_text(), 'unit')
-        digest = support.evidence_verify.lane_definition(str(self.f.repo), self.f.git('rev-parse', 'main^{tree}'), tree, rules)['sha256']
+        digest = support.helper('lane-definition', '--repo', str(self.f.repo),
+                                '--base-tree', self.f.git('rev-parse', 'main^{tree}'),
+                                '--tree', tree, '--check', 'unit',
+                                text=(self.f.repo / '.st/required-lanes.json').read_text())['sha256']
         self.note(head, tree, seconds=0)  # a note without the lane digest does not count once the base defines the lane
         self.assertEqual(self.run_job(head)['lanes'], 'unit:wrong_definition')
         self.note(head, tree, inputs={'lane_definition_sha256': digest}, seconds=5)  # dated later: two passes with equal dates are ordered by ref iteration
@@ -174,7 +173,7 @@ class SignedTree(unittest.TestCase):
         other_head, other_tree = self.pull_request({'src.txt': 'elsewhere\n'}, number=3)
         self.note(other_head, other_tree)
         head, tree = self.pull_request({'src.txt': 'mine\n'}, number=1)
-        key = support.evidence_verify.project(str(self.f.repo), tree, ['src.txt'])
+        key = support.project(str(self.f.repo), tree, ['src.txt'])
         mine = self.note(head, tree, inputs={'source_inputs': key})
         self.assertEqual(self.run_job(head)['lanes'], 'unit:wrong_definition')  # found, not no_record
         listed = lambda: subprocess.run(['git', '-C', str(self.last_checkout), 'for-each-ref', '--format=%(refname)', 'refs/tags/evidence/', 'refs/notes/'],
@@ -194,7 +193,7 @@ class SignedTree(unittest.TestCase):
         self.f.git('add', '-A')
         self.f.git('commit', '-q', '-m', 'unit declares inputs')
         old_head, old_tree = self.pull_request({'src.txt': 'same\n', 'other.txt': 'one\n'}, number=1)
-        key = support.evidence_verify.project(str(self.f.repo), old_tree, ['src.txt'])
+        key = support.project(str(self.f.repo), old_tree, ['src.txt'])
         record = self.note(old_head, old_tree, inputs={'source_inputs': key})
         self.f.git('update-ref', f'refs/notes/evidence-input/unit/{key}/{record}', record)
         head, tree = self.pull_request({'src.txt': 'same\n', 'other.txt': 'two\n'}, number=2)  # another tree, the same declared inputs
@@ -268,8 +267,10 @@ class SignedTree(unittest.TestCase):
         head, tree = self.pull_request({'src.txt': 'behind main\n'})
         (self.f.repo / 'scripts/lane.sh').write_text('lane, changed on main\n')
         self.f.git('commit', '-q', '-am', 'main changes the lane definition')
-        rules = support.evidence_verify.lane_rules((self.f.repo / '.st/required-lanes.json').read_text(), 'unit')
-        digest = support.evidence_verify.lane_definition(str(self.f.repo), self.f.git('rev-parse', f'{point}^{{tree}}'), tree, rules)['sha256']
+        digest = support.helper('lane-definition', '--repo', str(self.f.repo),
+                                '--base-tree', self.f.git('rev-parse', f'{point}^{{tree}}'),
+                                '--tree', tree, '--check', 'unit',
+                                text=(self.f.repo / '.st/required-lanes.json').read_text())['sha256']
         self.note(head, tree, inputs={'lane_definition_sha256': digest})
         return head, tree
 

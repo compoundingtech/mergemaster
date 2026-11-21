@@ -3,10 +3,10 @@
 
 Runs from the BASE branch's checkout (a `pull_request_target` workflow always uses the workflow file of the base branch, so the
 pull request cannot edit or delete it). The pull request's code is never checked out or executed: its head commit is fetched as
-git objects only and read as data (`git rev-parse`, `git ls-tree`, notes). The verifier is adjacent to this script; the key list,
+git objects only and read as data (`git rev-parse`, `git ls-tree`, notes). The verifier comes from the trusted Rust tool pin; the key list,
 the skip policy and the lane file come from the consumer's base checkout (the working directory).
 
-It asks `evidence-verify --require-all` about the head tree and prints ONE decision line, also written to the step summary:
+It asks `mergemaster legacy-evidence-verify --require-all` about the head tree and prints ONE decision line, also written to the step summary:
 
   signed-tree v1 decision=ok|would-reject|reject|skipped|error mode=shadow pr=N head=SHA tree=SHA base=SHA reason=... lanes=name:state,...
 
@@ -32,7 +32,7 @@ import time
 
 sys.dont_write_bytecode = True
 
-VERIFIER = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'evidence-verify')
+VERIFIER = os.environ.get('MERGEMASTER_BIN', 'mergemaster')
 POLICY = '.st/evidence-skip-policy.json'
 KEYS = '.st/evidence-keys'
 LANES = '.st/required-lanes.json'
@@ -171,7 +171,7 @@ def main():
             errors.append(('notes-fetch', stderr))
         for check, entry in sorted(checks.items()):
             if isinstance(entry, dict) and entry.get('require', 'off') != 'off' and entry.get('inputs') is not None and re.fullmatch(r'[A-Za-z0-9._-]+', check):
-                code, out = run(sys.executable, VERIFIER, '--repo', '.', '--revision', context['head'], '--check', check, '--project', '--policy-from', base,
+                code, out = run(VERIFIER, 'legacy-evidence-verify', '--repo', '.', '--revision', context['head'], '--check', check, '--project', '--policy-from', base,
                                 '--repository', repository, timeout=VERIFIER_TIMEOUT)
                 try:
                     key = json.loads(out).get('source_inputs') if code == 0 else None
@@ -184,7 +184,7 @@ def main():
                     if code != 0:
                         errors.append((f'notes-fetch:{check}', stderr))
         notes_failed = bool(errors)
-        command = [sys.executable, VERIFIER, '--repo', '.', '--tree', tree, '--require-all', '--keys-from', base,
+        command = [VERIFIER, 'legacy-evidence-verify', '--repo', '.', '--tree', tree, '--require-all', '--keys-from', base,
                    '--policy-from', base, '--repository', repository]
         lane_base = None
         if config_path(base, LANES) is not None:

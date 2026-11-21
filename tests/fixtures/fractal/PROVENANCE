@@ -4,6 +4,8 @@ Commit: e2721e52463428b4ff655addee129cecd2839763
 Committed fixtures are limited to policy, directly used non-moving scripts,
 wrapper-note testdata, and the documentation section used by evidence-flip-ready.
 Six unchanged process/supervision helpers are listed in infrastructure-PROVENANCE.
+Wave 2 removes the rust-test-keys fixture; callers use the provisioned mergemaster
+binary, and differential tests use MERGEMASTER_PYTHON_KEYS_ORACLE only.
 
 Tree-shaped source witnesses are supplied by the non-flake fractal-fixture input:
 github:compoundingtech/fractal/e2721e52463428b4ff655addee129cecd2839763
@@ -36,7 +38,6 @@ scripts/ci-fractal-web-changes	db9514980d3ec39e810aac2149338ba161c8048e	db951498
 scripts/ci-local	108e0ae275075b70a8324e1d3bc25c3f4a436b24	108e0ae275075b70a8324e1d3bc25c3f4a436b24	whole file, unchanged
 scripts/ci-rust-test-result	467ff766935a16aa7997fe5fbe78ef110623131e	467ff766935a16aa7997fe5fbe78ef110623131e	whole file, unchanged
 scripts/release_notes.py	059da5a93e3b421f323ab70c7bfd9acd34aa26fc	059da5a93e3b421f323ab70c7bfd9acd34aa26fc	whole file, unchanged
-scripts/rust-test-keys	a37998a626583209e45a9f9fbb1921f661e916a2	a37998a626583209e45a9f9fbb1921f661e916a2	whole file, unchanged
 scripts/testdata/evidence/wrapper-note/allowed-signers	5d556da48d6acfb78f5e4aea9468b6f7bb0b3a2b	5d556da48d6acfb78f5e4aea9468b6f7bb0b3a2b	whole file, unchanged
 scripts/testdata/evidence/wrapper-note/expected.json	972f3525b2fb3db3c90803505b93a691092e1e1f	972f3525b2fb3db3c90803505b93a691092e1e1f	whole file, unchanged
 scripts/testdata/evidence/wrapper-note/record.pack.base64	6ec56312444157b54e302300b68509ba18a67fe3	6ec56312444157b54e302300b68509ba18a67fe3	whole file, unchanged
