@@ -7,7 +7,7 @@ use std::path::Path;
 // Reuse the frozen operational API/shim inputs, not either implementation's parser.
 // All generated scripts live in temporary directories; no Python source is added.
 const DIFFERENTIAL: &str = r#"
-import copy, json, os, pathlib, shutil, subprocess, sys, tempfile
+import copy, datetime, json, os, pathlib, shutil, subprocess, sys, tempfile
 
 repository, binary, command, suite = sys.argv[1:]
 repository = pathlib.Path(repository)
@@ -38,6 +38,8 @@ def compare(label, api, accepted=True, expected_minutes=None, expected_window_st
             (root / name).write_text(content)
         environment = dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
                            FLIP_SKIP_API=str(root / 'api.json'), FLIP_SKIP_CALLS=str(root / 'calls'))
+        if suite == 'display':
+            environment['TZ'] = 'Europe/Berlin'
         arguments = ['--repo', 'org/repo', '--cache', str(root / 'cache'),
                      *[arg.replace('${root}', str(root)) for arg in base['argv']]]
         observations = []
@@ -54,6 +56,23 @@ def compare(label, api, accepted=True, expected_minutes=None, expected_window_st
             assert done.returncode == 0, (context, done.returncode, done.stdout, done.stderr)
             assert done.stderr == b'', (context, done.stderr)
             report = json.loads(done.stdout)
+            if command == 'flip-ready' and implementation == 'python':
+                # The inherited Python bug labels the original offset wall clock
+                # as Z. TZ=UTC cannot fix explicit input offsets. Normalize only
+                # this field and its verbatim interpolation in the reason.
+                for check in report['checks'].values():
+                    if check['log_window_start'] is None:
+                        continue
+                    instant = datetime.datetime.fromisoformat(api['runs'][0]['created_at'])
+                    old = instant.strftime('%Y-%m-%dT%H:%M:%SZ')
+                    utc = instant.astimezone(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+                    assert check['log_window_start'] == old, (context, check)
+                    check['log_window_start'] = utc
+                    check['why_not'] = [
+                        'log window started ' + utc + ', less than 24 h ago'
+                        if reason == 'log window started ' + old + ', less than 24 h ago'
+                        else reason for reason in check['why_not']
+                    ]
             if expected_window_start is not None:
                 check = report['checks']['lint']
                 assert check['log_window_start'] == expected_window_start, (context, check)
@@ -111,12 +130,11 @@ elif suite == 'boundaries':
     ]:
         compare(label, api_at(stamp), accepted)
 elif suite == 'display':
-    # Inherited Python mislabel: format the original offset wall clock and append
-    # literal Z. Acceptance and comparisons must nevertheless use the UTC instant.
+    # Under a non-UTC process TZ, output must still represent real UTC instants.
     for label, stamp, expected in [
-        ('positive-offset', '2026-11-20T11+01', '2026-11-20T11:00:00Z'),
-        ('negative-offset-crosses-date', '2026-11-19T23:30:00-10:30', '2026-11-19T23:30:00Z'),
-        ('fractional-offset-upper-bound', '2026-11-20T13:30:15.1234569+01:30:15.1234561', '2026-11-20T13:30:15Z'),
+        ('positive-offset', '2026-11-20T11+01', '2026-11-20T10:00:00Z'),
+        ('negative-offset-crosses-date', '2026-11-19T23:30:00-10:30', '2026-11-20T10:00:00Z'),
+        ('fractional-offset-upper-bound', '2026-11-20T13:30:15.1234569+01:30:15.1234561', '2026-11-20T12:00:00Z'),
     ]:
         compare(label, api_at(stamp), expected_window_start=expected)
 elif suite == 'durations':
@@ -182,7 +200,7 @@ fn skip_report_window_boundaries_truncate_to_microseconds() {
 }
 
 #[test]
-fn flip_ready_inherits_offset_wall_clock_display_but_compares_utc() {
+fn flip_ready_displays_real_utc_under_non_utc_process_timezone() {
     differential("flip-ready", "display");
 }
 

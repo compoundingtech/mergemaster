@@ -414,9 +414,6 @@ struct Row {
     check: String,
     run: u64,
     created: Option<DateTime<Utc>>,
-    // Python iso() formats the original wall clock with a literal Z, not UTC.
-    // Keep that display clock separate from the UTC instant used for decisions.
-    created_local: Option<DateTime<Utc>>,
     actor: String,
     base: String,
     fields: Value,
@@ -449,15 +446,7 @@ fn collect(
         for job in &jobs {
             api::job(job, api::JobUse::Flip)?;
         }
-        let timestamp: Vec<u32> = text(&run, "created_at").chars().map(u32::from).collect();
-        let clocks = super::legacy_verify::statement::zoned_time_components(&timestamp).and_then(
-            |(utc, local)| {
-                Some((
-                    DateTime::from_timestamp_micros(utc)?,
-                    DateTime::from_timestamp_micros(local)?,
-                ))
-            },
-        );
+        let created = parse_time(text(&run, "created_at"));
         for job in &jobs {
             let Some(check) = text(job, "name").strip_prefix("evidence-gate-") else {
                 continue;
@@ -510,8 +499,7 @@ fn collect(
                     run: run["id"]
                         .as_u64()
                         .ok_or_else(|| anyhow!("invalid run id"))?,
-                    created: clocks.map(|(utc, _)| utc),
-                    created_local: clocks.map(|(_, local)| local),
+                    created,
                     actor: run
                         .pointer("/actor/login")
                         .and_then(Value::as_str)
@@ -786,7 +774,6 @@ fn evaluate<'a>(
         .map(|i| i + 1)
         .unwrap_or(0);
     let began = rows.get(after).and_then(|row| row.created);
-    let began_local = rows.get(after).and_then(|row| row.created_local);
     let satisfied = counted
         .iter()
         .filter(|row| log_value(row) == "ok" && row.fields["outcome"] == "satisfied")
@@ -799,7 +786,7 @@ fn evaluate<'a>(
         .into_iter()
         .map(|(reason, count)| (reason, json!(count)))
         .collect();
-    let mut result = json!({"enforce":enforce,"lines":window.len(),"satisfied_log_ok":satisfied,"log_missing":missing,"unlogged_pass_unexplained":unexplained,"hidden_red":hidden,"visible_red":visible,"log_window_start":began_local.map(iso),"old_base_lines":ignored,"cancelled_runs":cancelled});
+    let mut result = json!({"enforce":enforce,"lines":window.len(),"satisfied_log_ok":satisfied,"log_missing":missing,"unlogged_pass_unexplained":unexplained,"hidden_red":hidden,"visible_red":visible,"log_window_start":began.map(iso),"old_base_lines":ignored,"cancelled_runs":cancelled});
     let mut why = Vec::new();
     for value in ["stale", "absent", "unsigned", "-"] {
         let count = window
@@ -810,11 +797,11 @@ fn evaluate<'a>(
             why.push(format!("{count} lines with log={value}"));
         }
     }
-    match began.zip(began_local) {
+    match began {
         None => why.push("no line with a log value".to_owned()),
-        Some((time, local)) if time > start => why.push(format!(
+        Some(time) if time > start => why.push(format!(
             "log window started {}, less than 24 h ago",
-            iso(local)
+            iso(time)
         )),
         _ => {}
     }

@@ -11,7 +11,6 @@ fn row(id: u64, hours: i64) -> Row {
         check: "genie-freshness".to_owned(),
         run: id,
         created: Some(at(hours)),
-        created_local: Some(at(hours)),
         actor: "otter-bot".to_owned(),
         base: String::new(),
         fields: json!({"check":"genie-freshness","decision":"run","outcome":"satisfied","log":"ok","observed_at":iso(at(30))}),
