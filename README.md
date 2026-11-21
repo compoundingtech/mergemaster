@@ -1774,7 +1774,7 @@ Intentional `legacy-sign` divergences from the pinned Python oracle:
 - Native signing reproduces Python's lone-surrogate escapes byte for byte, but
   the native typed v1 verifier (`evidence verify`) refuses such statements
   (fail-closed), whereas the removed Python `evidence-verify` accepted them.
-  Verifier parity for these statements remains a tracked follow-up.
+  Verifier parity for these statements remains a tracked follow-up (#425).
 - Missing configuration errors name the configuration path without Python's
   `[Errno ...]` text. Malformed configuration types produce normalized
   refusals instead of Python crash tracebacks.
