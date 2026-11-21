@@ -77,6 +77,7 @@ pub mod result;
 mod result_json;
 pub mod routing;
 pub mod run_inputs;
+pub mod rust_test_keys;
 pub mod selection;
 pub mod selection_json;
 pub mod signature;
