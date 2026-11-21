@@ -33,17 +33,27 @@ enum Command {
 
 fn main() -> ExitCode {
     let mut raw = std::env::args_os().skip(1);
-    let entry = raw.next();
-    if entry
+    let command = raw.next();
+    let helper = command
         .as_ref()
-        .is_some_and(|v| v == "legacy-evidence-verify" || v == "legacy-rust-test-keys")
-    {
-        let result = if entry.as_ref().is_some_and(|v| v == "legacy-rust-test-keys") {
-            mergemaster_evidence::evidence::legacy_verify::rust_test_keys::run(raw)
-        } else {
-            mergemaster_evidence::evidence::legacy_verify::cli_dispatch::run(raw)
+        .is_some_and(|v| v == "legacy-evidence-verify-helper");
+    let result = match command.as_ref() {
+        Some(v) if v == "legacy-evidence-verify" => {
+            Some(mergemaster_evidence::evidence::legacy_verify::cli_dispatch::run(raw))
         }
-        .and_then(|exit| {
+        Some(v) if v == "legacy-rust-test-keys" => {
+            Some(mergemaster_evidence::evidence::legacy_verify::rust_test_keys::run(raw))
+        }
+        Some(v) if v == "legacy-evidence-verify-helper" => Some(
+            mergemaster_evidence::evidence::legacy_verify::cli_helper::run(
+                raw,
+                &mut std::io::stdin().lock(),
+            ),
+        ),
+        _ => None,
+    };
+    if let Some(result) = result {
+        let result = result.and_then(|exit| {
             std::io::stdout().lock().write_all(exit.stdout.as_bytes())?;
             std::io::stderr().lock().write_all(exit.stderr.as_bytes())?;
             Ok(exit.code)
@@ -52,7 +62,7 @@ fn main() -> ExitCode {
             Ok(code) => code,
             Err(error) => {
                 eprintln!("{error:#}");
-                1
+                if helper { 3 } else { 1 }
             }
         }));
     }
