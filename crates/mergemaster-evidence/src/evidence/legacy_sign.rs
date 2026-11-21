@@ -21,10 +21,30 @@ struct Config {
     test_clock: bool,
 }
 
+fn home() -> Result<PathBuf> {
+    use std::os::unix::ffi::OsStringExt;
+    match std::env::var_os("HOME") {
+        Some(home) => {
+            let mut bytes = home.into_vec();
+            let end = bytes
+                .iter()
+                .rposition(|byte| *byte != b'/')
+                .map_or(0, |at| at + 1);
+            Ok(if end == 0 {
+                PathBuf::from("/")
+            } else {
+                bytes.truncate(end);
+                std::ffi::OsString::from_vec(bytes).into()
+            })
+        }
+        // SAFETY: getuid takes no pointers and only reads the process identity.
+        None => super::keygen::recorded_home(unsafe { libc::getuid() }),
+    }
+}
+
 impl Config {
     fn load() -> Result<Self> {
-        let home = std::env::var_os("HOME").context("HOME is not set")?;
-        let path = PathBuf::from(home).join(".config/st/evidence-sign.json");
+        let path = home()?.join(".config/st/evidence-sign.json");
         let bytes = std::fs::read(&path).with_context(|| format!("{}", path.display()))?;
         let value = legacy_json::parse(&bytes)?;
         let fields = value.as_object().context(CONFIGURATION)?;
@@ -56,9 +76,8 @@ impl Config {
                 .as_str()
                 .context("invalid signer configuration")?,
         );
-        let path = match value.get("path") {
-            None | Some(Value::Null) | Some(Value::Bool(false)) => None,
-            Some(Value::String(path)) if path.is_empty() => None,
+        let path = match value.get("path").filter(|value| truthy(value)) {
+            None => None,
             Some(Value::String(path)) => Some(path.clone()),
             _ => anyhow::bail!("invalid signer configuration"),
         };
@@ -83,6 +102,19 @@ impl Config {
             "invalid signer configuration"
         );
         Ok(())
+    }
+}
+
+fn truthy(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::Bool(value) => *value,
+        Value::Number(value) => value.parse::<f64>().map_or(true, |value| value != 0.0),
+        Value::String(value) => !value.is_empty(),
+        Value::SurrogateString(value) => !value.is_empty(),
+        Value::Array(value) => !value.is_empty(),
+        Value::Object(value) => !value.is_empty(),
+        Value::SurrogateObject(value) => !value.is_empty(),
     }
 }
 
@@ -288,10 +320,10 @@ fn statement(
     )?;
     body.push_str(", \"checks\": {");
     let check = legacy_request::token(&request["check"])?;
-    let check = if request["check"].as_number().is_some() && check == "inf" {
-        "Infinity"
-    } else {
-        &check
+    let check = match request["check"].as_number() {
+        Some("NaN") => "NaN",
+        Some(_) if check == "inf" => "Infinity",
+        _ => &check,
     };
     legacy_json::string(check, &mut body)?;
     body.push_str(": {\"command\": ");

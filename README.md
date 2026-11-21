@@ -1767,6 +1767,24 @@ Intentional `legacy-sign` divergences from the pinned Python oracle:
   has no completeness preflight: an absent commit first fails at `git cat-file -t`.
   Recorded valid requests with synthetic absent commits therefore produce
   `git rev-list failed:` natively versus `git cat-file failed:` in the oracle.
+  This preflight matches the in-tree resynced `scripts/evidence-sign`
+  (`require_complete_commit`), not the pinned oracle.
+- Missing configuration errors name the configuration path without Python's
+  `[Errno ...]` text. Malformed configuration JSON uses serde diagnostics rather
+  than `JSONDecodeError` text; malformed configuration types produce normalized
+  refusals instead of Python crash tracebacks.
+- Scratch `git init` has a 300-second deadline (Python has no init deadline).
+  A nonzero exit is reported as `git init failed: <status>` rather than Python's
+  `CalledProcessError` message; deadline failures use the native child-process
+  timeout diagnostic.
+
+The configuration, signing key and `scratch_repo` are trusted launcher state.
+Neither implementation checks the key's mode, owner or file type, or rejects
+scratch-repository symlinks. Scratch initialization runs Git without the `-c`
+hardening flags used for subsequent plumbing commands, just like the oracle.
+Empty `HOME` resolves to `/`; unset `HOME` uses the account database.
+Request JSON retains Python's non-finite numbers and lone-surrogate escapes,
+including `NaN`/`Infinity` check-key spelling, and its 4300-digit integer limit.
 
 Existing callers and the Python scripts remain unchanged in this signer-only slice.
 

@@ -1,13 +1,86 @@
 //! Validation of the copied signer's request protocol, independent of signing authority.
 pub use super::legacy_json::Value;
+use super::legacy_verify::statement_document::{Document, Node, TextError};
 use anyhow::{Context, Result, ensure};
 use std::borrow::Cow;
 
 /// Decode legacy JSON with locally retained number lexemes, then validate claims.
 pub fn decode(bytes: &[u8]) -> Result<Value> {
-    let request = super::legacy_json::parse(bytes)?;
+    let text = std::str::from_utf8(bytes)?;
+    let document = Document::from_text(text).map_err(|error| match error {
+        TextError::Syntax(error) => anyhow::anyhow!("{error}"),
+        TextError::IntegerLimit { digits } => anyhow::anyhow!(
+            "Exceeds the limit (4300 digits) for integer string conversion: value has {digits} digits; use sys.set_int_max_str_digits() to increase the limit"
+        ),
+    })?;
+    let request = value(&document, document.root(), 0)?;
     validate(&request)?;
     Ok(request)
+}
+
+// Reuse the Python JSON decoder used by watch state and CI events. Only accepted
+// scalar text needs a Rust String; lone surrogates retain their original points.
+fn value(document: &Document, node: &Node, depth: usize) -> Result<Value> {
+    Ok(match node {
+        // Request values below the command/input entries must be scalars.
+        // Retain their invalid type, without recursively copying an arbitrary
+        // attacker-supplied tree that the flat Python decoder already checked.
+        Node::Array(_) if depth >= 2 => Value::Array(Vec::new()),
+        Node::Object(_) if depth >= 2 => Value::Object(Default::default()),
+        Node::Null => Value::Null,
+        Node::Bool(value) => Value::Bool(*value),
+        Node::Integer(value) => Value::Number(value.clone()),
+        Node::Float(value) => Value::Number(if value.is_nan() {
+            "NaN".to_owned()
+        } else if value.is_infinite() {
+            if value.is_sign_negative() {
+                "-Infinity"
+            } else {
+                "Infinity"
+            }
+            .to_owned()
+        } else {
+            float_token(*value)?
+        }),
+        Node::String(points) => match points.iter().copied().map(char::from_u32).collect() {
+            Some(text) => Value::String(text),
+            None => Value::SurrogateString(points.clone()),
+        },
+        Node::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|id| value(document, document.node(*id), depth + 1))
+                .collect::<Result<_>>()?,
+        ),
+        Node::Object(fields) => {
+            if fields
+                .keys()
+                .all(|key| key.iter().all(|point| char::from_u32(*point).is_some()))
+            {
+                Value::Object(
+                    fields
+                        .iter()
+                        .map(|(key, id)| {
+                            let key = key
+                                .iter()
+                                .filter_map(|point| char::from_u32(*point))
+                                .collect();
+                            Ok((key, value(document, document.node(*id), depth + 1)?))
+                        })
+                        .collect::<Result<_>>()?,
+                )
+            } else {
+                Value::SurrogateObject(
+                    fields
+                        .iter()
+                        .map(|(key, id)| {
+                            Ok((key.clone(), value(document, document.node(*id), depth + 1)?))
+                        })
+                        .collect::<Result<_>>()?,
+                )
+            }
+        }
+    })
 }
 
 const REQUIRED: [&str; 7] = [
@@ -39,6 +112,12 @@ pub(super) fn token(value: &Value) -> Result<Cow<'_, str>> {
     }
 }
 fn number_token(number: &str) -> Result<Cow<'_, str>> {
+    match number {
+        "NaN" => return Ok(Cow::Borrowed("nan")),
+        "Infinity" => return Ok(Cow::Borrowed("inf")),
+        "-Infinity" => return Ok(Cow::Borrowed("-inf")),
+        _ => {}
+    }
     if !number.contains(['.', 'e', 'E']) {
         return Ok(Cow::Borrowed(if number == "-0" { "0" } else { number }));
     }
@@ -163,8 +242,8 @@ fn validate(request: &Value) -> Result<()> {
     ensure!(
         command
             .first()
-            .and_then(Value::as_str)
-            .is_some_and(|s| !s.is_empty())
+            .and_then(Value::text_points)
+            .is_some_and(|mut points| points.next().is_some())
             && command.iter().all(Value::is_string),
         "command must be a nonempty argument vector"
     );
@@ -181,15 +260,41 @@ fn validate(request: &Value) -> Result<()> {
         "output_sha256 must be 64 lowercase hex digits"
     );
     let change = request["change_id"]
-        .as_str()
+        .text_points()
         .context("change_id must be a short nonempty string")?;
+    let mut length = 0;
+    let mut nonblank = false;
+    for point in change {
+        length += 1;
+        nonblank |= char::from_u32(point)
+            .is_none_or(|c| !c.is_whitespace() && !('\u{1c}'..='\u{1f}').contains(&c));
+    }
     ensure!(
-        change.chars().take(200).count() < 200
-            && change
-                .chars()
-                .any(|c| !c.is_whitespace() && !('\u{1c}'..='\u{1f}').contains(&c)),
+        length < 200 && nonblank,
         "change_id must be a short nonempty string"
     );
+    if let Value::SurrogateObject(fields) = &request["inputs"] {
+        ensure!(
+            INPUTS.iter().all(|name| fields
+                .keys()
+                .any(|key| key.iter().copied().eq(name.chars().map(u32::from))))
+                && fields.len() <= 40
+                && fields.values().all(|value| value
+                    .text_points()
+                    .is_some_and(|points| (1..=500).contains(&points.take(501).count()))),
+            "inputs must be short nonempty strings and include: attempt, flake_lock_sha256, system, toolchain_sha256, wrapper_sha256"
+        );
+        let key = fields
+            .keys()
+            .find(|key| key.iter().any(|point| char::from_u32(*point).is_none()))
+            .context("missing surrogate input name")?;
+        anyhow::bail!(
+            "input name {} must be lowercase letters, digits and underscore",
+            super::legacy_verify::python_repr::Repr(
+                super::legacy_verify::value_inputs::TextRef::Points(key)
+            )
+        );
+    }
     let inputs = request["inputs"]
         .as_object()
         .context("inputs must be short nonempty strings and include: attempt, flake_lock_sha256, system, toolchain_sha256, wrapper_sha256")?;
@@ -197,8 +302,8 @@ fn validate(request: &Value) -> Result<()> {
         INPUTS.iter().all(|key| inputs.contains_key(*key))
             && inputs.len() <= 40
             && inputs.values().all(|v| v
-                .as_str()
-                .is_some_and(|s| !s.is_empty() && s.chars().take(501).count() <= 500)),
+                .text_points()
+                .is_some_and(|points| (1..=500).contains(&points.take(501).count()))),
         "inputs must be short nonempty strings and include: attempt, flake_lock_sha256, system, toolchain_sha256, wrapper_sha256"
     );
     for key in inputs.keys().filter(|key| !INPUTS.contains(&key.as_str())) {
