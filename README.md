@@ -1617,6 +1617,59 @@ Log readers preserve lossless check names through comparisons and filesystem
 surrogateescape argv encoding; invalid surrogates and NUL retain exact Python
 exception class, text and evaluation order.
 
+### Report-only queue binding
+
+`gate --event queue --base BASE --head LANDING_HEAD` reports evidence for the
+final landing tree; it never authorizes a live queue or protected-target write.
+The BASE lane must allow `"queue"` in `events`. Without `--member`, the head
+must be a two-parent merge with BASE as either parent; the other parent is the
+admitted member. Ordered repeatable `--member SHA` arguments instead bind an
+exact first-parent chain of two-parent merges back to BASE, each second parent
+equal to its declared member.
+
+A dotfiles-merge SERIAL round may regenerate projections after merging BASE
+into the admitted PR head. To allow **one** single-parent projection commit on
+top of that merge, opt in in BASE's `.mergemaster/lanes.json`:
+
+```json
+"queue": {"generated_paths": ["generated/projections/", "nix/buck2-products/product-revs/*.json"]}
+```
+
+This is **authority-bearing BASE policy**, not a candidate declaration. The
+nonempty list accepts two repository-relative forms: a literal complete
+path-component prefix with no `*`, or `PREFIX/*SUFFIX`. For the latter, PREFIX
+must be a valid literal prefix and SUFFIX must be nonempty and contain no `*`
+or `/`. The `*` matches one or more characters, **including `/`**, so nested
+product JSON files match `nix/buck2-products/product-revs/*.json`. Other `*`
+placements, `**`, `?` and `[` are refused at config load. Paths otherwise use
+the same validation as `protected_paths` and `bootstrap_paths`.
+
+Allowlist matching is case-sensitive and byte-exact. Configuration refuses
+overlap in either direction with implicit protected roots, `protected_paths`
+or `bootstrap_paths`, using NFKC/lowercase folding for this denylist comparison.
+For `PREFIX/*SUFFIX`, overlap checks conservatively use PREFIX. Every path
+changed between the merge and projection trees must match a declared entry;
+renames check both old and new paths, and deletes and mode
+changes count. Both sides of each change must be regular non-executable files
+(mode `100644`), or absent for additions/deletions (`000000`); executable-bit,
+symlink and submodule changes are refused, as are replacements of an allowed
+prefix's ancestor. The field does not bypass protected-path or evidence checks and
+does not prove that a producer actually generated the content.
+
+The projection parent must itself satisfy the no-member merge rule. More than
+one projection commit, an unbound parent, or a non-generated edit yields
+`source_unbound` with a diagnostic. Omission keeps merge-only binding; explicit
+`--member` batches remain merge-only even with this policy.
+
+Successful binding adds v1 `queue_binding: {base, members, tree}`. With a
+projection it additionally contains `projection: {commit, parent, paths}`,
+where `tree` is the **final landing head's tree**, `members` still names the
+admitted PR head, and `paths` lists the changed Git paths. Without a projection,
+that field is omitted and existing decision JSON bytes are unchanged.
+The report remains `report_only: true` and `decision: "refuse"`, even when
+evidence is satisfied. The caller must fence BASE before landing; when BASE
+has not moved, GitHub's final merge tree equals this bound landing tree.
+
 ### Main-push tree-equality evidence
 
 `gate --event push` explicitly allows a signed PR-head observation to satisfy a

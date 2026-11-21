@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+- Bind report-only single-member queue landing trees with one generated projection commit when BASE opts in through byte-exact `queue.generated_paths` prefixes or `PREFIX/*SUFFIX` patterns; refuse folded overlap with protected/bootstrap paths, unmatched edits, executable/symlink/submodule changes and stacked projections, record optional v1 projection metadata, and preserve merge-only and explicit-member binding.
+
 ## [0.12.0] - 2026-11-21
 
 - Add a BASE-only `.mergemaster/producers.json` manifest, the report-only `producer_digest` decision field (`listed` / `unlisted` / `no_manifest` / `not_applicable`), `mergemaster producers measure`, and the reusable `producers.yml` workflow. (#416, #417)
