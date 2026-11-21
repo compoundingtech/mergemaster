@@ -125,7 +125,7 @@ class ResyncGuard(unittest.TestCase):
 
     def test_local_patch_pins_both_blobs_and_mode(self):
         for name in ("ci-signed-tree", "ci-signed-tree-test", "ci-evidence-gate", "ci-evidence-gate-test",
-                     "evidence-prepush", "evidence-prepush-test"):
+                     "evidence-prepush", "evidence-prepush-test", "evidence-log-watch.service"):
             self.write(self.src, name, b"patched")
             self.write(self.oracle, name, b"old")
             self.patch_manifest(name)

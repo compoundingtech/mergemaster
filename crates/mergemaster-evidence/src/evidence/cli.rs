@@ -14,6 +14,7 @@ pub struct EvidenceArgs {
 pub enum EvidenceCommand {
     /// Provision this account's signing key and print its public enrollment line.
     Keygen(super::keygen::KeygenArgs),
+    LogWatch(super::log_watch::LogWatchArgs),
     RunnerReport(super::runner_report::RunnerReportArgs),
     /// Explain which signable gates ran without a pre-signed note; never fails.
     PresignNotice,
@@ -88,6 +89,7 @@ pub enum EvidenceCommand {
 pub fn run(args: EvidenceArgs) -> Result<()> {
     let value = match args.command {
         EvidenceCommand::Keygen(args) => return super::keygen::run_keygen(args),
+        EvidenceCommand::LogWatch(args) => return super::log_watch::run(args),
         EvidenceCommand::RunnerReport(args) => return super::runner_report::run(args),
         EvidenceCommand::PresignNotice => {
             super::presign_notice::run();
