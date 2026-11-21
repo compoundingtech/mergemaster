@@ -55,7 +55,7 @@ fn python_json_extensions_match_signed_bytes_and_integer_limit_refusals() {
 }
 
 #[test]
-fn unset_and_empty_home_match_python_resolution() {
+fn missing_home_configuration_refusals_name_python_paths() {
     replay("home");
 }
 

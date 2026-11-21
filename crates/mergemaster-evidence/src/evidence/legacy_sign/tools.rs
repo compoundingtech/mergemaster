@@ -171,7 +171,7 @@ struct DirectoryContext {
 impl DirectoryContext {
     fn load() -> Result<Self> {
         let cwd = std::env::current_dir()?;
-        let home = super::home()?;
+        let home = super::home(std::env::var_os("HOME"))?;
         // tempfile.gettempdir checks these candidates by actually creating a file.
         let mut candidates: Vec<PathBuf> = ["TMPDIR", "TEMP", "TMP"]
             .into_iter()

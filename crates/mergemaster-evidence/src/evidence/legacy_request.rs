@@ -4,8 +4,8 @@ use super::legacy_verify::statement_document::{Document, Node, TextError};
 use anyhow::{Context, Result, ensure};
 use std::borrow::Cow;
 
-/// Decode legacy JSON with locally retained number lexemes, then validate claims.
-pub fn decode(bytes: &[u8]) -> Result<Value> {
+/// Decode the shallow v1 protocol fields with Python JSON semantics.
+pub(super) fn parse(bytes: &[u8]) -> Result<Value> {
     let text = std::str::from_utf8(bytes)?;
     let document = Document::from_text(text).map_err(|error| match error {
         TextError::Syntax(error) => anyhow::anyhow!("{error}"),
@@ -13,7 +13,12 @@ pub fn decode(bytes: &[u8]) -> Result<Value> {
             "Exceeds the limit (4300 digits) for integer string conversion: value has {digits} digits; use sys.set_int_max_str_digits() to increase the limit"
         ),
     })?;
-    let request = value(&document, document.root(), 0)?;
+    value(&document, document.root(), 0)
+}
+
+/// Decode legacy JSON, then validate request claims.
+pub fn decode(bytes: &[u8]) -> Result<Value> {
+    let request = parse(bytes)?;
     validate(&request)?;
     Ok(request)
 }
@@ -22,7 +27,7 @@ pub fn decode(bytes: &[u8]) -> Result<Value> {
 // scalar text needs a Rust String; lone surrogates retain their original points.
 fn value(document: &Document, node: &Node, depth: usize) -> Result<Value> {
     Ok(match node {
-        // Request values below the command/input entries must be scalars.
+        // Protocol values below command/input entries must be scalars.
         // Retain their invalid type, without recursively copying an arbitrary
         // attacker-supplied tree that the flat Python decoder already checked.
         Node::Array(_) if depth >= 2 => Value::Array(Vec::new()),
