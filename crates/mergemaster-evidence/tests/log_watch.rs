@@ -1,4 +1,4 @@
-use mergemaster_evidence::evidence::log_watch::step;
+use mergemaster_evidence::evidence::log_watch::{State, step};
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -171,10 +171,10 @@ fn log_watch_frozen_transition_recordings_are_pure() {
     ))
     .unwrap();
     for case in corpus["cases"].as_array().unwrap() {
-        let before = case["before"].as_object().unwrap();
-        let unchanged = before.clone();
-        let (mut state, line, stalled) = step(
-            before,
+        let before = State::parse(&serde_json::to_vec(&case["before"]).unwrap());
+        let unchanged = before.json().unwrap();
+        let (state, line, stalled) = step(
+            &before,
             case["now"].as_f64().unwrap(),
             case["as_of"].as_f64(),
             case["detail"].as_str().unwrap(),
@@ -182,10 +182,13 @@ fn log_watch_frozen_transition_recordings_are_pure() {
             case["repeat"].as_i64().unwrap(),
         )
         .unwrap();
-        assert_eq!(before, &unchanged, "{}", case["id"]);
+        assert_eq!(before.json().unwrap(), unchanged, "{}", case["id"]);
+        let mut state: Value = serde_json::from_str(&state.json().unwrap()).unwrap();
         let mut expected = case["expected"].clone();
         // JSON time numbers are compared numerically, not by integer/float spelling.
         for value in state
+            .as_object_mut()
+            .unwrap()
             .values_mut()
             .chain(expected["state"].as_object_mut().unwrap().values_mut())
         {
@@ -570,5 +573,67 @@ fn log_watch_invalid_recovery_timestamp_fails_without_notification_or_state_writ
         assert!(!done.stderr.is_empty());
         assert_eq!(fs::read(path).unwrap(), bytes);
         assert!(watch.lines().is_empty());
+    }
+}
+
+#[test]
+fn log_watch_persisted_numeric_edges_match_frozen_python() {
+    let corpus: Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/oracle/log-watch-state.json"
+    ))
+    .unwrap();
+    for case in corpus["cases"].as_array().unwrap() {
+        let watch = Watch::new();
+        if case["mode"] == "unreadable" {
+            watch.subject("no time");
+        } else {
+            watch.publish(T0);
+        }
+        let notify = json!([python(), "-c", "pass"]);
+        for oracle in [false, true] {
+            let state = watch.root.path().join(if oracle {
+                "oracle-matrix"
+            } else {
+                "native-matrix"
+            });
+            fs::create_dir_all(&state).unwrap();
+            let path = state.join("watch.json");
+            fs::write(&path, case["state_before"].as_str().unwrap()).unwrap();
+            let done = watch
+                .command(
+                    case["now"].as_i64().unwrap(),
+                    &notify,
+                    &watch.remote,
+                    &state,
+                    oracle,
+                )
+                .output()
+                .unwrap();
+            let expected = &case["expected"];
+            assert_eq!(
+                done.status.code(),
+                Some(expected["exit_code"].as_i64().unwrap() as i32),
+                "{}",
+                case["id"]
+            );
+            assert_eq!(
+                String::from_utf8(done.stdout).unwrap(),
+                expected["stdout"].as_str().unwrap(),
+                "{}",
+                case["id"]
+            );
+            assert_eq!(
+                !done.stderr.is_empty(),
+                expected["stderr_nonempty"].as_bool().unwrap(),
+                "{}",
+                case["id"]
+            );
+            assert_eq!(
+                fs::read_to_string(path).unwrap(),
+                expected["state_after"].as_str().unwrap(),
+                "{}",
+                case["id"]
+            );
+        }
     }
 }

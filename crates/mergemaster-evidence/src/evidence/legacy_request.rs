@@ -39,13 +39,12 @@ fn token(value: &Value) -> Result<Cow<'_, str>> {
     }
 }
 fn number_token(number: &str) -> Result<Cow<'_, str>> {
-    use std::fmt::Write;
     if !number.contains(['.', 'e', 'E']) {
         return Ok(Cow::Borrowed(if number == "-0" { "0" } else { number }));
     }
     let value: f64 = number.parse()?;
-    let mut text = String::with_capacity(32);
     if value.is_infinite() {
+        let mut text = String::with_capacity(32);
         text.push_str(if value.is_sign_negative() {
             "-inf"
         } else {
@@ -53,6 +52,12 @@ fn number_token(number: &str) -> Result<Cow<'_, str>> {
         });
         return Ok(Cow::Owned(text));
     }
+    Ok(Cow::Owned(float_token(value)?))
+}
+/// Python's finite-float repr; non-finite wire tokens belong to each caller.
+pub(crate) fn float_token(value: f64) -> Result<String> {
+    use std::fmt::Write;
+    let mut text = String::with_capacity(32);
     write!(&mut text, "{value:e}")?;
     let e = text.rfind('e').ok_or(std::fmt::Error)?;
     let exponent: i32 = text[e + 1..].parse()?;
@@ -77,7 +82,7 @@ fn number_token(number: &str) -> Result<Cow<'_, str>> {
             text.insert(point, '.');
         }
     }
-    Ok(Cow::Owned(text))
+    Ok(text)
 }
 fn hex(value: &str, size: usize) -> bool {
     value.len() == size

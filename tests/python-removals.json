@@ -375,6 +375,7 @@
   {"path": "tests/fixtures/oracle/argparse/usage/stdin.json", "wave": "wave-9-python-free", "state": "retained", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "executable": 0},
   {"path": "tests/fixtures/oracle/argparse/usage/stdout.json", "wave": "wave-9-python-free", "state": "retained", "sha256": "9d0da9132800f57aafd427e0bcc89e629c332e6fd5369fc5d231c059a5fde0c9", "executable": 0},
   {"path": "tests/fixtures/oracle/log-watch.json", "wave": "wave-9-python-free", "state": "retained", "sha256": "6f8e51f08a3a44d95bede302a2f5708dfb7987d829935d308ff332529fc50eec", "executable": 0},
+  {"path": "tests/fixtures/oracle/log-watch-state.json", "wave": "wave-9-python-free", "state": "retained", "sha256": "44900011e5b6f49f4efbd7a67fc068042632991918af8c563585e620a8cc48ea", "executable": 0},
   {"path": "tests/fixtures/oracle/keygen.json", "wave": "wave-9-python-free", "state": "retained", "sha256": "19740a346f42f3a8563874cf4de9147c05e7b4ce9c8d6c3f10f3e3a618f82ca3", "executable": 0},
   {"path": "tests/oracle_corpus.py", "wave": "wave-9-python-free", "state": "retained"},
   {"path": "tests/oracle_scripts.py", "wave": "wave-9-python-free", "state": "retained"},

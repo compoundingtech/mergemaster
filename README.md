@@ -139,6 +139,12 @@ remain 0 current, 1 stalled, 2 usage, 3 notification failure. The source-only
 installing that unit must install the native binary there. No deployment in this
 repository installs these units. The timer and notification configuration are unchanged.
 Invalid timestamps fail the run instead of generating an empty notification date.
+Persisted state uses Python JSON semantics, including non-finite numbers and
+arbitrary-width integers. Unknown fields, insertion order and lone surrogates
+survive write-back; numeric errors leave the original state untouched. Timestamp
+formatting rounds half-even to microseconds before choosing the displayed second.
+`tests/fixtures/oracle/log-watch-state.json` freezes numeric-edge and write-back
+observations against pinned Python, including negative-time rounding boundaries.
 Repository initialization has no deadline; fetches and notifications retain their
 120-second deadlines.
 Frozen transition recordings and native/independent pinned Python differential

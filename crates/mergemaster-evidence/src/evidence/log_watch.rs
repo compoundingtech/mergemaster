@@ -3,7 +3,9 @@ use crate::gate::git::deadline::GitChild;
 use anyhow::{Context, Result, ensure};
 use chrono::{DateTime, Utc};
 use clap::Args;
-use serde_json::{Map, Value, json};
+#[path = "log_watch_state.rs"]
+mod state;
+pub use state::State;
 use std::{
     fs::{self, File},
     io::{self, Write},
@@ -203,29 +205,48 @@ fn published(
     ))
 }
 fn iso(unix: f64) -> Result<String> {
+    ensure!(unix.is_finite(), "timestamp out of range for datetime");
+    let seconds = unix.trunc();
+    let micros = ((unix - seconds) * 1_000_000.0).round_ties_even();
+    let seconds = seconds
+        + if micros >= 1_000_000.0 {
+            1.0
+        } else if micros < 0.0 {
+            -1.0
+        } else {
+            0.0
+        };
+    let micros = if micros >= 1_000_000.0 {
+        0.0
+    } else if micros < 0.0 {
+        micros + 1_000_000.0
+    } else {
+        micros
+    };
     ensure!(
-        unix.is_finite() && (-62_135_596_800.0..253_402_300_800.0).contains(&unix),
+        (-62_135_596_800.0..253_402_300_800.0).contains(&seconds),
         "timestamp out of range for datetime"
     );
-    let time = DateTime::<Utc>::from_timestamp(unix.floor() as i64, 0)
+    let time = DateTime::<Utc>::from_timestamp(seconds as i64, micros as u32 * 1000)
         .context("timestamp out of range for datetime")?;
     Ok(time.format("%Y-%m-%dT%H:%M:%SZ").to_string())
 }
-fn number(state: &Map<String, Value>, key: &str) -> f64 {
-    state.get(key).and_then(Value::as_f64).unwrap_or(0.0)
+fn rounded(value: f64) -> Result<f64> {
+    ensure!(value.is_finite(), "cannot round a non-finite number");
+    Ok(value.round_ties_even() + 0.0)
 }
 pub fn step(
-    before: &Map<String, Value>,
+    before: &State,
     now: f64,
     as_of: Option<f64>,
     detail: &str,
     max_age: i64,
     repeat: i64,
-) -> Result<(Map<String, Value>, Option<String>, bool)> {
+) -> Result<(State, Option<String>, bool)> {
     let mut state = before.clone();
     let (age, why) = if let Some(time) = as_of {
-        state.insert("last_as_of".into(), json!(time));
-        state.insert("last_head".into(), json!(detail));
+        state.insert_number("last_as_of", time);
+        state.insert_text("last_head", detail);
         state.remove("unreadable_since");
         let age = now - time;
         (
@@ -233,57 +254,56 @@ pub fn step(
             format!(
                 "the published evidence log head {} is {:.0}s old (as_of {}; at most {max_age}s expected)",
                 &detail[..detail.len().min(12)],
-                age.round_ties_even() + 0.0,
+                rounded(age)?,
                 iso(time)?
             ),
         )
     } else {
-        state.entry("unreadable_since").or_insert(json!(now));
-        let age = now - number(&state, "unreadable_since");
+        if !state.contains("unreadable_since") {
+            state.insert_number("unreadable_since", now);
+        }
+        let age = now - state.number("unreadable_since")?;
         (
             age,
             format!(
                 "the published evidence log head cannot be read for {:.0}s: {detail}",
-                age.round_ties_even() + 0.0
+                rounded(age)?
             ),
         )
     };
     let stalled = age > max_age as f64;
     let mut line = None;
     if stalled {
-        if !state.contains_key("stalled_since") {
-            state.insert(
-                "stalled_since".into(),
-                json!(now - (age - max_age as f64).max(0.0)),
-            );
+        if !state.contains("stalled_since") {
+            state.insert_number("stalled_since", now - (age - max_age as f64).max(0.0));
             line = Some(format!(
                 "evidence log STALLED: {why}. The log host's pull (evidence-log.timer) is not publishing."
             ));
-        } else if now - number(&state, "told_at") >= repeat as f64 {
+        } else if now - state.number("told_at")? >= repeat as f64 {
             line = Some(format!(
                 "evidence log still stalled since {}: {why}.",
-                iso(number(&state, "stalled_since"))?
+                iso(state.number("stalled_since")?)?
             ));
         }
         if line.is_some() {
-            state.insert("told_at".into(), json!(now));
+            state.insert_number("told_at", now);
         }
-    } else if state.contains_key("stalled_since") {
-        let since = number(&state, "stalled_since");
+    } else if state.contains("stalled_since") {
+        let since = state.number("stalled_since")?;
         line = Some(format!(
             "evidence log moving again: {why}; it was stalled from {} ({:.0}s).",
             iso(since)?,
-            (now - since).round_ties_even() + 0.0
+            rounded(now - since)?
         ));
         state.remove("stalled_since");
         state.remove("told_at");
     }
     Ok((state, line, stalled))
 }
-fn save(path: &Path, state: &Map<String, Value>) -> Result<()> {
+fn save(path: &Path, state: &State) -> Result<()> {
     let temporary = path.with_extension(format!("json.{}", std::process::id()));
     let mut file = File::create(&temporary)?;
-    serde_json::to_writer(&mut file, state)?;
+    file.write_all(state.json()?.as_bytes())?;
     file.flush()?;
     file.sync_all()?;
     fs::rename(temporary, path)?;
@@ -339,9 +359,7 @@ pub fn run(args: LogWatchArgs) -> Result<()> {
     };
     let path = args.state.join("watch.json");
     let before = fs::read(&path)
-        .ok()
-        .and_then(|data| serde_json::from_slice::<Value>(&data).ok())
-        .and_then(|v| v.as_object().cloned())
+        .map(|data| State::parse(&data))
         .unwrap_or_default();
     let (mut state, line, stalled) = step(&before, now, as_of, &detail, args.max_age, args.repeat)?;
     let mut code = i32::from(stalled);
@@ -351,10 +369,7 @@ pub fn run(args: LogWatchArgs) -> Result<()> {
         let sent = capture(Command::new(&notify[0]).args(&notify[1..]).arg(line));
         if !sent.is_ok_and(|done| done.status.success()) {
             for key in ["stalled_since", "told_at"] {
-                state.remove(key);
-                if let Some(value) = before.get(key) {
-                    state.insert(key.into(), value.clone());
-                }
+                state.restore(key, &before);
             }
             eprintln!(
                 "evidence-log-watch: the notification failed; it is tried again on the next run"
@@ -408,6 +423,21 @@ mod tests {
         }
         for unix in [-62_135_596_800.0, 253_402_300_799.0] {
             assert!(iso(unix).is_ok(), "{unix}");
+        }
+    }
+
+    #[test]
+    fn log_watch_iso_rounding_matches_frozen_python() {
+        let corpus: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/oracle/log-watch-state.json"
+        ))
+        .unwrap();
+        for case in corpus["dates"].as_array().unwrap() {
+            assert_eq!(
+                iso(case["unix"].as_f64().unwrap()).unwrap(),
+                case["iso"].as_str().unwrap(),
+                "{case}"
+            );
         }
     }
 }
