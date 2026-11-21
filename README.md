@@ -1842,6 +1842,24 @@ the summary records `verified=false` and a successful run still exits 0 unless
   nested containers instead of accepting these deeper aggregate outputs.
 - Usage and help use a fixed 80-column layout, regardless of `COLUMNS` or
   terminal width; Python's argparse derives its wrapping from that width.
+- Security divergence: `EVIDENCE_PUSH_TOKEN` and `EVIDENCE_SIGNER` are removed
+  from both the lane command and signer environments. Python forwards them.
+- Security divergence: every wrapper diagnostic redacts both the raw push token
+  and its base64 `x-access-token:TOKEN` form, including signer, verifier,
+  measurement and publication errors. Python only redacts the raw token in
+  final push failures.
+- Security divergence: BASE-derived verifier keys use an exclusively created
+  mode-0600 tempfile, removed after verification on success and every error path.
+  Python writes a predictable PID-based path and leaves it behind.
+
+**Legacy-wrap trust model:** apart from the two credential variables above, the
+caller's environment reaches the lane command. The signer also inherits caller
+state, except for the loader/Python-variable scrub, fixed PATH and those two
+credential removals; it is not an environment-isolated boundary. For publication
+parity, checkout/global Git transport configuration remains active, including
+`pushurl`, `insteadOf`, `includeIf`, `credential.helper`, `sshCommand` and
+`http.*`. A hostile checkout configuration can therefore redirect the authenticated
+push. This inherited transport trust boundary is tracked in #426.
 
 Rust port wave 3 removes `scripts/evidence-sign`, `scripts/evidence-sign-hardening-test`,
 `scripts/evidence-wrap` and `scripts/evidence-wrap-test`. Local runners, CI adapters

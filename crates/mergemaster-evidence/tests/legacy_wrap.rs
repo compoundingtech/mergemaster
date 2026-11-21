@@ -39,7 +39,7 @@ parity! {
     extra_inputs_validate_before_signing => "inputs",
     input_files_are_read_after_execution_sorted_and_bounded => "input-file",
     source_input_records_publish_both_exact_indexes => "indexes",
-    caller_environment_reaches_command_but_not_signer => "environment",
+    caller_environment_reaches_command_and_signer_scrubs_loader_variables => "environment",
     aggregate_canonical_output_out_packs_and_dirty_index_rules => "aggregate",
     push_token_is_environment_only_and_failure_still_publishes => "push",
     transient_push_refusals_retry_only_pending_refs_with_bound => "retry",
@@ -54,6 +54,11 @@ parity! {
     percrate_verification_is_scoped_and_untrusted_push_is_blocked => "percrate",
     hydrated_partial_history_signs_and_missing_history_never_transports => "partial",
     committed_golden_pack_still_cross_verifies => "golden",
+    arbitrary_width_aggregate_exits_preserve_failure_and_cpython_status => "wide-status",
+    nonstring_signer_bindings_use_the_python_mismatch_refusal => "answer-types",
+    publication_credentials_never_reach_lane_or_signer => "credential-hardening",
+    raw_and_basic_auth_tokens_are_redacted_at_all_diagnostic_sinks => "redaction",
+    verifier_keys_are_private_exclusive_and_removed_on_every_path => "key-tempfile",
 }
 
 const DRIVER: &str = r#"
@@ -269,7 +274,97 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
         path.write_text(json.dumps(facts))
         return pair(flags=['--aggregate', str(path), *flags], code=code, check=check)
 
-    if group == 'measure':
+    if group == 'wide-status':
+        # Mergemaster measured CPython 3.14.10 sys.exit: signed-i64 overflow
+        # becomes -1 (POSIX 255), otherwise the low eight bits are returned.
+        cases = [(9223372036854775808, 255), (18446744073709551616, 255),
+                 (4294967296, 0), (256, 0), (-1, 255), (9223372036854775807, 255),
+                 (-256, 0), (-9223372036854775809, 255)]
+        stage = root / 'wide-facts.json'
+        for index, (integer, status) in enumerate(cases):
+            stage.write_text(json.dumps(dict(command=['aggregate'], exit_code=integer, output='wide')))
+            for native in (False, True):
+                out = root / f'wide-out-{index}-{native}'
+                done = invoke(native, flags=['--aggregate', str(stage), '--out', str(out)])
+                assert done.returncode == status, (integer, native, status, done.returncode, done.stderr)
+                packet = result(done)
+                assert packet['exit_code'] == integer
+                assert (out / (packet['record'] + '.pack')).read_bytes().startswith(b'PACK')
+                assert json.loads((out / (packet['record'] + '.json')).read_bytes()) == packet
+        stage.write_text(json.dumps(dict(command=['aggregate'], exit_code=4294967296, output='failure')))
+        sink = root / 'wide-sink.git'
+        init(sink, bare=True)
+        git(repo, 'remote', 'add', 'wide-sink', str(sink))
+        marker = root / 'wrongly-verified'
+        verifier = executable(root / 'must-not-verify', '#!/bin/sh\ntouch ' + shlex.quote(str(marker)) + '\nexit 1\n')
+        for native in (False, True):
+            done = invoke(native, flags=['--aggregate', str(stage), '--push', 'wide-sink', '--verifier', str(verifier)])
+            assert done.returncode == 0, (native, done.stderr)
+            packet = result(done)
+            assert packet['exit_code'] == 4294967296 and packet['verified'] is False and packet['pushed'] is True, packet
+            assert text(sink, 'rev-parse', packet['ref']) == packet['record']
+            assert not marker.exists()
+    elif group == 'answer-types':
+        for field in ('commit', 'tree', 'tier'):
+            for value in (None, 7):
+                code = ('import json,sys; r=json.load(sys.stdin); '
+                        "a=dict(record='a'*40,commit=r['commit'],tree=" + repr(tree) + ",tier='full'); "
+                        'a[' + repr(field) + ']=' + repr(value) + '; print(json.dumps(a))')
+                refused(['true'], signer=[sys.executable, '-I', '-c', code],
+                        contains=b'the signer answered for a different commit, tree or tier')
+    elif group == 'credential-hardening':
+        lane_dump, signer_dump = root / 'lane-env.json', root / 'signer-env.json'
+        def dump_code(path):
+            return 'import os,json,pathlib; pathlib.Path(' + repr(str(path)) + ').write_text(json.dumps(dict(os.environ)))'
+        signer = [sys.executable, '-I', '-c', 'import sys; sys.stdin.buffer.read(); ' + dump_code(signer_dump) + '; sys.exit(7)']
+        done = invoke(True, [sys.executable, '-I', '-c', dump_code(lane_dump)], signer=signer,
+                      extra=dict(EVIDENCE_PUSH_TOKEN='secret-token-xyz', EVIDENCE_SIGNER='private-signer-command', WRAP_CUSTOM_ENV='preserved'))
+        assert done.returncode == 1 and b'the signer refused' in done.stderr, done.stderr
+        for path in (lane_dump, signer_dump):
+            seen = json.loads(path.read_bytes())
+            assert 'EVIDENCE_PUSH_TOKEN' not in seen and 'EVIDENCE_SIGNER' not in seen, path
+            assert seen['WRAP_CUSTOM_ENV'] == 'preserved'
+    elif group == 'redaction':
+        token = 'secret-token-xyz'
+        header = base64.b64encode(('x-access-token:' + token).encode()).decode()
+        message = token + ' Authorization: Basic ' + header
+        extra = dict(EVIDENCE_PUSH_TOKEN=token)
+        def redacted(done, status):
+            assert done.returncode == status, (done.returncode, done.stdout, done.stderr)
+            assert token.encode() not in done.stderr and header.encode() not in done.stderr, done.stderr
+            assert b'***' in done.stderr, done.stderr
+        signer = [sys.executable, '-I', '-c', 'import sys; sys.stdin.buffer.read(); print(' + repr(message) + ',file=sys.stderr); sys.exit(7)']
+        redacted(invoke(True, ['true'], signer=signer, extra=extra), 1)
+        verifier = executable(root / 'echo-header-verifier', '#!/bin/sh\nprintf "%s\\n" ' + shlex.quote(message) + '\nexit 1\n')
+        checked = invoke(True, ['true'], flags=['--verifier', str(verifier)], extra=extra)
+        redacted(checked, 0)
+        assert result(checked)['verified'] is False
+        shim = root / 'redacting-git'
+        shim.mkdir()
+        extra['PATH'] = str(shim) + ':' + env['PATH']
+        executable(shim / 'git', '#!/bin/sh\ncase " $* " in *" status "*) printf "%s\\n" ' + shlex.quote(message) + ' >&2; exit 1;; esac\nexec ' + shlex.quote(real_git) + ' "$@"\n')
+        redacted(invoke(True, ['true'], extra=extra), 1)
+        executable(shim / 'git', '#!/bin/sh\ncase " $* " in *" push "*) printf "%s %s\\n" "$EVIDENCE_PUSH_TOKEN" "$GIT_CONFIG_VALUE_0" >&2; exit 1;; esac\nexec ' + shlex.quote(real_git) + ' "$@"\n')
+        redacted(invoke(True, ['sh', '-c', 'exit 3'], flags=['--push', 'echo-header-sink'], extra=extra), 1)
+    elif group == 'key-tempfile':
+        log = root / 'key-file.json'
+        verifier = root / 'inspect-key-file'
+        for status in (0, 1):
+            code = ('import json,pathlib,stat,sys; p=pathlib.Path(sys.argv[sys.argv.index("--keys")+1]); '
+                    'pathlib.Path(' + repr(str(log)) + ').write_text(json.dumps(dict(path=str(p),mode=stat.S_IMODE(p.stat().st_mode),content=p.read_text()))); '
+                    'sys.exit(' + str(status) + ')')
+            executable(verifier, '#!/bin/sh\nexec ' + shlex.quote(sys.executable) + ' -I -c ' + shlex.quote(code) + ' "$@"\n')
+            done = invoke(True, ['true'], flags=['--verifier', str(verifier)])
+            good(done)
+            seen = json.loads(log.read_bytes())
+            assert seen['mode'] == 0o600 and seen['content'] == allowed.read_text(), seen
+            assert not pathlib.Path(seen['path']).exists()
+            assert not list(root.glob('evidence-keys-*'))
+        verifier.chmod(0o644)
+        done = invoke(True, ['true'], flags=['--verifier', str(verifier)])
+        assert done.returncode == 1, done.stderr
+        assert not list(root.glob('evidence-keys-*'))
+    elif group == 'measure':
         marker = root / 'executions'
         command = ['sh', '-c', 'printf x >> ' + shlex.quote(str(marker)) + '; printf "built\\n"; printf "tested\\n" >&2']
         values = pair(command)

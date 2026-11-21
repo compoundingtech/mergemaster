@@ -3,8 +3,12 @@
 ## Unreleased
 
 - Add `mergemaster evidence legacy-sign`, the native cooperative v1 signer, separately from the BASE-bound `evidence sign` protocol. It retains the legacy HOME configuration (including empty/unset HOME and falsy tool-path defaults), Python request JSON semantics and signed-pack response. The intended producer-identity change is `producer_sha256`: it identifies the native signing executable instead of the Python script; the remaining statement bytes retain the legacy encoding. The README lists intentional diagnostic, scratch-init deadline and completeness-preflight divergences.
+<<<<<<< HEAD
 - Add `mergemaster evidence legacy-wrap` for cooperative v1 command/aggregate measurement, inputs and lane bindings, signed-pack artifacts, indexed notes and optional publication. Its default signer retains the sekrets boundary and names native `mergemaster evidence legacy-sign`; `wrapper_sha256` now identifies the native executable. Legacy exits remain separate from v2's exit-75 infrastructure contract.
 - Rust port wave 3: remove `scripts/evidence-sign`, `scripts/evidence-sign-hardening-test`, `scripts/evidence-wrap` and `scripts/evidence-wrap-test`; local runners, CI adapters and retained note-producing tests use `mergemaster evidence legacy-sign` / `legacy-wrap`. Binary selection follows the wave-2 pinned verifier boundary, with no Python fallback; HOME configuration and the cooperative v1 signed-pack protocol remain unchanged. Independent pinned-oracle tests retain the removed suites' assertions.
+=======
+- Add `mergemaster evidence legacy-wrap` for cooperative v1 command/aggregate measurement, inputs and lane bindings, signed-pack artifacts, indexed notes and optional publication. Its default signer retains the sekrets boundary and names native `mergemaster evidence legacy-sign`; `wrapper_sha256` now identifies the native executable. Legacy exits remain separate from v2's exit-75 infrastructure contract, including arbitrary-width aggregate failure decisions and CPython process-status conversion. Security divergences strip publication credentials from lane/signer environments, redact raw and Basic-auth tokens from diagnostics, and use private, automatically removed verifier-key tempfiles.
+>>>>>>> origin/wave-3-slice-b
 
 ## [0.13.0] - 2026-11-21
 

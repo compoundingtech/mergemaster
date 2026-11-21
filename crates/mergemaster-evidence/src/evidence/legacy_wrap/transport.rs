@@ -16,13 +16,64 @@ type Environment = BTreeMap<OsString, OsString>;
 const GIT_TIMEOUT: Duration = Duration::from_secs(600);
 const PUSH_TRIES: usize = 3;
 
+pub(super) struct Redactor {
+    token: String,
+    header: String,
+}
+
+impl Redactor {
+    pub(super) fn new(token: String) -> Self {
+        let header = if token.is_empty() {
+            String::new()
+        } else {
+            STANDARD.encode(format!("x-access-token:{token}"))
+        };
+        Self { token, header }
+    }
+
+    pub(super) fn from_env() -> Self {
+        Self::new(std::env::var("EVIDENCE_PUSH_TOKEN").unwrap_or_default())
+    }
+
+    pub(super) fn text<'a>(&self, text: &'a str) -> std::borrow::Cow<'a, str> {
+        if self.token.is_empty() {
+            return std::borrow::Cow::Borrowed(text);
+        }
+        let next = |text: &str| {
+            [
+                (text.find(&self.header), self.header.len()),
+                (text.find(&self.token), self.token.len()),
+            ]
+            .into_iter()
+            .filter_map(|(at, length)| at.map(|at| (at, length)))
+            .min_by_key(|(at, _)| *at)
+        };
+        let Some((mut at, mut length)) = next(text) else {
+            return std::borrow::Cow::Borrowed(text);
+        };
+        let mut redacted = String::with_capacity(text.len());
+        let mut remaining = text;
+        loop {
+            redacted.push_str(&remaining[..at]);
+            redacted.push_str("***");
+            remaining = &remaining[at + length..];
+            match next(remaining) {
+                Some(found) => (at, length) = found,
+                None => break,
+            }
+        }
+        redacted.push_str(remaining);
+        std::borrow::Cow::Owned(redacted)
+    }
+}
+
 pub(super) fn git(args: &[&str], input: Option<&[u8]>) -> Result<Output> {
     let done = git_status(args, input, &[], false)?;
     if !done.status.success() {
         bail!(
             "git {} failed: {}",
             args.first().copied().unwrap_or(""),
-            diagnostic_tail(&done.stderr)
+            diagnostic_tail(&done.stderr, &Redactor::from_env())
         );
     }
     Ok(done)
@@ -102,8 +153,9 @@ fn whitespace(c: char) -> bool {
     c.is_whitespace() || matches!(c, '\u{1c}'..='\u{1f}')
 }
 
-fn diagnostic_tail(bytes: &[u8]) -> String {
-    let text = String::from_utf8_lossy(bytes);
+fn diagnostic_tail(bytes: &[u8], secrets: &Redactor) -> String {
+    let decoded = String::from_utf8_lossy(bytes);
+    let text = secrets.text(&decoded);
     let text = text.trim_matches(whitespace);
     let start = text.char_indices().rev().nth(499).map_or(0, |(at, _)| at);
     text[start..].to_owned()
@@ -169,26 +221,19 @@ fn token_environment(token: &str, environ: &Environment) -> Result<Vec<(String, 
     ])
 }
 
-pub(super) fn push_refs(remote: &str, refs: &[String], token: &str) -> Result<()> {
+pub(super) fn push_refs(remote: &str, refs: &[String], secrets: &Redactor) -> Result<()> {
     let result = (|| {
-        let extra = token_environment(token, &std::env::vars_os().collect())?;
+        let extra = token_environment(&secrets.token, &std::env::vars_os().collect())?;
         push_with(
             remote,
             refs,
             |args| git_status(args, None, &extra, true),
             std::thread::sleep,
             &mut io::stderr().lock(),
+            secrets,
         )
     })();
-    result.map_err(|error: anyhow::Error| redact(error, token))
-}
-
-fn redact(error: anyhow::Error, token: &str) -> anyhow::Error {
-    if token.is_empty() {
-        error
-    } else {
-        anyhow::anyhow!(error.to_string().replace(token, "***"))
-    }
+    result.map_err(|error: anyhow::Error| anyhow::anyhow!("{}", secrets.text(&error.to_string())))
 }
 
 fn push_with(
@@ -197,6 +242,7 @@ fn push_with(
     mut run: impl FnMut(&[&str]) -> Result<Output>,
     mut sleep: impl FnMut(Duration),
     diagnostics: &mut impl Write,
+    secrets: &Redactor,
 ) -> Result<()> {
     let mut pending = refs.to_vec();
     for attempt in 1..=PUSH_TRIES {
@@ -231,7 +277,7 @@ fn push_with(
             }
         }
         if refused.is_empty() {
-            bail!("push failed: {}", diagnostic_tail(&done.stderr));
+            bail!("push failed: {}", diagnostic_tail(&done.stderr, secrets));
         }
         if refused
             .values()
@@ -247,7 +293,8 @@ fn push_with(
         }
         writeln!(
             diagnostics,
-            "evidence-wrap: {remote} answered {} ref(s) with a bare (failed); pushing them again ({} of {PUSH_TRIES})",
+            "evidence-wrap: {} answered {} ref(s) with a bare (failed); pushing them again ({} of {PUSH_TRIES})",
+            secrets.text(remote),
             refused.len(),
             attempt + 1
         )?;
@@ -262,6 +309,21 @@ fn push_with(
 mod tests {
     use super::*;
     use std::os::unix::process::ExitStatusExt;
+
+    #[test]
+    fn diagnostic_redaction_covers_basic_auth_before_tail_truncation() {
+        let token = "sensitive".repeat(100);
+        let secrets = Redactor::new(token.clone());
+        let text = format!(
+            "raw={token} header={}",
+            STANDARD.encode(format!("x-access-token:{token}"))
+        );
+        assert_eq!(
+            diagnostic_tail(text.as_bytes(), &secrets),
+            "raw=*** header=***"
+        );
+        assert_eq!(secrets.text("ordinary diagnostic"), "ordinary diagnostic");
+    }
 
     #[test]
     fn git_capture_spawn_errors_use_python_command_diagnostics() {
@@ -378,7 +440,7 @@ mod tests {
                 2 => output(false, "!\trefs/notes/b:refs/notes/b\t[remote rejected] (failed)\n", ""),
                 _ => output(true, "", ""),
             })
-        }, |duration| sleeps.push(duration), &mut diagnostics).unwrap();
+        }, |duration| sleeps.push(duration), &mut diagnostics, &Redactor::new(String::new())).unwrap();
         assert_eq!(calls.len(), 3);
         assert_eq!(
             calls[0],
@@ -427,6 +489,7 @@ mod tests {
                 },
                 |_| panic!("must not back off"),
                 &mut diagnostics,
+                &Redactor::new(String::new()),
             )
             .unwrap_err();
             assert_eq!(error.to_string(), expected);
@@ -451,6 +514,7 @@ mod tests {
             },
             |_| {},
             &mut Vec::new(),
+            &Redactor::new(String::new()),
         )
         .unwrap_err();
         assert_eq!(calls, 3);
@@ -586,6 +650,7 @@ mod tests {
                 },
                 |_| panic!("local publication must not retry"),
                 &mut Vec::new(),
+                &Redactor::new("secret-token-xyz".into()),
             )
             .unwrap();
         }
@@ -605,7 +670,7 @@ mod tests {
     fn diagnostic_tail_matches_python_character_slicing() {
         let text = format!("\u{1c}{}end\u{1f}", "é".repeat(600));
         assert_eq!(
-            diagnostic_tail(text.as_bytes()),
+            diagnostic_tail(text.as_bytes(), &Redactor::new(String::new())),
             format!("{}end", "é".repeat(497))
         );
         assert!(
@@ -618,11 +683,8 @@ mod tests {
     #[test]
     fn token_errors_are_redacted_and_counts_use_python_integers() {
         assert_eq!(
-            redact(
-                anyhow::anyhow!("push failed: token-secret twice token-secret"),
-                "token-secret"
-            )
-            .to_string(),
+            Redactor::new("token-secret".into())
+                .text("push failed: token-secret twice token-secret"),
             "push failed: *** twice ***"
         );
         for (raw, count, next) in [
