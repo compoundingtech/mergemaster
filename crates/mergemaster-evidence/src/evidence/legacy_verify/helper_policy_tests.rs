@@ -32,7 +32,7 @@ simple={'trust_levels':['agent'],'kinds':{'wrapper':{'command':['run']}}}
 add('defaults',simple)
 complex={
  'trust_levels':['host','agent','host'],
- 'max_age_s':10**100,'enforce':True,'inputs':['src','!docs','src','.github/workflows/check.yml::jobs.test'],
+ 'max_age_s':10**100,'enforce':True,'inputs':['src','!src/docs','src','.github/workflows/check.yml::jobs.test'],
  'sample_one_in':1000,'require':'reject','events':['merge_group','pull_request'],
  'kinds':{
   'observed':{
@@ -49,6 +49,7 @@ complex={
    'base_inputs':{'baseline':'.github/clippy-baseline.json','lock':'Cargo.lock'}},
   'nix':{'command':['nix','build'],'runner_prefix':None,'trust_levels':None,'by_level':None},
   'sekrets':{'command':['sekrets'],'by_level':{'host':{'command':['test'],'events':['pull_request'],'lane':False}}}}
+}
 add('all normalized fields',complex,repository='org/{check}')
 for label,shards in [
  ('absent',None),('null count',{'count':'n','results':'r','pull_request_count':None}),

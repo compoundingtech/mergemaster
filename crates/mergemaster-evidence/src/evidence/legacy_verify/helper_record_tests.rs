@@ -22,7 +22,7 @@ def row(argv,operation):
 for fmt in ['sha1','sha256']:
  repo=root/fmt;repo.mkdir()
  def git(*args,data=None):return subprocess.check_output(['git','-C',str(repo),*args],input=data,stderr=subprocess.PIPE).decode().strip()
- git('init','--object-format='+fmt);git('config','user.name','Fixture');git('config','user.email','fixture@example.invalid');(repo/'source').write_text('source');git('add','.');git('commit','-m','base');base=git('rev-parse','HEAD');tree=git('rev-parse','HEAD^{tree}')
+ git('init','--object-format='+fmt);git('config','user.name','Fixture');git('config','user.email','fixture@example.invalid');git('config','commit.gpgsign','false');git('config','core.hooksPath','/dev/null');(repo/'source').write_text('source');git('add','.');git('commit','-m','base');base=git('rev-parse','HEAD');tree=git('rev-parse','HEAD^{tree}')
  value=dict(_type=v['STATEMENT_TYPE'],predicateType=v['PREDICATE_TYPE'],subject=[dict(name=base,digest=dict(gitTree=tree))],predicate=dict(schema_version=1,tier='full',change_id='fixture',signer='agent/fixture',observed_at='2026-01-01T00:00:00Z',observed=dict(kind='tests',runner='wrapper',inputs={},checks={'x':dict(command=['true'],exit_code=0,output_sha256='0'*64)})),unknown={'z':[1.5,float('nan'),10**120],'a':'\ud800','\udfff':-0.0})
  def note(blob,mode='100644',path=None,parent=base,sign=False,extra=False):
   oid=git('hash-object','-w','--stdin',data=blob);listing=(mode+' blob '+oid+'\t').encode()+(path if path is not None else tree.encode())+b'\n'
