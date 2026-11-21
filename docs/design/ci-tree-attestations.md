@@ -60,6 +60,77 @@ timestamps, `attempt-2` suffixes and a manifest's self-reported IDs cannot fill
 this gap. Refuse absent digests; hash the downloaded archive before bounded,
 fixed-member extraction, and separately hash the manifest and logs.[4]
 
+### Retained-source receipt v2 and tool binding
+
+The `evidence-source` adapter runs the native `mergemaster evidence source`
+command, not an embedded producer recipe. It fetches the accepted `BASE_SHA`
+before calling the shared release provisioner. Pull requests use the gate's
+effective merge first parent when the second parent matches the event PR head,
+otherwise the event PR base. Merge groups use the event `base_sha`; main-branch
+manual dispatches use `github.sha`. These adapter event bases are not the live
+protected-target authorization required for merge-queue enforcement below.
+Unsupported adapter events fail without provisioning.
+
+BASE's `.mergemaster/tool-pin.json` is version 1 and names repository
+`compoundingtech/mergemaster`, a lowercase 40-hex `revision`, and
+`release: {version, sha256}` with a `vN.N.N` version and lowercase 64-hex digest.
+Extra pin fields are tolerated. The provisioner downloads that release's
+`mergemaster-x86_64-unknown-linux-musl`, checks its SHA-256 and verifies its GitHub
+attestation against both the pinned signer/source revision and
+`compoundingtech/mergemaster/.github/workflows/release.yml`, denying self-hosted
+builders. There is no candidate build, Python producer or weaker fallback.
+The source job retains `contents: read`, its informational `continue-on-error`,
+and its exact job and step names. Provisioning/production failures fail the step.
+
+The artifact remains `ci-evidence-source-<attempt>`, containing exactly
+`receipt.json` and `source.pack` from `$RUNNER_TEMP/ci-evidence-source/`.
+The **source receipt** has `version: 2`, `repository`, `event`, decimal-string
+`run_id` and `run_attempt`, effective tested `source` and `tree`, `object_format`,
+`change_id`, `pack_sha256`, `pack_bytes`, and:
+
+```json
+{
+  "tool": {
+    "repository": "compoundingtech/mergemaster",
+    "revision": "<40 lowercase hex>",
+    "release_version": "vN.N.N",
+    "binary_sha256": "<64 lowercase hex>"
+  }
+}
+```
+
+The native producer reads the pin from exported `BASE_SHA` and hashes
+`/proc/self/exe`; that executable digest must equal the pin's release SHA-256.
+The verifier derives the same four-field tool identity from the operator's
+accepted BASE and compares it to the receipt. Operator CI binding configuration
+uses `tool_pin_sha256`, replacing `recipe_sha256`: it hashes the **raw bytes** of
+`BASE:.mergemaster/tool-pin.json`, not normalized JSON or producer source.
+Whitespace-only pin edits therefore require a new operator digest. The executed
+workflow remains independently bound to the operator-selected accepted commit.
+Pull-request artifacts cannot establish full trust by asserting their own
+checkout/tool identity; source retention alone proves neither passing checks nor
+signing authority.
+
+This is a clean cutover: version-1 source receipts, their `producer_sha256`
+recipe identity, and recipe-based CI bindings are not accepted through a legacy
+arm. Unsupported receipt versions produce an explicit unsupported-version error.
+This retained-source envelope is distinct from the OIDC producer-proof v1
+protocol below; that protocol's recipe digest and schema version do not change.
+
+`binary_sha256` comes from `/proc/self/exe` inside the accepted workflow. This
+measurement is only as trustworthy as that workflow and its runner. Tool
+identity equality is not proof of execution.
+
+#### Operator rollout and rotation
+
+Coordinate all four values: the new `.mergemaster/tool-pin.json`, the operator's
+raw-byte `tool_pin_sha256`, the operator's `accepted_base`, and the fleet workflow
+digest (`workflow_sha256`). Nothing updates them together automatically. Every
+mismatch fails closed: full eligibility is lost, and some mismatches reject the
+receipt before eligibility is evaluated. Publishing a new release does not
+revoke the old pin; only operator configuration changes revoke acceptance.
+
+
 ### Accepted producer proof v1
 
 A producer first uploads an immutable result artifact. It then emits the canonical

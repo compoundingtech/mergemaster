@@ -37,6 +37,7 @@ pub mod signer_input;
 pub mod signing;
 pub mod skip_report;
 pub mod slo;
+pub mod source;
 #[cfg(test)]
 mod tests;
 pub mod workspace;

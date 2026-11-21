@@ -146,7 +146,7 @@ export const evidencePresignNoticeJob = ({ checks: evidenceGateChecks, actions, 
     },
   ],
 })
-export const evidenceSourceJob = (producer: string, actions: Actions): WorkflowObject => ({
+export const evidenceSourceJob = (actions: Actions): WorkflowObject => ({
       name: 'evidence-source',
       'runs-on': 'ubuntu-latest',
       'timeout-minutes': 5,
@@ -156,9 +156,14 @@ export const evidenceSourceJob = (producer: string, actions: Actions): WorkflowO
         { uses: actions.checkout, with: { 'persist-credentials': false } },
         {
           name: 'Retain effective tested source',
-          // Execute the workflow's embedded producer outside the checkout. It observes Git
-          // objects only; it never executes source or carries a production signing key.
-          run: `cat > "$RUNNER_TEMP/ci-evidence-source-producer.py" <<'EVIDENCE_SOURCE_PY'\n${producer.trimEnd()}\nEVIDENCE_SOURCE_PY\npython3 "$RUNNER_TEMP/ci-evidence-source-producer.py"`,
+          // Match the gate's effective PR merge base; never provision from candidate files.
+          env: {
+            BASE_SHA: "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.sha) || '' }}",
+            EVENT_NAME: '${{ github.event_name }}',
+            PR_HEAD_SHA: '${{ github.event.pull_request.head.sha }}',
+            GH_TOKEN: '${{ github.token }}',
+          },
+          run: `${provisionEvidenceTool}\nsource_base="$BASE_SHA"; if [ "$EVENT_NAME" = pull_request ]; then set -- $(git cat-file -p HEAD | sed -n 's/^parent //p'); if [ "$#" = 2 ] && [ "$2" = "$PR_HEAD_SHA" ]; then source_base=$1; fi; fi; export BASE_SHA="$source_base"; test -n "$BASE_SHA" && git fetch --no-tags --depth=1 -q origin "$BASE_SHA" && provision_evidence_tool && "$MERGEMASTER" evidence source`,
         },
         {
           name: 'Upload effective tested source',
