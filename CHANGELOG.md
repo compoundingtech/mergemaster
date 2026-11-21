@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Isolate native `legacy-wrap` publication in a fresh bare repository with strict pack validation, validate literal GitHub remote URLs (or caller-explicit credential-free absolute local paths), refuse checkout-configured local destinations that could execute receive hooks, ignore push URLs and checkout/caller transport configuration, and scope the environment-only token header to the validated HTTPS URL. Strip caller `GIT_CONFIG_*` overrides from lane/signer children; document the intentional Python divergence and signal-cleanup limitation.
+
+## [0.14.0] - 2026-11-21
+
 - Add `mergemaster evidence legacy-sign`, the native cooperative v1 signer, separately from the BASE-bound `evidence sign` protocol. It retains the legacy HOME configuration (including empty/unset HOME and falsy tool-path defaults), Python request JSON semantics and signed-pack response. The intended producer-identity change is `producer_sha256`: it identifies the native signing executable instead of the Python script; the remaining statement bytes retain the legacy encoding. The README lists intentional diagnostic, scratch-init deadline and completeness-preflight divergences.
 - Add `mergemaster evidence legacy-wrap` for cooperative v1 command/aggregate measurement, inputs and lane bindings, signed-pack artifacts, indexed notes and optional publication. Its default signer retains the sekrets boundary and names native `mergemaster evidence legacy-sign`; `wrapper_sha256` now identifies the native executable. Legacy exits remain separate from v2's exit-75 infrastructure contract, including arbitrary-width aggregate failure decisions and CPython process-status conversion. Security divergences strip publication credentials from lane/signer environments, redact raw and Basic-auth tokens from diagnostics, and use private, automatically removed verifier-key tempfiles.
 - Match pinned CPython 3.14's `legacy-wrap` aggregate-input refusal wording and argparse classification of digit-prefixed values such as `-1x` and `-1e3`; command REMAINDER preserves trailing ambiguous option spellings instead of treating them as wrapper options.
