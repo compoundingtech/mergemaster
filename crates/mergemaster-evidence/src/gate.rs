@@ -93,6 +93,15 @@ pub struct QueueBinding {
     pub base: String,
     pub members: Vec<String>,
     pub tree: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub projection: Option<QueueProjection>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct QueueProjection {
+    pub commit: String,
+    pub parent: String,
+    pub paths: Vec<String>,
 }
 
 impl Decision {
@@ -458,7 +467,13 @@ pub fn decide(
 
 // Explicit batches mirror the train's commit-tree tree -p prefix -p admitted.
 // The legacy single-PR form also accepts BASE as the second parent.
-fn bind_queue(repo: &Path, base: &str, head: &str, members: &[String]) -> Result<Vec<String>> {
+fn bind_queue(
+    repo: &Path,
+    base: &str,
+    head: &str,
+    members: &[String],
+    policy: Option<&config::QueuePolicy>,
+) -> Result<(Vec<String>, Option<QueueProjection>)> {
     let parents = |head: &str| -> Result<Vec<String>> {
         Ok(
             git::text(repo, &["rev-list", "--parents", "-n", "1", head])?
@@ -469,15 +484,43 @@ fn bind_queue(repo: &Path, base: &str, head: &str, members: &[String]) -> Result
         )
     };
     if members.is_empty() {
-        let parents = parents(head)?;
-        ensure!(
-            parents.len() == 2 && parents.iter().any(|parent| parent == base),
-            "queue head {head} must be a two-parent merge with base {base} as a parent; declare ordered --member SHAs for a batch"
-        );
-        return Ok(parents
-            .into_iter()
-            .filter(|parent| parent != base)
-            .collect());
+        let head_parents = parents(head)?;
+        let (merge_parents, projection) = if head_parents.len() == 1 {
+            let policy =
+                policy.context("queue projection requires BASE queue.generated_paths policy")?;
+            let parent = &head_parents[0];
+            let merge_parents = parents(parent)?;
+            ensure!(
+                merge_parents.len() != 1,
+                "queue head {head} has more than one projection commit"
+            );
+            ensure!(
+                merge_parents.len() == 2 && merge_parents.iter().any(|p| p == base),
+                "queue projection parent {parent} must be a two-parent merge with base {base} as a parent"
+            );
+            let paths = projection_paths(repo, parent, head, &policy.generated_paths)?;
+            (
+                merge_parents,
+                Some(QueueProjection {
+                    commit: head.into(),
+                    parent: parent.clone(),
+                    paths,
+                }),
+            )
+        } else {
+            ensure!(
+                head_parents.len() == 2 && head_parents.iter().any(|parent| parent == base),
+                "queue head {head} must be a two-parent merge with base {base} as a parent; declare ordered --member SHAs for a batch"
+            );
+            (head_parents, None)
+        };
+        return Ok((
+            merge_parents
+                .into_iter()
+                .filter(|parent| parent != base)
+                .collect(),
+            projection,
+        ));
     }
     let mut current = head.to_owned();
     for (index, member) in members.iter().enumerate().rev() {
@@ -507,7 +550,52 @@ fn bind_queue(repo: &Path, base: &str, head: &str, members: &[String]) -> Result
         "queue first-parent chain after {} members ends at {current}, expected base {base}",
         members.len()
     );
-    Ok(members.to_vec())
+    Ok((members.to_vec(), None))
+}
+
+fn projection_paths(
+    repo: &Path,
+    parent: &str,
+    head: &str,
+    generated: &[String],
+) -> Result<Vec<String>> {
+    // Disabling renames exposes both sides of moves. Raw tree modes include
+    // deletes and executable-bit changes, without following checkout symlinks.
+    let diff = git::git(
+        repo,
+        &[
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-renames",
+            "--ignore-submodules=none",
+            "--raw",
+            "-z",
+            parent,
+            head,
+            "--",
+        ],
+    )?;
+    let mut fields = diff.split(|byte| *byte == 0);
+    let mut paths = Vec::new();
+    while let Some(header) = fields.next().filter(|field| !field.is_empty()) {
+        let path = fields.next().context("queue projection diff has no path")?;
+        let path = std::str::from_utf8(path).context("non-UTF8 queue projection path")?;
+        ensure!(
+            generated
+                .iter()
+                .any(|pattern| generated_matches(path, pattern)),
+            "queue projection touches non-generated path {path}"
+        );
+        let header = std::str::from_utf8(header).context("invalid queue projection diff")?;
+        let mut modes = header.trim_start_matches(':').split_whitespace().take(2);
+        ensure!(
+            modes.all(|mode| matches!(mode, "000000" | "100644")),
+            "queue projection path {path} must be a regular non-executable file"
+        );
+        paths.push(path.to_owned());
+    }
+    Ok(paths)
 }
 
 fn compute(
@@ -619,12 +707,13 @@ fn compute(
             ));
             return Ok(decision);
         }
-        match bind_queue(repo, base, head, members) {
-            Ok(members) => {
+        match bind_queue(repo, base, head, members, config.policy.queue.as_ref()) {
+            Ok((members, projection)) => {
                 decision.queue_binding = Some(QueueBinding {
                     base: base.into(),
                     members,
                     tree: decision.tree.clone(),
+                    projection,
                 });
             }
             Err(error) => {
@@ -1006,22 +1095,39 @@ fn compute(
     Ok(decision)
 }
 
-fn matches_path(path: &str, prefix: &str) -> bool {
+fn normalized_path(path: &str) -> String {
     // NFKC closes compatibility-spelling aliases (including fullwidth dots and
     // separators); lowercase also covers case-insensitive checkout filesystems.
-    let path = path.nfkc().flat_map(char::to_lowercase).collect::<String>();
-    let prefix = prefix
-        .nfkc()
-        .flat_map(char::to_lowercase)
-        .collect::<String>();
-    let prefix = prefix.trim_end_matches('/');
+    path.nfkc().flat_map(char::to_lowercase).collect()
+}
+
+fn path_within(path: &str, prefix: &str) -> bool {
+    component_within(path, prefix.trim_end_matches('/'))
+}
+
+fn generated_matches(path: &str, pattern: &str) -> bool {
+    if let Some((prefix, suffix)) = pattern.split_once("/*") {
+        path.strip_prefix(prefix)
+            .and_then(|rest| rest.strip_prefix('/'))
+            .and_then(|rest| rest.strip_suffix(suffix))
+            .is_some_and(|matched| !matched.is_empty())
+    } else {
+        path_within(path, pattern)
+    }
+}
+
+fn component_within(path: &str, prefix: &str) -> bool {
     path == prefix
         || path
             .strip_prefix(prefix)
             .is_some_and(|rest| rest.starts_with('/'))
-        || prefix
-            .strip_prefix(path.as_str())
-            .is_some_and(|rest| rest.starts_with('/'))
+}
+
+fn matches_path(path: &str, prefix: &str) -> bool {
+    let path = normalized_path(path);
+    let prefix = normalized_path(prefix);
+    let prefix = prefix.trim_end_matches('/');
+    component_within(&path, prefix) || component_within(prefix, &path)
 }
 
 fn failed(statement: &Statement, check: &str) -> bool {
