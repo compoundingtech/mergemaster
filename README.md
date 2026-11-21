@@ -1870,11 +1870,16 @@ the summary records `verified=false` and a successful run still exits 0 unless
 - Publication imports the signed pack and requested refs into a fresh bare
   repository with an empty template, using the checkout object store as a
   read-only alternate only. Its absolute common object directory must exist;
-  alternate object stores referenced by that store are followed too. Only
-  content-addressed objects are shared, never checkout config or hooks.
+  alternate object stores referenced by that store are followed too. Objects are
+  read through the alternate; traversal metadata (commit-graph, multi-pack-index
+  and bitmaps) is disabled for publication, including Git's child processes.
+  Config and hooks are never shared. Every isolated publication ref targets the
+  signed record, not a checkout-provided target; a conflicting checkout ref
+  causes a typed refusal before transport.
   Strict pack validation is retained without a separate full-history walk.
-  The checkout's shallow boundaries are copied only after validating every line
-  as a 40- or 64-hex object ID. From a shallow checkout, the destination must
+  The checkout's shallow file is opened without following symlinks, limited to
+  1 MiB, and copied only after validating every line as a 40- or 64-hex object ID.
+  From a shallow checkout, the destination must
   already contain the boundary commit.
   Push discovers unavailable objects; recognized missing-history and shallow
   refusals become typed publication-object errors retaining redacted Git detail.

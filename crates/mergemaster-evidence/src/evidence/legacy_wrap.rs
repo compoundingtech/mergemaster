@@ -786,7 +786,7 @@ fn wrap(args: args::Args, secrets: &transport::Redactor) -> Result<i32> {
             !succeeded || verified,
             "not pushing: the note did not verify locally"
         );
-        transport::push_refs(remote, &refs, &pack, secrets)?;
+        transport::push_refs(remote, &refs, &record, &pack, secrets)?;
         summary.insert("pushed".into(), "true".into());
     }
     eprintln!("{}", secrets.text(&json::object(&summary, true)));
