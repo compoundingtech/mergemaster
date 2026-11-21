@@ -16,8 +16,8 @@
   {"path": "scripts/ci-evidence-shadow-test", "wave": "wave-4-ci-adapters", "state": "retained"},
   {"path": "scripts/ci-evidence-signing", "wave": "wave-4-ci-adapters", "state": "retained"},
   {"path": "scripts/ci-evidence-signing-test", "wave": "wave-4-ci-adapters", "state": "retained"},
-  {"path": "scripts/ci-evidence-slo", "wave": "wave-1-leaves", "state": "retained"},
-  {"path": "scripts/ci-evidence-slo-test", "wave": "wave-1-leaves", "state": "retained"},
+  {"path": "scripts/ci-evidence-slo", "wave": "wave-1-leaves", "state": "removed"},
+  {"path": "scripts/ci-evidence-slo-test", "wave": "wave-1-leaves", "state": "removed"},
   {"path": "scripts/ci-evidence-source", "wave": "wave-1-leaves", "state": "retained"},
   {"path": "scripts/ci-evidence-source-test", "wave": "wave-1-leaves", "state": "retained"},
   {"path": "scripts/ci-signed-tree", "wave": "wave-4-ci-adapters", "state": "retained"},
@@ -389,5 +389,6 @@
   {"path": "tests/test-nix-proof.py", "wave": "wave-9-python-free", "state": "retained"},
   {"path": "tests/test-oracle-scripts.py", "wave": "wave-9-python-free", "state": "retained"},
   {"path": "tests/test-release-workflow.py", "wave": "wave-9-python-free", "state": "retained"},
-  {"path": "tests/test-workflow-adapters.py", "wave": "wave-4-ci-adapters", "state": "retained"}
+  {"path": "tests/test-workflow-adapters.py", "wave": "wave-4-ci-adapters", "state": "retained"},
+  {"path": "tests/fixtures/oracle/slo.json", "wave": "wave-9-python-free", "state": "retained", "sha256": "7a01773e1f67ff27b6875cb2b44f857a18942c7ad4cc3d2c21dbd5d075791ee4", "executable": 0}
 ]}
