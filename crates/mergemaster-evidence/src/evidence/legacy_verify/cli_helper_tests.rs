@@ -65,5 +65,5 @@ print(json.dumps(rows))
     let rows: Vec<super::super::cli_dispatch::tests::Row> =
         serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(rows.len(), 4);
-    super::super::cli_dispatch::tests::compare(rows, "MM_ORDINARY_ONLY");
+    super::super::cli_dispatch::tests::compare(rows, "MM_DISPATCH_ALL");
 }
