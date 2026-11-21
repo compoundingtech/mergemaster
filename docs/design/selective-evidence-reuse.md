@@ -1,187 +1,292 @@
 # Selective evidence reuse across main moves (design)
 
 Step: step-run/01a1fdddfc677920ab1659e38c430576/reuse-gate-core (mission dotfiles-queue).
-Code references are to compoundingtech/mergemaster main c7a38431.
+Code references are relative to `crates/mergemaster-evidence/src/` at merged
+main `bd3526be7769301a2d241c974c27c3ada01c5272`, unless prefixed `README`.
+This is a proposal, not a description of enabled reuse.
 
-## 1. Problem
+## 1. Problem and boundary
 
-A batch train moves main for every merge. Each move gives each queued PR a new
-merge HEAD and tree. Today the native gate accepts a note only for the exact
-head commit and tree:
+A main move changes a queued PR's merge HEAD and tree even when a check's
+inputs are unchanged. The native PR gate requires exact commit and tree
+(`gate.rs:1216-1226`). Preserve that rule: issue a new exact-head statement,
+but explicitly mark its result as reused from a fresh execution.
 
-- `satisfy()` refuses `wrong_commit` when the subject is not the head, and
-  `stale_tree` when the subject tree differs (gate.rs:1078-1091).
-- README:588 gives the reason: pull-request mode needs exact signed commit and
-  tree identity; push mode may transfer evidence only between identical trees.
-
-So every main move reruns every check of every queued PR, even when nothing
-the check reads has changed.
+Only BASE-declared `nix_check` lanes with freshness `any` and a positive,
+finite `max_age_seconds` qualify. Keep the BASE lane object and the shared
+`expected_inputs` implementation authoritative. No Nix evaluation, realization
+or consumer command runs in the gate. Gate-side derivation evaluation is
+rejected: it adds untrusted evaluation to a read-only decision boundary.
+An unchanged gate is also rejected: a signer assertion alone cannot enforce
+root verification, age, provenance or current revocation.
 
 ## 2. What a note binds today
 
-| Input of the check | Where it is bound | Checked by the gate? |
+| Input | Existing binding and limitation |
+|---|---|
+| Source and flake lock | Producer evaluates the exact HEAD Git URL with pure evaluation, no IFD and no lock writes/updates (`evidence/signing.rs:504-539`, `evidence/derivation.rs:124-163`). The gate checks the exact subject/tree, not Nix evaluation. |
+| Lane definition | `lane_definition_sha256` hashes `[1, check, lane, definition_files]`. The lane/declarations come from BASE; regular definition files are read from HEAD, not BASE (`gate/config.rs:574-585,975-1023`). |
+| Environment and toolchain | `environment_sha256`, `toolchain_sha256`, `system`: BASE environment bytes/declarations plus declared HEAD files and resolved toolchain (`gate/config.rs:975-1023`). |
+| Workspace | Optional `workspace_binding=v2` and `workspace_declaration_sha256` bind the BASE inputs/scratch declaration; workspace flags are checked separately. This is not a non-Nix read closure (`gate/config.rs:1025-1033`, `gate.rs:1307-1314`). |
+| Nix execution | `nix_derivation`, settings, command, output digest, store and daemon-trust claims. Gate validates their contract (`gate.rs:1261-1292`). The settings digest covers only six constants, not sandbox, substituters or trusted keys (`evidence/derivation.rs:11-18,273-275`). Client `config show` and `store info` do not attest the executing daemon's policy (`evidence/derivation.rs:71-122`). |
+| Producer | Wrapper measures its own executable (`evidence/generic.rs:250-253`); signer checks the caller's digest shape and accepts its exit status (`evidence/signing.rs:693-706,751-762`). This does not authenticate the caller as that executable. |
+| Trust and age | Gate checks repository when configured, full tier, allowed level, supported runner and optional age (`gate.rs:1176-1259`). No signed origin class exists in the v1 schema (`evidence/mod.rs:54-112`). |
+| Runner/schema | Nix checks currently emit `runner="wrapper"` (`evidence/signing.rs:752-753`). Observation has `deny_unknown_fields`; validation requires schema 1 (`evidence/mod.rs:76-101,395-433`). New top-level predicate fields cannot silently extend v1. |
+
+## 3. Protected execution and rebind protocol
+
+Choose verification **inside the protected signer**, not a separate producer
+capability. The signer owns evaluation, execution/realization, measurement and
+statement construction. Its request accepts only repository, candidate
+HEAD/BASE, check and optional immutable root evidence ID R; it accepts no
+claimed producer hash, status, timestamps, origin or reuse key.
+The separate-capability alternative is rejected here: it adds another issuer,
+replay protocol and deployment boundary without removing protected execution.
+
+This requires a new protected execution service: signing keys and daemon
+credentials are unavailable to the caller and build processes; consumer code
+executes only in the Nix build sandbox, never in the signing process. A
+same-UID cooperative launcher/config check is not this isolation boundary.
+The service loads only reviewed immutable producer binaries, measures the
+actually loaded signer executable, and requires its digest and system to be
+listed in BASE's producer manifest (§6). A deployment must prevent replacement
+between measurement and execution. No generic caller-authored observation
+endpoint may mint the new reuse-eligible format.
+
+Both fresh roots and rebinds use this service:
+
+1. Authenticate repository, candidate BASE/HEAD/tree and origin (§5), load
+   BASE policy/keys/environment/producer manifest, and compute shared
+   `expected_inputs` at HEAD using the BASE lane. Reject absent repository,
+   non-`any` freshness or absent/zero/unrepresentable age limit.
+2. For a fresh root, evaluate and admit the derivation under §4. The service
+   executes the normalized `rebuild` command itself, captures status/output,
+   and measures outputs and daemon-policy receipt. Sign only its own
+   observation. A successful fresh root has `nix_execution=rebuild`, no
+   `reused_from`, and `observed_at` equal to actual execution completion.
+3. For rebind, retrieve R by immutable signed notes commit ID, never a mutable
+   ref alias. Verify signature and subject/tree under **current candidate BASE**
+   keys and policy. Require a successful v2 fresh root, no `reused_from` or
+   `re_attests`, same check/lane, full tier, exact signer-level equality,
+   required repository equality, runner `nix`, equal authenticated origin class,
+   current producer authorization, and unexpired root time. A rebind is never
+   a source. Missing root objects or claims refuse reuse.
+4. Evaluate the candidate using the existing pure-eval/no-IFD/no-lock-update
+   contract. Inspect admission (§4). Construct the shared reuse key from
+   check, `nix_derivation`, every `expected_inputs` entry (including workspace
+   declaration when present), `nix_settings_sha256`, authenticated daemon
+   policy digest, and authenticated producer executable digest/system.
+   Compare every entry to R, including absence/presence; both producer digests
+   must be the same currently listed executable. No HEAD-selected lane or
+   independently reimplemented input hashing.
+5. The service realizes the same drv without `--rebuild`, allowing a valid
+   existing store output or authenticated substitution. It captures the
+   realization status itself and freshly measures the ordered output
+   names/paths/NAR hashes (`evidence/derivation.rs:179-226`); require equality
+   with R's `nix_outputs_sha256`. No cached caller status or output is trusted.
+   Measure store, daemon trust, toolchain/closure, workspace and policy for
+   this operation; do not copy operational claims from R.
+6. Sign an exact candidate HEAD/tree v2 note, runner `nix`,
+   `nix_execution=nix_command_mode=reused`, and the normal normalized reused
+   argv. Copy only R's `observed_at`; set `attested_at` to this operation's
+   completion, cite R and the equal reuse key. Its output/log digest describes
+   this realization, not a fabricated rerun of R's logs.
+
+Typed refusal reasons distinguish `reuse_source_unavailable`,
+`reuse_source_unverified`, `reuse_source_not_root`, `reuse_lane_ineligible`,
+`reuse_source_expired`, `reuse_origin_mismatch`, `reuse_producer_unauthorized`,
+`reuse_daemon_policy_missing`, `reuse_daemon_policy_changed`,
+`reuse_impure_derivation`, `reuse_key_mismatch`, `reuse_outputs_mismatch`.
+A reuse refusal may schedule a fresh execution; it never silently satisfies
+the lane. Signing/authority failures are errors, not permission to weaken
+execution isolation or issue a v2 note through the old signer.
+
+### Gate enforcement
+
+Extend the gate's existing signature worker and object-only input checks
+(`gate.rs:906-957,1187-1324`); do not merely trust step 3:
+
+- Verify the candidate normally, including exact HEAD/tree, current BASE
+  signature, lane inputs, normalized argv, success and workspace claims.
+- For a rebind, directly load R by its signed ID outside candidate-tree
+  discovery (which currently filters other trees at `gate.rs:944-947`).
+  Verify its signature and actual root subject/tree under current BASE keys.
+  Do not apply candidate exact-head/tree equality to R.
+- Require v2 root-only provenance, `rebuild`, success, no `reused_from` or
+  `re_attests`; compare check, full tier, runner `nix`, exact signer level,
+  repository, origin class, complete reuse key and output digest. Check both
+  producer identities against current BASE manifest and daemon receipt
+  signatures against current BASE authority (§4).
+- Require positive finite lane age, equal parsed root/rebind `observed_at`,
+  `observed_at <= attested_at <= now + 120s`, and age within that lane's limit
+  for both at decision time. Future-root handling retains the existing
+  120-second skew bound (`gate.rs:1235-1244`); rebind cannot renew age.
+- Refuse a missing/unverifiable/revoked root, stale policy/key authority, any
+  unequal claim or unapproved origin. Return the cited root ID in the decision.
+  No recursive chain traversal or Nix subprocess is needed.
+
+## 4. Execution-policy closure prerequisite
+
+Replace the proposed asserted `nix_sandbox_sha256` with an authenticated
+`nix_daemon_policy_sha256` and attached policy receipts. Client
+`nix config show` is insufficient even when `store info` says trusted.
+This capability does **not** exist in the current measurement code (§2).
+
+The Nix/host execution owner must provide a protected daemon-side execution
+broker with this contract before reuse is enabled:
+
+- It controls the actual daemon/store endpoint, authenticates the protected
+  signer, and owns a receipt key whose public authority is enrolled in BASE
+  reuse policy. The caller/build cannot reach that key or an unrestricted
+  alternate store endpoint. Local-store execution must use the same broker
+  contract; unsupported deployments refuse reuse.
+- It measures the **effective daemon policy after per-operation overrides**,
+  including sandbox/fallback, sandbox and extra-sandbox paths, substituters
+  and extra-substituters, trusted-public-keys and extra-trusted-public-keys,
+  signature requirements, enabled experimental/impure features, builders,
+  hooks, platform/system features, and Nix daemon executable/version. All
+  includes/defaults/aliases must be resolved. Version-one canonical UTF-8 JSON
+  sorts keys, normalizes setting types, preserves ordered lists, and includes
+  empty values; hash those bytes, not a caller-supplied digest.
+- Its signed receipt binds a signer-generated nonce, operation ID, drv,
+  authenticated client, daemon instance/store identity, canonical policy,
+  policy digest, start/end times, operation mode/status and output digest.
+  Pin the policy generation for the whole operation; a reload/change aborts
+  rather than signing two snapshots around an unobserved interval. The signer
+  verifies the receipt before constructing the note; the gate verifies it too.
+  Nonces prevent replay into another operation. Instance/nonce/time are receipt
+  metadata, not cross-host reuse-key equality fields.
+- Initial admissible profile: supported Linux sandbox with `sandbox=true`,
+  fallback false, no extra host bind mounts/sandbox paths, no remote builders
+  or build hooks, no impure/dynamic derivation features. Required virtual
+  devices/proc and platform features are fixed by the profile version.
+  Substitution requires signatures from the measured explicit key allowlist;
+  substituters/keys must equal the root's policy even if a store hit occurs.
+  The broker applies these restrictions to root preparation and all child
+  builds, not just the final drv. Unknown policy fields/features refuse.
+
+The signer inspects the transitive derivation graph: final check must be
+input-addressed, not fixed-output, impure or `__noChroot`. Non-fixed-output
+dependencies must meet the same sandbox restrictions; fixed-output fetch
+dependencies may use network only with declared content-hash verification.
+No ambient host mounts, unpinned network input or consumer-selected policy
+escape is permitted. Fresh roots also require this profile and receipts;
+old roots cannot be upgraded by assertion.
+
+This is evidence equivalence, **not** a proof that builds are deterministic.
+Drv identity binds declared inputs; output NAR equality binds the realized
+result, not arbitrary behavior in a hypothetical second execution. Clock,
+scheduling, randomness, logs, host timing and kernel behavior may vary within
+the approved profile. Lanes whose correctness needs another observation of
+those effects must require `fresh` and are ineligible. `any` explicitly accepts
+the prior successful result within finite age. Substituter correctness/signing
+keys and protected host/kernel integrity remain trusted; equal content hashes
+do not establish who executed a test.
+
+## 5. Trust, origin, schema and revocation
+
+Origin is a signed v2 predicate claim, not inferred from checkout refs or
+caller environment. The protected service's trusted event adapter verifies
+GitHub OIDC signature, issuer, service-specific audience, expiry, repository
+identity and reviewed job/workflow SHA against its deployment allowlist. It
+queries the authenticated GitHub API for the corresponding job/event and live
+PR head/base/source repository; caller JSON and environment variables are not
+event authority. The service signs the derived origin in its observation.
+It binds repository, exact subject HEAD and accepted BASE, event
+kind, source repository, PR identity when applicable, and class:
+`same_repository_pr`, `fork_pr`, `push`, or `local`. Missing/contradictory
+identity refuses v2 issuance. Initial reuse admits only
+`same_repository_pr`; train-prepared candidate heads require an authenticated
+train mapping to the live PR head and accepted BASE. The gate checks this
+binding against its authenticated candidate context and compares root/rebind
+classes exactly. No fork-to-PR, push-to-PR or local-to-PR laundering.
+
+Use exact signer-level equality, not "not lower"; retain BASE lane
+`trust_levels` checks on both signatures. Both statements must have required
+equal logical repository identities, full tier and runner `nix`. Different
+principals at the same permitted level may sign only through the protected
+service. A v1 Nix `wrapper` note is not reclassified as an eligible root.
+
+Introduce predicate URI `https://compounding.tech/fractal/evidence/gate/v2`
+and `schema_version=2`, keeping the in-toto Statement/v1 envelope. Define a
+separate strict v2 decoder, explicitly dispatched by URI/version:
+
+- Predicate fields: existing observation fields plus required `origin`,
+  required `attested_at`, required `reuse_key` (a versioned structured map),
+  required daemon-policy receipt, and optional `reused_from` (full signed
+  notes commit ID). Fresh eligible roots carry the key/receipt too but omit
+  `reused_from`; they do not use `re_attests`.
+- `observed.inputs` retains existing measured input names and gains
+  `nix_daemon_policy_sha256`. Structured origin, receipt and provenance do
+  not hide in the opaque v1 inputs map.
+- Emit `runner="nix"` for v2 Nix observations. Update producer, verifier,
+  decision output and consumers together. Never append predicate fields past
+  v1's `deny_unknown_fields`, reinterpret v1 as v2, or downgrade a rebind.
+  Existing v1 exact-head evidence remains governed by its current contract,
+  but can never serve as a selective-reuse root.
+
+At every gate decision, current BASE keys/policy must still authorize **both**
+root and rebind, both producers and daemon receipt authorities. Root-key
+revocation invalidates even a rebind signed before revocation; finite age is
+not a revocation grace period. Retention of evidence bytes for audit does not
+retain authorization. A revocation grace policy requires separate explicit
+approval; default refuse. Missing root objects likewise refuse, regardless of
+an unexpired signed rebind.
+
+## 6. Landed foundations and remaining prerequisites
+
+Main includes #416/#417: `.mergemaster/producers.json` is read from BASE and
+validated (`gate/config.rs:43-142,565-573`). Its digest/system match is
+**report-only**, not producer authentication or authorization; it does not
+compare flavor (`README:665-705`). `tool-pin.json` identifies the verifier,
+not an executable producer allowlist. `producers measure` and the reusable
+workflow produce/reproduce manifest bytes, including separately verified
+release attestations (`README:707-738,740-762`). They do not authenticate a
+running evidence caller. Do not describe those landed changes as enforcement.
+
+Required before enabling any lane:
+
+| Capability | Responsible owner | Acceptance boundary |
 |---|---|---|
-| Source tree and flake lock (Nix lane) | inside the `.drv`: the producer evaluates `git+file://<repo>?rev=<head>#<attr>.drvPath` with pure eval, no IFD, no lock update, isolated HOME and `NIX_USER_CONF_FILES=/dev/null` (signing.rs:536, derivation.rs) | Indirectly: the gate re-derives argv from the signed drv path, and `stale_tree` binds the tree. The gate never evaluates Nix. |
-| Nix settings, store and command | `nix_settings_sha256`, `nix_store`, `nix_daemon_trusted`, `nix_command_sha256`, `nix_command_mode`/`nix_execution` | Yes (gate.rs:1123-1157) |
-| Lane definition (argv, definition paths) | `lane_definition_sha256` over `[1, check, lane, definition_files]` read at BASE | Yes, through expected_inputs (config.rs:809) |
-| Environment and toolchain | `env_sha256`, `toolchain_sha256`, system | Yes, through expected_inputs |
-| Workspace (non-Nix lanes) | declared inputs and scratch, plus `workspace_clean` and no untracked files | Declared subset only. It is not a closure of what the command reads. |
-| Producer binary | `wrapper_sha256` = sha256 of the producer's own executable (generic.rs) | See §6. |
-| Trust | signer principal `<level>/<name>`, tier, runner kind, repository | Yes: tier must be full; level in the lane's trust_levels; runner in nix, wrapper, sekrets or github:*; repository_refusal (gate.rs:1068-1100) |
+| Protected execution/signing service and authenticated origin adapter | Mergemaster evidence/signing owner with host/CI deployment owner | No caller status/digest authority; isolated keys; service measures executing producer and owns root/rebind operation (§3, §5). |
+| Daemon-policy broker, receipt schema and enrolled keys/profile | Nix/host execution owner with security review | Effective policy bound to entire operation; no client-config substitute (§4). |
+| Strict v2 format and gate root validation | Mergemaster evidence/gate owner | Current BASE verification, direct root lookup, finite age, equality checks, origin/receipt validation; no Nix in gate (§3, §5). |
+| Reuse-only manifest enforcement and BASE policy rollout | Mergemaster gate/policy owner | Require manifest plus signed system and listed measured producer for both notes; existing report-only matching alone cannot authorize (§3). Explicit BASE profile/receipt keys and lane opt-in; malformed/absent authority refuses reuse. |
+| Root/receipt object availability | Evidence transport/storage owner | Publish immutable root and receipt bytes with rebind, retain through lane lifetime; gate verifies IDs/signatures, never trusts transport. |
 
-## 3. Options
-
-### A. Gate-side reuse (rejected)
-
-The gate would evaluate the drv at the candidate head and accept an older note
-with an equal drv. Rejected:
-
-- The gate would run Nix evaluation of untrusted PR code inside the read-only
-  gate job. That is a new attack and cost surface, and today the gate runs no
-  Nix (README).
-- It would weaken the exact-head rule in README:588 for every consumer.
-- Non-Nix lanes have no closure key (§2), so they could not use it anyway.
-
-### B. Producer-side re-attestation (proposed)
-
-Keep the gate unchanged. Add a producer mode, `rebind`, that issues a new
-exact-head note for a candidate by proving that the check's inputs are equal
-to those of an existing verified note:
-
-1. Input: the candidate HEAD+MAIN+tree (prepared by native landing or the
-   train), the check and a prior evidence ID R.
-2. R must be a root: a fresh execution (`nix_execution=rebuild`) with no
-   `reused_from`. A reused note can never be the source of another rebind, so
-   chains do not exist. Every rebind cites its root directly.
-3. The producer verifies R with the same verifier the gate uses, under the
-   candidate's BASE keys and policy: same lane, tier full, a signer level the
-   lane trusts, check passed, same repository, and R's execution time within
-   the lane's `max_age_seconds`. A root signed by a key that BASE no longer
-   trusts fails here.
-4. Admission of the lane and the build:
-   - the lane's freshness requirement is `any`. Lanes that require `fresh`
-     never qualify, and the gate already refuses reused evidence for them
-     (gate.rs:1181-1189);
-   - the check derivation is input-addressed: not fixed-output, not
-     `__impure`, and without `__noChroot`. The producer checks this with
-     `nix derivation show` on the drv;
-   - the producer's effective Nix configuration has `sandbox = true`, no
-     sandbox fallback, and no `impure-derivations` experimental feature. It
-     records these values in a new signed claim, `nix_sandbox_sha256`. R must
-     carry the same claim, so roots produced before this claim existed do not
-     qualify.
-5. The producer evaluates the drv at the candidate head the same way as a
-   fresh run (signing.rs:536). Reuse is allowed only if all of these hold:
-   - the drv path is byte-equal to R's `nix_derivation`;
-   - `lane_definition_sha256`, `environment_sha256`, `toolchain_sha256`,
-     system and the workspace declaration, computed with the shared
-     `expected_inputs` (files at the candidate HEAD, declarations from BASE),
-     equal R's;
-   - `nix_settings_sha256` and `nix_sandbox_sha256` equal R's;
-   - the producer's own `wrapper_sha256` and R's both equal the BASE tool
-     pin;
-   - the producer's signer level equals R's signer level (§5).
-6. It realises the output (`nix build` of the same drv, without `--rebuild`).
-   That substitutes the output or finds it in the store. It records
-   `nix_execution=reused` and checks `nix_outputs_sha256` against R's. Store
-   kind, daemon trust, closure claims and workspace flags are measured fresh
-   for this observation, never copied from R. `attempt` describes this
-   observation.
-7. It signs a new statement for the candidate head and tree with the normal
-   exact-head subject. `observed_at` is R's execution time, not the time of
-   the rebind; the rebind time goes in `attested_at`. The statement also
-   carries `reused_from: R` and `reuse_key` (the equal values from step 5).
-
-The gate then sees an ordinary exact-head note and applies every existing
-check. Because `observed_at` is the root's execution time, the gate's
-existing `max_age_seconds` check bounds the whole reuse: a rebind can never
-extend a result's lifetime. The decision names the reuse through
-`reused_from`, as the step's acceptance requires ("reuses its verified
-evidence ID").
-
-Any mismatch gives a typed refusal, and the producer runs the check fresh:
-`reuse_source_not_root`, `reuse_source_unverified`, `reuse_lane_requires_fresh`,
-`reuse_impure_derivation`, `reuse_sandbox_changed`, `reuse_drv_changed`,
-`reuse_lane_changed`, `reuse_environment_changed`, `reuse_tool_pin_changed`,
-`reuse_trust_class_changed`.
-
-Cost: one pure `nix eval`, one `nix derivation show` and a store lookup per
-lane and candidate. That is seconds instead of the check's run time.
-
-## 4. Coverage proof (Nix lanes)
-
-Claim: when steps 2-6 pass, the check's result at the candidate equals the
-root's result.
-
-- The build is a function of the drv. The drv is a pure-eval function of the
-  source at the head. Under `pure-eval`, file system and network access during
-  evaluation are limited to inputs pinned by a cryptographic hash, and impure
-  constants such as `builtins.currentSystem` and `builtins.currentTime` are
-  disabled ([nix.conf: pure-eval](https://nix.dev/manual/nix/2.35/command-ref/conf-file.html)).
-  Import-from-derivation is off, and the lock file is neither written nor
-  updated (derivation.rs:11-18, :133-154). So every source file, flake input
-  and lock entry the build can read is inside the drv hash.
-- The build of an input-addressed derivation runs in the sandbox without
-  network access. Only fixed-output derivations get network access, and their
-  output is checked against a declared hash. Impure derivations are a separate
-  output type ([Nix: derivation outputs](https://nix.dev/manual/nix/2.29/store/derivation/outputs/index.html)).
-  Step 4 excludes fixed-output, impure and `__noChroot` check derivations and
-  requires the sandbox, so the build sees only its declared inputs. Fixed-output
-  dependencies, such as fetchers, are bound by their content hash.
-- What runs is the lane argv applied to the drv (derivation::argv). The argv
-  comes from the lane definition, bound by `lane_definition_sha256`.
-- How it runs: Nix settings, sandbox settings, store kind and daemon trust are
-  bound by their claims and checked again.
-- What produced the claim: both producer binaries match the BASE tool pin.
-- Who vouches: the same signer level, a full tier, and keys BASE still trusts
-  for both the root and the rebind (§5).
-
-The check's result depends only on the build. For a `nix_check` lane the
-signed exit code is the status of `nix build` on the drv (derivation.rs:243-270,
-generic.rs:259-281). Its output exists only if the build succeeded, and
-`nix_outputs_sha256` binds that output. Identical output does not prove an
-identical execution (logs, timing, host). That is why reuse records
-`nix_execution=reused`, and why lanes that require a fresh execution never
-qualify.
-
-## 5. Trust classes and revocation
-
-- A rebinding signer is never of a lower trust class than the root's signer.
-  This design requires the same signer level, which is stricter. The gate then
-  applies the lane's trust_levels to the rebinding signer as usual.
-- A rebind never crosses repositories: the root's repository, the
-  candidate's repository and the new note's repository must be equal, and the
-  repository identity is required (not optional) for reuse.
-- Tier must be full for the root. Degraded and test tiers never qualify.
-- Runner kind must be `nix`. The wrapper, sekrets and github:* runners never
-  qualify.
-- Revocation: every rebind verifies the root under the candidate's BASE keys
-  (step 3), and the gate verifies the rebinding signer under the same keys. If
-  BASE stops trusting the root's key, no new rebind of that root is possible.
-  A rebind note issued before the revocation stays valid only until the
-  root's `max_age_seconds` runs out, because its `observed_at` is the root's
-  execution time. If that window is too long for a revocation, the response
-  is to revoke the rebinding key as well, or to lower the lane's
-  `max_age_seconds`.
-
-## 6. Prerequisite
-
-Reuse depends on the producer digest binding (`wrapper_sha256` against the
-BASE tool pin) in the gate. That lands as a separate change first.
+No implementation is included here. Until all prerequisites land, selective
+reuse stays disabled; report-only producer manifests remain report-only.
 
 ## 7. Out of scope
 
-- Non-Nix lanes: no closure key exists, so they keep exact-head evidence.
-- Merge groups: they stay report-only (gate.rs:149-165).
-- Push mode: unchanged (identical-tree transfer only).
-- Final batch merged-tree binding and landing review or consent: reuse
-  produces a normal exact-head note, so neither can be bypassed.
+- Non-Nix lanes: no read-closure key; no selective reuse.
+- Merge-group enforcement, push identical-tree transfer and local evidence:
+  unchanged; not admitted by this initial origin profile.
+- Final batch merged-tree binding and landing review/consent: unchanged.
+  A reused note still needs the exact candidate HEAD/tree and normal gate.
+- Cross-level reuse, rebind chains and pre-v2 root promotion: prohibited,
+  rather than compatibility shims.
 
-## 8. Questions for the security reviewer
+## 8. Questions for Johannes
 
-1. Do step 4 (input-addressed check derivation, sandbox required, no
-   impure-derivations feature) and pure eval together give a complete input
-   closure for `nix_check` lanes? Is there an escape this misses?
-2. Is the same signer level the right rule, or is "not lower" sufficient?
-3. Is the bounded revocation window in §5 acceptable, or must the gate itself
-   check the root's signer (a gate change)?
+1. Approve the initial same-repository-PR-only origin profile and Linux-only
+   daemon profile? Other classes/platforms remain ineligible until reviewed.
+2. Which lanes accept the nondeterminism boundary in §4, and what positive
+   finite age should each opt-in declare? No unbounded default.
+3. Is any root-key-revocation grace needed? Default is immediate refusal at
+   the gate, including already-issued rebinds. Any exception needs a separately
+   approved policy naming scope, duration and revocation authority.
+
+Exact level equality plus origin equality and gate-side root verification
+are design requirements, not unresolved weaker-policy alternatives.
+
+## Review response
+
+| Review item | Resolution |
+|---|---|
+| C1; finding 4 (chains/age/revocation) | §3 gate enforcement and §5: verify direct fresh root under current BASE, equal times/classes, required repository, finite age; revoke root authorization immediately. |
+| C2; finding 2 (signer boundary) | §3, §6: protected service owns execution and rebind; reject self-reported digest/status as authentication. |
+| C3; finding 1 (input closure) | §2, §4: authenticated executing-daemon receipts include sandbox paths, substitution keys/endpoints and impure features; missing capability refuses reuse; explicit nondeterminism boundary. |
+| C4; finding 3 (origin) | §5: authenticated signed origin with exact class equality; initial same-repository PRs only. |
+| C5; finding 5 (contract) | §2, §5: HEAD files under BASE declarations, `environment_sha256`, v2 runner `nix`, strict versioned predicate fields. |
+| C6 (merge and producer foundations) | References use merged main bd3526be; §6 distinguishes landed #416/#417 report-only manifests from still-required authentication/enforcement. |
