@@ -223,7 +223,10 @@ fn update_key(document: &Document, node: &Node) -> Result<(UpdateKey, Option<Vec
         Node::Float(value) if value.is_finite() && value.fract() == 0.0 => format!("{value:.0}"),
         Node::Float(value) if value.is_nan() => "NaN".to_owned(),
         Node::Float(value) => format!("float:{}", value.to_bits()),
-        _ => bail!("unhashable type: '{}'", type_name(node)),
+        _ => {
+            let kind = type_name(node);
+            bail!("cannot use '{kind}' as a dict key (unhashable type: '{kind}')");
+        }
     };
     Ok((
         UpdateKey::Number(identity),
@@ -268,9 +271,7 @@ pub(super) fn update_inputs(inputs: &mut Inputs, document: &Document, node: &Nod
                     Node::Array(values) => values.len(),
                     Node::String(points) => points.len(),
                     Node::Object(fields) => fields.len(),
-                    _ => bail!(
-                        "cannot convert dictionary update sequence element #{index} to a sequence"
-                    ),
+                    _ => bail!("object is not iterable"),
                 };
                 anyhow::ensure!(
                     length == 2,
@@ -296,9 +297,7 @@ pub(super) fn update_inputs(inputs: &mut Inputs, document: &Document, node: &Nod
                         let second = keys.next().context("missing second update key")?;
                         (UpdateKey::String(first), None, points_string(second)?)
                     }
-                    _ => bail!(
-                        "cannot convert dictionary update sequence element #{index} to a sequence"
-                    ),
+                    _ => bail!("object is not iterable"),
                 };
                 update_entry(&mut updates, key, spelling, value);
             }
@@ -391,7 +390,7 @@ mod tests {
 
     #[test]
     fn aggregate_input_updates_match_python_mapping_iterable_and_refusal_semantics() {
-        let raw = r#"[{},[],[["run_id","42"]],["ab"],"",[["base","changed"]],[["x"]],[["x","y","z"]],[false],null,42,true,"ab",[[[],"x"]],[[{},"x"]],[{"a":0,"b":1}],[[true,"a"],["true","b"],[1,"c"]],[["true","a"],[true,"b"],["true","c"]],[[1.0,"x"],[true,"y"]],[[null,"x"],["null","y"]]]"#;
+        let raw = r#"[{},[],[["run_id","42"]],["ab"],"",[["base","changed"]],[["x"]],[["x","y","z"]],[false],null,42,true,"ab",[[[],"x"]],[[{},"x"]],[{"a":0,"b":1}],[[true,"a"],["true","b"],[1,"c"]],[["true","a"],[true,"b"],["true","c"]],[[1.0,"x"],[true,"y"]],[[null,"x"],["null","y"]],[0],[1.5],[null],[true],[[]],[{}],42.5,false,[["ok","value"],null]]"#;
         let mut child = crate::pinned_python::command()
             .args([
                 "-B",
