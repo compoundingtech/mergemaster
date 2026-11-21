@@ -45,14 +45,43 @@ pub fn select_part(
         let Some(tail) = tail else { break };
         selector = tail;
     }
-    serialize(&document, node).map(|text| Some(text.into_bytes()))
+    serialize(&document, node, JsonFormat::Selection).map(|text| Some(text.into_bytes()))
 }
-fn serialize(document: &Document, root: &Node) -> Result<String, PolicyError> {
-    enum Emit<'a> {
-        Node(&'a Node),
-        Text(&'static str),
-        Key(&'a [u32]),
+/// Full original fields in insertion order, matching Python json.dumps defaults.
+pub(super) fn statement_json(document: &Document) -> Result<String, PolicyError> {
+    serialize(document, document.root(), JsonFormat::Statement)
+}
+#[derive(Clone, Copy)]
+enum JsonFormat {
+    Selection,
+    Statement,
+}
+enum Emit<'a> {
+    Node(&'a Node),
+    Text(&'static str),
+    Key(&'a [u32]),
+}
+fn object_entries<'a>(
+    stack: &mut Vec<Emit<'a>>,
+    document: &'a Document,
+    entries: impl DoubleEndedIterator<Item = (&'a Vec<u32>, &'a usize)> + ExactSizeIterator,
+    comma: &'static str,
+    colon: &'static str,
+) {
+    for (index, (key, id)) in entries.enumerate().rev() {
+        stack.push(Emit::Node(document.node(*id)));
+        stack.push(Emit::Text(colon));
+        stack.push(Emit::Key(key));
+        if index != 0 {
+            stack.push(Emit::Text(comma));
+        }
     }
+}
+fn serialize(document: &Document, root: &Node, format: JsonFormat) -> Result<String, PolicyError> {
+    let (comma, colon) = match format {
+        JsonFormat::Selection => (",", ":"),
+        JsonFormat::Statement => (", ", ": "),
+    };
     let mut output = String::new();
     let mut stack = vec![Emit::Node(root)];
     let failure = super::crate_inputs::failure;
@@ -91,21 +120,21 @@ fn serialize(document: &Document, root: &Node) -> Result<String, PolicyError> {
                     for (index, id) in items.iter().enumerate().rev() {
                         stack.push(Emit::Node(document.node(*id)));
                         if index != 0 {
-                            stack.push(Emit::Text(","));
+                            stack.push(Emit::Text(comma));
                         }
                     }
                 }
                 Node::Object(fields) => {
-                    let mut fields: Vec<_> = fields.iter().collect();
-                    fields.sort_unstable_by(|a, b| a.0.cmp(b.0));
                     output.push('{');
                     stack.push(Emit::Text("}"));
-                    for (index, (key, id)) in fields.into_iter().enumerate().rev() {
-                        stack.push(Emit::Node(document.node(*id)));
-                        stack.push(Emit::Text(":"));
-                        stack.push(Emit::Key(key));
-                        if index != 0 {
-                            stack.push(Emit::Text(","));
+                    match format {
+                        JsonFormat::Selection => {
+                            let mut ordered: Vec<_> = fields.iter().collect();
+                            ordered.sort_unstable_by(|a, b| a.0.cmp(b.0));
+                            object_entries(&mut stack, document, ordered.into_iter(), comma, colon);
+                        }
+                        JsonFormat::Statement => {
+                            object_entries(&mut stack, document, fields.iter(), comma, colon);
                         }
                     }
                 }
