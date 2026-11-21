@@ -113,6 +113,29 @@
 # Local patches pin oracle and local blobs plus equal executable modes; unlike
 # resync rows, they do not claim these bytes came from the Fractal fixture.
 # Remove each exception when an oracle repin includes the patch.
+# Native local runner reporting replaces scripts/fractal-test-report and its self-test.
+# Assertions: crates/mergemaster-evidence/tests/runner_report.rs. Frozen fixed-clock
+# inputs and Python streams: tests/fixtures/oracle/runner-report.json; independently
+# replayed by replay_runner_report in tests/oracle_corpus.py.
+# runner-report-edges.json adds exact-binary rounding, ISO timestamp variants,
+# first-seen stage/check ties, ASCII-escaped JSON and argparse-error recordings.
+# Argument recordings also pin help action ordering for short clusters, unknown
+# leading options, invalid values before help, and missing values before help.
+# Additional recordings pin CPython compensated sums, exact int/float ordering,
+# shared Python-JSON arena acceptance of nonfinite numbers and lone surrogates,
+# and Python float repr in Markdown. The reporter borrows source nodes rather
+# than narrowing records through serde_json; unrelated fields stay lossless.
+# Text-boundary recordings cover every Python splitlines separator, all 29
+# isspace code points, non-whitespace controls, raw U+2028 inside JSON strings,
+# and lone-surrogate ISO date/time separators. Existing splitlines/space helpers
+# are reused; ended timestamps reach the zoned parser as original code points.
+# pyfloat unit tests compare exact output bits with pinned Python across finite
+# exponent boundaries, decimal ties, random doubles and all supported precisions.
+# Intended divergence: native runner-report --slo-s/--max-s use signed i64.
+# Outside i64, native returns an argparse-style invalid-int error (exit 2),
+# instead of Python's unbounded-integer result. runner-report-integer-divergence.json
+# records Python accepting --slo-s 9223372036854775808; a separate native CLI
+# assertion pins the refusal rather than treating the streams as equivalent.
 # Keygen caller adoption (LOCAL_PATCHES in tests/oracle_scripts.py lists only these two):
 # evidence-prepush remediation text names the native command; its self-test
 # asserts the new instruction. Runtime signing and suppression remain unchanged.

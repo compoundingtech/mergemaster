@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Rust port wave 1: `mergemaster evidence flip-ready` and `mergemaster evidence skip-report` replace `scripts/evidence-flip-ready`, `scripts/evidence-skip-report` and their self-tests; 22 frozen cases are compared against the pinned Python oracle.
+- Rust port wave 1: `mergemaster evidence runner-report` replaces `scripts/fractal-test-report` and its self-test; 24 frozen cases are compared against the pinned Python oracle.
 - Rust port wave 1: `mergemaster evidence presign-notice` replaces `scripts/ci-evidence-presign-notice` and its self-test. The generated `evidence-presign-notice` job provisions the pinned, attestation-verified release binary from the base `.mergemaster/tool-pin.json` instead of running the base Python copy; it still says nothing when it cannot run.
 - Port evidence-gate SLO counters to `mergemaster evidence slo`; remove the Python command/self-test, preserve their assertions in Rust integration tests, and replay frozen CLI/API observations against the pinned Python oracle.
 - Preserve Python-compatible SLO ISO timestamp forms and naive intervals; fail SLO reports on log-capture deadlines or I/O errors instead of silently attributing unknown producers.

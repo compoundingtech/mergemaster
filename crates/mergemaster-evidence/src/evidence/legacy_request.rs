@@ -39,11 +39,15 @@ fn token(value: &Value) -> Result<Cow<'_, str>> {
     }
 }
 fn number_token(number: &str) -> Result<Cow<'_, str>> {
-    use std::fmt::Write;
     if !number.contains(['.', 'e', 'E']) {
         return Ok(Cow::Borrowed(if number == "-0" { "0" } else { number }));
     }
-    let value: f64 = number.parse()?;
+    float_token(number.parse()?).map(Cow::Owned)
+}
+
+/// Python's shortest float spelling, shared by legacy requests and reports.
+pub(super) fn float_token(value: f64) -> Result<String> {
+    use std::fmt::Write;
     let mut text = String::with_capacity(32);
     if value.is_infinite() {
         text.push_str(if value.is_sign_negative() {
@@ -51,7 +55,7 @@ fn number_token(number: &str) -> Result<Cow<'_, str>> {
         } else {
             "inf"
         });
-        return Ok(Cow::Owned(text));
+        return Ok(text);
     }
     write!(&mut text, "{value:e}")?;
     let e = text.rfind('e').ok_or(std::fmt::Error)?;
@@ -77,7 +81,7 @@ fn number_token(number: &str) -> Result<Cow<'_, str>> {
             text.insert(point, '.');
         }
     }
-    Ok(Cow::Owned(text))
+    Ok(text)
 }
 fn hex(value: &str, size: usize) -> bool {
     value.len() == size

@@ -29,6 +29,7 @@ pub enum EvidenceCommand {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         argv: Vec<String>,
     },
+    RunnerReport(super::runner_report::RunnerReportArgs),
     /// Explain which signable gates ran without a pre-signed note; never fails.
     PresignNotice,
     /// Report read-only evidence-gate SLO counters from GitHub Actions.
@@ -124,6 +125,7 @@ pub fn run(args: EvidenceArgs) -> Result<()> {
             }
             return Ok(());
         }
+        EvidenceCommand::RunnerReport(args) => return super::runner_report::run(args),
         EvidenceCommand::PresignNotice => {
             super::presign_notice::run();
             return Ok(());

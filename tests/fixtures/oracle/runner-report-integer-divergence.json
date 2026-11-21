@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "now": "2026-10-24T12:00:00Z",
+  "oracle": {
+    "environment": "MERGEMASTER_PYTHON_ORACLE",
+    "path": "scripts/fractal-test-report",
+    "git_blob": "52ebcb098a323b013eba5b136457393ef88e2951"
+  },
+  "cases": [
+    {
+      "id": "edge_integer_domain_intended_divergence",
+      "files": {
+        "runs.jsonl": ""
+      },
+      "argv": [
+        "${scratch}/runs.jsonl",
+        "--slo-s",
+        "9223372036854775808"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 9223372036854775808,\n  \"max_allowed_s\": 900,\n  \"count\": 0,\n  \"p50_s\": null,\n  \"p90_s\": null,\n  \"max_s\": null,\n  \"within_slo\": null,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {},\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": []\n}\n",
+      "stderr": "",
+      "native": {
+        "exit": 2,
+        "stdout": "",
+        "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: argument --slo-s: invalid int value: '9223372036854775808'\n"
+      }
+    }
+  ]
+}
