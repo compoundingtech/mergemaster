@@ -87,6 +87,8 @@ pub fn run(args: EvidenceArgs) -> Result<()> {
         EvidenceCommand::Keygen(args) => return super::keygen::run_keygen(args),
         EvidenceCommand::PresignNotice => {
             super::presign_notice::run();
+            return Ok(());
+        }
         EvidenceCommand::Slo { argv } => {
             use std::io::Write;
             let exit = super::slo::run(&argv);
