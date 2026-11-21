@@ -3,6 +3,7 @@ use super::super::argparse_compat::{Action, DefaultValue, OptionSpec, Parser, Va
 use super::super::legacy_verify::python_digits::decimal;
 
 #[derive(Debug, PartialEq)]
+#[cfg_attr(test, derive(serde::Serialize))]
 pub(super) struct Args {
     pub check: String,
     pub change_id: Option<String>,
@@ -322,13 +323,8 @@ fn strings(value: Option<Value>) -> Vec<String> {
 }
 
 pub(super) fn parse(argv: &[String]) -> Result<Args, Exit> {
-    // argparse classifies all tokens before consuming REMAINDER. Thus an
-    // ambiguous abbreviation even inside a command is rejected, unless -- hid it.
-    for arg in argv {
-        if matches!(token(arg)?, Token::Separator) {
-            break;
-        }
-    }
+    // REMAINDER absorbs every token after the first positional value, including
+    // ambiguous option spellings. Only consumed options may report ambiguity.
     let mut prefix = Vec::new();
     let mut extras = Vec::new();
     let mut index = 0;
@@ -363,7 +359,10 @@ pub(super) fn parse(argv: &[String]) -> Result<Args, Exit> {
                             spec.long
                         )));
                     };
-                    if !matches!(token(value)?, Token::Value) {
+                    // Ambiguous option candidates still classify as optionals
+                    // here; argparse reports this missing value before trying
+                    // to consume the candidate as an option in its own right.
+                    if !matches!(token(value), Ok(Token::Value)) {
                         return Err(error(format!(
                             "argument {}: expected one argument",
                             spec.long
@@ -459,6 +458,46 @@ print(json.dumps(vars(args)))
         args.iter().map(|v| (*v).to_owned()).collect()
     }
 
+    const REMAINDER_CASES: &[&[&str]] = &[
+        &[
+            "--chec",
+            "first",
+            "--check=last",
+            "--attempt",
+            "2",
+            "--signer",
+            "[]",
+            "--change-id",
+            "change",
+            "--toolchain-sha256",
+            "digest",
+            "--keys",
+            "keys",
+            "--keys-from",
+            "base",
+            "--verifier",
+            "verify",
+            "--push",
+            "origin",
+            "--lanes-from",
+            "main",
+            "--out",
+            "directory",
+            "--input",
+            "a=1",
+            "--input=b=2",
+            "--input-file",
+            "x=one",
+            "--input-file=y=two",
+            "--",
+            "sh",
+            "-c",
+            "--help",
+        ],
+        &["--check", "", "echo", "--check", "untouched", "--help"],
+        &["--check", "x", "--aggregate", "file"],
+    ];
+
     #[test]
     fn parser_failures_and_help_match_pinned_oracle() {
         let source = PathBuf::from(std::env::var_os("MERGEMASTER_PYTHON_ORACLE").unwrap())
@@ -504,9 +543,12 @@ print(json.dumps(vars(args)))
             &["--check", "x", "true", "--in"],
             &["--check", "x", "--input"],
             &["--check", "x", "--input-file", "--help"],
+            &["--check", "--in"],
+            &["--help", "--in"],
         ];
-        for case in cases {
-            let actual = parse(&argv(case)).unwrap_err();
+        let mut mismatches = Vec::new();
+        for case in cases.iter().chain(REMAINDER_CASES) {
+            let actual = parse(&argv(case));
             let expected = crate::pinned_python::command()
                 .args(["-c", ORACLE])
                 .arg(&source)
@@ -514,50 +556,34 @@ print(json.dumps(vars(args)))
                 .env("COLUMNS", "80")
                 .output()
                 .unwrap();
-            assert_eq!(actual.code, expected.status.code().unwrap(), "{case:?}");
-            assert_eq!(actual.stdout.as_bytes(), expected.stdout, "stdout {case:?}");
-            assert_eq!(actual.stderr.as_bytes(), expected.stderr, "stderr {case:?}");
+            let agrees = match &actual {
+                Ok(args) => {
+                    expected.status.success()
+                        && expected.stderr.is_empty()
+                        && serde_json::from_slice::<serde_json::Value>(&expected.stdout).ok()
+                            == Some(serde_json::to_value(args).unwrap())
+                }
+                Err(exit) => {
+                    expected.status.code() == Some(exit.code)
+                        && exit.stdout.as_bytes() == expected.stdout.as_slice()
+                        && exit.stderr.as_bytes() == expected.stderr.as_slice()
+                }
+            };
+            if !agrees {
+                mismatches.push(format!(
+                    "{case:?}\nnative: {actual:?}\nPython exit: {:?}\nstdout: {}\nstderr: {}",
+                    expected.status.code(),
+                    String::from_utf8_lossy(&expected.stdout),
+                    String::from_utf8_lossy(&expected.stderr)
+                ));
+            }
         }
+        assert!(mismatches.is_empty(), "{}", mismatches.join("\n\n"));
     }
 
     #[test]
     fn remainder_defaults_repeated_stores_and_appends() {
-        let args = parse(&argv(&[
-            "--chec",
-            "first",
-            "--check=last",
-            "--attempt",
-            "2",
-            "--signer",
-            "[]",
-            "--change-id",
-            "change",
-            "--toolchain-sha256",
-            "digest",
-            "--keys",
-            "keys",
-            "--keys-from",
-            "base",
-            "--verifier",
-            "verify",
-            "--push",
-            "origin",
-            "--lanes-from",
-            "main",
-            "--out",
-            "directory",
-            "--input",
-            "a=1",
-            "--input=b=2",
-            "--input-file",
-            "x=one",
-            "--input-file=y=two",
-            "--",
-            "sh",
-            "-c",
-            "--help",
-        ]))
-        .unwrap();
+        let args = parse(&argv(REMAINDER_CASES[0])).unwrap();
         assert_eq!(args.check, "last");
         assert_eq!(args.change_id.as_deref(), Some("change"));
         assert_eq!(args.attempt, "2");
@@ -572,21 +598,13 @@ print(json.dumps(vars(args)))
         assert_eq!(args.input, ["a=1", "b=2"]);
         assert_eq!(args.input_file, ["x=one", "y=two"]);
         assert_eq!(args.command, ["sh", "-c", "--help"]);
-        let args = parse(&argv(&[
-            "--check",
-            "",
-            "echo",
-            "--check",
-            "untouched",
-            "--help",
-        ]))
-        .unwrap();
+        let args = parse(&argv(REMAINDER_CASES[1])).unwrap();
         assert_eq!(args.check, "");
         assert_eq!(args.attempt, "1");
         assert_eq!(args.keys_from, "origin/main");
         assert_eq!(args.command, ["echo", "--check", "untouched", "--help"]);
         assert!(args.input.is_empty());
-        let args = parse(&argv(&["--check", "x", "--aggregate", "file"])).unwrap();
+        let args = parse(&argv(REMAINDER_CASES[2])).unwrap();
         assert_eq!(args.aggregate.as_deref(), Some("file"));
         assert!(args.command.is_empty());
     }
