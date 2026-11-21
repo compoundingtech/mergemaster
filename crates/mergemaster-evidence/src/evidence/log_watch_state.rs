@@ -1,11 +1,11 @@
 //! Persist Python JSON values without narrowing numbers or losing unknown fields.
-use super::super::legacy_verify::{
-    json_bytes,
-    statement_document::{Document, Node},
-};
+use super::super::legacy_verify::statement_document::{Document, Error, Node};
 use anyhow::{Context, Result, bail, ensure};
 use indexmap::IndexMap;
 use std::sync::Arc;
+
+/// Inclusive container count, including the root object; an explicit native bound.
+pub const MAX_STATE_DEPTH: usize = 256;
 
 #[derive(Clone)]
 enum Field {
@@ -19,25 +19,29 @@ pub struct State {
     fields: IndexMap<Arc<[u32]>, Field>,
 }
 impl State {
-    pub fn parse(bytes: &[u8]) -> Self {
-        // json.load(open(path)) reads UTF-8 text, not json.loads' UTF-16/32 byte ingress.
-        if std::str::from_utf8(bytes).is_err() || bytes.starts_with(b"\xef\xbb\xbf") {
-            return Self::default();
-        }
-        let Ok(document) = json_bytes::parse(bytes) else {
-            return Self::default();
+    pub fn parse(bytes: &[u8]) -> Result<Self> {
+        // json.load(open(path)) parses decoded UTF-8 text without byte-encoding sniffing.
+        let Ok(text) = std::str::from_utf8(bytes) else {
+            return Ok(Self::default());
+        };
+        let document = match Document::from_text_with_depth_limit(text, Some(MAX_STATE_DEPTH)) {
+            Ok(document) => document,
+            Err(Error::NestingLimit) => {
+                bail!("watch state JSON exceeds {MAX_STATE_DEPTH} container levels")
+            }
+            Err(_) => return Ok(Self::default()),
         };
         let Node::Object(fields) = document.root() else {
-            return Self::default();
+            return Ok(Self::default());
         };
         let fields = fields
             .iter()
             .map(|(key, id)| (Arc::from(key.as_slice()), Field::Original(*id)))
             .collect();
-        Self {
+        Ok(Self {
             document: Some(Arc::new(document)),
             fields,
-        }
+        })
     }
     fn key(name: &str) -> ([u32; 32], usize) {
         let mut points = [0; 32];

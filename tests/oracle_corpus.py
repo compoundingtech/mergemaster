@@ -120,7 +120,7 @@ def replay_log_watch_state(interpreter):
     source = Path(os.environ[pin["environment"]]) / pin["path"]
     assert git_blob(source.read_bytes()) == pin["git_blob"]
     code = """
-import importlib.machinery, importlib.util, json, os, pathlib, subprocess, sys, tempfile
+import base64, importlib.machinery, importlib.util, json, os, pathlib, subprocess, sys, tempfile
 loader = importlib.machinery.SourceFileLoader('watch', sys.argv[1])
 watch = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
 loader.exec_module(watch)
@@ -132,12 +132,22 @@ env.update(GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_NOSYSTEM='1',
            GIT_AUTHOR_NAME='l', GIT_AUTHOR_EMAIL='l@x', GIT_COMMITTER_NAME='l',
            GIT_COMMITTER_EMAIL='l@x', GIT_AUTHOR_DATE='1800000000 +0000',
            GIT_COMMITTER_DATE='1800000000 +0000')
-for case in manifest['cases']:
+for case in manifest['cases'] + manifest['encodings']:
     with tempfile.TemporaryDirectory() as temporary:
         remote, state = pathlib.Path(temporary) / 'remote.git', pathlib.Path(temporary) / 'state'
         state.mkdir()
         path = state / 'watch.json'
-        path.write_text(case['state_before'])
+        if 'state_before_base64' in case:
+            path.write_bytes(base64.b64decode(case['state_before_base64']))
+            try:
+                with path.open() as handle:
+                    json.load(handle)
+            except Exception as error:
+                assert dict(exception=type(error).__name__, message=str(error)) == case['load_error'], case['id']
+            else:
+                raise AssertionError(case['id'])
+        else:
+            path.write_text(case['state_before'])
         subprocess.run(['git', 'init', '-q', '--bare', str(remote)], check=True)
         def git(*args):
             return subprocess.check_output(['git', '-C', str(remote), '-c', 'core.hooksPath=/dev/null',

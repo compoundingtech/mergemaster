@@ -145,6 +145,11 @@ survive write-back; numeric errors leave the original state untouched. Timestamp
 formatting rounds half-even to microseconds before choosing the displayed second.
 `tests/fixtures/oracle/log-watch-state.json` freezes numeric-edge and write-back
 observations against pinned Python, including negative-time rounding boundaries.
+State files are decoded as UTF-8 text without UTF-16/32 byte sniffing; a UTF-8 BOM
+is invalid JSON and resets the state, matching pinned Python's text-mode load.
+Bounded divergence: native state loading allows at most 256 container levels
+(including the root object). Deeper input exits 1 without notification or saving,
+rather than depending on Python's platform-dependent recursion/stack ceiling.
 Repository initialization has no deadline; fetches and notifications retain their
 120-second deadlines.
 Frozen transition recordings and native/independent pinned Python differential

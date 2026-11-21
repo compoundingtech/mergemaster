@@ -1,4 +1,4 @@
-use mergemaster_evidence::evidence::log_watch::{State, step};
+use mergemaster_evidence::evidence::log_watch::{MAX_STATE_DEPTH, State, step};
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -171,7 +171,7 @@ fn log_watch_frozen_transition_recordings_are_pure() {
     ))
     .unwrap();
     for case in corpus["cases"].as_array().unwrap() {
-        let before = State::parse(&serde_json::to_vec(&case["before"]).unwrap());
+        let before = State::parse(&serde_json::to_vec(&case["before"]).unwrap()).unwrap();
         let unchanged = before.json().unwrap();
         let (state, line, stalled) = step(
             &before,
@@ -582,7 +582,12 @@ fn log_watch_persisted_numeric_edges_match_frozen_python() {
         "../../../tests/fixtures/oracle/log-watch-state.json"
     ))
     .unwrap();
-    for case in corpus["cases"].as_array().unwrap() {
+    for case in corpus["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .chain(corpus["encodings"].as_array().unwrap())
+    {
         let watch = Watch::new();
         if case["mode"] == "unreadable" {
             watch.subject("no time");
@@ -598,7 +603,15 @@ fn log_watch_persisted_numeric_edges_match_frozen_python() {
             });
             fs::create_dir_all(&state).unwrap();
             let path = state.join("watch.json");
-            fs::write(&path, case["state_before"].as_str().unwrap()).unwrap();
+            let bytes = if let Some(encoded) = case["state_before_base64"].as_str() {
+                use base64::Engine as _;
+                base64::engine::general_purpose::STANDARD
+                    .decode(encoded)
+                    .unwrap()
+            } else {
+                case["state_before"].as_str().unwrap().as_bytes().to_vec()
+            };
+            fs::write(&path, bytes).unwrap();
             let done = watch
                 .command(
                     case["now"].as_i64().unwrap(),
@@ -635,5 +648,42 @@ fn log_watch_persisted_numeric_edges_match_frozen_python() {
                 case["id"]
             );
         }
+    }
+}
+
+#[test]
+fn log_watch_state_depth_bound_fails_without_notification_or_save() {
+    let watch = Watch::new();
+    watch.publish(T0);
+    for depth in [MAX_STATE_DEPTH, MAX_STATE_DEPTH + 1, 5000, 100000] {
+        let state = watch.root.path().join(format!("depth-{depth}"));
+        fs::create_dir_all(&state).unwrap();
+        let path = state.join("watch.json");
+        let bytes = format!(
+            "{{\"unknown\": {}0{}}}",
+            "[".repeat(depth - 1),
+            "]".repeat(depth - 1)
+        );
+        fs::write(&path, &bytes).unwrap();
+        let done = watch
+            .command(T0, &watch.notify(), &watch.remote, &state, false)
+            .output()
+            .unwrap();
+        if depth == MAX_STATE_DEPTH {
+            assert!(
+                done.status.success(),
+                "{}",
+                String::from_utf8_lossy(&done.stderr)
+            );
+            let saved = fs::read_to_string(&path).unwrap();
+            assert!(saved.contains("\"last_head\""));
+            assert!(State::parse(saved.as_bytes()).is_ok());
+        } else {
+            assert_eq!(done.status.code(), Some(1));
+            assert!(done.stdout.is_empty());
+            assert!(String::from_utf8_lossy(&done.stderr).contains("container levels"));
+            assert_eq!(fs::read_to_string(path).unwrap(), bytes);
+        }
+        assert!(watch.lines().is_empty());
     }
 }

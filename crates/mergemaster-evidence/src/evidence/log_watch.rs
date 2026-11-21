@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use clap::Args;
 #[path = "log_watch_state.rs"]
 mod state;
-pub use state::State;
+pub use state::{MAX_STATE_DEPTH, State};
 use std::{
     fs::{self, File},
     io::{self, Write},
@@ -358,9 +358,10 @@ pub fn run(args: LogWatchArgs) -> Result<()> {
         None => SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs_f64(),
     };
     let path = args.state.join("watch.json");
-    let before = fs::read(&path)
-        .map(|data| State::parse(&data))
-        .unwrap_or_default();
+    let before = match fs::read(&path) {
+        Ok(data) => State::parse(&data)?,
+        Err(_) => State::default(),
+    };
     let (mut state, line, stalled) = step(&before, now, as_of, &detail, args.max_age, args.repeat)?;
     let mut code = i32::from(stalled);
     if let Some(line) = &line {
