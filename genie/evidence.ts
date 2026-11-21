@@ -292,16 +292,21 @@ python3 "$RUNNER_TEMP/evidence-base/scripts/evidence-publish" --notes "$RUNNER_T
   --keys "$RUNNER_TEMP/evidence-keys" --checks "linux-gate,${[...stageNames, ...stepNames, ...laneNames].join(',')}" --remote origin | tee "$RUNNER_TEMP/evidence-publish.json"`,
         },
         // Shadow verification: what would a gate that fetched these refs from the remote say about each lane? Reported
-        // in the job summary only; it gates nothing, runs from the BASE commit's scripts (absent there: skipped), and
-        // is fail-soft like every other step of this job.
+        // in the job summary only; its driver runs from BASE's scripts (absent there: skipped), with the
+        // verifier provisioned from BASE's tool pin. It is fail-soft like every other step of this job.
         {
           name: 'Shadow-verify the published notes',
           if: "${{ always() && steps.configure.outcome == 'success' }}",
           'continue-on-error': true,
-          run: `shadow="$RUNNER_TEMP/evidence-base/scripts/ci-evidence-shadow"
+          env: {
+            BASE_SHA: '${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha || github.sha }}',
+            GH_TOKEN: '${{ github.token }}',
+          },
+          run: `${provisionEvidenceTool}\nshadow="$RUNNER_TEMP/evidence-base/scripts/ci-evidence-shadow"
 [ -f "$shadow" ] || { echo "no ci-evidence-shadow at the base commit; skipped"; exit 0; }
+provision_evidence_tool || exit 1
 python3 "$shadow" --publish-result "$RUNNER_TEMP/evidence-publish.json" --keys "$RUNNER_TEMP/evidence-keys" \\
-  --verifier "$RUNNER_TEMP/evidence-base/scripts/evidence-verify" --checks "linux-gate,${[...stageNames, ...stepNames, ...laneNames].join(',')}" --optional "${laneNames.join(',')}" --remote origin`,
+  --verifier "$MERGEMASTER" --checks "linux-gate,${[...stageNames, ...stepNames, ...laneNames].join(',')}" --optional "${laneNames.join(',')}" --remote origin`,
         },
         { name: 'Remove the key', if: 'always()', 'continue-on-error': true, run: 'python3 "$RUNNER_TEMP/evidence-base/scripts/ci-evidence-signing" cleanup' },
       ],

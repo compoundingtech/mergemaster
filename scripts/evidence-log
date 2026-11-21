@@ -43,8 +43,6 @@ repaired only from a readable, trusted published continuation of that same head.
 import argparse
 import datetime
 import fcntl
-import importlib.machinery
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -103,12 +101,14 @@ def config_path(repo, base, name):
     return path if git(repo, 'ls-tree', '--full-tree', '-z', base, '--', path).stdout else f'.st/{name}'
 
 
-def verifier():
-    here = os.path.dirname(os.path.abspath(__file__))
-    loader = importlib.machinery.SourceFileLoader('evidence_verify_for_log', os.path.join(here, 'evidence-verify'))
-    module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
-    loader.exec_module(module)
-    return module
+def verifier(operation, repo, oid, *args):
+    done = subprocess.run(
+        [os.environ.get('MERGEMASTER_BIN', 'mergemaster'), 'legacy-evidence-verify-helper',
+         operation, '--repo', repo, '--record', oid, *args],
+        capture_output=True, timeout=60)
+    if done.returncode != 0:
+        raise Refused(f'{operation}: {done.stdout.decode(errors="replace").strip()}')
+    return json.loads(done.stdout)
 
 
 def iso(unix):
@@ -156,18 +156,18 @@ def path_of(kind):
     return f'keys/{kind[1]}/{kind[2][:2]}/{kind[2]}'
 
 
-def accept(repo, module, keys, revocations, name, oid):
+def accept(repo, keys, revocations, name, oid):
     """(lines, why not): the log lines a ref earns, or the reason it earns none."""
     kind = parse(name)
     if kind is None or kind[-1] != oid:
         return [], 'malformed'
-    statement = module.load(repo, oid, kind[1] if kind[0] == 'record' else None)
+    statement = verifier('read-statement', repo, oid, *(['--tree', kind[1]] if kind[0] == 'record' else []))
     if statement is None:
         return [], 'malformed'
     predicate = statement['predicate']
     if predicate['tier'] != 'full':
         return [], 'not_full'
-    status, principal = module.signature(repo, oid, keys, revocations)
+    status, principal = verifier('signature', repo, oid, '--keys', keys, '--revocations', revocations)
     if status != 'G' or not principal or principal != predicate['signer']:
         return [], 'untrusted'
     checks = predicate['observed']['checks']
@@ -400,7 +400,6 @@ def prepare_log(repo, remote, published, log_keys):
 
 def pull(args):
     repo, remote, summary = args.repo, args.remote, {'mode': 'pull'}
-    module = verifier()
     remote_main = args.main.split('/', 1)[-1]
     listed = git(repo, 'ls-remote', remote, *[f'{prefix}*' for prefix in SOURCES], LOG, f'refs/heads/{remote_main}').stdout.decode().split('\n')
     there = {line.split()[1]: line.split()[0] for line in listed if len(line.split()) == 2 and OID.match(line.split()[0])}
@@ -512,7 +511,7 @@ def pull(args):
                     # logged after that line, rather than silently dropping its pending name and hiding it indefinitely.
                 if name in still and name not in expiring:
                     continue
-                lines, why = accept(repo, module, keys.name, revocations.name, name, oid)
+                lines, why = accept(repo, keys.name, revocations.name, name, oid)
                 if why:
                     summary['rejected'][why] = summary['rejected'].get(why, 0) + 1
                 else:

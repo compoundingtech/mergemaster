@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One pull of the evidence log, as main has it (scripts/evidence-log.service, every 2 minutes from scripts/evidence-log.timer).
-# The script and the verifier it loads are read from origin/main in the bare repository this host keeps, never a checkout's copy.
+# The script is read from origin/main in the bare repository; verifier helpers use the provisioned mergemaster binary.
 # The signer (~/.config/evidence-log/signer.json, a JSON argv that signs stdin; `st sekrets` once the log key has a profile) and
 # the log key list (~/.config/evidence-log/log-keys, until main pins .st/evidence-log-key) are this host's configuration.
 # EVIDENCE_LOG_FLAGS adds --publish and, once GC writes its lines first, --restore.
@@ -32,9 +32,7 @@ if main=$(git -C "$repo" rev-parse --verify refs/remotes/origin/main 2>/dev/null
 fi
 bootstrap_git fetch -q --no-tags "$(git -C "$repo" remote get-url origin)" +refs/heads/main:refs/remotes/origin/main
 git -C "$repo" update-ref refs/remotes/origin/main "$(bootstrap_git rev-parse refs/remotes/origin/main)"
-for tool in evidence-log evidence-verify; do
-  git -C "$repo" show "origin/main:scripts/$tool" > "$tools/$tool"
-done
+git -C "$repo" show "origin/main:scripts/evidence-log" > "$tools/evidence-log"
 keys=$config/log-keys
 # arn:lmig:smalltalk:2026-10-27-dot-fractal-config — only genuine absence permits the host-local key fallback.
 key_path=.fractal/evidence-log-key

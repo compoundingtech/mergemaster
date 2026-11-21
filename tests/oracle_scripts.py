@@ -16,7 +16,15 @@ LOCAL_PATCHES = {"scripts/ci-signed-tree", "scripts/ci-signed-tree-test",
                  "scripts/ci-evidence-gate", "scripts/ci-evidence-gate-test",
                  "scripts/evidence-prepush", "scripts/evidence-prepush-test",
                  "scripts/evidence-log-watch.service", "scripts/fractal-test-test",
-                 "scripts/st-test"}
+                 "scripts/st-test", "scripts/ci-evidence-observe", "scripts/ci-evidence-observe-test",
+                 "scripts/ci-evidence-shadow", "scripts/ci-evidence-shadow-test",
+                 "scripts/ci-evidence-signing", "scripts/ci-evidence-signing-test",
+                 "scripts/evidence-gc", "scripts/evidence-gc-test", "scripts/evidence-gc-timer",
+                 "scripts/evidence-lane-trace", "scripts/evidence-lane-trace-test",
+                 "scripts/evidence-log", "scripts/evidence-log-test", "scripts/evidence-log-timer",
+                 "scripts/evidence-publish-test", "scripts/evidence-wrap", "scripts/evidence-wrap-test",
+                 "scripts/evidence_test_support.py", "scripts/lane-definition-closure",
+                 "scripts/lane-definition-closure-test"}
 MANIFEST = "tests/python-removals.json"
 WAVES = {
     "wave-1-leaves", "wave-2-verifier-crate-keys", "wave-3-sign-wrap",

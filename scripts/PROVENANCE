@@ -100,15 +100,63 @@
 # Pending requires oracle bytes; the target fixture activates exact upstream bytes and modes.
 # resync-original e2721e52463428b4ff655addee129cecd2839763
 # resync-rev 787e8ed592dff34d2bdc2a2b0b584482da567e7f
+# scripts/ci-evidence-gate: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/ci-evidence-gate 2952f89514a584465a428017b3f3e8ea043f41b2 1e72c30cd8e0ad11e9a8d7bafa5073a427b05022
+# scripts/ci-evidence-gate-test: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/ci-evidence-gate-test 38a34e7d48ed407b428f739c0f3d38b151fced59 ebea10c0a593339c0d0dc79729e71442ab57c750
+# scripts/ci-evidence-observe: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/ci-evidence-observe af65b642fbb0e55b1dece0b5ce3a4e9e7b3f6966 1002d8647154b1f527f8b40bccd68eb12158136c
+# scripts/ci-evidence-observe-test: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/ci-evidence-observe-test b4ee80c442d4ea718b512ba81d644a96f2f8553a 43c7719483888691f42acef74b48b4a0c8fb1348
+# scripts/ci-evidence-shadow: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/ci-evidence-shadow 6870054380ea2777b624f66d26e2adc933b137c0 d575e96b908703e6de4ac8c71f92b01c9841b7e1
+# scripts/ci-evidence-shadow-test: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/ci-evidence-shadow-test d7bdd51372b5d7aef04ece64cc918430d88d0e6a ce2afe3e9cad2a5221b93515a7bb7bf45f9d130f
+# scripts/ci-evidence-signing: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/ci-evidence-signing b57b9d0d9badd16e3d7edf45b3bccd0632361e02 5490f6f3d5c24d44398f6ca315419e123f016d4d
+# scripts/ci-evidence-signing-test: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/ci-evidence-signing-test cd72694762e05984446ce19ad167df112bbbc441 0fc04b710b92a8b857437cfaff635c494e7d4e17
+# scripts/ci-signed-tree: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/ci-signed-tree 77a560621f8182d2ca19f622782ff24c95e7d514 d18c3452dfb2a3c79089fa739c135090ab734245
+# scripts/ci-signed-tree-test: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/ci-signed-tree-test 91612975e7ae383ca5c55b94a19af20b0b1c7df2 3017df66139c11b20ffb2d87bddc403d8efbabfa
+# scripts/evidence-gc: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/evidence-gc 1340a798f6bda78ad6319352fabd8de2050312f9 5ecbfa8fde5d00bf24514a7dc84c3d17bf9fa628
+# scripts/evidence-gc-test: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/evidence-gc-test 3c7482d742f104780158789154491d290ab7a693 c24ccca34dfc0a69e3e00674c0b3ab568f941f7f
+# scripts/evidence-gc-timer: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/evidence-gc-timer dd5781ab377653d43b1cfda67a46e897ec0e51d8 f3f7e9a064a6b8e2cc505ab67a83a2725593b746
+# scripts/evidence-lane-trace: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/evidence-lane-trace 6c2d2cfbe25c23e04f9685bbb5e394812444d2e2 cd47d3c9ef16448b0af6c7f04ffc2f39563f3b29
+# scripts/evidence-lane-trace-test: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/evidence-lane-trace-test 7d60bf21e21098f3c0510a4bc43c0bef2da236e3 36bf8d07d3bcf3b7f87c48b4702f58ddcfb5de82
+# scripts/evidence-log: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/evidence-log 73e22e8252a1ceab4eba0324a0063c97f1d75b18 07b6e4cc9d67d137003ed35b4e8726fedf9d14f8
+# scripts/evidence-log-test: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/evidence-log-test 746aa09bc2363c2d57523220c084fb6a4e34ef66 e053f492378da5590e603c65495624ad81bbd369
+# scripts/evidence-log-timer: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/evidence-log-timer 85ffab484040914c4ae14f72b86cc70c97b7e358 77c4661b073547dd6362e7dd0704a2499bf0b4e9
+# scripts/evidence-publish-test: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/evidence-publish-test 37f7aa321d295bb0ba5ca73f4b8c5a8f3ee2902f 39bcb680b89b766fe55d0b0bb9a1b743ac3d1e69
+# scripts/evidence-wrap: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/evidence-wrap b31f1737e55f187471cd15b8d0b938dd982c72a0 4c98cbaa72d99867877b663fa9e4fbe86626b898
+# scripts/evidence-wrap-test: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/evidence-wrap-test 603ae3a411bfcd31e70160f7fba05854ec38df36 c8ce5fc4ae38e2ab0fcc84758e8008ec10707dcc
+# scripts/evidence_test_support.py: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/evidence_test_support.py 3590f507364ac813bed170e490149c25561fa2d5 9f60e5e6b4b07959045f402c45231f3770788652
+# scripts/fractal-test-test: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/fractal-test-test decb42b9d442807c9601b473c190b3743b24c4c0 fc01de0bb4b0070e2214def9408dfbcfd1cd945f
+# scripts/lane-definition-closure: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/lane-definition-closure 492b3741b117092395855d9790dc96e6ce3612e6 df4cd022958b56316698ea7ca05225686329c69f
+# scripts/lane-definition-closure-test: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/lane-definition-closure-test 635945d2a01f18e9c4716c50a2eb9803896cbb08 c1c8dca332d47fe5b6bc7d75c3d773f650d4f9d8
+# scripts/st-test: wave-2 cutover: verifier and crate keys via mergemaster binary
+# local-patch scripts/st-test 087ae7d9f3d1106a38eedc1e911caeeaf46a96ae 984e0b36b63ff9b84362c9212b23fef6510a0721
 # resync-blob scripts/evidence-sign ea0ab64b5efc631c624cc974208bf05234839433
 # resync-blob scripts/evidence-sign-hardening-test 7da656fdc8f2b4b499fa099c93efa34884434004
-# resync-blob scripts/evidence-verify-test 6b9d6c5f403fae4fcb1a516562e06f8d5cfc0cc7
-# resync-blob scripts/evidence-wrap-test 711847812a5d703fa9f2056468970f89a0f57c53
-# resync-blob scripts/lane-definition-closure 5a844628e821bb51e6ab3fc2b38088a37c3c47c4
 # Intentional local divergence for external Fractal consumers (see mergemaster#141):
-# ci-signed-tree resolves evidence-verify beside its own real file, retaining the
-# consumer cwd, verifier argv, policy/key/lane inputs and shadow-job behavior.
-# The regression uses a failing consumer verifier and an input-index-only note.
+# ci-signed-tree now uses the provisioned mergemaster binary while retaining the
+# consumer cwd, policy/key/lane inputs and shadow-job behavior.
 # Local patches pin oracle and local blobs plus equal executable modes; unlike
 # resync rows, they do not claim these bytes came from the Fractal fixture.
 # Remove each exception when an oracle repin includes the patch.
@@ -174,22 +222,6 @@
 # fractal-test-test no longer loads the removed notice module or its oracle copy.
 # Its local patch remains necessary to relocate those assertions out of the
 # copied Python suite; the other readers' real-Git assertions remain unchanged.
-# local-patch scripts/fractal-test-test decb42b9d442807c9601b473c190b3743b24c4c0 6e09f301916a9bd0eb93a429bfd69adb9caee136
-# st-test retains its approved fixture resync, with help/comment references now
-# naming the native runner-report command. No executable behavior changes.
-# local-patch scripts/st-test 087ae7d9f3d1106a38eedc1e911caeeaf46a96ae 269c5e2b964453819da131af61e7696c2c0d4ac5
-# local-patch scripts/ci-signed-tree 77a560621f8182d2ca19f622782ff24c95e7d514 2bdd0922a31a6dad544bf6826666efeec68a3466
-# local-patch scripts/ci-signed-tree-test 91612975e7ae383ca5c55b94a19af20b0b1c7df2 9b1877c7407fe1128620fb94e376b66a7fcca8d2
-# Intentional local gate adoption: verification and project subprocesses use the
-# trusted runner's pinned Rust legacy-evidence-verify entry. BASE capability
-# markers/configuration and the unported ci_inputs Python import remain.
-# Differential integration: crates/mergemaster-evidence/tests/ci_evidence_gate.rs.
-# Remove this exception when the pinned oracle includes binary gate adoption.
-# local-patch scripts/ci-evidence-gate 2952f89514a584465a428017b3f3e8ea043f41b2 c5d025fbf4e5168d1574b838653973183cdcc416
-# Gate self-test fault/recording injection follows the trusted executable
-# boundary, retaining every fail-closed assertion, checking the hidden entry,
-# and covering absent configured and PATH-resolved binaries end to end.
-# local-patch scripts/ci-evidence-gate-test 38a34e7d48ed407b428f739c0f3d38b151fced59 f13ec34c7cce97604c3970a10bb451f70f23f076
 # Native watcher cutover: source-only unit invokes mergemaster evidence log-watch.
 # Timer, state location, notify argv and service success statuses are unchanged.
 # The Python implementation/self-test are tombstoned; tests/fixtures/oracle/log-watch.json
@@ -535,8 +567,6 @@ scripts/evidence-sign	288b9c2ca9ba7e4f909dd4656df52ae30c9a8914	288b9c2ca9ba7e4f9
 scripts/evidence-sign-hardening-test	6889e6c38273dc85ede41668e622af5b7f8b541f	6889e6c38273dc85ede41668e622af5b7f8b541f
 scripts/evidence-skip-report	c7d43b6b813b79b283c0b77f8689ecffc0b1e9a5	c7d43b6b813b79b283c0b77f8689ecffc0b1e9a5
 scripts/evidence-skip-report-test	49c58386ec3312a18b623b29936b1f7ea80d9f88	49c58386ec3312a18b623b29936b1f7ea80d9f88
-scripts/evidence-verify	478118e3b9b595a0d6267492749c96c4225f83c2	5ed6ade05b64b65825d4f6e6da812db1263c6148
-scripts/evidence-verify-test	d4bd2f008a91c0d5209b097e495a804b222ee14e	43015334ab96287f17588bf5602a6fb52af4983a
 scripts/evidence-wrap	9b0735473bc8f319093092b26421aed9c3df98cf	9b0735473bc8f319093092b26421aed9c3df98cf
 scripts/evidence-wrap-test	4c871cd463a6a57357277b94cb1f5d9ef0af838b	4c871cd463a6a57357277b94cb1f5d9ef0af838b
 scripts/evidence_test_support.py	3590f507364ac813bed170e490149c25561fa2d5	3590f507364ac813bed170e490149c25561fa2d5

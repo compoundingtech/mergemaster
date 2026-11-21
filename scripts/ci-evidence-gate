@@ -26,8 +26,6 @@ agent built and signed; GitHub attaches the required checks to that sha), but on
 `choose_tree` holds; otherwise it asks about the merge tree, as before. A merge_group run always uses its own tree.
 """
 import hashlib
-import importlib.machinery
-import importlib.util
 import json
 import os
 import re
@@ -50,6 +48,7 @@ VERIFIER_TIMEOUT = int(os.environ.get('GATE_VERIFIER_TIMEOUT', '30'))
 PROTECTED = (
     'scripts/ci-evidence-gate', 'scripts/evidence-verify', '.st/evidence-skip-policy.json', '.st/evidence-keys',
     '.github/workflows/fleet.yml', '.github/workflows/fleet.yml.genie.ts', '.github/workflows/workspace-ci.ts',
+    '.mergemaster/tool-pin.json',
     'scripts/ci-evidence-gate-test', 'scripts/evidence-verify-test',
     # What decides who may have a head tree used: the author list and the rule that reads it.
     '.st/evidence-authors.json', 'scripts/ci-evidence-signing',
@@ -99,15 +98,11 @@ def input_refspecs(check, key):
     return [f'+{TAGS}/input/{check}/{key}/*:{TAGS}/input/{check}/{key}/*',
             f'+refs/notes/evidence-input/{check}/{key}/*:refs/notes/evidence-input/{check}/{key}/*']
 CHECK_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,99}')
-VERIFIER = 'scripts/evidence-verify'
 # The workflow must provision this binary from trusted configuration, never from
 # the candidate checkout. No Python fallback: a missing binary keeps CI running.
 VERIFIER_BINARY = os.environ.get('MERGEMASTER_BIN', 'mergemaster')
-# Checks a note covers one crate at a time (docs/per-crate-test-signing.md): the gate asks whether EVERY workspace member of the tree
-# has a satisfying note for its own key (--members). Base script/helper presence
-# and option markers remain compatibility guards, not executable verifier code.
+# Per-crate verification is implemented by the same pinned Rust binary.
 MEMBER_CHECKS = frozenset({'rust-tests'})
-MEMBER_KEYS = 'scripts/rust-test-keys'
 MEMBER_INPUTS = '.st/rust-test-inputs.json'
 KEYS = '.st/evidence-keys'
 LOG_KEY = '.st/evidence-log-key'
@@ -345,12 +340,18 @@ def observe(context, revision='HEAD', protected=None):
         if selected is not None and shown.returncode != 0:
             return 'unavailable', None, f'could not read accepted configuration {selected}', None
         context[name] = hashlib.sha256(shown.stdout).hexdigest()[:16] if shown.returncode == 0 else 'none'
-    script = run('git', 'show', f'{base}:{VERIFIER}')
-    # Preserve the accepted base's capability negotiation and its diagnostic
-    # digest. Only the runner's trusted binary executes verification/projection.
-    if script.returncode != 0:
-        return 'unavailable', None, 'the accepted base has no verifier yet', None
-    digest = hashlib.sha256(script.stdout).hexdigest()
+    pinned = run(VERIFIER_BINARY, 'legacy-evidence-verify-helper', 'verify-tool-pin',
+                 '--repo', '.', '--base', base, timeout=VERIFIER_TIMEOUT)
+    if pinned.returncode != 0:
+        return 'unavailable', None, 'the trusted verifier does not match the accepted base tool pin', None
+    try:
+        tool = json.loads(pinned.stdout)
+        digest, pin_digest = tool['binary_sha256'], tool['tool_pin_sha256']
+        if not all(isinstance(value, str) and re.fullmatch(r'[0-9a-f]{64}', value) for value in (digest, pin_digest)):
+            raise ValueError('invalid tool digests')
+    except (ValueError, TypeError, KeyError):
+        return 'unavailable', None, 'the trusted verifier returned an invalid tool identity', None
+    context['tool_pin_sha256'] = pin_digest
     with tempfile.TemporaryDirectory() as scratch:
         verifier = VERIFIER_BINARY
         if config_path(base, KEYS) is not None:
@@ -360,39 +361,24 @@ def observe(context, revision='HEAD', protected=None):
             empty = os.path.join(scratch, 'empty-keys')
             open(empty, 'w').close()
             keys = ['--keys', empty]
-        # The evidence log's shadow view (docs/st3/gate-evidence.md, "The evidence log"), once the base pins the log key and its
-        # verifier reads it: one ref, one commit deep. It is reported on the decision line and changes no decision.
+        # The tool pin supplies log support; the accepted base still supplies its key.
         log = []
-        if b'--log-keys-from' in script.stdout and config_path(base, LOG_KEY) is not None:
+        if config_path(base, LOG_KEY) is not None:
             fetched = run('git', 'fetch', '--no-tags', '--depth=1', '--no-filter', '-q', 'origin', f'+{LOG_REF}:{LOG_REF}')
             context['log_fetch'] = 'ok' if fetched.returncode == 0 else 'failed'
             log = ['--log-keys-from', base]
-        # The run's own input values, for a policy that compares a note's with them (input_order), once the base's verifier takes them.
-        values = [f'--run-input={key}={value}' for key, value in sorted(context.get('run_inputs', {}).items())] \
-            if b'--run-input' in script.stdout else []
-        # A head tree is held to the lane definition at its branch point, once the base's verifier takes one.
-        lane_base = ['--lane-base', context['lane_base']] if context.get('tree_of') == 'head' and context.get('lane_base') \
-            and b'--lane-base' in script.stdout else []
+        values = [f'--run-input={key}={value}' for key, value in sorted(context.get('run_inputs', {}).items())]
+        lane_base = ['--lane-base', context['lane_base']] if context.get('tree_of') == 'head' and context.get('lane_base') else []
         members = []
         if check in MEMBER_CHECKS:
-            # Retain the base's per-crate capability/presence guards.
-            if b'--members' not in script.stdout:
-                return 'unavailable', None, 'the accepted base has no per-crate verifier yet', digest
-            member_keys = run('git', 'show', f'{base}:{MEMBER_KEYS}')
-            if member_keys.returncode != 0:
-                return 'unavailable', None, f'the accepted base has no {MEMBER_KEYS}', digest
-            # The Rust member projection reads manifests/configuration at pinned Git
-            # revisions; it does not import the base's Python rust-test-keys helper.
             context['manifests_fetch'] = prefetch_manifests(revision, base)
             context['members_fetch'] = fetch_member_notes(verifier, base, check, repository, revision)
             members = ['--members']
         else:
             fetch_input_notes(verifier, base, check, repository, revision)
-        # A pull request editing protected files may skip only on our own hosts'
-        # note. Ask for those levels when the base advertises that capability;
-        # a newer failure still decides.
+        # A pull request editing protected files may skip only on our own hosts' note.
         prefer = ['--prefer-levels', ','.join(OWN_LEVELS)] if isinstance(protected, list) and protected and not members \
-            and context.get('event') == 'pull_request' and b'--prefer-levels' in script.stdout else []
+            and context.get('event') == 'pull_request' else []
         done = run(verifier, 'legacy-evidence-verify', '--repo', '.', '--revision', revision, '--check', check, *members,
                    '--policy-from', base, '--repository', repository, *keys, *log, *values, *lane_base, *prefer, timeout=VERIFIER_TIMEOUT)
     try:
@@ -494,7 +480,9 @@ def line(context, decision, outcome, result, detail, tree, verifier_sha, gate_sh
         ('head', context['head']),
         ('base', context['base']), ('event_base', context.get('event_base')), ('event', context['event']), ('pr', context['pr']),
         ('repo', context['repository']), ('run', context['run']), ('attempt', context['attempt']),
-        ('fork', context['fork']), ('verifier_sha256', verifier_sha), ('gate_sha256', gate_sha),
+        # verifier_sha256 now identifies the BASE-pin-validated executable, not the retired Python capability source.
+        ('fork', context['fork']), ('tool_pin_sha256', context.get('tool_pin_sha256')),
+        ('verifier_sha256', verifier_sha), ('gate_sha256', gate_sha),
     ]
     return 'evidence-decision v1 ' + ' '.join(f'{key}={field(value)}' for key, value in fields)
 
@@ -564,39 +552,33 @@ def base_signing_module(base):
     return module
 
 
-def base_module(base, path, name):
-    """The script at `path` as it is at the accepted base, loaded as module `name`; a Fallback when the base has none."""
-    shown = run('git', 'show', f'{base}:{path}')
-    if shown.returncode != 0:
-        raise Fallback(f'the accepted base has no {path}')
-    with tempfile.TemporaryDirectory() as scratch:
-        file = os.path.join(scratch, name)
-        with open(file, 'wb') as handle:
-            handle.write(shown.stdout)
-        loader = importlib.machinery.SourceFileLoader(name, file)
-        spec = importlib.util.spec_from_loader(loader.name, loader)
-        module = importlib.util.module_from_spec(spec)
-        loader.exec_module(module)
-    return module
-
-
 def ci_inputs_kept(check, branch_point, base, current):
     """True when `check` declares its CI inputs at the base (its lane's ci_inputs) and they are the same at the branch point, the base
     and `current`: main moved protected files, but none this check uses, so its own tree may still be asked about. False when the base
-    declares none for it, or cannot say (an older base, a lane file it cannot read): the rule before per-check CI inputs."""
+    declares none for it, or the Rust helper refuses its lane file or trees."""
     if not check:
         return False
     try:
-        verify = base_module(base, 'scripts/evidence-verify', 'base_evidence_verify')
-        # arn:lmig:smalltalk:2026-10-27-dot-fractal-config — authority and layout both belong to the accepted base.
-        lanes = run('git', 'show', f'{base}:{config_path(base, ".st/required-lanes.json")}')
-        if lanes.returncode != 0 or not hasattr(verify, 'ci_inputs_unchanged'):
+        pinned = run(VERIFIER_BINARY, 'legacy-evidence-verify-helper', 'verify-tool-pin',
+                     '--repo', '.', '--base', base, timeout=VERIFIER_TIMEOUT)
+        if pinned.returncode != 0:
             return False
-        ci = verify.lane_rules(lanes.stdout.decode(), check).get('ci_inputs')
-        return bool(ci) and verify.ci_inputs_unchanged('.', ci, (branch_point, base, current))
-    except Fallback:
-        return False
-    except Exception:  # the base's verifier refused the lane file or the trees: not kept
+        lanes = run('git', 'show', f'{base}:{config_path(base, ".st/required-lanes.json")}')
+        if lanes.returncode != 0:
+            return False
+        rules = run(VERIFIER_BINARY, 'legacy-evidence-verify-helper', 'lane-rules', '--check', check,
+                    stdin=lanes.stdout, timeout=VERIFIER_TIMEOUT)
+        if rules.returncode != 0:
+            return False
+        ci = json.loads(rules.stdout).get('ci_inputs')
+        if not ci:
+            return False
+        args = [arg for item in ci for arg in ('--input', item)]
+        args += [arg for revision in (branch_point, base, current) for arg in ('--revision', revision)]
+        done = run(VERIFIER_BINARY, 'legacy-evidence-verify-helper', 'ci-inputs', '--repo', '.', *args,
+                   timeout=VERIFIER_TIMEOUT)
+        return done.returncode == 0 and json.loads(done.stdout).get('unchanged') is True
+    except (Fallback, ValueError, AttributeError, OSError, subprocess.SubprocessError):
         return False
 
 

@@ -33,7 +33,8 @@ has a megarepo.lock, its members are materialized under repos/ first, with the c
 (`mr apply`, from the flake's effect-utils pin), because both lanes read repos/effect-utils and their dev shells no longer
 create it.
 
-evidence-wrap, evidence-sign and evidence-verify come from the accepted base, not from the change under test.
+evidence-wrap and evidence-sign come from the accepted base, not from the change under test. Verification and crate keys use the pinned
+mergemaster binary (MERGEMASTER_BIN, or mergemaster on PATH), with configuration selected from the accepted base.
 Commands that call cargo reach the build admission shim on PATH like any other cargo; nothing here knows about
 admission. With --push the signed notes are pushed to REMOTE after they verify, with the identity git uses for REMOTE
 (or EVIDENCE_PUSH_TOKEN if set), as refs/tags/evidence/<tree>/<record> and refs/notes/evidence/<tree>/<record> (see
@@ -188,7 +189,8 @@ BASE_BOUND = frozenset({'linux-gate', 'linux-clippy'})  # rust-tests is not: a t
 WEB = 'fractal-web'
 WEB_INPUTS = {'kit_shard_count': '1', 'shard_results': '0=success', 'kit_inputs': 'true', 'kit_play_set': 'all',
               'app_test_set': 'all', 'event_name': 'pull_request'}
-BASE_SCRIPTS = ('evidence-wrap', 'evidence-sign', 'evidence-verify')
+BASE_SCRIPTS = ('evidence-wrap', 'evidence-sign')
+VERIFIER_BINARY = os.environ.get('MERGEMASTER_BIN', 'mergemaster')
 # The checks that build use two cargo targets per pool tree (<pool>/target-N and target-N-fleet-compat, outside the tree), kept between
 # runs, so a run does not start cold: the tree's path is the same every run, so the workspace's own crates rebuild only when they
 # changed and the dependencies and build scripts are reused. Both are removed before a run once their sum passes TARGET_MAX_GB (the run holds
@@ -655,7 +657,7 @@ REEXEC = 'ST_TEST_REEXEC'  # set to the base commit in the base's copy that run_
 
 
 def run_base_copy(argv):
-    """Replace this process with the base's self-contained scripts/st-test, as BASE_SCRIPTS does for the wrapper, signer and verifier.
+    """Replace this process with the base's self-contained scripts/st-test, as BASE_SCRIPTS does for the wrapper and signer.
     Every seat runs fractal-test from its own branch, so without this, how runs queue for pool trees and build slots (and which commit they
     sign) stays at whatever the branch last merged, for days, and old branches keep racing while new ones queue. A branch's own runner
     changes are still tested by ci-script-tests (fractal-test-test runs from the tree), and that is what is signed. There is no opt-out.
@@ -1415,18 +1417,19 @@ def policy_checks(base):
 def lane_edits(verifier_path, directory, base, check, tree):
     """The paths of `check`'s lane definition that `tree` changes relative to `base`, the branch point (empty when it changes none). evidence-wrap refuses
     to sign such a tree; asking first lets the run say so plainly, as "not signed", instead of reporting a failed check."""
-    loader = importlib.machinery.SourceFileLoader('evidence_verify_for_st_test', verifier_path)
-    verifier = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
-    loader.exec_module(verifier)
-    try:
-        blob = config_blob(base, 'required-lanes.json')
-        if blob is None:
-            raise Failure(f'no lane file at accepted base {base}')
-        rules = verifier.lane_rules(blob.decode(), check)
-        base_tree = text(git('rev-parse', '--verify', '--end-of-options', base + '^{tree}'))
-        return verifier.lane_definition(str(directory), base_tree, tree, rules)['changed']
-    except verifier.Failure:
+    blob = config_blob(base, 'required-lanes.json')
+    if blob is None:
+        raise Failure(f'no lane file at accepted base {base}')
+    base_tree = text(git('rev-parse', '--verify', '--end-of-options', base + '^{tree}'))
+    done = subprocess.run([verifier_path, 'legacy-evidence-verify-helper', 'lane-definition', '--repo', str(directory),
+                           '--base-tree', base_tree, '--tree', tree, '--check', check],
+                          input=blob.decode(), capture_output=True, text=True)
+    if done.returncode == 3:
+        # Every reason here was a verifier.Failure; the wrapper reports its detail.
         return []  # evidence-wrap gives the reason
+    if done.returncode:
+        raise Failure(done.stderr.strip() or 'lane-definition helper failed')
+    return json.loads(done.stdout)['changed']
 
 
 def behind(base):
@@ -2536,14 +2539,14 @@ def reap_stale():
 
 
 def base_input_values(verifier, directory, tree, check, base, repository, keyed=False):
-    """{input: value} for the base policy's base_inputs of `check`, from the base's verifier (--project); {} when it has none or
+    """{input: value} for the base policy's base_inputs of `check`, from the pinned verifier (--project); {} when it has none or
     cannot say (a note without them then covers no run whose policy asks for them: nothing is wrongly covered). Without a repository the
     policy is not applied, so it has none to ask for. With `keyed` (a check in KEYED), also its input key, source_inputs, the projection
     of the policy's inputs at this tree, as CI's signer records it (scripts/ci-evidence-signing): the note is then indexed under the key,
     and another tree with the same key finds it."""
     if not repository:
         return {}
-    done = subprocess.run([sys.executable, verifier, '--repo', str(directory), '--tree', tree, '--check', check, '--project',
+    done = subprocess.run([verifier, 'legacy-evidence-verify', '--repo', str(directory), '--tree', tree, '--check', check, '--project',
                            '--policy-from', base, '--repository', repository], capture_output=True, text=True)
     try:
         projected = json.loads(done.stdout) if done.returncode == 0 else {}
@@ -2586,18 +2589,17 @@ def ask_verifier(verifier, directory, tree, check, base, repository, lane_base=N
     """(covered, why, record): the verifier's answer for `check` on `tree`; record is the covering note's record id, or None.
     When the tree edits a protected file, only a note at the gate's own levels covers it (own_levels), and the verifier is asked for the
     newest pass at those levels, as the gate asks it. Per crate, as in the gate, the verifier is not asked to prefer a level."""
-    command = [sys.executable, verifier, '--repo', str(directory), '--tree', tree, '--check', check, '--keys-from', base]
+    command = [verifier, 'legacy-evidence-verify', '--repo', str(directory), '--tree', tree, '--check', check, '--keys-from', base]
     levels, edits = own_levels(directory, tree, base, lane_base)
     if crate_key:
         command += ['--crate-key', crate_key]
-    elif levels and b'--prefer-levels' in Path(verifier).read_bytes():
+    elif levels:
         command += ['--prefer-levels', ','.join(levels)]
     if repository:
         command += ['--policy-from', base, '--repository', repository]
-        if lane_base and b'--lane-base' in Path(verifier).read_bytes():
+        if lane_base:
             command += ['--lane-base', lane_base]
-    if b'--run-input' in Path(verifier).read_bytes():
-        command += run_input_arguments(check, base)
+    command += run_input_arguments(check, base)
     done = subprocess.run(command, capture_output=True, text=True)
     try:
         result = json.loads(done.stdout)
@@ -2621,8 +2623,7 @@ def coverage(args, checks, commit, base_commit, repository, scratch, crates=()):
     covered when the base's wrapper cannot sign it (CI runs that check), and so does the web lane when no web input changed."""
     tree = text(git('rev-parse', f'{commit}^{{tree}}'))
     lane_base = branch_point(commit, base_commit)
-    verifier = Path(scratch) / 'evidence-verify'
-    verifier.write_bytes(git('show', f'{base_commit}:scripts/evidence-verify').stdout)
+    verifier = VERIFIER_BINARY
     lanes, rows = lane_names(base_commit) if edited_lanes_unsigned(base_commit) else set(), []
     for name in checks:
         # Against an older base a tree that edits a check's lane cannot be signed (its evidence-wrap refuses it): CI runs that check.
@@ -2716,7 +2717,6 @@ def repository_of(remote):
     return None
 
 
-RUST_TEST_KEYS = 'scripts/rust-test-keys'
 RUST_TEST_INPUTS = 'rust-test-inputs.json'
 
 
@@ -2735,26 +2735,19 @@ def judged_by_policy(base):
 
 
 def crate_keys(base, directory, tree, scratch):
-    """{crate: key} for `tree`, from the accepted base's scripts/rust-test-keys and inputs file (a verifier must use the base's). Only
-    while the base's policy does not name rust-tests, so nothing judges a note yet, are the tree's own used: the change that introduces them
-    is judged by itself. Once the base's policy names it, a base without them is an error, never a fallback. Returns (keys, error)."""
-    tool = Path(scratch) / 'rust-test-keys'
-    shown = git('show', f'{base}:{RUST_TEST_KEYS}') if git('ls-tree', '--full-tree', '-z', base, '--', RUST_TEST_KEYS).stdout else None
+    """{crate: key} for `tree`, using the pinned binary and the accepted base's inputs file. Only while the base's policy does not
+    name rust-tests are the tree's inputs used: the introducing change is judged by itself. Once the base's policy names it, missing
+    base inputs are an error, never a fallback. Returns (keys, error)."""
     inputs_at = base
     inputs = config_blob(base, RUST_TEST_INPUTS)
     if inputs is not None:
         json.loads(inputs)  # Malformed selected configuration cannot enter the historical producer bootstrap.
-    if shown is not None and inputs is not None:
-        tool.write_bytes(shown.stdout)
     elif judged_by_policy(base):
-        return None, f'the accepted base judges rust-tests but has no {RUST_TEST_KEYS} and {RUST_TEST_INPUTS}: only the base\'s tool and inputs may key a note'
+        return None, f'the accepted base judges rust-tests but has no {RUST_TEST_INPUTS}: only the base\'s inputs may key a note'
     else:
-        tool.write_bytes((Path(directory) / RUST_TEST_KEYS).read_bytes())
         inputs_at = tree
-    verifier = Path(scratch) / 'evidence-verify'
-    verifier.write_bytes(git('show', f'{base}:scripts/evidence-verify').stdout)
-    done = subprocess.run([sys.executable, str(tool), '--repo', str(directory), '--tree', tree, '--inputs-from', inputs_at,
-                           '--verifier', str(verifier), '--json'], capture_output=True, text=True)
+    done = subprocess.run([VERIFIER_BINARY, 'legacy-rust-test-keys', '--repo', str(directory), '--tree', tree,
+                           '--inputs-from', inputs_at, '--json'], capture_output=True, text=True)
     if done.returncode != 0:
         return None, done.stderr.strip()[-300:] or 'rust-test-keys failed'
     return json.loads(done.stdout), None
@@ -2776,9 +2769,9 @@ def fetch_crate_notes(remote, keys):
 def members_missing(verifier, directory, tree, base, repository, lane_base):
     """{crate: reason} for the workspace members with no satisfying note, from ONE verifier run (`--members`: one process reads each record once,
     where 52 `--crate-key` runs each read all 52 of the tree's records); None when the verifier cannot say (the caller asks crate by crate)."""
-    command = [sys.executable, verifier, '--repo', str(directory), '--tree', tree, '--check', 'rust-tests', '--keys-from', base, '--members',
+    command = [verifier, 'legacy-evidence-verify', '--repo', str(directory), '--tree', tree, '--check', 'rust-tests', '--keys-from', base, '--members',
                '--policy-from', base, '--repository', repository]
-    if lane_base and b'--lane-base' in Path(verifier).read_bytes():
+    if lane_base:
         command += ['--lane-base', lane_base]
     done = subprocess.run(command, capture_output=True, text=True)
     try:
@@ -3795,6 +3788,7 @@ def run_main(argv, cleanup):
                     path.write_bytes(git('show', f'{base_commit}:scripts/{name}').stdout)
                     path.chmod(0o700)
                     tools[name] = str(path)
+                tools['evidence-verify'] = VERIFIER_BINARY
                 lag = behind(base_commit)
                 tree = text(git('rev-parse', f'{commit}^{{tree}}', cwd=directory))
                 lane_base = branch_point(commit, base_commit)

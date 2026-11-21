@@ -74,12 +74,15 @@ with tempfile.TemporaryDirectory() as directory:
 
     calls = tmp / 'verifier-calls'
     verifier = tmp / 'verifier'
-    verifier.write_text(f"""import json, os, sys
+    verifier.write_text(f"""#!{sys.executable}
+import json, os, sys
+assert sys.argv.pop(1) == 'legacy-evidence-verify'
 open({str(calls)!r}, 'a').write(json.dumps(sys.argv[1:]) + '\\n')
 ok = os.environ.get('VERIFIER_OK') == '1'
 print(json.dumps({{'satisfied': ok, 'reason': 'no_record'}}))
 sys.exit(0 if ok else 1)
 """)
+    verifier.chmod(0o755)
     response_file = tmp / 'response.json'
     observer = tmp / 'observer'
     observer.write_text(f"""import os, sys

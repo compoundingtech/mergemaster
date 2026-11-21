@@ -221,11 +221,11 @@ nix develop -c bash scripts/test-scripts
 bash scripts/test-scripts
 ```
 
-`scripts/test-scripts` discovers every copied `scripts/*-test` self-test from
-`MERGEMASTER_PYTHON_ORACLE`, including `evidence-verify-test`; `st-test` and
-`fractal-test` are production entrypoints, not self-tests. Fixture-only tests are
-not added to the suite. The oracle variable is required; there is no working-tree
-script fallback.
+`scripts/test-scripts` discovers retained working-tree `scripts/*-test` self-tests;
+removed tests, including `evidence-verify-test`, do not re-enter from the oracle.
+`st-test` and `fractal-test` are production entrypoints, not self-tests.
+Fixture-only tests are not added to the suite. Pinned oracle variables remain
+required for differential comparisons; repository copies are never oracles.
 The runner creates a temporary Git repository using the immutable non-flake
 `fractal-fixture` input, then overlays the small intentional fixtures under
 `tests/fixtures/fractal/` and the immutable oracle scripts. The input supplies
@@ -713,22 +713,29 @@ metadata divergence, original expression identity and owned 60-second deadline.
 these complete paths, preserving stdout/stderr, exit status and final JSON LF.
 It never calls `AcceptedSource` or `json_bytes::parse`; their outstanding #280
 resource/security prerequisites remain open but unreachable, not silently satisfied.
-The unported `ci_inputs_unchanged`/`unresolved_ci_inputs` helpers have no callable
-CLI route; helper-name options and positional requests fail closed as unknown arguments.
+`mergemaster legacy-evidence-verify-helper` exposes the verifier's gate, policy,
+lane, statement and signature operations without loading Python modules.
 
-The local `scripts/ci-evidence-gate` invokes this binary entry for ordinary
-verification and both input/member projections. Its trusted workflow/runner must
-provision a pinned `mergemaster` on PATH or set `MERGEMASTER_BIN` to its absolute
-path, outside the candidate checkout. Missing binaries fail toward running;
-there is no Python fallback. BASE still supplies policy, keys, lanes and the
-legacy capability markers/helper-presence guards. The decision line's
-`verifier_sha256` remains the BASE Python capability-source digest, not a binary
-attestation; the runner owns the binary pin.
+The local `scripts/ci-evidence-gate` uses the provisioned `mergemaster` binary for
+verification, helpers and crate keys, validating its repository, compiled release
+version and measured digest against BASE `.mergemaster/tool-pin.json`; BASE still
+supplies policy, keys, lanes and inputs. The decision line's `verifier_sha256`
+is that validated binary digest, and `tool_pin_sha256` hashes the raw BASE pin;
+the pin's revision is provenance bound by provisioning's release attestation,
+not binary-embedded revision metadata.
 
-Python is not yet removable: the gate's `ci_inputs_kept` still imports the BASE
-verifier for the unported `ci_inputs_unchanged` helper. Other copied consumers and
-the pinned differential oracle also still use Python. This local gate patch is
-not a claim that Fractal's deployed workflow has switched binaries.
+An accepted base without `.mergemaster/tool-pin.json`, or whose pin does not
+match the running binary, makes this local gate report `unavailable`: CI runs
+in full. The base's `scripts/evidence-verify` no longer stands in for the pin;
+there is no Python fallback.
+`scripts/evidence-verify`, its self-test and the committed `rust-test-keys`
+fixture are removed; differential tests use only independent pinned oracles.
+This caller cutover does not claim that Fractal's deployed workflow has switched.
+
+Documented wave-2 divergences: `legacy-rust-test-keys --verifier` is refused;
+Python traceback frames are omitted, and evidence-log reports a refusal instead
+of a traceback. GC always computes crate keys when accepted inputs exist, and
+helper JSON nesting is limited to 256 containers.
 
 The Linux O_PATH permission regression is explicitly ignored in the default
 libtest suite because root cannot exercise it. As a non-root account, run
@@ -1333,7 +1340,7 @@ The native partition deliberately refuses newly representable non-UTF-8 signer
 paths as Failure/error `allowed signer path is not UTF-8`; this approved
 native-only fail-closed divergence preserves the native signature API.
 Member/explicit allowance and member-project policy-base carriers retain original
-`TextRef` codepoints through bare rust-test-keys reads and inherited verifier
+`TextRef` codepoints through native crate-key reads and inherited verifier
 reads, preserving surrogateescape argv, original source identities and exception
 offsets. Repository NUL validation precedes later revision conversion.
 Lane discovery uses the gate's sanitized Git command and rejects malformed or
@@ -1409,14 +1416,14 @@ discarded while strict decoding continues. Python splitlines boundaries and
 Git-failure-before-decode precedence are preserved. Only distinct matching IDs
 are accumulated; a 64 MiB + 1 malformed record is accepted/ignored like Python.
 The shared nonblocking collector also has an explicit no-timeout entry for
-rust-test-keys source reads. Source overflow cancels/reaps the direct child
+`legacy-rust-test-keys` source reads. Source overflow cancels/reaps the direct child
 without waiting for EOF from descendants holding inherited pipe descriptors.
 `TreeSource::git` bounds workspace/configuration metadata stdout to 1 MiB,
 and configuration stderr to 1 MiB; overflow kills and reaps the child and
 returns Failure/error `{exact revision argument} exceeds 1048576 bytes`.
 This approved RawBlob resource divergence also applies to nonzero configuration
 stderr, never emitting a truncated diagnostic. Wildcard member stderr is ignored.
-These rust-test-keys reads retain inherited Git settings and no timeout.
+These native crate-key reads retain inherited Git settings and no timeout.
 CLI configuration lookup and standalone no-test allowance reads also use the
 approved 1 MiB RawBlob capture: exact revision for lookup metadata, exact
 `base:path` for allowance bytes, with their existing verifier Git transport.
@@ -1878,6 +1885,10 @@ missing path in its summary. Candidate config never fills the gap. Invalid JSON,
 symlinks, directories and Git/object failures remain errors without a decision,
 not `config_missing`. A missing tool pin also prevents the workflow bootstrap
 from acquiring a verifier; that bootstrap failure is reported as incomplete.
+This native generic gate's `config_missing` contract is distinct from the local
+`scripts/ci-evidence-gate` adapter: a missing BASE tool pin or a pin that does
+not match its running binary makes that adapter report `unavailable` and run
+CI in full, never fall back to BASE `scripts/evidence-verify`.
 Required configuration is validated before expanding lane paths. Each load
 lists the BASE tree once for all lanes; candidate manifests batch blob reads and
 reuse content digests for overlapping inputs. An exact-tree record miss still

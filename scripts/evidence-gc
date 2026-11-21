@@ -19,7 +19,7 @@ THE PLAN is a pure function of git data, so anyone holding the same refs can rec
                 open pull request head (--open-heads-from) whatever its age; and the trees of main's first-parent commits
                 within retention.main_days of as_of, main's tip always
   live keys     the input key each live tree projects to, for every check whose policy declares inputs, and the per-crate keys
-                of every live tree for rust-tests (main's scripts/rust-test-keys over main's rust-test-inputs.json, .fractal first,
+                of every live tree for rust-tests (the provisioned mergemaster binary over main's rust-test-inputs.json, .fractal first,
                 .st only if absent; a live tree whose crates cannot be keyed keeps every rust-tests key)
   retention     `evidence-retention.json` at --main (.fractal first, .st only if absent; or explicit --retention FILE): main_days, branch_days, grace_hours,
                 soft_records, cap_records, and an optional reason (text)
@@ -69,14 +69,11 @@ import base64
 import collections
 import fcntl
 import hashlib
-import importlib.machinery
-import importlib.util
 import json
 import os
 import re
 import subprocess
 import sys
-import tempfile
 
 sys.dont_write_bytecode = True
 
@@ -90,11 +87,11 @@ BATCH = 500
 TIPS = 'refs/evidence-gc/tips/'
 RETENTION_PATH = '.st/evidence-retention.json'
 RETENTION_KEYS = ('main_days', 'branch_days', 'grace_hours', 'soft_records', 'cap_records')
-# The per-crate check: its policy declares no `inputs`, because each crate has a key of its own (scripts/rust-test-keys over main's
+# The per-crate check: its policy declares no `inputs`, because each crate has a key of its own (the pinned native key tool over main's
 # preferred rust-test-inputs.json, as the gate keys a pull request against its base). Those keys are live keys too (2026-10-28: a plan
 # with only the policy's `inputs` deleted the crate keys an open pull request's rust-tests decision had just chosen).
 PER_CRATE_CHECK = 'rust-tests'
-RUST_TEST_KEYS, RUST_TEST_INPUTS = 'scripts/rust-test-keys', '.st/rust-test-inputs.json'
+RUST_TEST_INPUTS = '.st/rust-test-inputs.json'
 
 
 class Refused(Exception):
@@ -122,12 +119,6 @@ def config_path(repo, revision, path):
     return new if git(repo, 'ls-tree', '--full-tree', '-z', revision, '--', new).stdout else path
 
 
-def verifier_module():
-    here = os.path.dirname(os.path.abspath(__file__))
-    loader = importlib.machinery.SourceFileLoader('evidence_verify_for_gc', os.path.join(here, 'evidence-verify'))
-    module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
-    loader.exec_module(module)
-    return module
 
 
 def read_refs(repo):
@@ -252,73 +243,65 @@ def live_trees(tips, main_history, retention, as_of, open_heads=()):
 
 
 def protected_keys(repo, trees, policy_text, repository):
-    """{(check, key)} that a protected tree projects to, for every check whose policy declares inputs."""
-    verifier = verifier_module()
+    """{(check, key)} projected with the selected policy's declared inputs."""
     keys = set()
     try:
         checks = json.loads(policy_text)['checks']
     except (ValueError, KeyError, TypeError) as error:
         raise Refused(f'cannot read selected skip policy: {error}') from error
+    binary = os.environ.get('MERGEMASTER_BIN', 'mergemaster')
     for check in checks:
         if not CHECK.match(check):
             continue
-        try:
-            rules = verifier.policy_rules(policy_text, check, repository)
-        except Exception:  # a check whose policy does not parse protects no key
-            continue
+        done = subprocess.run(
+            [binary, 'legacy-evidence-verify-helper', 'policy-rules',
+             '--check', check, '--repository', repository],
+            input=policy_text.encode(), capture_output=True, timeout=60)
+        if done.returncode != 0:
+            raise Refused(f'cannot read policy for {check}: {done.stdout.decode(errors="replace").strip()}')
+        rules = json.loads(done.stdout)
         if not rules or rules.get('inputs') is None:
             continue
         for tree in trees:
-            try:
-                key = verifier.project(repo, tree, rules['inputs'])
-            except Exception:
-                key = None
+            done = subprocess.run(
+                [binary, 'legacy-evidence-verify', '--repo', repo, '--tree', tree,
+                 '--check', check, '--project', '--paths', ','.join(rules['inputs'])],
+                capture_output=True, timeout=60)
+            if done.returncode != 0:
+                raise Refused(f'cannot project protected tree {tree}: {done.stdout.decode(errors="replace").strip()}')
+            key = json.loads(done.stdout).get('source_inputs')
             if key:
                 keys.add((check, key))
     return keys
 
 
 def crate_keys(repo, trees, main, index, prefetch=None):
-    """({(PER_CRATE_CHECK, key)}, report): the per-crate keys every live tree projects to, by main's scripts/rust-test-keys over main's
-    preferred rust-test-inputs.json, with the verifier's own projection. Fail closed: when main has no such tool or file nothing is keyed this
-    way, but once it has them, a live tree whose crates cannot be keyed (a manifest that cannot be read or parsed) keeps EVERY index key
-    of the check, since the keys it would protect are unknown. `prefetch`, when given, is called with the trees first (a partial clone
-    fetches the manifests it lacks in one go). report: {'trees': keyed, 'keys': protected, 'unreadable': [tree, ...] (the first 5)}."""
+    """Protect native per-crate keys using accepted-main inputs, retaining every index key on an unreadable tree."""
     report = {'trees': 0, 'keys': 0, 'unreadable': []}
     inputs_path = config_path(repo, main, RUST_TEST_INPUTS)
-    if not git(repo, 'ls-tree', '--full-tree', '-z', main, '--', RUST_TEST_KEYS).stdout:
-        return set(), report
     if not git(repo, 'ls-tree', '--full-tree', '-z', main, '--', inputs_path).stdout:
         return set(), report
-    # Presence is decided by the pinned tree, never by whether a blob can be read.
-    # Missing objects/transport errors must not turn protected crate keys into dead keys.
-    tool = git(repo, 'show', f'{main}:{RUST_TEST_KEYS}')
-    with tempfile.TemporaryDirectory(prefix='evidence-gc-keys-') as scratch:
-        path = os.path.join(scratch, 'rust-test-keys')
-        with open(path, 'wb') as handle:
-            handle.write(tool.stdout)
-        loader = importlib.machinery.SourceFileLoader('rust_test_keys_for_gc', path)
-        module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
-        loader.exec_module(module)
-    # Pin older accepted tools too: their read_inputs may predate the bridge.
-    module.INPUTS_PATH = inputs_path
-    project = verifier_module().project
     if prefetch:
         prefetch(sorted(set(trees) | {main}))
     keys, unreadable = set(), []
-    try:
-        inputs = module.read_inputs(repo, main)
-    except module.Failure:
+    # Validate the accepted configuration before attributing failures to live trees.
+    accepted = subprocess.run(
+        [os.environ.get('MERGEMASTER_BIN', 'mergemaster'), 'legacy-rust-test-keys',
+         '--repo', repo, '--tree', main, '--inputs-from', main, '--json'],
+        capture_output=True, timeout=60)
+    if accepted.returncode != 0:
         unreadable.append(main)
-    else:
-        for tree in sorted(trees):
-            try:
-                found = module.keys(repo, tree, inputs, project)
-            except module.Failure:
-                unreadable.append(tree)
-                continue
-            report['trees'] += 1
-            keys |= {(PER_CRATE_CHECK, key) for key, _ in found.values() if key}
+    for tree in sorted(trees) if not unreadable else ():
+        done = subprocess.run(
+            [os.environ.get('MERGEMASTER_BIN', 'mergemaster'), 'legacy-rust-test-keys',
+             '--repo', repo, '--tree', tree, '--inputs-from', main, '--json'],
+            capture_output=True, timeout=60)
+        if done.returncode != 0:
+            unreadable.append(tree)
+            continue
+        found = json.loads(done.stdout)
+        report['trees'] += 1
+        keys |= {(PER_CRATE_CHECK, key) for key in found.values() if key}
     if unreadable:
         keys |= {(check, key) for _, check, key, _, _ in index if check == PER_CRATE_CHECK}
     report.update(keys=len(keys), unreadable=unreadable[:5])

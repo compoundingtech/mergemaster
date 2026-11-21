@@ -27,10 +27,9 @@ TIMER = ROOT / 'scripts/evidence-gc-timer'
 gc_loader = importlib.machinery.SourceFileLoader('evidence_gc_test_module', str(GC))
 evidence_gc = importlib.util.module_from_spec(importlib.util.spec_from_loader(gc_loader.name, gc_loader))
 gc_loader.exec_module(evidence_gc)
-loader = importlib.machinery.SourceFileLoader('evidence_verify_test', str(ROOT / 'scripts/evidence-verify-test'))
-support = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
-loader.exec_module(support)
-Fixture, evidence_verify = support.Fixture, support.evidence_verify
+sys.path.insert(0, str(ROOT / 'scripts'))
+import evidence_test_support as support
+Fixture = support.Fixture
 DAY = 86400
 NOW = 1_800_000_000
 RETENTION = {'version': 1, 'main_days': 3, 'branch_days': 60, 'grace_hours': 24, 'soft_records': 3000, 'cap_records': 5000}
@@ -65,6 +64,13 @@ class Gc(unittest.TestCase):
         self.main_commits = []
         self.f.git('checkout', '-q', '-b', 'main')
 
+    def verify(self, tree, policy=False):
+        args = ['--tree', tree, '--check', 'unit', '--keys', str(self.f.keys)]
+        if policy:
+            args += ['--policy-from', 'main', '--repository', 'compoundingtech/fractal']
+        code, out, err = self.f.cli(*args)
+        return code, json.loads(out)
+
     def land(self, days_ago):
         """A commit on main `days_ago` days old that changes src/, so its tree and its input key are new."""
         self.n += 1
@@ -95,7 +101,7 @@ class Gc(unittest.TestCase):
             return self.f.note(commit, tree, self.ci, 'machine/ci1', check='unit', seconds=self.n)
 
     def index(self, check, tree, record, paths=('src',)):
-        key = evidence_verify.project(str(self.f.repo), tree, list(paths))
+        key = support.project(str(self.f.repo), tree, list(paths))
         ref = f'refs/notes/evidence-input/{check}/{key}/{record}'
         self.f.git('update-ref', ref, record)
         return ref
@@ -171,10 +177,10 @@ class Gc(unittest.TestCase):
     def test_the_open_pull_request_head_still_verifies_after_the_first_layout_is_migrated(self):
         old, recent, pr = self.world()
         record = self.record(pr[0], pr[1], 29, layout='legacy')
-        self.assertEqual(self.f.verify(pr[1])[0], 0)
+        self.assertEqual(self.verify(pr[1])[0], 0)
         self.assertEqual(self.run_gc('--head', pr[0], '--apply')[0], 0)
         self.assertEqual(self.refs('refs/notes/evidence'), {f'refs/notes/evidence/{pr[1]}/{record}'})
-        code, result = self.f.verify(pr[1])
+        code, result = self.verify(pr[1])
         self.assertEqual((code, result['record']), (0, record))
 
     def test_a_dry_run_changes_nothing_and_says_what_it_would_do(self):
@@ -202,10 +208,9 @@ class Gc(unittest.TestCase):
         self.assertNotIn(stale, self.refs())
 
     def crates(self, broken_pr=False, layout='old'):
-        """A two-crate workspace on main (b depends on a), keyed by main's scripts/rust-test-keys, and the commits whose crate keys matter:
+        """A two-crate workspace on main (b depends on a), keyed by mergemaster over main's inputs, and the commits whose crate keys matter:
         an old main commit (20 d, outside main_days), a recent one (1 d), and an open pull request head that changes only crate b."""
         (self.f.repo / 'scripts').mkdir(exist_ok=True)
-        (self.f.repo / 'scripts/rust-test-keys').write_bytes((ROOT / 'scripts/rust-test-keys').read_bytes())
         (self.f.repo / 'Cargo.toml').write_text('[workspace]\nmembers = ["crates/a", "crates/b"]\n')
         for name, extra in (('a', ''), ('b', '\n[dependencies]\na = { path = "../a" }\n')):
             (self.f.repo / f'crates/{name}/src').mkdir(parents=True)
@@ -241,8 +246,9 @@ class Gc(unittest.TestCase):
         return old, recent, pr
 
     def crate_key(self, tree, crate):
-        done = subprocess.run([sys.executable, str(ROOT / 'scripts/rust-test-keys'), '--repo', str(self.f.repo), '--tree', tree,
-                               '--inputs-from', 'main', '--json'], capture_output=True, text=True, check=True)
+        done = subprocess.run([os.environ.get('MERGEMASTER_BIN', 'mergemaster'), 'legacy-rust-test-keys',
+                               '--repo', str(self.f.repo), '--tree', tree, '--inputs-from', 'main', '--json'],
+                              capture_output=True, text=True, check=True)
         return json.loads(done.stdout)[crate]
 
     def crate_index(self, commit, tree, crate, days_ago):
@@ -279,12 +285,11 @@ class Gc(unittest.TestCase):
         self.assertIn(old_a, self.refs())
         self.assertEqual(result['crate_keys']['unreadable'], [pr[1]])
 
-    def test_missing_accepted_key_tool_blob_cannot_disable_crate_protection(self):
+    def test_missing_native_binary_cannot_disable_crate_protection(self):
         old, recent, pr = self.crates()
         protected = self.crate_index(old[0], old[1], 'a', 25)
-        oid = self.f.git('rev-parse', 'main:scripts/rust-test-keys')
-        (self.f.repo / '.git/objects' / oid[:2] / oid[2:]).unlink()
-        code, _, error = self.run_gc('--head', pr[0], '--apply')
+        with mock.patch.dict(os.environ, MERGEMASTER_BIN=str(self.f.root / 'missing-mergemaster')):
+            code, _, error = self.run_gc('--head', pr[0], '--apply')
         self.assertNotEqual(code, 0, error)
         self.assertIn(protected, self.refs())
 
@@ -489,7 +494,7 @@ class Gc(unittest.TestCase):
         self.assertEqual(result['protected_records'], 3)
         self.assertEqual(result['reasons']['deleted: dead tree'], 2, 'the tag and the note of the one record of a dead tree')
         self.f.git('update-ref', '-d', f'refs/notes/evidence/{pr[1]}/{head}')
-        code, verified = self.f.verify(pr[1])
+        code, verified = self.verify(pr[1])
         self.assertEqual((code, verified['record']), (0, head), 'the open head still verifies from its tag')
 
     def test_a_record_with_two_names_counts_once_in_grace_and_against_the_cap(self):
@@ -697,7 +702,7 @@ sys.exit({exit_code})
 
     def timer_world(self):
         pr, head, doomed, bystander = self.lock_world()
-        for tool in ('evidence-gc', 'evidence-verify'):  # main carries the tools the timer runs; the branch under test does not matter
+        for tool in ('evidence-gc',):  # main carries the timer script; verification comes from the trusted tool pin
             (self.f.repo / 'scripts').mkdir(exist_ok=True)
             (self.f.repo / 'scripts' / tool).write_bytes((ROOT / 'scripts' / tool).read_bytes())
         (self.f.repo / '.st/evidence-retention.json').write_text(json.dumps(RETENTION))
@@ -1154,17 +1159,17 @@ sys.exit(gc.main(sys.argv[1:]))
             failure = self.f.note(dead, tree, self.ci, 'machine/ci1', exit_code=1, seconds=0)
         with At(1 - 30 / DAY):
             passing = self.f.note(dead, tree, self.ci, 'machine/ci1', exit_code=0, seconds=60)
-        self.assertEqual(self.f.verify(tree)[1]['reason'], 'check_failed')
+        self.assertEqual(self.verify(tree)[1]['reason'], 'check_failed')
         code, result, _ = self.run_gc('--head', pr[0], '--apply')
         self.assertEqual(code, 0, result)
         self.assertEqual(result['reasons'].get('kept: grace'), 2, 'the newest record is in grace, so the whole tree is')
-        self.assertEqual(self.f.verify(tree)[1]['reason'], 'check_failed', 'the verdict did not change')
+        self.assertEqual(self.verify(tree)[1]['reason'], 'check_failed', 'the verdict did not change')
         code, result, _ = self.run_gc('--head', pr[0], '--retention', self.retention(soft_records=1), '--apply')
         self.assertEqual((code, result['reasons'].get('kept: grace')), (0, 2), 'grace is absolute: soft_records deletes nothing')
         code, result, _ = self.run_gc('--head', pr[0], '--retention', self.retention(grace_hours=12), '--apply')
         self.assertEqual(code, 0, result)
         self.assertEqual(result['reasons']['deleted: dead tree'], 2)
-        self.assertEqual(self.f.verify(tree)[1]['reason'], 'no_record', 'both went: the check runs')
+        self.assertEqual(self.verify(tree)[1]['reason'], 'no_record', 'both went: the check runs')
         self.assertFalse({failure, passing} & {n.rsplit('/', 1)[1] for n in self.refs()})
 
     def test_no_verdict_of_a_kept_tree_changes_and_a_dropped_tree_only_ever_runs_its_check(self):
@@ -1178,8 +1183,7 @@ sys.exit(gc.main(sys.argv[1:]))
                     self.f.note(commit, tree, self.ci, 'machine/ci1', exit_code=(n + k) % 2, seconds=-int(days * DAY))
             if name in ('old', 'pr'):
                 self.index('unit', tree, self.f.git('for-each-ref', '--format=%(objectname)', '--count=1', f'refs/notes/evidence/{tree}/'))
-        rules = evidence_verify.policy_rules(support.policy_text(inputs=['src']), 'unit', 'compoundingtech/fractal')
-        verdicts = lambda: {name: self.f.verify(tree, rules=rules)[1].get('reason', 'satisfied') for name, (_, tree) in trees.items()}
+        verdicts = lambda: {name: self.verify(tree, policy=True)[1].get('reason', 'satisfied') for name, (_, tree) in trees.items()}
         before = verdicts()
         code, result, _ = self.run_gc('--head', pr[0], '--retention', self.retention(grace_hours=1), '--apply')
         self.assertEqual(code, 0, result)

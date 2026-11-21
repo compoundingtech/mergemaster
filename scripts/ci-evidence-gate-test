@@ -5,11 +5,12 @@ The aim is that no skip can be a false positive: every way a note can fail to co
 must end in `decision=run`, and every hostile or broken verifier must too.
 """
 import ast
+import functools
 import importlib.machinery
 import importlib.util
 import itertools
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
 import re
@@ -33,7 +34,111 @@ def load(name, path):
 
 
 gate = load('ci_evidence_gate', 'scripts/ci-evidence-gate')
-fixtures = load('evidence_verify_test', 'scripts/evidence-verify-test')
+MERGEMASTER = os.environ.get('MERGEMASTER_BIN', 'mergemaster')
+NOW = datetime.now(timezone.utc)
+
+
+def rust_json(operation, *args, stdin=None):
+    done = subprocess.run([MERGEMASTER, operation, *args], input=stdin, capture_output=True)
+    if done.returncode:
+        raise AssertionError((done.returncode, done.stdout, done.stderr))
+    return json.loads(done.stdout)
+
+
+def lane_definition(repo, base, tree, lanes):
+    return rust_json('legacy-evidence-verify-helper', 'lane-definition', '--repo', str(repo),
+                     '--base-tree', base, '--tree', tree, '--check', 'linux-gate',
+                     stdin=json.dumps(lanes).encode())
+
+
+def project(repo, tree, paths):
+    return rust_json('legacy-evidence-verify', '--repo', str(repo), '--tree', tree,
+                     '--project', '--paths', ','.join(paths))['source_inputs']
+
+
+@functools.cache
+def tool_pin(repo):
+    identity = rust_json('legacy-evidence-verify-helper', 'tool-identity')
+    revision = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'], text=True).strip()
+    return {'version': 1, 'repository': identity['repository'], 'revision': revision,
+            'release': {'version': identity['version'], 'sha256': identity['binary_sha256']}}
+
+
+class Fixture:
+    """Real Git/signature fixtures; no verifier implementation is loaded."""
+    def __init__(self):
+        self.layout = 'tree'
+        self.ref_of = {}
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.repo = self.root / 'repo'
+        self.allowed = []
+        self.keys = self.root / 'allowed-signers'
+        self.command('git', 'init', '-q', str(self.repo))
+        self.git('config', 'gc.auto', '0')
+        self.git('config', 'maintenance.auto', 'false')
+
+    def command(self, *args, stdin=None):
+        done = subprocess.run(args, input=stdin, capture_output=True)
+        if done.returncode:
+            raise AssertionError(done.stderr.decode())
+        return done.stdout.decode().strip()
+
+    def git(self, *args, stdin=None):
+        return self.command('git', '-C', str(self.repo), '-c', 'user.name=Fixture',
+                            '-c', 'user.email=fixture@example.invalid', *args, stdin=stdin)
+
+    def ref_for(self, record, tree):
+        prefix = 'refs/tags/evidence' if self.layout == 'tag' else 'refs/notes/evidence'
+        return f'{prefix}/{tree}/{record}'
+
+    def key(self, name, principal=None):
+        path = self.root / name
+        self.command('ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', str(path))
+        if principal:
+            self.allowed.append(f'{principal} namespaces="git" {path.with_suffix(".pub").read_text()}')
+            self.keys.write_text(''.join(self.allowed))
+        return path
+
+    def commit(self, content):
+        (self.repo / 'file.txt').write_text(content)
+        self.git('add', '-A')
+        self.git('commit', '-q', '-m', content)
+        return self.git('rev-parse', 'HEAD'), self.git('rev-parse', 'HEAD^{tree}')
+
+    def note(self, commit, tree, key, signer, check='unit', command=('make', 'test'), exit_code=0,
+             runner='nix', tier='full', seconds=0, sign=True, naive=False, inputs=None,
+             omit_inputs=False, mutate=None, parent=None,
+             predicate_type='https://smalltalk.dev/evidence/gate/v1'):
+        statement = {
+            '_type': 'https://in-toto.io/Statement/v1',
+            'subject': [{'name': commit, 'digest': {'gitTree': tree}}],
+            'predicateType': predicate_type,
+            'predicate': {
+                'schema_version': 1, 'change_id': 'change-1', 'signer': signer, 'tier': tier,
+                're_attests': None, 'producer_sha256': 'a' * 64,
+                'observed_at': (NOW + timedelta(seconds=seconds)).replace(tzinfo=None if naive else timezone.utc).isoformat(),
+                'observed': {'kind': 'tests', 'runner': runner, 'inputs': inputs or {},
+                             'checks': {check: {'command': list(command), 'exit_code': exit_code,
+                                                'output_sha256': 'b' * 64}}},
+            },
+        }
+        if omit_inputs:
+            del statement['predicate']['observed']['inputs']
+        body = json.dumps(statement).encode()
+        if mutate is not None:
+            body = mutate(body)
+        blob = self.git('hash-object', '-w', '--stdin', stdin=body)
+        notes = self.git('mktree', stdin=f'100644 blob {blob}\t{tree}\n'.encode())
+        args = ['-c', 'gpg.format=ssh', '-c', f'user.signingKey={key}', 'commit-tree']
+        if sign:
+            args.append('-S')
+        record = self.git(*args, notes, '-p', parent or commit, '-m', 'st gate observation v1')
+        self.ref_of[record] = self.ref_for(record, tree)
+        self.git('update-ref', self.ref_of[record], record)
+        return record
+
+
 REPOSITORY = 'org/repo'
 # The checks with an evidence gate job in fleet.yml (evidence-gate-<check>).
 # isolation-vm and mail-redelivery-canaries run daily only (daily-long.yml): no gate, no policy entry.
@@ -69,6 +174,7 @@ LOCK = 'fake flake.lock contents\n'
 EXPECTED_PROTECTED = (
     'scripts/ci-evidence-gate', 'scripts/evidence-verify', '.st/evidence-skip-policy.json', '.st/evidence-keys',
     '.github/workflows/fleet.yml', '.github/workflows/fleet.yml.genie.ts', '.github/workflows/workspace-ci.ts',
+    '.mergemaster/tool-pin.json',
     'scripts/ci-evidence-gate-test', 'scripts/evidence-verify-test',
     '.st/evidence-authors.json', 'scripts/ci-evidence-signing', '.st/required-lanes.json',
     'scripts/rust-test-keys', 'scripts/ci-rust-test-result',
@@ -122,17 +228,25 @@ class BaseReadPermissions(unittest.TestCase):
                 # Uncommitted candidate bytes must never supply the base's declaration.
                 (root / '.fractal').mkdir(exist_ok=True)
                 (root / '.fractal/required-lanes.json').write_text('candidate is invalid')
-                verify = mock.Mock()
-                verify.lane_rules.side_effect = lambda text, check: json.loads(text)['lanes'][check]
-                verify.ci_inputs_unchanged.return_value = True
+                calls = []
                 def run(*command, **kwargs):
-                    return subprocess.run(command, cwd=root, capture_output=True, check=False)
-                with mock.patch.object(gate, 'run', side_effect=run), mock.patch.object(gate, 'base_module', return_value=verify):
-                    self.assertEqual(gate.ci_inputs_kept('demo', base, base, base), layout != 'malformed')
-                    if layout != 'malformed':
-                        verify.ci_inputs_unchanged.assert_called_once_with('.', ['scripts/demo'], (base, base, base))
+                    if command[0] != gate.VERIFIER_BINARY:
+                        return subprocess.run(command, cwd=root, capture_output=True, check=False)
+                    calls.append(command)
+                    if command[2] == 'lane-rules':
+                        try:
+                            value = json.loads(kwargs['stdin'])['lanes']['demo']
+                        except ValueError:
+                            return subprocess.CompletedProcess(command, 3, b'{"reason":"bad_lane","detail":"invalid"}', b'')
                     else:
-                        verify.ci_inputs_unchanged.assert_not_called()
+                        value = {'unchanged': True}
+                    return subprocess.CompletedProcess(command, 0, json.dumps(value).encode(), b'')
+                with mock.patch.object(gate, 'run', side_effect=run):
+                    self.assertEqual(gate.ci_inputs_kept('demo', base, base, base), layout != 'malformed')
+                self.assertEqual(len(calls), 2 if layout == 'malformed' else 3)
+                if layout != 'malformed':
+                    self.assertEqual(calls[2][3:], ('--repo', '.', '--input', 'scripts/demo',
+                                                   '--revision', base, '--revision', base, '--revision', base))
 
 
 # arn:lmig:smalltalk:2026-10-27-dot-fractal-config — live checkout, not the intentional legacy fixtures.
@@ -384,14 +498,13 @@ class ConfigLayoutBridge(unittest.TestCase):
     """arn:lmig:smalltalk:2026-10-27-dot-fractal-config — real Git and individually extracted readers."""
 
     def setUp(self):
-        self.f = fixtures.Fixture()
+        self.f = Fixture()
         self.addCleanup(self.f.tmp.cleanup)
         here = os.getcwd()
         os.chdir(self.f.repo)
         self.addCleanup(os.chdir, here)
         self.modules = {}
-        for name in ('evidence-verify', 'rust-test-keys', 'ci-evidence-gate', 'ci-evidence-signing',
-                     'ci-signed-tree', 'ci-rust-test-notes'):
+        for name in ('ci-evidence-gate', 'ci-evidence-signing', 'ci-signed-tree', 'ci-rust-test-notes'):
             folder = self.f.root / ('copy-' + name)
             folder.mkdir()
             target = folder / name
@@ -409,8 +522,6 @@ class ConfigLayoutBridge(unittest.TestCase):
 
     def selected(self, name, revision, legacy):
         module = self.modules[name]
-        if name in ('evidence-verify', 'rust-test-keys'):
-            return module.config_path(str(self.f.repo), revision, legacy)
         if name == 'ci-rust-test-notes':
             return module.base_file(revision, legacy)
         return module.config_path(revision, legacy)
@@ -423,9 +534,7 @@ class ConfigLayoutBridge(unittest.TestCase):
         os.chdir(nested)
         for name, module in self.modules.items():
             with self.subTest(tool=name):
-                if name in ('evidence-verify', 'rust-test-keys'):
-                    self.assertEqual(module.config_path(str(nested), base, legacy), preferred)
-                elif name == 'ci-rust-test-notes':
+                if name == 'ci-rust-test-notes':
                     self.assertEqual(module.no_tests(base), {'root'})
                 else:
                     self.assertEqual(module.config_path(base, legacy), preferred)
@@ -444,18 +553,12 @@ class ConfigLayoutBridge(unittest.TestCase):
                 with self.subTest(tool=name, revision=revision):
                     self.assertEqual(self.selected(name, revision, legacy),
                                      content if name == 'ci-rust-test-notes' else path)
-        verifier = self.modules['evidence-verify']
-        self.assertEqual(verifier.zero_test_crates(str(self.f.repo), old), {'old'})
-        self.assertEqual(verifier.zero_test_crates(str(self.f.repo), both), {'new'})
-        self.assertEqual(self.modules['rust-test-keys'].read_inputs(str(self.f.repo), old)['no_tests'], ['old'])
         self.assertEqual(self.modules['ci-rust-test-notes'].no_tests(both), {'new'})
 
     def test_new_malformed_never_downgrades_to_valid_legacy_inputs(self):
         base = self.commit({'.st/rust-test-inputs.json': '{"no_tests": ["old"]}',
                             '.fractal/rust-test-inputs.json': '{broken'})
         for name, invoke in (
-            ('evidence-verify', lambda m: m.zero_test_crates(str(self.f.repo), base)),
-            ('rust-test-keys', lambda m: m.read_inputs(str(self.f.repo), base)),
             ('ci-rust-test-notes', lambda m: m.no_tests(base)),
         ):
             module = self.modules[name]
@@ -477,8 +580,6 @@ class ConfigLayoutBridge(unittest.TestCase):
             with self.subTest(tool=name), self.assertRaises(error):
                 self.selected(name, 'f' * 40, '.st/rust-test-inputs.json')
         for name, invoke in (
-            ('evidence-verify', lambda m: m.zero_test_crates(str(self.f.repo), base)),
-            ('rust-test-keys', lambda m: m.read_inputs(str(self.f.repo), base)),
             ('ci-rust-test-notes', lambda m: m.no_tests(base)),
         ):
             module = self.modules[name]
@@ -564,7 +665,7 @@ class ProtectedPaths(unittest.TestCase):
 
 class EndToEnd(unittest.TestCase):
     def setUp(self):
-        self.f = fixtures.Fixture()
+        self.f = Fixture()
         self.addCleanup(self.f.tmp.cleanup)
         self.ci = self.f.key('ci', 'fleet/ci')
         self.stranger = self.f.key('stranger')
@@ -576,17 +677,18 @@ class EndToEnd(unittest.TestCase):
         repo = self.f.repo
         (repo / 'scripts').mkdir(exist_ok=True)
         shutil.copy(ROOT / 'scripts/ci-evidence-gate', repo / 'scripts/ci-evidence-gate')
-        target = repo / 'scripts/evidence-verify'
+        (repo / '.mergemaster').mkdir(exist_ok=True)
+        self.f.git('commit', '-q', '--allow-empty', '-m', 'fixture tool revision')
+        (repo / '.mergemaster/tool-pin.json').write_text(json.dumps(tool_pin(repo)))
         self.verifier_binary = None
-        if script is None:
-            shutil.copy(ROOT / 'scripts/evidence-verify', target)
-        elif script is not False:
-            target.write_text(script)
-            # BASE bytes still advertise capabilities, but the trusted runner's
-            # executable is now the verification boundary to fault-inject.
+        if script is False:
+            self.verifier_binary = Path(self.work_dir.name) / 'missing-mergemaster'
+        elif script is not None:
             self.verifier_binary = Path(self.work_dir.name) / 'test-mergemaster'
             self.verifier_binary.write_text(
-                f'#!{sys.executable}\nimport sys\n'
+                f'#!{sys.executable}\nimport json,sys\n'
+                'if sys.argv[1:3] == ["legacy-evidence-verify-helper", "verify-tool-pin"]:\n'
+                '    print(json.dumps({"binary_sha256": "a"*64, "tool_pin_sha256": "b"*64})); sys.exit(0)\n'
                 'assert sys.argv[1] == "legacy-evidence-verify", sys.argv\n' + script)
             self.verifier_binary.chmod(0o755)
         (repo / '.st').mkdir(exist_ok=True)
@@ -654,6 +756,33 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(fields['outcome'], 'unavailable')
         self.assertIn('FileNotFoundError', fields['reason'])
         self.assertIn(str(missing), fields['reason'])
+
+    def test_missing_malformed_or_mismatched_base_pin_runs_even_with_matching_note(self):
+        for mutation in ('missing', 'malformed', 'repository', 'revision', 'version', 'sha256'):
+            with self.subTest(mutation):
+                self.f = Fixture()
+                self.addCleanup(self.f.tmp.cleanup)
+                self.ci = self.f.key('ci', 'fleet/ci')
+                self.commit_base()
+                path = self.f.repo / '.mergemaster/tool-pin.json'
+                pin = json.loads(path.read_text())
+                if mutation == 'missing':
+                    path.unlink()
+                elif mutation == 'malformed':
+                    path.write_text('{invalid')
+                else:
+                    target = pin['release'] if mutation in ('version', 'sha256') else pin
+                    target[mutation] = {'repository': 'other/repo', 'revision': 'f' * 40,
+                                        'version': 'v999999.0.0', 'sha256': 'f' * 64}[mutation]
+                    path.write_text(json.dumps(pin))
+                self.f.git('add', '-A')
+                self.f.git('commit', '-qm', 'untrusted pin')
+                base = self.f.git('rev-parse', 'HEAD')
+                commit, tree = self.head()
+                self.note(commit, tree)
+                fields = self.assertRuns(base)
+                self.assertEqual(fields['outcome'], 'unavailable')
+                self.assertIn('tool_pin', fields['reason'])
 
     def test_unset_verifier_binary_without_mergemaster_on_path_runs_even_with_a_matching_note(self):
         base = self.commit_base()
@@ -723,8 +852,7 @@ class EndToEnd(unittest.TestCase):
         (repo / 'scripts/lane.json').write_text('{}\n')
         base = self.commit_base(policy=policy)
         commit, tree = self.head()
-        rules = fixtures.evidence_verify.lane_rules(json.dumps(self.LANES), 'linux-gate')
-        digest = fixtures.evidence_verify.lane_definition(str(repo), base, tree, rules)['sha256']
+        digest = lane_definition(repo, base, tree, self.LANES)['sha256']
         record = self.note(commit, tree, key=agent, signer='agent/larch', runner='wrapper',
                            command=('make', 'test'), inputs={'lane_definition_sha256': digest})
         self.f.git('commit', '-q', '--allow-empty', '-m', 'queue')
@@ -875,8 +1003,7 @@ class EndToEnd(unittest.TestCase):
                                  main_files={'scripts/lane.sh': 'run the tests, and more, on main\n'}, head_files=head_files)
 
     def lane_digest(self, s, at):
-        rules = fixtures.evidence_verify.lane_rules(json.dumps(self.LANES), 'linux-gate')
-        return fixtures.evidence_verify.lane_definition(str(self.f.repo), self.f.git('rev-parse', at + '^{tree}'), s['head_tree'], rules)
+        return lane_definition(self.f.repo, self.f.git('rev-parse', at + '^{tree}'), s['head_tree'], self.LANES)
 
     def host_note(self, s, digest):
         return self.note(s['head'], s['head_tree'], key=self.host, signer='host/box', runner='wrapper', command=('make', 'test'),
@@ -920,7 +1047,7 @@ class EndToEnd(unittest.TestCase):
         bound = gate.HEAD_TREE_MAX_BEHIND
         for commits, expected in ((bound, 'head'), (bound + 1, 'merge')):
             with self.subTest(commits=commits):
-                self.f = fixtures.Fixture()
+                self.f = Fixture()
                 self.addCleanup(self.f.tmp.cleanup)
                 self.ci = self.f.key('ci', 'fleet/ci')
                 s = self.pull_request(main_commits=commits)
@@ -1096,9 +1223,9 @@ class EndToEnd(unittest.TestCase):
         for entry in doc['checks'].values():
             entry['inputs'] = ['inputs.txt']
         s = self.pull_request(policy=json.dumps(doc), base_files={'inputs.txt': 'declared'}, main_files={'inputs.txt': 'main changed it'})
-        key = fixtures.evidence_verify.project(str(self.f.repo), s['base_tree'], ('inputs.txt',))
-        self.assertEqual(key, fixtures.evidence_verify.project(str(self.f.repo), s['head_tree'], ('inputs.txt',)))
-        self.assertNotEqual(key, fixtures.evidence_verify.project(str(self.f.repo), s['merge_tree'], ('inputs.txt',)))  # main moved the input
+        key = project(str(self.f.repo), s['base_tree'], ('inputs.txt',))
+        self.assertEqual(key, project(str(self.f.repo), s['head_tree'], ('inputs.txt',)))
+        self.assertNotEqual(key, project(str(self.f.repo), s['merge_tree'], ('inputs.txt',)))  # main moved the input
         record = self.note(s['base'], s['base_tree'], inputs={'source_inputs': key}, seconds=1)
         self.f.git('update-ref', f'refs/notes/evidence-input/linux-gate/{key}/{record}', record)
         fields, outputs = self.run_gate(s['base'], **self.pr_env(s))
@@ -1398,7 +1525,7 @@ class EndToEnd(unittest.TestCase):
     def tmp_reset(self):
         """A fresh repository for the next scenario inside one test."""
         self.f.tmp.cleanup()
-        self.f = fixtures.Fixture()
+        self.f = Fixture()
         self.addCleanup(self.f.tmp.cleanup)
         self.ci = self.f.key('ci', 'fleet/ci')
         self.stranger = self.f.key('stranger')
@@ -1455,9 +1582,9 @@ class EndToEnd(unittest.TestCase):
         commit, tree = self.head()
         record = self.note(commit, tree, exit_code=1)
         raw = subprocess.run(['git', '-C', str(self.f.repo), 'cat-file', 'commit', record], capture_output=True).stdout.decode()
-        passing = fixtures.json.loads(self.f.git('cat-file', 'blob', f'{record}:{tree}'))
+        passing = json.loads(self.f.git('cat-file', 'blob', f'{record}:{tree}'))
         passing['predicate']['observed']['checks']['linux-gate']['exit_code'] = 0
-        blob = self.f.git('hash-object', '-w', '--stdin', stdin=fixtures.json.dumps(passing).encode())
+        blob = self.f.git('hash-object', '-w', '--stdin', stdin=json.dumps(passing).encode())
         new_tree = self.f.git('mktree', stdin=f'100644 blob {blob}\t{tree}\n'.encode())
         old_tree = self.f.git('rev-parse', f'{record}^{{tree}}')
         forged = self.f.git('hash-object', '-t', 'commit', '-w', '--stdin',
@@ -1514,7 +1641,7 @@ class EndToEnd(unittest.TestCase):
     def test_everything_that_can_go_wrong_around_the_verifier_runs_the_check(self):
         # Even a real trusted note cannot cover a failed verifier subprocess.
         for name, script in {
-            'no verifier at the base': False,
+            'no trusted verifier binary': False,
             'verifier that sleeps past the timeout': 'import time; time.sleep(30)\n',
             'verifier that prints invalid utf-8': 'import sys; sys.stdout.buffer.write(b"\\xff\\xfe{")\n',
             'verifier that prints nothing': 'pass\n',
@@ -1523,7 +1650,7 @@ class EndToEnd(unittest.TestCase):
             'verifier rejects the binary interface': 'raise SystemExit("unsupported interface")\n',
         }.items():
             with self.subTest(name):
-                self.f = fixtures.Fixture()
+                self.f = Fixture()
                 self.addCleanup(self.f.tmp.cleanup)
                 self.ci = self.f.key('ci', 'fleet/ci')
                 base = self.commit_base(script=script)
@@ -1546,7 +1673,7 @@ class EndToEnd(unittest.TestCase):
         }
         for name, answer in liars.items():
             with self.subTest(name):
-                self.f = fixtures.Fixture()
+                self.f = Fixture()
                 self.addCleanup(self.f.tmp.cleanup)
                 self.ci = self.f.key('ci', 'fleet/ci')
                 base = self.commit_base(script='print(%r)\n' % answer)
@@ -1560,7 +1687,7 @@ class EndToEnd(unittest.TestCase):
         for name, policy in {'no file': False, 'not json': 'nope', 'unknown key': json.dumps(
                 {'version': 1, 'checks': {}, 'extra': 1}), 'empty': json.dumps({'version': 1, 'checks': {}})}.items():
             with self.subTest(name):
-                self.f = fixtures.Fixture()
+                self.f = Fixture()
                 self.addCleanup(self.f.tmp.cleanup)
                 self.ci = self.f.key('ci', 'fleet/ci')
                 base = self.commit_base(policy=policy)
@@ -1570,7 +1697,7 @@ class EndToEnd(unittest.TestCase):
 
     def scenario(self, policy=None, **note_kwargs):
         """A fresh repository whose base carries `policy`; the head differs from it in nothing protected."""
-        self.f = fixtures.Fixture()
+        self.f = Fixture()
         self.addCleanup(self.f.tmp.cleanup)
         self.ci = self.f.key('ci', 'fleet/ci')
         base = self.commit_base(policy=policy)
@@ -1617,7 +1744,7 @@ class EndToEnd(unittest.TestCase):
             entry['sample_one_in'] = 1
             entry.pop('inputs', None)
         import hashlib
-        self.f = fixtures.Fixture()
+        self.f = Fixture()
         self.addCleanup(self.f.tmp.cleanup)
         self.ci = self.f.key('ci', 'fleet/ci')
         (self.f.repo / 'flake.lock').write_text(LOCK)
@@ -1639,13 +1766,13 @@ class EndToEnd(unittest.TestCase):
         for entry in doc['checks'].values():
             entry['inputs'] = ['inputs.txt']
             entry.update(per_check)
-        self.f = fixtures.Fixture()
+        self.f = Fixture()
         self.addCleanup(self.f.tmp.cleanup)
         self.ci = self.f.key('ci', 'fleet/ci')
         (self.f.repo / 'inputs.txt').write_text('declared')
         base = self.commit_base(policy=json.dumps(doc))
         commit, tree = self.head()
-        key = fixtures.evidence_verify.project(str(self.f.repo), tree, ('inputs.txt',))
+        key = project(str(self.f.repo), tree, ('inputs.txt',))
         record = self.note(commit, tree, inputs={'source_inputs': key})
         self.f.git('update-ref', f'refs/notes/evidence-input/linux-gate/{key}/{record}', record)
         return base, key, record
@@ -1696,7 +1823,7 @@ class EndToEnd(unittest.TestCase):
     def test_the_index_ref_alone_proves_nothing_in_the_gate(self):
         base, key, record = self.input_scenario()
         self.f.commit('two')
-        wrong = fixtures.evidence_verify.project(str(self.f.repo), self.f.git('rev-parse', 'HEAD^{tree}'), ('file.txt',))
+        wrong = project(str(self.f.repo), self.f.git('rev-parse', 'HEAD^{tree}'), ('file.txt',))
         self.f.git('update-ref', '-d', f'refs/notes/evidence-input/linux-gate/{key}/{record}')
         self.f.git('update-ref', f'refs/notes/evidence-input/linux-gate/{key}/{"2" * len(record)}', record)  # wrong suffix
         self.f.git('update-ref', f'refs/notes/evidence-input/linux-gate/{wrong}/{record}', record)  # another key
@@ -1726,7 +1853,7 @@ class EndToEnd(unittest.TestCase):
         for check in CHECKS:  # the weak level is granted to a wrapper rule only, never to `observed`
             doc['checks'][check]['kinds']['wrapper'] = {'command': ['wrapper-cmd', check],
                                                         'trust_levels': ['fleet', 'local']}
-        self.f = fixtures.Fixture()
+        self.f = Fixture()
         self.addCleanup(self.f.tmp.cleanup)
         self.ci = self.f.key('ci', 'fleet/ci')
         weak = self.f.key('weak', 'local/ci')  # on the base's key list, at the weaker level
@@ -1750,7 +1877,7 @@ class EndToEnd(unittest.TestCase):
     def wrapper_scenario(self):
         """A fresh repository whose base carries the real policy file and a flake.lock, plus a weak signer."""
         import hashlib
-        self.f = fixtures.Fixture()
+        self.f = Fixture()
         self.addCleanup(self.f.tmp.cleanup)
         self.ci = self.f.key('ci', 'fleet/ci')
         self.local = self.f.key('local', 'local/ci')
@@ -1938,7 +2065,7 @@ class EndToEnd(unittest.TestCase):
             entry['sample_one_in'] = 1
             entry.pop('inputs', None)
         doc['checks']['fractal-web'].update(enforce=True, events=['pull_request'])
-        self.f = fixtures.Fixture()
+        self.f = Fixture()
         self.addCleanup(self.f.tmp.cleanup)
         self.ci = self.f.key('ci', 'fleet/ci')
         (self.f.repo / 'flake.lock').write_text(LOCK)
@@ -2043,7 +2170,7 @@ class EndToEnd(unittest.TestCase):
         # first parent. Both events carry the same step environment; only the payload's age differs from a push.
         for action in ('reopened', 'ready_for_review'):
             with self.subTest(action):
-                self.f = fixtures.Fixture()
+                self.f = Fixture()
                 self.addCleanup(self.f.tmp.cleanup)
                 self.ci = self.f.key('ci', 'fleet/ci')
                 s = self.pull_request(main_files={'moved.txt': 'main moved', **self.SIGNED_ONLY})
@@ -2069,7 +2196,7 @@ class EndToEnd(unittest.TestCase):
         for name, gate_text in {'gate missing': None, 'gate crashes': 'raise SystemExit(3)\n',
                                 'gate has a syntax error': 'def (\n'}.items():
             with self.subTest(name):
-                self.f = fixtures.Fixture()
+                self.f = Fixture()
                 self.addCleanup(self.f.tmp.cleanup)
                 self.ci = self.f.key('ci', 'fleet/ci')
                 base = self.commit_base()
@@ -2090,7 +2217,7 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(tuple(gate.PROTECTED), EXPECTED_PROTECTED)
         for path in EXPECTED_PROTECTED:
             with self.subTest(path):
-                self.f = fixtures.Fixture()
+                self.f = Fixture()
                 self.addCleanup(self.f.tmp.cleanup)
                 self.ci = self.f.key('ci', 'fleet/ci')
                 base = self.commit_base()
@@ -2105,7 +2232,7 @@ class EndToEnd(unittest.TestCase):
         # Moving a protected file away (rename detection would report only the new name) still counts.
         for path in EXPECTED_PROTECTED:
             with self.subTest('moved ' + path):
-                self.f = fixtures.Fixture()
+                self.f = Fixture()
                 self.addCleanup(self.f.tmp.cleanup)
                 self.ci = self.f.key('ci', 'fleet/ci')
                 (self.f.repo / '.github/workflows').mkdir(parents=True, exist_ok=True)
@@ -2139,7 +2266,7 @@ class EndToEnd(unittest.TestCase):
                 self.note(commit, tree)
                 self.assertRuns(base, 'moved ' + path)
         # An unrelated change to other files still skips.
-        self.f = fixtures.Fixture()
+        self.f = Fixture()
         self.addCleanup(self.f.tmp.cleanup)
         self.ci = self.f.key('ci', 'fleet/ci')
         base = self.commit_base()
@@ -2159,13 +2286,14 @@ class EndToEnd(unittest.TestCase):
             'observed_at', 'age_s', 'max_age_s', 'attempts', 'enforce', 'match', 'source_inputs', 'tree', 'tree_of', 'pr_head', 'merge_tree',
             'head_tree', 'behind', 'ci_inputs', 'notes_fetch', 'policy_sha256', 'keys_sha256', 'log', 'log_head', 'log_age_s', 'log_missing',
             'log_fetch', 'log_unlogged', 'log_unlogged_crates', 'log_unlogged_observed_at', 'members', 'missing', 'manifests_fetch',
-            'members_fetch', 'head', 'base', 'event_base', 'event', 'pr', 'repo', 'run', 'attempt', 'fork', 'verifier_sha256', 'gate_sha256'])
+            'members_fetch', 'head', 'base', 'event_base', 'event', 'pr', 'repo', 'run', 'attempt', 'fork', 'tool_pin_sha256',
+            'verifier_sha256', 'gate_sha256'])
         # The per-crate fields are '-' for a check that is not per crate.
         self.assertEqual([fields[k] for k in ('members', 'missing', 'manifests_fetch', 'members_fetch')], ['-'] * 4)
         self.assertEqual((fields['pr'], fields['repo'], fields['run'], fields['attempt'], fields['fork']),
                          ('123', REPOSITORY, '42', '1', 'false'))
         self.assertEqual((fields['max_age_s'], fields['tree'], fields['base']), ('-', tree, base))
-        self.assertTrue(all(re.fullmatch(r'[0-9a-f]{64}', fields[k]) for k in ('verifier_sha256', 'gate_sha256')))
+        self.assertTrue(all(re.fullmatch(r'[0-9a-f]{64}', fields[k]) for k in ('tool_pin_sha256', 'verifier_sha256', 'gate_sha256')))
         self.assertTrue(0 <= int(fields['age_s']) < 3600)
         # A run with no PR number prints '-', and a refusal prints '-' for everything about a record.
         fields, _ = self.run_gate(base, PR_NUMBER='', check='typescript-client')
@@ -2716,7 +2844,7 @@ class WorkflowStructure(unittest.TestCase):
             self.assertIn("- name: evidence skip taken\n        id: taken\n        if: steps.gate.outputs.skip == 'true'", body, name)
 
 
-    def test_run_inputs_are_strict_strings_and_reach_the_verifier_only_when_it_takes_them(self):
+    def test_run_inputs_are_strict_strings_and_reach_the_pinned_verifier(self):
         self.assertEqual(gate.run_inputs_from('{"kit_inputs": "true"}'), {'kit_inputs': 'true'})
         for bad in ('', 'not json', '[]', '"x"', '{"kit_inputs": true}', '{"Kit": "true"}', '{"kit_inputs": "a b"}',
                     '{"kit_inputs": ""}', '{"kit_inputs": "x\\ny"}'):
@@ -2728,8 +2856,9 @@ class WorkflowStructure(unittest.TestCase):
             calls.append(command)
             if command[:2] == ('git', 'rev-parse'):
                 return subprocess.CompletedProcess(command, 0, b'a' * 40 + b'\n', b'')
-            if command[:2] == ('git', 'show') and command[2].endswith(':scripts/evidence-verify'):
-                return subprocess.CompletedProcess(command, 0, verifier_source, b'')
+            if command[:3] == (gate.VERIFIER_BINARY, 'legacy-evidence-verify-helper', 'verify-tool-pin'):
+                return subprocess.CompletedProcess(command, 0, json.dumps(
+                    {'binary_sha256': 'a' * 64, 'tool_pin_sha256': 'b' * 64}).encode(), b'')
             if command[:2] == (gate.VERIFIER_BINARY, 'legacy-evidence-verify') and '--project' not in command:
                 return subprocess.CompletedProcess(command, 1, b'{"satisfied": false, "reason": "no_record"}', b'')
             return subprocess.CompletedProcess(command, 0, b'', b'')
@@ -2737,13 +2866,11 @@ class WorkflowStructure(unittest.TestCase):
         self.addCleanup(setattr, gate, 'run', original)
         gate.run = fake
         context = {'base': 'b' * 40, 'check': 'fractal-web', 'repository': 'org/repo', 'run_inputs': {'kit_inputs': 'true'}}
-        for verifier_source, passed in ((b'... --run-input KEY=VALUE ...', True), (b'an older verifier', False)):
-            calls.clear()
-            gate.observe(dict(context))
-            asked = [command for command in calls
-                     if command[:2] == (gate.VERIFIER_BINARY, 'legacy-evidence-verify') and '--project' not in command]
-            self.assertEqual(len(asked), 1)
-            self.assertEqual('--run-input=kit_inputs=true' in asked[0], passed, asked[0])
+        gate.observe(dict(context))
+        asked = [command for command in calls
+                 if command[:2] == (gate.VERIFIER_BINARY, 'legacy-evidence-verify') and '--project' not in command]
+        self.assertEqual(len(asked), 1)
+        self.assertIn('--run-input=kit_inputs=true', asked[0])
 
     def test_a_push_to_main_gets_a_base_so_the_gate_can_verify_in_shadow_but_never_skips(self):
         # Written out: only a pull request or a merge group may ever skip.

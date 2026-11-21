@@ -19,9 +19,8 @@ sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / 'scripts/evidence-log'
 TIMER = ROOT / 'scripts/evidence-log-timer'
-loader = importlib.machinery.SourceFileLoader('evidence_verify_test_for_log', str(ROOT / 'scripts/evidence-verify-test'))
-support = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
-loader.exec_module(support)
+sys.path.insert(0, str(ROOT / 'scripts'))
+import evidence_test_support as support
 loader = importlib.machinery.SourceFileLoader('evidence_log_test_module', str(LOG))
 log = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
 loader.exec_module(log)
@@ -467,10 +466,10 @@ sys.exit(log.main(sys.argv[1:]))
         for added in (1, 0):
             attempted, all_attempted = [], []
 
-            def reject(repo, module, keys, revocations, name, oid):
+            def reject(repo, keys, revocations, name, oid):
                 all_attempted.append(name)
                 if name == fresh_ref:
-                    return accept(repo, module, keys, revocations, name, oid)
+                    return accept(repo, keys, revocations, name, oid)
                 attempted.append(name)
                 self.assertLessEqual(len(attempted), 500, 'mass expiry exceeded one pull\'s verification bound')
                 return [], 'untrusted'
@@ -939,7 +938,7 @@ sys.exit(gc.main(sys.argv[1:]))
     def test_the_timer_runs_main_s_log_with_this_host_s_signer_and_publishes(self):
         record = self.record()
         (self.f.repo / 'scripts').mkdir()
-        for tool in ('evidence-log', 'evidence-verify'):
+        for tool in ('evidence-log',):
             (self.f.repo / 'scripts' / tool).write_bytes((ROOT / 'scripts' / tool).read_bytes())
         self.f.git('add', '-A')
         self.f.git('commit', '-q', '-m', 'tools')
