@@ -287,8 +287,8 @@ fn token(text: &str) -> Result<Token<'_>, Exit> {
                 )));
             }
         }
-    } else if text.starts_with("-h") {
-        return Ok(Token::Option(&PARSER.options[0], Some(&text[2..])));
+    } else if let Some(rest) = text.strip_prefix("-h") {
+        return Ok(Token::Option(&PARSER.options[0], Some(rest)));
     }
     // argparse's negative-number matcher is ^-\d+$|^-\d*\.\d+$,
     // not a generic float parser (exponents are unknown options).
