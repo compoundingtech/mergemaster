@@ -106,12 +106,13 @@ def invoke(native, home, repo, raw, extra=None):
 
 def refusal(done):
     assert done.returncode == 1 and done.stdout == b'', (done.args, done.returncode, done.stdout, done.stderr)
-    # Loader warnings can precede Python's refusal. The application's refusal is
-    # one line; a traceback or a tool/config failure cannot masquerade as validation.
-    lines = done.stderr.decode('utf-8', errors='replace').splitlines()
-    lines = [line for line in lines if line.startswith('evidence-sign refused: ')]
-    assert len(lines) == 1, done.stderr
-    return lines[0].removeprefix('evidence-sign refused: ')
+    # Loader warnings may precede the one refusal prefix; Git diagnostics can
+    # continue on subsequent lines, which remain part of the refusal.
+    prefix = 'evidence-sign refused: '
+    lines = done.stderr.decode('utf-8', errors='replace').splitlines(keepends=True)
+    starts = [index for index, line in enumerate(lines) if line.startswith(prefix)]
+    assert len(starts) == 1, done.stderr
+    return ''.join(lines[starts[0]:]).removeprefix(prefix).rstrip('\n')
 
 with tempfile.TemporaryDirectory() as directory:
     root = pathlib.Path(directory)
