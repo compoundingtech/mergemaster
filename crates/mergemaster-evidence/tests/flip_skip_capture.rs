@@ -274,7 +274,8 @@ fn flip_initial_git_and_github_spawn_errors_are_not_readability_exit_two() {
                 if mode == "missing" {
                     fs::remove_file(f.bin.join(victim)).unwrap();
                 } else {
-                    fs::set_permissions(f.bin.join(victim), fs::Permissions::from_mode(0)).unwrap();
+                    fs::set_permissions(f.bin.join(victim), fs::Permissions::from_mode(0o000))
+                        .unwrap();
                 }
             }
             let output = f.run("flip-ready", arm, victim, mode, false);
@@ -415,7 +416,7 @@ fn skip_initial_github_spawn_error_is_not_readability_exit_two() {
         if mode == "missing" {
             fs::remove_file(f.bin.join("gh")).unwrap();
         } else {
-            fs::set_permissions(f.bin.join("gh"), fs::Permissions::from_mode(0)).unwrap();
+            fs::set_permissions(f.bin.join("gh"), fs::Permissions::from_mode(0o000)).unwrap();
         }
         let output = f.run("skip-report", "unused", "gh", mode, false);
         assert_capture_exit(&output, mode);
