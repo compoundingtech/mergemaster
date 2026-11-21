@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Rust port wave 1: `mergemaster evidence flip-ready` and `mergemaster evidence skip-report` replace `scripts/evidence-flip-ready`, `scripts/evidence-skip-report` and their self-tests; 22 frozen cases are compared against the pinned Python oracle.
+- Rust port wave 1: `mergemaster evidence log-watch` replaces `scripts/evidence-log-watch` and its self-test; the source systemd unit runs the native command.
 - Rust port wave 1: `mergemaster evidence source` replaces `scripts/ci-evidence-source`. Source receipts are version 2: they name the producing tool (repository, revision, release version, binary sha256) instead of the producer script digest, and the operator pins the accepted base `.mergemaster/tool-pin.json` digest (`tool_pin_sha256`, replacing `recipe_sha256`). Version 1 receipts are rejected.
 - Rust port wave 1: `mergemaster evidence runner-report` replaces `scripts/fractal-test-report` and its self-test; 24 frozen cases are compared against the pinned Python oracle.
 - Rust port wave 1: `mergemaster evidence presign-notice` replaces `scripts/ci-evidence-presign-notice` and its self-test. The generated `evidence-presign-notice` job provisions the pinned, attestation-verified release binary from the base `.mergemaster/tool-pin.json` instead of running the base Python copy; it still says nothing when it cannot run.

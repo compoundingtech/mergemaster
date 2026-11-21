@@ -188,6 +188,16 @@
 # boundary, retaining every fail-closed assertion, checking the hidden entry,
 # and covering absent configured and PATH-resolved binaries end to end.
 # local-patch scripts/ci-evidence-gate-test 38a34e7d48ed407b428f739c0f3d38b151fced59 f13ec34c7cce97604c3970a10bb451f70f23f076
+# Native watcher cutover: source-only unit invokes mergemaster evidence log-watch.
+# Timer, state location, notify argv and service success statuses are unchanged.
+# The Python implementation/self-test are tombstoned; tests/fixtures/oracle/log-watch.json
+# records independent pinned-Python transitions, replayed by tests/oracle_corpus.py.
+# tests/fixtures/oracle/log-watch-state.json additionally pins persisted numeric
+# edges, non-finite/surrogate write-back and microsecond timestamp rounding.
+# The same fixture records UTF-16/32 and UTF-8 BOM text-load resets. Native state
+# depth is bounded at 256 containers: deeper input fails without saving rather
+# than using Python's platform-dependent recursion ceiling (documented divergence).
+# local-patch scripts/evidence-log-watch.service 7c4788a1b61ee42ad2982c7a8928b2df42b04b72 7562865e2448b7420f49e4fe2afca8290bc73fb4
 # scripts/fractal-test-test: apply the fixture maintenance-isolation patch from
 # https://github.com/compoundingtech/fractal/pull/4398 (5f995f26e5).
 # The source_blob column remains the original import; mergemaster_blob includes applied patches.

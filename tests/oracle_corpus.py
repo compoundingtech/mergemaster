@@ -69,6 +69,105 @@ def replay_matrices(interpreter):
     print(f"Replayed {len(registry['manifests'])} frozen source matrices")
 
 
+def replay_log_watch(interpreter):
+    fixture = CORPUS.parent / "log-watch.json"
+    manifest = json.loads(fixture.read_text())
+    pin = manifest["oracle"]
+    source = Path(os.environ[pin["environment"]]) / pin["path"]
+    assert git_blob(source.read_bytes()) == pin["git_blob"]
+    code = """
+import importlib.machinery, importlib.util, json, sys
+loader = importlib.machinery.SourceFileLoader('watch', sys.argv[1])
+watch = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+loader.exec_module(watch)
+for case in json.load(open(sys.argv[2]))['cases']:
+    before = case['before'].copy()
+    state, line, stalled = watch.step(case['before'], case['now'], case['as_of'],
+                                    case['detail'], case['max_age'], case['repeat'])
+    assert case['before'] == before, case['id']
+    assert dict(state=state, line=line, stalled=stalled) == case['expected'], case['id']
+import os, subprocess, tempfile
+manifest = json.load(open(sys.argv[2]))
+env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+env.update(GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_NOSYSTEM='1',
+           GIT_AUTHOR_NAME='l', GIT_AUTHOR_EMAIL='l@x', GIT_COMMITTER_NAME='l',
+           GIT_COMMITTER_EMAIL='l@x', GIT_AUTHOR_DATE='1800000000 +0000',
+           GIT_COMMITTER_DATE='1800000000 +0000')
+with tempfile.TemporaryDirectory() as temporary:
+    remote, state = temporary + '/remote.git', temporary + '/state'
+    subprocess.run(['git', 'init', '-q', '--bare', remote], check=True)
+    def git(*args):
+        return subprocess.check_output(['git', '-C', remote, '-c', 'core.hooksPath=/dev/null',
+            '-c', 'maintenance.auto=false', '-c', 'gc.auto=0', *args], env=env, input=b'').decode().strip()
+    tree, parent = git('hash-object', '-w', '-t', 'tree', '--stdin'), None
+    for case in manifest['subjects']:
+        parent = git('commit-tree', tree, '-m', case['subject'], *(['-p', parent] if parent else []))
+        git('update-ref', watch.LOG, parent)
+        done = subprocess.run([sys.executable, '-I', '-B', sys.argv[1], '--remote', remote,
+            '--state', state, '--now', str(case['now']), '--notify',
+            json.dumps([sys.executable, '-c', 'pass'])], capture_output=True, text=True)
+        assert (done.returncode, done.stdout, done.stderr) == (
+            case['exit_code'], case['stdout'], case['stderr']), case['subject']
+"""
+    subprocess.run([interpreter, "-I", "-B", "-c", code, source, fixture], check=True)
+    replay_log_watch_state(interpreter)
+
+
+def replay_log_watch_state(interpreter):
+    fixture = CORPUS.parent / "log-watch-state.json"
+    manifest = json.loads(fixture.read_text())
+    pin = manifest["oracle"]
+    source = Path(os.environ[pin["environment"]]) / pin["path"]
+    assert git_blob(source.read_bytes()) == pin["git_blob"]
+    code = """
+import base64, importlib.machinery, importlib.util, json, os, pathlib, subprocess, sys, tempfile
+loader = importlib.machinery.SourceFileLoader('watch', sys.argv[1])
+watch = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+loader.exec_module(watch)
+manifest = json.load(open(sys.argv[2]))
+for case in manifest['dates']:
+    assert watch.iso(case['unix']) == case['iso'], case
+env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+env.update(GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_NOSYSTEM='1',
+           GIT_AUTHOR_NAME='l', GIT_AUTHOR_EMAIL='l@x', GIT_COMMITTER_NAME='l',
+           GIT_COMMITTER_EMAIL='l@x', GIT_AUTHOR_DATE='1800000000 +0000',
+           GIT_COMMITTER_DATE='1800000000 +0000')
+for case in manifest['cases'] + manifest['encodings']:
+    with tempfile.TemporaryDirectory() as temporary:
+        remote, state = pathlib.Path(temporary) / 'remote.git', pathlib.Path(temporary) / 'state'
+        state.mkdir()
+        path = state / 'watch.json'
+        if 'state_before_base64' in case:
+            path.write_bytes(base64.b64decode(case['state_before_base64']))
+            try:
+                with path.open() as handle:
+                    json.load(handle)
+            except Exception as error:
+                assert dict(exception=type(error).__name__, message=str(error)) == case['load_error'], case['id']
+            else:
+                raise AssertionError(case['id'])
+        else:
+            path.write_text(case['state_before'])
+        subprocess.run(['git', 'init', '-q', '--bare', str(remote)], check=True)
+        def git(*args):
+            return subprocess.check_output(['git', '-C', str(remote), '-c', 'core.hooksPath=/dev/null',
+                '-c', 'maintenance.auto=false', '-c', 'gc.auto=0', *args], env=env, input=b'').decode().strip()
+        subject = ('no time' if case['mode'] == 'unreadable' else
+                   'evidence-log v1 as_of=2027-01-15T08:00:00+00:00 added=0 gc=0 missing=0')
+        tree = git('hash-object', '-w', '-t', 'tree', '--stdin')
+        head = git('commit-tree', tree, '-m', subject)
+        git('update-ref', watch.LOG, head)
+        done = subprocess.run([sys.executable, '-I', '-B', sys.argv[1], '--remote', str(remote),
+            '--state', str(state), '--now', str(case['now']), '--notify',
+            json.dumps([sys.executable, '-c', 'pass'])], capture_output=True, text=True)
+        expected = case['expected']
+        assert (done.returncode, done.stdout, bool(done.stderr), path.read_text()) == (
+            expected['exit_code'], expected['stdout'], expected['stderr_nonempty'],
+            expected['state_after']), case['id']
+"""
+    subprocess.run([interpreter, "-I", "-B", "-c", code, source, fixture], check=True)
+
+
 def replay_runner_report(interpreter):
     """Replay fixed-clock reports using the independent pinned Python source."""
     for name in ("runner-report.json", "runner-report-edges.json", "runner-report-integer-divergence.json"):
@@ -336,6 +435,7 @@ def replay(record=False):
         replay_keygen(interpreter)
         replay_matrices(interpreter)
         replay_flip_skip(interpreter)
+        replay_log_watch(interpreter)
         replay_runner_report(interpreter)
         replay_presign_notice(interpreter)
 

@@ -1,0 +1,1048 @@
+{
+  "version": 1,
+  "oracle": {
+    "environment": "MERGEMASTER_PYTHON_ORACLE",
+    "path": "scripts/evidence-log-watch",
+    "git_blob": "f580ed13fe4f8130ec936dfeefb64f6c3b97b2f1",
+    "runtime": "CPython 3.14.7"
+  },
+  "recipe": "Fresh real-Git remote per case, empty tree, author/committer l <l@x> epoch 1800000000 +0000, no parents. Current/stale subject evidence-log v1 as_of=2027-01-15T08:00:00+00:00 added=0 gc=0 missing=0; unreadable subject no time. Notify pinned Python -c pass. stdout/exit/state file exact; traceback wording is not parity surface, stderr presence is. State failures must leave original bytes untouched.",
+  "encodings": [
+    {
+      "id": "encoding-utf-16-le",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before_base64": "ewAiAHMAdABhAGwAbABlAGQAXwBzAGkAbgBjAGUAIgA6ADAAfQA=",
+      "load_error": {
+        "exception": "JSONDecodeError",
+        "message": "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"
+      },
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "encoding-utf-16-be",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before_base64": "AHsAIgBzAHQAYQBsAGwAZQBkAF8AcwBpAG4AYwBlACIAOgAwAH0=",
+      "load_error": {
+        "exception": "JSONDecodeError",
+        "message": "Expecting value: line 1 column 1 (char 0)"
+      },
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "encoding-utf-32-le",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before_base64": "ewAAACIAAABzAAAAdAAAAGEAAABsAAAAbAAAAGUAAABkAAAAXwAAAHMAAABpAAAAbgAAAGMAAABlAAAAIgAAADoAAAAwAAAAfQAAAA==",
+      "load_error": {
+        "exception": "JSONDecodeError",
+        "message": "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"
+      },
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "encoding-utf-32-be",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before_base64": "AAAAewAAACIAAABzAAAAdAAAAGEAAABsAAAAbAAAAGUAAABkAAAAXwAAAHMAAABpAAAAbgAAAGMAAABlAAAAIgAAADoAAAAwAAAAfQ==",
+      "load_error": {
+        "exception": "JSONDecodeError",
+        "message": "Expecting value: line 1 column 1 (char 0)"
+      },
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "encoding-utf-8-sig",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before_base64": "77u/eyJzdGFsbGVkX3NpbmNlIjowfQ==",
+      "load_error": {
+        "exception": "JSONDecodeError",
+        "message": "Unexpected UTF-8 BOM (decode using utf-8-sig): line 1 column 1 (char 0)"
+      },
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    }
+  ],
+  "dates": [
+    {
+      "unix": 1800000000.9999998,
+      "iso": "2027-01-15T08:00:01Z"
+    },
+    {
+      "unix": -2e-07,
+      "iso": "1970-01-01T00:00:00Z"
+    },
+    {
+      "unix": -0.9999998,
+      "iso": "1969-12-31T23:59:59Z"
+    },
+    {
+      "unix": -1.0000002,
+      "iso": "1969-12-31T23:59:59Z"
+    },
+    {
+      "unix": -1.9999998,
+      "iso": "1969-12-31T23:59:58Z"
+    },
+    {
+      "unix": 0.9999995,
+      "iso": "1970-01-01T00:00:01Z"
+    },
+    {
+      "unix": 5e-07,
+      "iso": "1970-01-01T00:00:00Z"
+    },
+    {
+      "unix": 1.5e-06,
+      "iso": "1970-01-01T00:00:00Z"
+    },
+    {
+      "unix": -5e-07,
+      "iso": "1970-01-01T00:00:00Z"
+    },
+    {
+      "unix": -1.5e-06,
+      "iso": "1969-12-31T23:59:59Z"
+    }
+  ],
+  "cases": [
+    {
+      "id": "stalled_since-overflow",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"stalled_since\": 1e400}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "",
+        "stderr_nonempty": true,
+        "state_after": "{\"stalled_since\": 1e400}"
+      }
+    },
+    {
+      "id": "stalled_since-nan",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"stalled_since\": NaN}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "",
+        "stderr_nonempty": true,
+        "state_after": "{\"stalled_since\": NaN}"
+      }
+    },
+    {
+      "id": "stalled_since-infinity",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"stalled_since\": Infinity}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "",
+        "stderr_nonempty": true,
+        "state_after": "{\"stalled_since\": Infinity}"
+      }
+    },
+    {
+      "id": "stalled_since-negative-infinity",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"stalled_since\": -Infinity}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "",
+        "stderr_nonempty": true,
+        "state_after": "{\"stalled_since\": -Infinity}"
+      }
+    },
+    {
+      "id": "stalled_since-large-exact",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"stalled_since\": 9007199254740993}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "",
+        "stderr_nonempty": true,
+        "state_after": "{\"stalled_since\": 9007199254740993}"
+      }
+    },
+    {
+      "id": "stalled_since-wide",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"stalled_since\": 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "",
+        "stderr_nonempty": true,
+        "state_after": "{\"stalled_since\": 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000}"
+      }
+    },
+    {
+      "id": "stalled_since-integer-overflow",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"stalled_since\": 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "",
+        "stderr_nonempty": true,
+        "state_after": "{\"stalled_since\": 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000}"
+      }
+    },
+    {
+      "id": "stalled_since-negative",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"stalled_since\": -1}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "evidence log moving again: the published evidence log head 619e26e1b879 is 0s old (as_of 2027-01-15T08:00:00Z; at most 360s expected); it was stalled from 1969-12-31T23:59:59Z (1800000001s).\n{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "stalled_since-fraction",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"stalled_since\": 1.5}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "evidence log moving again: the published evidence log head 619e26e1b879 is 0s old (as_of 2027-01-15T08:00:00Z; at most 360s expected); it was stalled from 1970-01-01T00:00:01Z (1799999998s).\n{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "stalled_since-negative-zero",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"stalled_since\": -0.0}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "evidence log moving again: the published evidence log head 619e26e1b879 is 0s old (as_of 2027-01-15T08:00:00Z; at most 360s expected); it was stalled from 1970-01-01T00:00:00Z (1800000000s).\n{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "stalled_since-string",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"stalled_since\": \"1800000000.0\"}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "",
+        "stderr_nonempty": true,
+        "state_after": "{\"stalled_since\": \"1800000000.0\"}"
+      }
+    },
+    {
+      "id": "stalled_since-true",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"stalled_since\": true}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "evidence log moving again: the published evidence log head 619e26e1b879 is 0s old (as_of 2027-01-15T08:00:00Z; at most 360s expected); it was stalled from 1970-01-01T00:00:01Z (1799999999s).\n{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "stalled_since-false",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"stalled_since\": false}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "evidence log moving again: the published evidence log head 619e26e1b879 is 0s old (as_of 2027-01-15T08:00:00Z; at most 360s expected); it was stalled from 1970-01-01T00:00:00Z (1800000000s).\n{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "stalled_since-null",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"stalled_since\": null}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "",
+        "stderr_nonempty": true,
+        "state_after": "{\"stalled_since\": null}"
+      }
+    },
+    {
+      "id": "stalled_since-missing",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "unreadable_since-overflow",
+      "mode": "unreadable",
+      "now": 1800000000,
+      "state_before": "{\"unreadable_since\": 1e400}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "",
+        "stderr_nonempty": true,
+        "state_after": "{\"unreadable_since\": 1e400}"
+      }
+    },
+    {
+      "id": "unreadable_since-nan",
+      "mode": "unreadable",
+      "now": 1800000000,
+      "state_before": "{\"unreadable_since\": NaN}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "",
+        "stderr_nonempty": true,
+        "state_after": "{\"unreadable_since\": NaN}"
+      }
+    },
+    {
+      "id": "unreadable_since-infinity",
+      "mode": "unreadable",
+      "now": 1800000000,
+      "state_before": "{\"unreadable_since\": Infinity}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "",
+        "stderr_nonempty": true,
+        "state_after": "{\"unreadable_since\": Infinity}"
+      }
+    },
+    {
+      "id": "unreadable_since-negative-infinity",
+      "mode": "unreadable",
+      "now": 1800000000,
+      "state_before": "{\"unreadable_since\": -Infinity}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "",
+        "stderr_nonempty": true,
+        "state_after": "{\"unreadable_since\": -Infinity}"
+      }
+    },
+    {
+      "id": "unreadable_since-large-exact",
+      "mode": "unreadable",
+      "now": 1800000000,
+      "state_before": "{\"unreadable_since\": 9007199254740993}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": null, \"head\": null, \"problem\": \"the log head c5756855e33a names no time\", \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"unreadable_since\": 9007199254740993}"
+      }
+    },
+    {
+      "id": "unreadable_since-wide",
+      "mode": "unreadable",
+      "now": 1800000000,
+      "state_before": "{\"unreadable_since\": 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": null, \"head\": null, \"problem\": \"the log head c5756855e33a names no time\", \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"unreadable_since\": 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000}"
+      }
+    },
+    {
+      "id": "unreadable_since-integer-overflow",
+      "mode": "unreadable",
+      "now": 1800000000,
+      "state_before": "{\"unreadable_since\": 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "",
+        "stderr_nonempty": true,
+        "state_after": "{\"unreadable_since\": 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000}"
+      }
+    },
+    {
+      "id": "unreadable_since-negative",
+      "mode": "unreadable",
+      "now": 1800000000,
+      "state_before": "{\"unreadable_since\": -1}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "evidence log STALLED: the published evidence log head cannot be read for 1800000001s: the log head c5756855e33a names no time. The log host's pull (evidence-log.timer) is not publishing.\n{\"stalled\": true, \"as_of\": null, \"head\": null, \"problem\": \"the log head c5756855e33a names no time\", \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"unreadable_since\": -1, \"stalled_since\": 359.0, \"told_at\": 1800000000.0}"
+      }
+    },
+    {
+      "id": "unreadable_since-fraction",
+      "mode": "unreadable",
+      "now": 1800000000,
+      "state_before": "{\"unreadable_since\": 1.5}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "evidence log STALLED: the published evidence log head cannot be read for 1799999998s: the log head c5756855e33a names no time. The log host's pull (evidence-log.timer) is not publishing.\n{\"stalled\": true, \"as_of\": null, \"head\": null, \"problem\": \"the log head c5756855e33a names no time\", \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"unreadable_since\": 1.5, \"stalled_since\": 361.5, \"told_at\": 1800000000.0}"
+      }
+    },
+    {
+      "id": "unreadable_since-negative-zero",
+      "mode": "unreadable",
+      "now": 1800000000,
+      "state_before": "{\"unreadable_since\": -0.0}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "evidence log STALLED: the published evidence log head cannot be read for 1800000000s: the log head c5756855e33a names no time. The log host's pull (evidence-log.timer) is not publishing.\n{\"stalled\": true, \"as_of\": null, \"head\": null, \"problem\": \"the log head c5756855e33a names no time\", \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"unreadable_since\": -0.0, \"stalled_since\": 360.0, \"told_at\": 1800000000.0}"
+      }
+    },
+    {
+      "id": "unreadable_since-string",
+      "mode": "unreadable",
+      "now": 1800000000,
+      "state_before": "{\"unreadable_since\": \"1800000000.0\"}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "",
+        "stderr_nonempty": true,
+        "state_after": "{\"unreadable_since\": \"1800000000.0\"}"
+      }
+    },
+    {
+      "id": "unreadable_since-true",
+      "mode": "unreadable",
+      "now": 1800000000,
+      "state_before": "{\"unreadable_since\": true}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "evidence log STALLED: the published evidence log head cannot be read for 1799999999s: the log head c5756855e33a names no time. The log host's pull (evidence-log.timer) is not publishing.\n{\"stalled\": true, \"as_of\": null, \"head\": null, \"problem\": \"the log head c5756855e33a names no time\", \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"unreadable_since\": true, \"stalled_since\": 361.0, \"told_at\": 1800000000.0}"
+      }
+    },
+    {
+      "id": "unreadable_since-false",
+      "mode": "unreadable",
+      "now": 1800000000,
+      "state_before": "{\"unreadable_since\": false}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "evidence log STALLED: the published evidence log head cannot be read for 1800000000s: the log head c5756855e33a names no time. The log host's pull (evidence-log.timer) is not publishing.\n{\"stalled\": true, \"as_of\": null, \"head\": null, \"problem\": \"the log head c5756855e33a names no time\", \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"unreadable_since\": false, \"stalled_since\": 360.0, \"told_at\": 1800000000.0}"
+      }
+    },
+    {
+      "id": "unreadable_since-null",
+      "mode": "unreadable",
+      "now": 1800000000,
+      "state_before": "{\"unreadable_since\": null}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "",
+        "stderr_nonempty": true,
+        "state_after": "{\"unreadable_since\": null}"
+      }
+    },
+    {
+      "id": "unreadable_since-missing",
+      "mode": "unreadable",
+      "now": 1800000000,
+      "state_before": "{}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": null, \"head\": null, \"problem\": \"the log head c5756855e33a names no time\", \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"unreadable_since\": 1800000000.0}"
+      }
+    },
+    {
+      "id": "told_at-overflow",
+      "mode": "stale",
+      "now": 1800000400,
+      "state_before": "{\"stalled_since\": 1800000000, \"told_at\": 1e400}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "{\"stalled\": true, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"stalled_since\": 1800000000, \"told_at\": Infinity, \"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "told_at-nan",
+      "mode": "stale",
+      "now": 1800000400,
+      "state_before": "{\"stalled_since\": 1800000000, \"told_at\": NaN}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "{\"stalled\": true, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"stalled_since\": 1800000000, \"told_at\": NaN, \"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "told_at-infinity",
+      "mode": "stale",
+      "now": 1800000400,
+      "state_before": "{\"stalled_since\": 1800000000, \"told_at\": Infinity}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "{\"stalled\": true, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"stalled_since\": 1800000000, \"told_at\": Infinity, \"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "told_at-negative-infinity",
+      "mode": "stale",
+      "now": 1800000400,
+      "state_before": "{\"stalled_since\": 1800000000, \"told_at\": -Infinity}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "evidence log still stalled since 2027-01-15T08:00:00Z: the published evidence log head 619e26e1b879 is 400s old (as_of 2027-01-15T08:00:00Z; at most 360s expected).\n{\"stalled\": true, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"stalled_since\": 1800000000, \"told_at\": 1800000400.0, \"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "told_at-large-exact",
+      "mode": "stale",
+      "now": 1800000400,
+      "state_before": "{\"stalled_since\": 1800000000, \"told_at\": 9007199254740993}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "{\"stalled\": true, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"stalled_since\": 1800000000, \"told_at\": 9007199254740993, \"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "told_at-wide",
+      "mode": "stale",
+      "now": 1800000400,
+      "state_before": "{\"stalled_since\": 1800000000, \"told_at\": 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "{\"stalled\": true, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"stalled_since\": 1800000000, \"told_at\": 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000, \"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "told_at-integer-overflow",
+      "mode": "stale",
+      "now": 1800000400,
+      "state_before": "{\"stalled_since\": 1800000000, \"told_at\": 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "",
+        "stderr_nonempty": true,
+        "state_after": "{\"stalled_since\": 1800000000, \"told_at\": 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000}"
+      }
+    },
+    {
+      "id": "told_at-negative",
+      "mode": "stale",
+      "now": 1800000400,
+      "state_before": "{\"stalled_since\": 1800000000, \"told_at\": -1}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "evidence log still stalled since 2027-01-15T08:00:00Z: the published evidence log head 619e26e1b879 is 400s old (as_of 2027-01-15T08:00:00Z; at most 360s expected).\n{\"stalled\": true, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"stalled_since\": 1800000000, \"told_at\": 1800000400.0, \"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "told_at-fraction",
+      "mode": "stale",
+      "now": 1800000400,
+      "state_before": "{\"stalled_since\": 1800000000, \"told_at\": 1.5}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "evidence log still stalled since 2027-01-15T08:00:00Z: the published evidence log head 619e26e1b879 is 400s old (as_of 2027-01-15T08:00:00Z; at most 360s expected).\n{\"stalled\": true, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"stalled_since\": 1800000000, \"told_at\": 1800000400.0, \"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "told_at-negative-zero",
+      "mode": "stale",
+      "now": 1800000400,
+      "state_before": "{\"stalled_since\": 1800000000, \"told_at\": -0.0}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "evidence log still stalled since 2027-01-15T08:00:00Z: the published evidence log head 619e26e1b879 is 400s old (as_of 2027-01-15T08:00:00Z; at most 360s expected).\n{\"stalled\": true, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"stalled_since\": 1800000000, \"told_at\": 1800000400.0, \"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "told_at-string",
+      "mode": "stale",
+      "now": 1800000400,
+      "state_before": "{\"stalled_since\": 1800000000, \"told_at\": \"1800000000.0\"}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "",
+        "stderr_nonempty": true,
+        "state_after": "{\"stalled_since\": 1800000000, \"told_at\": \"1800000000.0\"}"
+      }
+    },
+    {
+      "id": "told_at-true",
+      "mode": "stale",
+      "now": 1800000400,
+      "state_before": "{\"stalled_since\": 1800000000, \"told_at\": true}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "evidence log still stalled since 2027-01-15T08:00:00Z: the published evidence log head 619e26e1b879 is 400s old (as_of 2027-01-15T08:00:00Z; at most 360s expected).\n{\"stalled\": true, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"stalled_since\": 1800000000, \"told_at\": 1800000400.0, \"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "told_at-false",
+      "mode": "stale",
+      "now": 1800000400,
+      "state_before": "{\"stalled_since\": 1800000000, \"told_at\": false}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "evidence log still stalled since 2027-01-15T08:00:00Z: the published evidence log head 619e26e1b879 is 400s old (as_of 2027-01-15T08:00:00Z; at most 360s expected).\n{\"stalled\": true, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"stalled_since\": 1800000000, \"told_at\": 1800000400.0, \"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "told_at-null",
+      "mode": "stale",
+      "now": 1800000400,
+      "state_before": "{\"stalled_since\": 1800000000, \"told_at\": null}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "",
+        "stderr_nonempty": true,
+        "state_after": "{\"stalled_since\": 1800000000, \"told_at\": null}"
+      }
+    },
+    {
+      "id": "told_at-missing",
+      "mode": "stale",
+      "now": 1800000400,
+      "state_before": "{\"stalled_since\": 1800000000}",
+      "expected": {
+        "exit_code": 1,
+        "stdout": "evidence log still stalled since 2027-01-15T08:00:00Z: the published evidence log head 619e26e1b879 is 400s old (as_of 2027-01-15T08:00:00Z; at most 360s expected).\n{\"stalled\": true, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"stalled_since\": 1800000000, \"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"told_at\": 1800000400.0}"
+      }
+    },
+    {
+      "id": "last_as_of-overflow",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"last_as_of\": 1e400}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "last_as_of-nan",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"last_as_of\": NaN}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "last_as_of-infinity",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"last_as_of\": Infinity}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "last_as_of-negative-infinity",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"last_as_of\": -Infinity}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "last_as_of-large-exact",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"last_as_of\": 9007199254740993}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "last_as_of-wide",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"last_as_of\": 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "last_as_of-integer-overflow",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"last_as_of\": 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "last_as_of-negative",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"last_as_of\": -1}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "last_as_of-fraction",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"last_as_of\": 1.5}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "last_as_of-negative-zero",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"last_as_of\": -0.0}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "last_as_of-string",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"last_as_of\": \"1800000000.0\"}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "last_as_of-true",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"last_as_of\": true}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "last_as_of-false",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"last_as_of\": false}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "last_as_of-null",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"last_as_of\": null}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "last_as_of-missing",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "unknown-overflow",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"extra\": 1e400}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"extra\": Infinity, \"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "unknown-nan",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"extra\": NaN}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"extra\": NaN, \"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "unknown-infinity",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"extra\": Infinity}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"extra\": Infinity, \"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "unknown-negative-infinity",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"extra\": -Infinity}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"extra\": -Infinity, \"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "unknown-nested-surrogates-order",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"z\": [NaN, Infinity, -Infinity, 1e400, \"\\ud800\"], \"\\udfff\": {\"q\": -0.0, \"q\": 1.5}, \"a\": 9007199254740993}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"z\": [NaN, Infinity, -Infinity, Infinity, \"\\ud800\"], \"\\udfff\": {\"q\": 1.5}, \"a\": 9007199254740993, \"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "invalid-json-resets",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{invalid",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": false}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "rounding-recovery-0",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"stalled_since\": 1800000000.9999998}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "evidence log moving again: the published evidence log head 619e26e1b879 is 0s old (as_of 2027-01-15T08:00:00Z; at most 360s expected); it was stalled from 2027-01-15T08:00:01Z (-1s).\n{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "rounding-recovery-1",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"stalled_since\": -2e-07}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "evidence log moving again: the published evidence log head 619e26e1b879 is 0s old (as_of 2027-01-15T08:00:00Z; at most 360s expected); it was stalled from 1970-01-01T00:00:00Z (1800000000s).\n{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "rounding-recovery-2",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"stalled_since\": -0.9999998}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "evidence log moving again: the published evidence log head 619e26e1b879 is 0s old (as_of 2027-01-15T08:00:00Z; at most 360s expected); it was stalled from 1969-12-31T23:59:59Z (1800000001s).\n{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "rounding-recovery-3",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"stalled_since\": -1.0000002}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "evidence log moving again: the published evidence log head 619e26e1b879 is 0s old (as_of 2027-01-15T08:00:00Z; at most 360s expected); it was stalled from 1969-12-31T23:59:59Z (1800000001s).\n{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "rounding-recovery-4",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"stalled_since\": -1.9999998}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "evidence log moving again: the published evidence log head 619e26e1b879 is 0s old (as_of 2027-01-15T08:00:00Z; at most 360s expected); it was stalled from 1969-12-31T23:59:58Z (1800000002s).\n{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "rounding-recovery-5",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"stalled_since\": 0.9999995}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "evidence log moving again: the published evidence log head 619e26e1b879 is 0s old (as_of 2027-01-15T08:00:00Z; at most 360s expected); it was stalled from 1970-01-01T00:00:01Z (1799999999s).\n{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "rounding-recovery-6",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"stalled_since\": 5e-07}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "evidence log moving again: the published evidence log head 619e26e1b879 is 0s old (as_of 2027-01-15T08:00:00Z; at most 360s expected); it was stalled from 1970-01-01T00:00:00Z (1800000000s).\n{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "rounding-recovery-7",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"stalled_since\": 1.5e-06}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "evidence log moving again: the published evidence log head 619e26e1b879 is 0s old (as_of 2027-01-15T08:00:00Z; at most 360s expected); it was stalled from 1970-01-01T00:00:00Z (1800000000s).\n{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "rounding-recovery-8",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"stalled_since\": -5e-07}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "evidence log moving again: the published evidence log head 619e26e1b879 is 0s old (as_of 2027-01-15T08:00:00Z; at most 360s expected); it was stalled from 1970-01-01T00:00:00Z (1800000000s).\n{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    },
+    {
+      "id": "rounding-recovery-9",
+      "mode": "current",
+      "now": 1800000000,
+      "state_before": "{\"stalled_since\": -1.5e-06}",
+      "expected": {
+        "exit_code": 0,
+        "stdout": "evidence log moving again: the published evidence log head 619e26e1b879 is 0s old (as_of 2027-01-15T08:00:00Z; at most 360s expected); it was stalled from 1969-12-31T23:59:59Z (1800000000s).\n{\"stalled\": false, \"as_of\": \"2027-01-15T08:00:00Z\", \"head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\", \"problem\": null, \"notified\": true}\n",
+        "stderr_nonempty": false,
+        "state_after": "{\"last_as_of\": 1800000000.0, \"last_head\": \"619e26e1b879547dc3e73ebea22fa3058017e291\"}"
+      }
+    }
+  ]
+}
