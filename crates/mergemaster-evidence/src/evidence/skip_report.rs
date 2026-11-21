@@ -180,7 +180,7 @@ fn pr_files<'a>(
     number: u64,
     cache: &'a mut BTreeMap<u64, Vec<String>>,
 ) -> Result<&'a [String]> {
-    if !cache.contains_key(&number) {
+    if let std::collections::btree_map::Entry::Vacant(slot) = cache.entry(number) {
         let path = format!("repos/{}/pulls/{number}/files?per_page=100", source.repo());
         let pages: Vec<Vec<Value>> =
             serde_json::from_str(&source.gh(&["api", "--paginate", "--slurp", &path])?)?;
@@ -194,7 +194,7 @@ fn pr_files<'a>(
                     .ok_or_else(|| anyhow!("PR file has no filename"))
             })
             .collect::<Result<_>>()?;
-        cache.insert(number, files);
+        slot.insert(files);
     }
     cache
         .get(&number)
@@ -245,12 +245,12 @@ fn seats(receipts: &[PathBuf]) -> BTreeMap<String, Value> {
             let Ok(record) = serde_json::from_str::<Value>(line) else {
                 continue;
             };
-            if let Some(branch) = record["branch"].as_str().filter(|v| !v.is_empty()) {
-                if let Some(agent) = record.get("agent").filter(|v| {
+            if let Some(branch) = record["branch"].as_str().filter(|v| !v.is_empty())
+                && let Some(agent) = record.get("agent").filter(|v| {
                     !v.is_null() && **v != json!("") && **v != json!(false) && **v != json!(0)
-                }) {
-                    found.insert(branch.to_owned(), agent.clone());
-                }
+                })
+            {
+                found.insert(branch.to_owned(), agent.clone());
             }
         }
     }
@@ -404,15 +404,15 @@ fn report(
                     .or_insert(json!(0));
                 *value = json!(value.as_u64().unwrap_or(0) + 1);
             }
-            if category == "not_signed" {
-                if let Some(number) = number.filter(|n| *n != 0) {
-                    let entry = unsigned.entry(number).or_insert_with(|| Unsigned {
-                        branch: run["head_branch"].clone(),
-                        ..Unsigned::default()
-                    });
-                    entry.checks.insert(check.to_owned());
-                    entry.runs.insert(id);
-                }
+            if category == "not_signed"
+                && let Some(number) = number.filter(|n| *n != 0)
+            {
+                let entry = unsigned.entry(number).or_insert_with(|| Unsigned {
+                    branch: run["head_branch"].clone(),
+                    ..Unsigned::default()
+                });
+                entry.checks.insert(check.to_owned());
+                entry.runs.insert(id);
             }
         }
     }

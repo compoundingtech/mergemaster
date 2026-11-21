@@ -187,7 +187,7 @@ fn hidden_and_visible_red_attempts_deduplicate_by_run() {
     let result = eval(&rows);
     assert_eq!(result["hidden_red"], json!([5001, 6000, 6001]));
     assert_eq!(result["visible_red"], json!([5000]));
-    rows.retain(|r| r.run == 5000 || r.run < 5000);
+    rows.retain(|r| r.run <= 5000);
     assert_eq!(eval(&rows)["ready"], true);
 }
 #[test]

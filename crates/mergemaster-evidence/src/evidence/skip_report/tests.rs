@@ -81,18 +81,28 @@ struct Fixture {
     requests: RefCell<Vec<String>>,
     broken: bool,
 }
+struct Run<'a> {
+    id: u64,
+    number: u64,
+    branch: &'a str,
+    actor: &'a str,
+    hours: i64,
+}
 impl Fixture {
     fn run(
         &mut self,
-        id: u64,
-        number: u64,
-        branch: &str,
+        run: Run<'_>,
         decisions: &[(&str, String)],
         files: &[&str],
-        actor: &str,
-        hours: i64,
         extra: &[(&str, &str)],
     ) {
+        let Run {
+            id,
+            number,
+            branch,
+            actor,
+            hours,
+        } = run;
         self.runs.push(json!({"id": id, "status": "completed", "created_at": iso(now() - Duration::hours(hours)), "actor": {"login": actor}, "head_branch": branch, "head_sha": format!("{id:040x}"), "pull_requests": [{"number": number}]}));
         let mut jobs = Vec::new();
         for (offset, (check, line)) in decisions.iter().enumerate() {
@@ -311,9 +321,13 @@ fn report_counts_our_runs_per_check_and_lists_unsigned_with_seat() {
     let (root, base) = repository(None);
     let mut gh = Fixture::default();
     gh.run(
-        1,
-        101,
-        "agent/a",
+        Run {
+            id: 1,
+            number: 101,
+            branch: "agent/a",
+            actor: "bot",
+            hours: 2,
+        },
         &[
             ("linux-gate", line("linux-gate", &base, json!({}))),
             (
@@ -326,14 +340,16 @@ fn report_counts_our_runs_per_check_and_lists_unsigned_with_seat() {
             ),
         ],
         &["crates/x/src/lib.rs"],
-        "bot",
-        2,
         &[],
     );
     gh.run(
-        2,
-        102,
-        "agent/b",
+        Run {
+            id: 2,
+            number: 102,
+            branch: "agent/b",
+            actor: "bot",
+            hours: 2,
+        },
         &[
             ("linux-gate", line("linux-gate", &base, json!({}))),
             (
@@ -342,29 +358,36 @@ fn report_counts_our_runs_per_check_and_lists_unsigned_with_seat() {
             ),
         ],
         &["scripts/ci-local", "apps/x.ts"],
-        "bot",
-        2,
         &[],
     );
     gh.run(
-        3,
-        103,
-        "other/c",
+        Run {
+            id: 3,
+            number: 103,
+            branch: "other/c",
+            actor: "someone-else",
+            hours: 2,
+        },
         &[("linux-gate", line("linux-gate", &base, json!({})))],
         &["crates/y.rs"],
-        "someone-else",
-        2,
         &[],
     );
-    gh.run(5, 105, "agent/e", &[("linux-gate", line("linux-gate", &base, json!({"tree_of":"merge","head_tree":"fallback:protected_files_differ_from_the_branch_point"})))], &["crates/w.rs"], "bot", 2, &[]);
     gh.run(
-        4,
-        104,
-        "agent/d",
+        Run { id: 5, number: 105, branch: "agent/e", actor: "bot", hours: 2 },
+        &[("linux-gate", line("linux-gate", &base, json!({"tree_of":"merge","head_tree":"fallback:protected_files_differ_from_the_branch_point"})))],
+        &["crates/w.rs"],
+        &[],
+    );
+    gh.run(
+        Run {
+            id: 4,
+            number: 104,
+            branch: "agent/d",
+            actor: "bot",
+            hours: 30,
+        },
         &[("linux-gate", line("linux-gate", &base, json!({})))],
         &["crates/z.rs"],
-        "bot",
-        30,
         &[],
     );
     let receipts = root.path().join("receipts.jsonl");
@@ -410,9 +433,13 @@ fn unsigned_check_whose_skip_is_off_is_shadow_unsigned_and_not_listed() {
     ));
     let mut gh = Fixture::default();
     gh.run(
-        1,
-        101,
-        "agent/a",
+        Run {
+            id: 1,
+            number: 101,
+            branch: "agent/a",
+            actor: "bot",
+            hours: 2,
+        },
         &[
             ("linux-gate", line("linux-gate", &base, json!({}))),
             (
@@ -425,8 +452,6 @@ fn unsigned_check_whose_skip_is_off_is_shadow_unsigned_and_not_listed() {
             ),
         ],
         &["crates/x/src/lib.rs"],
-        "bot",
-        2,
         &[],
     );
     let result = gh.report(root.path(), &[]);
@@ -458,13 +483,15 @@ fn unsigned_check_that_passed_with_execution_skipped_was_not_run_and_not_listed(
         json!({"decision":"refuse","reason":"wrong_check","tree_of":"head"}),
     );
     gh.run(
-        1,
-        101,
-        "agent/a",
+        Run {
+            id: 1,
+            number: 101,
+            branch: "agent/a",
+            actor: "bot",
+            hours: 2,
+        },
         &[("fractal-web", refused.clone())],
         &["crates/x.rs"],
-        "bot",
-        2,
         &[
             ("fractal-web-changes", "success"),
             ("fractal-web-execution", "skipped"),
@@ -472,9 +499,13 @@ fn unsigned_check_that_passed_with_execution_skipped_was_not_run_and_not_listed(
         ],
     );
     gh.run(
-        2,
-        102,
-        "agent/b",
+        Run {
+            id: 2,
+            number: 102,
+            branch: "agent/b",
+            actor: "bot",
+            hours: 2,
+        },
         &[(
             "fractal-web",
             line(
@@ -484,37 +515,39 @@ fn unsigned_check_that_passed_with_execution_skipped_was_not_run_and_not_listed(
             ),
         )],
         &["crates/y.rs"],
-        "bot",
-        2,
         &[
             ("fractal-web-execution", "skipped"),
             ("fractal-web", "success"),
         ],
     );
     gh.run(
-        3,
-        103,
-        "agent/c",
+        Run {
+            id: 3,
+            number: 103,
+            branch: "agent/c",
+            actor: "bot",
+            hours: 2,
+        },
         &[("fractal-web", refused)],
         &["apps/web/x.ts"],
-        "bot",
-        2,
         &[
             ("fractal-web-execution", "skipped"),
             ("fractal-web", "failure"),
         ],
     );
     gh.run(
-        4,
-        104,
-        "agent/d",
+        Run {
+            id: 4,
+            number: 104,
+            branch: "agent/d",
+            actor: "bot",
+            hours: 2,
+        },
         &[(
             "linux-gate",
             line("linux-gate", &base, json!({"tree_of":"head"})),
         )],
         &["crates/z.rs"],
-        "bot",
-        2,
         &[("linux-gate", "success")],
     );
     let result = gh.report(root.path(), &[]);
@@ -538,13 +571,15 @@ fn release_surface_pull_request_runs_are_counted_apart_with_minutes() {
     let (root, base) = repository(None);
     let mut gh = Fixture::default();
     gh.run(
-        1,
-        101,
-        "agent/a",
+        Run {
+            id: 1,
+            number: 101,
+            branch: "agent/a",
+            actor: "bot",
+            hours: 100,
+        },
         &[("linux-gate", line("linux-gate", &base, json!({})))],
         &["crates/x.rs"],
-        "bot",
-        100,
         &[],
     );
     gh.release(

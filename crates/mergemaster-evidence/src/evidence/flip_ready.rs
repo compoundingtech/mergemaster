@@ -310,10 +310,10 @@ fn skipped_members(
             jobs.entry(name).or_default();
             current = Some(name);
         } else if line.starts_with("    ") || line.trim().is_empty() {
-            if let Some(name) = current {
-                if let Some(body) = jobs.get_mut(name) {
-                    body.push_str(line);
-                }
+            if let Some(name) = current
+                && let Some(body) = jobs.get_mut(name)
+            {
+                body.push_str(line);
             }
         } else {
             current = None;
