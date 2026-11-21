@@ -662,6 +662,45 @@ use lowercase booleans and an empty `record` for JSON null. This native protocol
 is not the legacy `evidence-verify` document consumed by Fractal's
 `ci-evidence-gate` (`satisfied`, `tier`, policy/trust/matching fields).
 
+**Producer digest binding to a BASE manifest (phase 1, report-only).**
+The native gate optionally reads `.mergemaster/producers.json` from
+accepted BASE, never HEAD or the checkout. It is separate from `tool-pin.json`,
+which identifies the verifier release. For example:
+
+```json
+{
+  "version": 1,
+  "producers": [{
+    "system": "x86_64-linux",
+    "flavor": "nix",
+    "executable_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "provenance": {
+      "mergemaster_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "package": "packages.x86_64-linux.default",
+      "nix_output_path": "/nix/store/00000000000000000000000000000000-mergemaster"
+    }
+  }]
+}
+```
+
+Version must be 1; producers must be nonempty. Systems are `x86_64-linux`,
+`aarch64-linux`, `x86_64-darwin`, or `aarch64-darwin`; flavor is `nix` or `release`.
+Executable digests require 64 lowercase hex characters; revisions require 40
+hex characters; package names must be nonempty. `nix_output_path` is optional
+and, when present, names a top-level Nix store output. Unknown fields and
+duplicate `(system, flavor, executable_sha256)` entries are errors.
+Provenance is informational for reviewers reproducing an entry. Matching only
+compares `executable_sha256` to the signed `wrapper_sha256`, plus the signed
+`system` when present; it does not evaluate Nix or compare build flavor.
+
+For a selected note, native decision JSON reports `producer_digest` as `listed`,
+`unlisted`, or `no_manifest`; it is null when no note was selected. This phase changes neither
+note selection nor satisfaction, refusal, or signing authorization: unlisted
+digests and absent manifests are report-only. Malformed BASE manifests are
+nonzero errors with no decision or GitHub outputs, just like malformed tool
+pins. A HEAD-only manifest is ignored as authority; existing protected-edit
+rules still apply to adding or changing it.
+
 The library's `evidence::legacy_policy` schema helpers are separate from native
 lane authorization. Command/input helpers preserve raw commands and bindings;
 base-input helpers validate declarations without reading files. They do not

@@ -75,6 +75,7 @@ pub struct Decision {
     pub reason: &'static str,
     pub record: Option<String>,
     pub report_only: bool,
+    pub producer_digest: Option<config::ProducerDigest>,
     pub signer: Option<String>,
     pub observed_at: Option<String>,
     pub age_seconds: Option<i64>,
@@ -538,6 +539,7 @@ fn compute(
             protected_paths: Vec::new(),
             summary: "queue base and head must be existing full lowercase commit SHAs".into(),
             report_only: true,
+            producer_digest: None,
             signer: None,
             observed_at: None,
             age_seconds: None,
@@ -568,6 +570,7 @@ fn compute(
                 protected_paths: Vec::new(),
                 summary: error.to_string(),
                 report_only: queue,
+                producer_digest: None,
                 signer: None,
                 observed_at: None,
                 age_seconds: None,
@@ -599,6 +602,7 @@ fn compute(
         protected_paths: Vec::new(),
         summary: String::new(),
         report_only: queue,
+        producer_digest: None,
         signer: None,
         observed_at: None,
         age_seconds: None,
@@ -878,10 +882,18 @@ fn compute(
         if let Fact::Tests { inputs, .. } = &statement.predicate.fact
             && !execution_claims_valid(lane, &config.environment, inputs)
         {
-            return "wrong_input";
+            return (
+                "wrong_input",
+                config::producer_digest(config.producers.as_ref(), inputs),
+            );
         }
-        let reason = satisfy(
-            (statement, at, config.policy.repository.as_deref()),
+        let (reason, producer_digest) = satisfy(
+            (
+                statement,
+                at,
+                config.policy.repository.as_deref(),
+                config.producers.as_ref(),
+            ),
             check,
             head,
             &decision.tree,
@@ -895,7 +907,12 @@ fn compute(
             && inputs.get("lane_definition_sha256") != expected.get("lane_definition_sha256")
             && matches!(
                 satisfy(
-                    (statement, at, config.policy.repository.as_deref()),
+                    (
+                        statement,
+                        at,
+                        config.policy.repository.as_deref(),
+                        config.producers.as_ref(),
+                    ),
                     check,
                     head,
                     &decision.tree,
@@ -904,13 +921,14 @@ fn compute(
                         .iter()
                         .filter(|(key, _)| key.as_str() != "lane_definition_sha256"),
                     queue
-                ),
+                )
+                .0,
                 "satisfied" | "execution_reused"
             )
         {
-            "wrong_definition"
+            ("wrong_definition", producer_digest)
         } else {
-            reason
+            (reason, producer_digest)
         }
     };
     let selected = if push {
@@ -929,17 +947,18 @@ fn compute(
                                 .as_deref()
                                 .and_then(|s| s.split('/').next())
                     })
-                    && judge(statement, *at) != "wrong_definition"
+                    && judge(statement, *at).0 != "wrong_definition"
             })
             .max_by(|(_, a), (_, b)| a.2.cmp(&b.2).then_with(|| (b.3, &b.0).cmp(&(a.3, &a.0))))
             .map(|(index, _)| {
                 let reason = judge(&candidates[index].1, candidates[index].2);
-                if matches!(reason, "satisfied" | "execution_reused")
+                if matches!(reason.0, "satisfied" | "execution_reused")
                     && let Some(failure) = candidates.iter().rposition(|c| {
                         failed(&c.1, check) && c.2 >= candidates[index].2 - Duration::seconds(120)
                     })
                 {
-                    (failure, "check_failed")
+                    let (_, producer_digest) = judge(&candidates[failure].1, candidates[failure].2);
+                    (failure, ("check_failed", producer_digest))
                 } else {
                     (index, reason)
                 }
@@ -969,7 +988,10 @@ fn compute(
     if let Fact::Tests { inputs, .. } = &statement.predicate.fact {
         decision.lane_definition_sha256 = inputs.get("lane_definition_sha256").cloned();
     }
-    decision.reason = selected.map_or_else(|| judge(&statement, chosen.2), |(_, reason)| reason);
+    let (reason, producer_digest) =
+        selected.map_or_else(|| judge(&statement, chosen.2), |(_, result)| result);
+    decision.reason = reason;
+    decision.producer_digest = Some(producer_digest);
     if matches!(decision.reason, "satisfied" | "execution_reused") {
         decision.decision = "skip";
         decision.outcome = "satisfied";
@@ -1057,26 +1079,36 @@ fn repository_refusal(repository: Option<&str>, signed: Option<&str>) -> Option<
 }
 
 fn satisfy<'a>(
-    (statement, at, repository): (&Statement, DateTime<chrono::FixedOffset>, Option<&str>),
+    (statement, at, repository, producers): (
+        &Statement,
+        DateTime<chrono::FixedOffset>,
+        Option<&str>,
+        Option<&config::ProducerManifest>,
+    ),
     check: &str,
     head: &str,
     tree: &str,
     lane: &Lane,
     mut expected: impl Iterator<Item = (&'a String, &'a String)>,
     push: bool,
-) -> &'static str {
+) -> (&'static str, config::ProducerDigest) {
+    let producer_digest = match &statement.predicate.fact {
+        Fact::Tests { inputs, .. } => config::producer_digest(producers, inputs),
+        _ => config::ProducerDigest::NoManifest,
+    };
+    let result = |reason| (reason, producer_digest);
     if let Some(reason) = repository_refusal(repository, statement.repository.as_deref()) {
-        return reason;
+        return result(reason);
     }
     let predicate = &statement.predicate;
     if predicate.tier == TrustTier::Degraded {
-        return "degraded";
+        return result("degraded");
     }
     if predicate.tier != TrustTier::Full {
-        return "untrusted_tier";
+        return result("untrusted_tier");
     }
     if (!push && statement.subject[0].name != head) || (push && !oid(&statement.subject[0].name)) {
-        return "wrong_commit";
+        return result("wrong_commit");
     }
     if statement.subject[0]
         .digest
@@ -1084,7 +1116,7 @@ fn satisfy<'a>(
         .map(String::as_str)
         != Some(tree)
     {
-        return "stale_tree";
+        return result("stale_tree");
     }
     let principal = predicate.signer.as_deref().unwrap_or("");
     if !lane
@@ -1092,17 +1124,17 @@ fn satisfy<'a>(
         .iter()
         .any(|level| level == principal.split('/').next().unwrap_or(""))
     {
-        return "untrusted_level";
+        return result("untrusted_level");
     }
     let now = Utc::now();
     if at > now + Duration::seconds(120) {
-        return "future_dated";
+        return result("future_dated");
     }
     if lane
         .max_age_seconds
         .is_some_and(|seconds| age_exceeds_limit(now - at.with_timezone(&Utc), seconds))
     {
-        return "too_old";
+        return result("too_old");
     }
     let Fact::Tests {
         runner,
@@ -1110,22 +1142,22 @@ fn satisfy<'a>(
         inputs,
     } = &predicate.fact
     else {
-        return "wrong_check";
+        return result("wrong_check");
     };
     // Match the pinned verifier's producer kinds, without narrowing the record format.
     if !matches!(runner.as_str(), "nix" | "wrapper" | "sekrets") && !runner.starts_with("github:") {
-        return "unsupported_kind";
+        return result("unsupported_kind");
     }
-    let result = &checks[check];
-    if result.exit_code != 0 {
-        return "check_failed";
+    let observed = &checks[check];
+    if observed.exit_code != 0 {
+        return result("check_failed");
     }
     if lane.nix_check.is_some() {
         let Some(drv) = inputs.get("nix_derivation") else {
-            return "wrong_input";
+            return result("wrong_input");
         };
         let Some(execution) = inputs.get("nix_execution") else {
-            return "wrong_input";
+            return result("wrong_input");
         };
         if inputs.get("nix_command_mode") != Some(execution)
             || evidence::derivation::settings_digest().ok().as_ref()
@@ -1136,13 +1168,13 @@ fn satisfy<'a>(
                         && inputs.get("nix_daemon_trusted").map(String::as_str) == Some("true"))
             })
         {
-            return "wrong_input";
+            return result("wrong_input");
         }
         let Ok(argv) = evidence::derivation::argv(&lane.argv[0], drv, execution) else {
-            return "wrong_input";
+            return result("wrong_input");
         };
-        if result.command != argv {
-            return "wrong_command";
+        if observed.command != argv {
+            return result("wrong_command");
         }
         if evidence::derivation::command_digest(&argv).ok().as_ref()
             != inputs.get("nix_command_sha256")
@@ -1150,10 +1182,10 @@ fn satisfy<'a>(
                 .get("nix_outputs_sha256")
                 .is_some_and(|hash| hash.len() == 64 && hash.bytes().all(|c| c.is_ascii_hexdigit()))
         {
-            return "wrong_input";
+            return result("wrong_input");
         }
-    } else if result.command != lane.argv {
-        return "wrong_command";
+    } else if observed.command != lane.argv {
+        return result("wrong_command");
     }
     if !inputs.get("wrapper_sha256").is_some_and(|value| {
         value.len() == 64
@@ -1164,26 +1196,26 @@ fn satisfy<'a>(
         .get("attempt")
         .is_some_and(|value| value.parse::<u64>().is_ok_and(|n| n > 0))
     {
-        return "wrong_input";
+        return result("wrong_input");
     }
     if inputs.get("workspace_clean").map(String::as_str) != Some("true")
         || inputs.get("untracked_files").map(String::as_str) != Some("false")
     {
-        return "workspace_dirty";
+        return result("workspace_dirty");
     }
     if expected.any(|(key, value)| inputs.get(key) != Some(value)) {
-        return "wrong_input";
+        return result("wrong_input");
     }
     if let Some(check) = &lane.nix_check
         && inputs.get("nix_execution").map(String::as_str) == Some("reused")
     {
-        return if check.required == "any" {
+        return result(if check.required == "any" {
             "execution_reused"
         } else {
             "fresh_execution_required"
-        };
+        });
     }
-    "satisfied"
+    result("satisfied")
 }
 
 fn age_exceeds_limit(elapsed: Duration, seconds: u64) -> bool {
