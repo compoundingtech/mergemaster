@@ -13,8 +13,10 @@ pub enum Value {
     Bool(bool),
     Number(String),
     String(String),
+    SurrogateString(Vec<u32>),
     Array(Vec<Value>),
     Object(BTreeMap<String, Value>),
+    SurrogateObject(BTreeMap<Vec<u32>, Value>),
 }
 impl Value {
     pub fn as_str(&self) -> Option<&str> {
@@ -46,7 +48,15 @@ impl Value {
         }
     }
     pub fn is_string(&self) -> bool {
-        self.as_str().is_some()
+        matches!(self, Self::String(_) | Self::SurrogateString(_))
+    }
+    pub fn text_points(&self) -> Option<impl Iterator<Item = u32> + '_> {
+        let (text, points) = match self {
+            Self::String(text) => (text.as_str(), &[][..]),
+            Self::SurrogateString(points) => ("", points.as_slice()),
+            _ => return None,
+        };
+        Some(text.chars().map(u32::from).chain(points.iter().copied()))
     }
     pub fn get(&self, key: &str) -> Option<&Self> {
         self.as_object()?.get(key)
@@ -314,6 +324,10 @@ pub(super) fn encode_integer(value: &Value, out: &mut String) {
         Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
         Value::Number(n) => out.push_str(if n == "-0" { "0" } else { n }),
         Value::String(s) => emit_string(s, |part| out.push_str(part)),
+        Value::SurrogateString(points) => {
+            // String writes are infallible, as in emit_string.
+            let _ = codepoints(points.iter().copied(), out);
+        }
         Value::Array(a) => {
             out.push('[');
             for (i, value) in a.iter().enumerate() {
@@ -331,6 +345,18 @@ pub(super) fn encode_integer(value: &Value, out: &mut String) {
                     out.push(',');
                 }
                 emit_string(key, |part| out.push_str(part));
+                out.push(':');
+                encode_integer(value, out);
+            }
+            out.push('}');
+        }
+        Value::SurrogateObject(fields) => {
+            out.push('{');
+            for (index, (key, value)) in fields.iter().enumerate() {
+                if index != 0 {
+                    out.push(',');
+                }
+                let _ = codepoints(key.iter().copied(), out);
                 out.push(':');
                 encode_integer(value, out);
             }

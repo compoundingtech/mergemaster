@@ -1751,6 +1751,58 @@ authorized workflow's implementation. Reviewers must inspect such changes.
 
 ## Generic lane execution and signing
 
+`mergemaster evidence legacy-sign` is the separate cooperative **v1** signer.
+It reads the same single JSON request from stdin and
+`$HOME/.config/st/evidence-sign.json` (`signer`, `ssh_key`, `scratch_repo`,
+optional `path` and test-only `test_clock`) as `scripts/evidence-sign`.
+It returns `record`, `tier`, `tree`, `commit` and `object_pack_base64`;
+it does not publish refs or accept the v2 `--config` option.
+Intentional `legacy-sign` divergences from the pinned Python oracle:
+
+- The signed `producer_sha256` identifies the resolved running native executable,
+  not `scripts/evidence-sign`. All other statement encoding and pack/object
+  conventions remain v1.
+- Native signing first checks object completeness with `git rev-list --objects
+  --missing=print`, refusing missing objects before signing. The pinned Python
+  has no completeness preflight: an absent commit first fails at `git cat-file -t`.
+  Recorded requests naming an absent 40-character object therefore produce
+  `1 missing objects before signing; hydrate the source repository in the caller
+  first` natively versus `git cat-file failed:` in the oracle. Request spellings
+  that Git rejects as revisions instead produce `git rev-list failed:` natively.
+  This preflight matches the in-tree resynced `scripts/evidence-sign`
+  (`require_complete_commit`), not the pinned oracle.
+- Native signing reproduces Python's lone-surrogate escapes byte for byte, but
+  the native typed v1 verifier (`evidence verify`) refuses such statements
+  (fail-closed), whereas the removed Python `evidence-verify` accepted them.
+  Verifier parity for these statements remains a tracked follow-up.
+- Missing configuration errors name the configuration path without Python's
+  `[Errno ...]` text. Malformed configuration types produce normalized
+  refusals instead of Python crash tracebacks.
+- Scratch `git init` has a 300-second deadline (Python has no init deadline).
+  A nonzero exit is reported as `git init failed: <status>` rather than Python's
+  `CalledProcessError` message; deadline failures use the native child-process
+  timeout diagnostic.
+- Request and configuration JSON have no nesting-depth limit. Python's decoder
+  raises `RecursionError` near the interpreter recursion limit; native decoding
+  can accept deeper values, including an over-nested earlier duplicate field
+  that a later shallow field overrides.
+- Request stdin must be strict UTF-8. Python's surrogateescape stdin can admit
+  raw non-UTF-8 bytes inside strings as lone `\udcXX` surrogates; native decoding
+  refuses those bytes. Escaped lone surrogates in valid UTF-8 remain supported.
+- If the account has no passwd entry, native emits the normalized refusal
+  `evidence-sign refused: Could not determine home directory.` instead of
+  Python's uncaught `RuntimeError` traceback; the message itself matches Python.
+
+The configuration, signing key and `scratch_repo` are trusted launcher state.
+Neither implementation checks the key's mode, owner or file type, or rejects
+scratch-repository symlinks. Scratch initialization runs Git without the `-c`
+hardening flags used for subsequent plumbing commands, just like the oracle.
+Empty `HOME` resolves to `/`; unset `HOME` uses the account database.
+Request and configuration JSON retain Python's non-finite numbers and lone-surrogate
+escapes, including `NaN`/`Infinity` check-key spelling, and its 4300-digit integer limit.
+
+Existing callers and the Python scripts remain unchanged in this signer-only slice.
+
 `mergemaster evidence wrap` runs the exact BASE-declared command once, measures
 its inputs before and after execution, signs successes and failures, imports the
 immutable signed note and explicitly pushes its note ref to `origin`:
