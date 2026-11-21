@@ -1,109 +1,147 @@
-//! GitHub is a schema-bound ingress, unlike operator-owned JSON documents.
+//! Endpoint/object-kind validation of consumed GitHub fields, never global key rules.
 use super::*;
-use crate::evidence::legacy_verify::statement_document::{Document, Node};
-use crate::evidence::legacy_verify::{python_repr::Repr, value_inputs::TextRef};
 
-fn named(points: &[u32], name: &str) -> bool {
-    points.iter().copied().eq(name.chars().map(u32::from))
+#[derive(Clone, Copy)]
+pub(in crate::evidence) enum RunUse {
+    Flip,
+    Skip,
+    Release,
 }
-fn any_name(points: &[u32], names: &[&str]) -> bool {
-    names.iter().any(|name| named(points, name))
+#[derive(Clone, Copy)]
+pub(in crate::evidence) enum JobUse {
+    Flip,
+    Skip,
+    Release,
 }
 
 pub(in crate::evidence) fn parse_api(text: &str) -> Result<Value> {
-    let document = Document::from_text(text)
-        .map_err(|error| anyhow!("GitHub API JSON outside schema: {error:?}"))?;
-    let mut pending = vec![(document.root(), &[][..])];
-    while let Some((node, field)) = pending.pop() {
-        match node {
-            Node::Integer(value) => {
-                ensure!(
-                    value
-                        .parse::<i64>()
-                        .is_ok_and(|value| value.unsigned_abs() <= 9_007_199_254_740_991),
-                    "GitHub API field {} outside schema: integer exceeds exact 53-bit range",
-                    Repr(TextRef::Points(field))
-                );
-            }
-            Node::Float(value) => ensure!(
-                value.is_finite(),
-                "GitHub API field {} outside schema: nonfinite number",
-                Repr(TextRef::Points(field))
-            ),
-            Node::String(points) => ensure!(
-                points.iter().all(|point| char::from_u32(*point).is_some()),
-                "GitHub API field {} outside schema: lone surrogate",
-                Repr(TextRef::Points(field))
-            ),
-            Node::Array(ids) => pending.extend(ids.iter().map(|id| (document.node(*id), field))),
-            Node::Object(entries) => {
-                for (key, id) in entries {
-                    ensure!(
-                        key.iter().all(|point| char::from_u32(*point).is_some()),
-                        "GitHub API field outside schema: lone surrogate in key"
-                    );
-                    let value = document.node(*id);
-                    let valid = if any_name(key, &["id", "number", "run_attempt", "total_count"]) {
-                        matches!(value, Node::Integer(raw) if !raw.starts_with('-') || raw == "-0")
-                    } else if any_name(
-                        key,
-                        &[
-                            "created_at",
-                            "status",
-                            "name",
-                            "login",
-                            "head_sha",
-                            "filename",
-                        ],
-                    ) {
-                        matches!(value, Node::String(_))
-                    } else if any_name(
-                        key,
-                        &[
-                            "conclusion",
-                            "head_branch",
-                            "sha",
-                            "started_at",
-                            "completed_at",
-                        ],
-                    ) {
-                        matches!(value, Node::String(_) | Node::Null)
-                    } else if any_name(key, &["actor", "base"]) {
-                        matches!(value, Node::Object(_) | Node::Null)
-                    } else if any_name(key, &["workflow_runs", "jobs", "pull_requests", "labels"]) {
-                        matches!(value, Node::Array(_))
-                    } else {
-                        true
-                    };
-                    ensure!(
-                        valid,
-                        "GitHub API field {} outside schema: unexpected JSON type",
-                        Repr(TextRef::Points(key))
-                    );
-                    if any_name(key, &["workflow_runs", "jobs", "pull_requests"])
-                        && let Node::Array(ids) = value
-                    {
-                        ensure!(
-                            ids.iter()
-                                .all(|id| matches!(document.node(*id), Node::Object(_))),
-                            "GitHub API field {} outside schema: expected object items",
-                            Repr(TextRef::Points(key))
-                        );
-                    }
-                    if named(key, "labels")
-                        && let Node::Array(ids) = value
-                    {
-                        ensure!(
-                            ids.iter()
-                                .all(|id| matches!(document.node(*id), Node::String(_))),
-                            "GitHub API field labels outside schema: expected string labels"
-                        );
-                    }
-                    pending.push((value, key.as_slice()));
-                }
-            }
-            Node::Null | Node::Bool(_) => {}
+    // Unknown response metadata is not interpreted. Consumed integer fields are
+    // checked before use, including integers serde would otherwise narrow to f64.
+    serde_json::from_str(text).context("GitHub API JSON outside schema")
+}
+fn object<'a>(value: &'a Value, context: &str) -> Result<&'a Map<String, Value>> {
+    value
+        .as_object()
+        .ok_or_else(|| anyhow!("GitHub API {context} outside schema: expected an object"))
+}
+pub(in crate::evidence) fn number(value: Option<&Value>, context: &str) -> Result<u64> {
+    value.and_then(Value::as_u64).filter(|number| *number <= 9_007_199_254_740_991)
+        .ok_or_else(|| anyhow!("GitHub API {context} outside schema: expected an integral number in the exact 53-bit range"))
+}
+pub(in crate::evidence) fn string<'a>(value: Option<&'a Value>, context: &str) -> Result<&'a str> {
+    value
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("GitHub API {context} outside schema: expected a string"))
+}
+fn optional_text(value: &Value, key: &str, nullable: bool) -> Result<()> {
+    if let Some(field) = value.get(key)
+        && !(nullable && field.is_null())
+    {
+        string(Some(field), key)?;
+    }
+    Ok(())
+}
+fn optional_number(value: &Value, key: &str) -> Result<()> {
+    if let Some(field) = value.get(key) {
+        number(Some(field), key)?;
+    }
+    Ok(())
+}
+fn array<'a>(value: &'a Value, key: &str) -> Result<Option<&'a Vec<Value>>> {
+    value
+        .get(key)
+        .filter(|field| !field.is_null())
+        .map(|field| {
+            field
+                .as_array()
+                .ok_or_else(|| anyhow!("GitHub API {key} outside schema: expected an array"))
+        })
+        .transpose()
+}
+pub(in crate::evidence) fn page(value: &Value, key: &str) -> Result<()> {
+    object(value, "paginated page")?;
+    if let Some(items) = value.get(key) {
+        ensure!(
+            items.is_array(),
+            "GitHub API {key} outside schema: expected an array"
+        );
+    }
+    Ok(())
+}
+
+pub(in crate::evidence) fn listing(value: &Value) -> Result<()> {
+    object(value, "run listing")?;
+    optional_number(value, "total_count")?;
+    if let Some(runs) = array(value, "workflow_runs")? {
+        for run in runs {
+            object(run, "workflow run")?;
+            optional_text(run, "created_at", true)?;
         }
     }
-    serde_json::from_str(text).context("GitHub API JSON outside schema")
+    Ok(())
+}
+pub(in crate::evidence) fn run(value: &Value, usage: RunUse) -> Result<()> {
+    object(value, "workflow run")?;
+    optional_text(value, "status", true)?;
+    if let Some(actor) = value.get("actor").filter(|actor| !actor.is_null()) {
+        object(actor, "run actor")?;
+        optional_text(actor, "login", false)?;
+    }
+    if matches!(usage, RunUse::Flip) {
+        optional_text(value, "conclusion", true)?;
+    }
+    if matches!(usage, RunUse::Skip) {
+        optional_text(value, "head_branch", true)?;
+    }
+    if let Some(pulls) = array(value, "pull_requests")? {
+        let consumed = if matches!(usage, RunUse::Release) {
+            pulls.len()
+        } else {
+            1
+        };
+        for pull in pulls.iter().take(consumed) {
+            object(pull, "run pull request")?;
+            if matches!(usage, RunUse::Flip) {
+                if let Some(base) = pull.get("base").filter(|base| !base.is_null()) {
+                    object(base, "pull request base")?;
+                    optional_text(base, "sha", true)?;
+                }
+            } else {
+                optional_number(pull, "number")?;
+            }
+        }
+    }
+    Ok(())
+}
+pub(in crate::evidence) fn job(value: &Value, usage: JobUse) -> Result<()> {
+    object(value, "job")?;
+    optional_text(value, "conclusion", true)?;
+    if matches!(usage, JobUse::Release) {
+        optional_text(value, "started_at", true)?;
+        optional_text(value, "completed_at", true)?;
+        if let Some(labels) = array(value, "labels")? {
+            for label in labels {
+                string(Some(label), "release job label")?;
+            }
+        }
+    } else {
+        optional_text(value, "name", true)?;
+        optional_text(value, "status", true)?;
+        if matches!(usage, JobUse::Flip) {
+            optional_number(value, "run_attempt")?;
+        }
+    }
+    Ok(())
+}
+pub(in crate::evidence) fn first_pull(value: &Value) -> Result<Option<u64>> {
+    let pulls = value
+        .as_array()
+        .ok_or_else(|| anyhow!("GitHub API pull requests outside schema: expected an array"))?;
+    pulls
+        .first()
+        .map(|pull| {
+            object(pull, "first pull request")?;
+            number(pull.get("number"), "first pull request number")
+        })
+        .transpose()
 }

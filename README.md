@@ -996,8 +996,10 @@ document reader, including arbitrary-size integers, nonfinite floats, escaped
 surrogates and insertion order. GitHub API JSON is instead schema-bound: GitHub
 emits RFC 8259 JSON without NaN/Infinity, UTF-8 strings without lone surrogates,
 and IDs/counts within the exact 53-bit integer range. Both commands validate
-these boundaries before bounded conversion; wrong consumed-field types and
-out-of-range numbers fail clearly rather than narrowing or dropping items.
+consumed fields by endpoint and object kind before use; wrong types and
+out-of-range integers fail clearly rather than being narrowed or dropped.
+Unconsumed response metadata is not interpreted: PR labels may be objects,
+whereas release-job labels consumed for runner accounting must be strings.
 Long options retain argparse's unique-prefix resolution and ambiguity errors.
 
 The protected CI fetch instead retains its existing external `timeout` wrapper:

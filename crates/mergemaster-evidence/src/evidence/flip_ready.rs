@@ -1,7 +1,7 @@
 //! Read-only skip readiness and the explicit, opt-in proposal operation.
 use super::flip_skip_python::{rounded, truthy};
 use policy::flip_policy;
-mod api;
+pub(super) mod api;
 mod policy;
 use anyhow::{Context, Result, anyhow, bail, ensure};
 pub(super) use api::parse_api;
@@ -159,10 +159,7 @@ impl GitHub {
             .ok_or_else(|| anyhow!("GitHub API pages outside schema: expected an array"))?;
         let mut result = Vec::new();
         for page in pages {
-            ensure!(
-                page.is_object(),
-                "GitHub API page outside schema: expected an object"
-            );
+            api::page(page, key)?;
             if let Some(items) = page.get_mut(key) {
                 let items = items
                     .as_array_mut()
@@ -173,7 +170,7 @@ impl GitHub {
         Ok(result)
     }
     fn decision_lines(&self, job_id: &Value) -> Result<Vec<String>> {
-        let id = job_id.as_u64().ok_or_else(|| anyhow!("invalid job id"))?;
+        let id = api::number(Some(job_id), "gate job id")?;
         let cached = self.cache.join(format!("{id}.lines"));
         if cached.exists() {
             return Ok(fs::read_to_string(cached)?
@@ -236,10 +233,7 @@ impl GitHub {
             let mut batch = Vec::new();
             for attempt in 0..4 {
                 let mut out = parse_api(&self.gh(&["api", &path])?)?;
-                ensure!(
-                    out.is_object(),
-                    "GitHub API runs outside schema: expected an object"
-                );
+                api::listing(&out)?;
                 let total = out["total_count"].as_u64().unwrap_or(0).min(1000) as usize;
                 batch = out
                     .get_mut("workflow_runs")
@@ -267,12 +261,8 @@ impl GitHub {
                     .any(|run| parse_time(text(run, "created_at")).is_some_and(|t| t < since));
             for run in batch {
                 if parse_time(text(&run, "created_at")).is_some_and(|t| t >= since && t <= until) {
-                    runs.insert(
-                        run["id"]
-                            .as_u64()
-                            .ok_or_else(|| anyhow!("invalid run id"))?,
-                        run,
-                    );
+                    let id = api::number(run.get("id"), "workflow run id")?;
+                    runs.insert(id, run);
                 }
             }
             if reached_end {
@@ -452,6 +442,7 @@ fn collect(
 ) -> Result<Vec<Row>> {
     let mut rows = Vec::new();
     for run in github.pr_runs(since, until, "fleet.yml")? {
+        api::run(&run, api::RunUse::Flip)?;
         if run["status"] != "completed" {
             continue;
         }
@@ -462,6 +453,9 @@ fn collect(
             ),
             "jobs",
         )?;
+        for job in &jobs {
+            api::job(job, api::JobUse::Flip)?;
+        }
         let timestamp: Vec<u32> = text(&run, "created_at").chars().map(u32::from).collect();
         let clocks = super::legacy_verify::statement::zoned_time_components(&timestamp).and_then(
             |(utc, local)| {
@@ -1290,15 +1284,7 @@ fn propose(
             ])
             .and_then(|text| {
                 let value = parse_api(&text)?;
-                let pulls = value.as_array().ok_or_else(|| {
-                    anyhow!("GitHub API pull requests outside schema: expected an array")
-                })?;
-                ensure!(
-                    pulls
-                        .iter()
-                        .all(|pull| pull.get("number").and_then(Value::as_u64).is_some()),
-                    "GitHub API pull requests outside schema: missing integral number"
-                );
+                api::first_pull(&value)?;
                 Ok(value)
             });
         let open = match listed {

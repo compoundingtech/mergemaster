@@ -257,27 +257,77 @@ fn policy_metadata_and_consumed_truthiness_use_lossless_json_str_input() {
 
 #[test]
 fn github_schema_rejects_values_instead_of_narrowing_or_dropping_them() {
-    for source in [
-        r#"{"id":9007199254740993}"#,
-        r#"{"id":1844674407370955161701}"#,
-        r#"{"id":1.0}"#,
-        r#"{"id":true}"#,
-        r#"{"total_count":1e400}"#,
-        r#"{"workflow_runs":[false]}"#,
-        r#"{"jobs":null}"#,
-        r#"{"labels":[3]}"#,
-        r#"{"filename":{}}"#,
-        r#"{"login":false}"#,
-        r#"{"name":"\ud800"}"#,
+    for (source, context) in [
+        (r#"{"id":9007199254740993}"#, "id"),
+        (r#"{"id":1844674407370955161701}"#, "id"),
+        (r#"{"id":1.0}"#, "id"),
+        (r#"{"id":true}"#, "id"),
+        (r#"{"total_count":1e400}"#, "listing"),
+        (r#"{"workflow_runs":[false]}"#, "listing"),
+        (r#"{"jobs":null}"#, "page"),
+        (r#"{"labels":[3]}"#, "release"),
+        (r#"{"filename":{}}"#, "file"),
+        (r#"{"actor":{"login":false}}"#, "run"),
+        (r#"{"name":"\ud800"}"#, "gate"),
     ] {
-        let error = parse_api(source).unwrap_err().to_string();
+        let error = parse_api(source)
+            .and_then(|value| match context {
+                "id" => api::number(value.get("id"), "workflow run id").map(|_| ()),
+                "listing" => api::listing(&value),
+                "page" => api::page(&value, "jobs"),
+                "release" => api::job(&value, api::JobUse::Release),
+                "file" => api::string(value.get("filename"), "PR file filename").map(|_| ()),
+                "run" => api::run(&value, api::RunUse::Flip),
+                _ => api::job(&value, api::JobUse::Flip),
+            })
+            .unwrap_err()
+            .to_string();
         assert!(
             error.contains("GitHub API") && error.contains("outside schema"),
             "{source}: {error}"
         );
     }
     assert_eq!(
-        parse_api(r#"{"id":9007199254740991,"total_count":3}"#).unwrap()["id"].as_u64(),
-        Some(9_007_199_254_740_991)
+        api::number(
+            parse_api(r#"{"id":9007199254740991,"total_count":3}"#)
+                .unwrap()
+                .get("id"),
+            "workflow run id"
+        )
+        .unwrap(),
+        9_007_199_254_740_991
     );
+}
+
+#[test]
+fn api_fields_are_validated_only_in_the_consuming_object_kind() {
+    let metadata = json!({
+        "labels":[{"name":"bug","id":123}],
+        "name":false, "status":{}, "run_attempt":"not consumed", "filename":false
+    });
+    let mut pull = metadata.clone();
+    pull["number"] = json!(17);
+    assert_eq!(api::first_pull(&json!([pull])).unwrap(), Some(17));
+    assert_eq!(api::first_pull(&json!([])).unwrap(), None);
+    assert!(api::job(&metadata, api::JobUse::Release).is_err());
+    let gate = json!({"name":"lint","status":"completed","labels":[{"name":"bug"}]});
+    assert!(api::job(&gate, api::JobUse::Flip).is_ok());
+    let release = json!({"labels":["macos-latest"],"name":false,"status":{},"run_attempt":"ignored","filename":false});
+    assert!(api::job(&release, api::JobUse::Release).is_ok());
+    let run =
+        json!({"status":"completed","labels":[{"name":"bug"}],"filename":false,"started_at":false});
+    assert!(api::run(&run, api::RunUse::Flip).is_ok());
+    for malformed in [
+        json!([{}]),
+        json!([1]),
+        json!([{"number":1.5}]),
+        json!([{"number":"7"}]),
+    ] {
+        assert!(
+            api::first_pull(&malformed)
+                .unwrap_err()
+                .to_string()
+                .contains("outside schema")
+        );
+    }
 }

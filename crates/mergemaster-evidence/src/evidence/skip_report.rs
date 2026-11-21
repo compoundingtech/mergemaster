@@ -1,4 +1,5 @@
 //! Per-pull-request evidence decisions and release build cost accounting.
+use super::flip_ready::api;
 use super::flip_ready::{
     GitHub, cache_dir, config_path, fields_of, git, iso, json_pretty, parse_api, parse_time,
 };
@@ -80,7 +81,16 @@ impl Source for GitHub {
         until: DateTime<Utc>,
         workflow: &str,
     ) -> Result<Vec<Value>> {
-        GitHub::pr_runs(self, since, until, workflow)
+        let runs = GitHub::pr_runs(self, since, until, workflow)?;
+        let usage = if workflow == RELEASE_WORKFLOW {
+            api::RunUse::Release
+        } else {
+            api::RunUse::Skip
+        };
+        for run in &runs {
+            api::run(run, usage)?;
+        }
+        Ok(runs)
     }
     fn repo(&self) -> &str {
         &self.repo
@@ -236,10 +246,10 @@ fn pr_of(source: &impl Source, run: &Value) -> Result<Option<u64>> {
     let path = format!(
         "repos/{}/commits/{}/pulls",
         source.repo(),
-        text(run, "head_sha")
+        api::string(run.get("head_sha"), "commit head_sha")?
     );
-    let pulls: Vec<Value> = serde_json::from_value(parse_api(&source.gh(&["api", &path])?)?)?;
-    Ok(pulls.first().and_then(|v| v["number"].as_u64()))
+    let pulls = parse_api(&source.gh(&["api", &path])?)?;
+    api::first_pull(&pulls)
 }
 fn pr_files<'a>(
     source: &impl Source,
@@ -257,12 +267,7 @@ fn pr_files<'a>(
         let files = pages
             .into_iter()
             .flatten()
-            .map(|item| {
-                item["filename"]
-                    .as_str()
-                    .map(str::to_owned)
-                    .ok_or_else(|| anyhow!("PR file has no filename"))
-            })
+            .map(|item| api::string(item.get("filename"), "PR file filename").map(str::to_owned))
             .collect::<Result<_>>()?;
         slot.insert(files);
     }
@@ -454,9 +459,7 @@ fn release_surface(
                 }
             }
         }
-        let id = run
-            .get("id")
-            .ok_or_else(|| anyhow!("release run has no id"))?;
+        let id = api::number(run.get("id"), "release run id")?;
         for job in source.items(
             &format!(
                 "repos/{}/actions/runs/{id}/jobs?per_page=100&filter=all",
@@ -464,6 +467,7 @@ fn release_surface(
             ),
             "jobs",
         )? {
+            api::job(&job, api::JobUse::Release)?;
             if text(&job, "conclusion") == "skipped" {
                 continue;
             }
@@ -523,6 +527,9 @@ fn report(
             ),
             "jobs",
         )?;
+        for job in &jobs {
+            api::job(job, api::JobUse::Skip)?;
+        }
         let conclusions = jobs
             .iter()
             .map(|job| (text(job, "name"), text(job, "conclusion")))

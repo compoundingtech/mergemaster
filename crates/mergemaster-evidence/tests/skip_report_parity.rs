@@ -12,12 +12,12 @@ fixture = json.loads((repository / 'tests/fixtures/oracle/skip-report.json').rea
 base = fixture['cases'][0]
 source = pathlib.Path(os.environ['MERGEMASTER_PYTHON_ORACLE']) / 'scripts/evidence-skip-report'
 
-def compare(label, receipt=b'', mutate=lambda api: None, expected_seat=None, expected_minutes=None, expected_error=False):
+def compare(label, receipt=b'', mutate=lambda api: None, expected_seat=None, expected_minutes=None, expected_error=False, expected_prs=None, oracle_error=False):
     with tempfile.TemporaryDirectory(prefix='mergemaster-skip-parity-') as temporary:
         root = pathlib.Path(temporary)
         for tool in ('git','gh'):
             executable = root / tool
-            executable.write_text('#!' + sys.executable + '\n' + fixture['shim'].replace("{'number': 17}", "{'number': api.get('fallback_number',17)}"))
+            executable.write_text('#!' + sys.executable + '\n' + fixture['shim'].replace("[{'number': 17}]", "api.get('fallback_pulls', [{'number': api.get('fallback_number',17)}])"))
             executable.chmod(0o700)
         api = copy.deepcopy(base['api'])
         mutate(api)
@@ -33,14 +33,14 @@ def compare(label, receipt=b'', mutate=lambda api: None, expected_seat=None, exp
             for implementation in ('python','native'):
                 shutil.rmtree(root/'cache',ignore_errors=True)
                 (root/'calls').write_text('')
-                if expected_error and implementation == 'python': continue
+                if expected_error and implementation == 'python' and not oracle_error: continue
                 invocation = ([sys.executable,'-I','-B','-c',fixture['launcher'],str(source),fixture['now'],str(root),*arguments]
                               if implementation=='python' else [binary,'evidence','skip-report','--now',fixture['now'],*arguments])
                 done = subprocess.run(invocation,cwd=root,env=environment,capture_output=True)
                 context = (suite,label,markdown,implementation)
                 if expected_error:
                     assert done.returncode != 0, (context,done.stdout,done.stderr)
-                    assert b'outside schema' in done.stderr, (context,done.stderr)
+                    if implementation == 'native': assert b'outside schema' in done.stderr, (context,done.stderr)
                     continue
                 assert done.returncode == 0, (context,done.returncode,done.stdout,done.stderr)
                 assert done.stderr == b'', (context,done.stderr)
@@ -50,6 +50,8 @@ def compare(label, receipt=b'', mutate=lambda api: None, expected_seat=None, exp
                         assert report['not_signed'][0]['seat'] == expected_seat, (context,report)
                     if expected_minutes is not None:
                         assert report['release_surface']['minutes'] == expected_minutes, (context,report)
+                    if expected_prs is not None:
+                        assert [entry['pr'] for entry in report['not_signed']] == expected_prs, (context,report)
                 observations.append(done.stdout)
             if not expected_error:
                 assert observations[0] == observations[1], (suite,label,markdown,observations)
@@ -102,6 +104,28 @@ elif suite == 'schema':
     for filename in (None, False, 12, {'path':'x'}, '\ud800'):
         def mutate(api): api['files'] = [filename]
         compare('filename-'+repr(filename),mutate=mutate,expected_error=True)
+elif suite == 'fallback':
+    for label, pulls in [
+        ('empty', []),
+        ('valid', [{'number':17}]),
+        ('labelled', [{'number':17,'labels':[{'id':123,'name':'bug','color':'d73a4a'}]}]),
+        ('unread-fields', [{'number':17,'labels':[{'name':None}],'base':'unused','actor':{'login':False},'status':False,'filename':[]}]),
+    ]:
+        def mutate(api):
+            api['fallback_pulls'] = pulls
+            for run in api['runs']: run['pull_requests'] = []
+        compare(label, b'{"branch":"feature","agent":"kept"}\n', mutate=mutate,
+                expected_prs=[] if not pulls else [17], expected_seat='kept' if pulls else None)
+    for label, pulls, oracle_error in [
+        ('missing-number', [{}], True),
+        ('non-object', [1], True),
+        ('fractional-number', [{'number':1.5}], False),
+        ('string-number', [{'number':'7'}], False),
+    ]:
+        def mutate(api):
+            api['fallback_pulls'] = pulls
+            for run in api['runs']: run['pull_requests'] = []
+        compare(label, mutate=mutate, expected_error=True, oracle_error=oracle_error)
 else:
     raise AssertionError(suite)
 "#;
@@ -139,4 +163,9 @@ fn config_json_keeps_exotic_metadata_and_python_iterable_truthiness() {
 #[test]
 fn github_pull_and_file_fields_reject_out_of_schema_values_without_narrowing() {
     differential("schema");
+}
+
+#[test]
+fn fallback_pull_numbers_are_required_and_label_objects_are_unread_metadata() {
+    differential("fallback");
 }
