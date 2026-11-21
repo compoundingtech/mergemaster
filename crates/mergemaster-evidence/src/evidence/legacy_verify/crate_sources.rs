@@ -1,6 +1,7 @@
 //! st-test accepted-base input selection for native crate keying.
 use super::{
     crate_inputs::failure, crate_manifest_ops::exception, json_bytes, projection_oid::space,
+    source_io,
 };
 use crate::evidence::legacy_policy::PolicyError;
 #[cfg(any(target_os = "linux", target_os = "android"))]
