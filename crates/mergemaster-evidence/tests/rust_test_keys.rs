@@ -9,6 +9,8 @@ struct Case {
     stdout: String,
     stderr: String,
     code: u8,
+    #[serde(default)]
+    traceback: bool,
 }
 
 #[test]
@@ -19,9 +21,11 @@ import json,pathlib,subprocess,sys
 assert sys.version_info[:3]==(3,14,7)
 root=pathlib.Path(sys.argv[1]); tool=sys.argv[2]; verifier=pathlib.Path(sys.argv[3])/'scripts/evidence-verify'
 cases=[]
-def record(argv):
- done=subprocess.run([sys.executable,'-I',tool,*argv],capture_output=True,text=True)
- cases.append(dict(argv=argv,stdout=done.stdout,stderr=done.stderr,code=done.returncode))
+def record(argv, project=False):
+ oracle_argv=argv+(['--verifier',str(verifier)] if project else [])
+ done=subprocess.run([sys.executable,'-I',tool,*oracle_argv],capture_output=True,text=True)
+ cases.append(dict(argv=argv,stdout=done.stdout,stderr=done.stderr,code=done.returncode,traceback=done.stderr.startswith('Traceback (most recent call last):\n')))
+def key(argv): record(argv, project=True)
 for algorithm in ['sha1','sha256']:
  repo=root/algorithm; repo.mkdir()
  def git(*args): return subprocess.check_output(['git','-C',str(repo),*args],stderr=subprocess.PIPE).decode().strip()
@@ -38,18 +42,25 @@ for algorithm in ['sha1','sha256']:
  git('add','.'); base=git('write-tree')
  write('.fractal/rust-test-inputs.json',json.dumps({'global':[],'crates':{}}))
  write('extra/é.txt','candidate\n'); git('add','.'); tree=git('write-tree')
- common=['--repo',str(repo),'--tree',tree,'--verifier',str(verifier)]
+ common=['--repo',str(repo),'--tree',tree]
  for selected in [[],['--inputs-from',base],['--inputs-from',base,'--crate','a'],['--inputs-from',base,'--crate','root','--crate','b','--crate','b'],['--crate','missing','--crate','other'],['--inputs-from','absent']]:
-  for output in [[],['--json'],['--paths'],['--json','--paths']]: record(common+selected+output)
- record(common+['--tree','absent'])
- record(['--repo='+str(repo),'--tree='+tree,'--inputs-from='+base,'--cra=a','--j','--paths'])
+  for output in [[],['--json'],['--paths'],['--json','--paths']]: key(common+selected+output)
+ key(common+['--tree','absent'])
+ key(['--repo='+str(repo),'--tree='+tree,'--inputs-from='+base,'--cra=a','--j','--paths'])
+ for value in ['-','-1.5','-not a tree','tree with space','-x']: key(common+['--tree',value])
+ key(['--repo',str(repo),'--tree',tree,'--i',base,'--cr','a','--j','--p'])
  # Root packages key their source paths, never the whole repository implicitly.
  write('Cargo.toml','[package]\nname="empty"\n'); write('.fractal/rust-test-inputs.json',json.dumps({'crates':{'empty':{'extra':[]}}}))
  git('add','.'); empty=git('write-tree')
  # Existing src is removed from the index only; key computation never reads worktree files.
  git('rm','--cached','src/lib.rs'); empty=git('write-tree')
- for output in [[],['--json'],['--paths'],['--json','--paths']]: record(['--repo',str(repo),'--tree',empty,'--verifier',str(verifier)]+output)
-for argv in [['--help'],['-h'],['--unknown'],['--repo'],['--tree','--json'],['--crate'],['--paths=yes'],['--json='],['--help=x'],['--'],['positional'],['--wat','--help'],['--crate','-1'],['--repo','--'],['--tree=absent']]: record(argv)
+ for output in [[],['--json'],['--paths'],['--json','--paths']]: key(['--repo',str(repo),'--tree',empty]+output)
+ write('Cargo.toml','[workspace]\nmembers=1\n'); git('add','.'); malformed=git('write-tree')
+ key(['--repo',str(repo),'--tree',malformed])
+for argv in [['--help'],['-h'],['--unknown'],['--repo'],['--tree','--json'],['--crate'],['--paths=yes'],['--json='],['--help=x'],['--'],['positional'],['--wat','--help'],['--crate','-1'],['--repo','--'],['--tree=absent'],['-hh'],['-h','--json'],['--json','-h'],['--json=1']]: record(argv)
+# Explicit native contract: arbitrary Python projection modules cannot be selected.
+for option in ['--verifier','--v']:
+ cases.append(dict(argv=[option,str(root/'nonexistent-verifier')],stdout='',stderr='rust-test-keys: --verifier is not supported; the projection is built into mergemaster\n',code=2))
 print(json.dumps(cases))
 "#;
     let output = pinned_python::command()
@@ -65,13 +76,21 @@ print(json.dumps(cases))
         String::from_utf8_lossy(&output.stderr)
     );
     let cases: Vec<Case> = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(cases.len(), 75);
+    assert_eq!(cases.len(), 95);
     for case in cases {
         let actual = Command::new(env!("CARGO_BIN_EXE_mergemaster"))
             .arg("legacy-rust-test-keys")
             .args(&case.argv)
             .output()
             .unwrap();
+        if case.traceback {
+            assert_eq!(actual.status.code(), Some(i32::from(case.code)));
+            assert_eq!(actual.stdout, case.stdout.as_bytes());
+            let stderr = std::str::from_utf8(&actual.stderr).unwrap();
+            assert!(stderr.starts_with("Traceback (most recent call last):\n"));
+            assert_eq!(stderr.lines().last(), case.stderr.lines().last());
+            continue;
+        }
         assert_eq!(
             (actual.status.code(), actual.stdout, actual.stderr),
             (

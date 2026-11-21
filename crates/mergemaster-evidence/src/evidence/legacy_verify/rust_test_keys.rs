@@ -1,42 +1,116 @@
 //! Native rust-test-keys subprocess compatibility, using the existing pinned key core.
-//! `--verifier` is retained as a migration argument; projection is always compiled Rust.
+//! Deliberate divergence: an explicit `--verifier` is refused with exit 2 because
+//! projection is compiled into mergemaster, never loaded from a Python module.
+//! Unhandled exceptions retain the traceback header, final exception line and
+//! exit 1; omitting Python-only source frame lines is a deliberate divergence.
 use super::{cli_adapter::Exit, crate_inputs::TreeSource, crate_keys::CrateKey};
-use crate::evidence::legacy_json;
+use crate::evidence::{
+    argparse_compat::{Action, DefaultValue, OptionSpec, Parser, Value},
+    legacy_json,
+    legacy_policy::{ErrorOrigin, PolicyError},
+};
 use std::{ffi::OsString, fmt::Write, path::Path};
 
-const USAGE: &str = "usage: rust-test-keys [-h] [--repo REPO] [--tree TREE] [--inputs-from TREEISH]\n                      [--crate NAME] [--paths] [--json] [--verifier VERIFIER]\n";
-const HELP: &str = "\nThe input key of each workspace crate's tests: what a per-crate signature is\nbound to (docs/per-crate-test-signing.md).\n\noptions:\n  -h, --help            show this help message and exit\n  --repo REPO\n  --tree TREE           the tree to key (default HEAD)\n  --inputs-from TREEISH\n                        read .st/rust-test-inputs.json from here (the accepted\n                        base) instead of the tree\n  --crate NAME          only this crate (repeatable)\n  --paths               also print the declared paths\n  --json\n  --verifier VERIFIER   the evidence-verify whose projection computes the key\n                        (default: the one next to this script)\n";
-const OPTIONS: [&str; 8] = [
-    "--help",
-    "--repo",
-    "--tree",
-    "--inputs-from",
-    "--crate",
-    "--paths",
-    "--json",
-    "--verifier",
-];
+const fn option(
+    long: &'static str,
+    metavar: Option<&'static str>,
+    action: Action,
+    help: &'static str,
+) -> OptionSpec {
+    OptionSpec {
+        long,
+        short: None,
+        metavar,
+        action,
+        choices: &[],
+        help,
+        hidden: false,
+        default: match action {
+            Action::Flag => DefaultValue::Bool(false),
+            Action::Append => DefaultValue::List(&[]),
+            _ => DefaultValue::None,
+        },
+    }
+}
+const PARSER: Parser = Parser {
+    program: "rust-test-keys",
+    description: "The input key of each workspace crate's tests: what a per-crate signature is bound to (docs/per-crate-test-signing.md).",
+    options: &[
+        OptionSpec {
+            short: Some("-h"),
+            ..option(
+                "--help",
+                None,
+                Action::Help,
+                "show this help message and exit",
+            )
+        },
+        OptionSpec {
+            default: DefaultValue::String("."),
+            ..option("--repo", Some("REPO"), Action::Store, "")
+        },
+        OptionSpec {
+            default: DefaultValue::String("HEAD"),
+            ..option(
+                "--tree",
+                Some("TREE"),
+                Action::Store,
+                "the tree to key (default HEAD)",
+            )
+        },
+        option(
+            "--inputs-from",
+            Some("TREEISH"),
+            Action::Store,
+            "read .st/rust-test-inputs.json from here (the accepted base) instead of the tree",
+        ),
+        option(
+            "--crate",
+            Some("NAME"),
+            Action::Append,
+            "only this crate (repeatable)",
+        ),
+        option(
+            "--paths",
+            None,
+            Action::Flag,
+            "also print the declared paths",
+        ),
+        option("--json", None, Action::Flag, ""),
+        option(
+            "--verifier",
+            Some("VERIFIER"),
+            Action::Store,
+            "the evidence-verify whose projection computes the key (default: the one next to this script)",
+        ),
+    ],
+};
 
-fn diagnostic(message: String) -> Exit {
+fn string(value: Option<Value>) -> Option<String> {
+    match value {
+        Some(Value::String(value)) => Some(value),
+        _ => None,
+    }
+}
+
+fn refused(error: PolicyError) -> Exit {
+    let (code, stderr) = match error.origin {
+        ErrorOrigin::Failure => (2, format!("rust-test-keys: {}\n", error.detail)),
+        // Native code has no Python source frames. Preserve the exception class,
+        // exact final diagnostic line and unhandled-exception status instead.
+        ErrorOrigin::Exception { class } => (
+            1,
+            format!(
+                "Traceback (most recent call last):\n{class}: {}\n",
+                error.detail
+            ),
+        ),
+    };
     Exit {
         stdout: String::new(),
-        stderr: format!("{USAGE}rust-test-keys: error: {message}\n"),
-        code: 2,
+        stderr,
+        code,
     }
-}
-fn option(arg: &str) -> Option<usize> {
-    let name = arg.split('=').next().unwrap_or(arg);
-    if name == "-h" {
-        return Some(0);
-    }
-    // Every long option has a distinct initial, so nonempty prefixes are unique.
-    // The bare `--` separator is handled before option lookup.
-    name.starts_with("--")
-        .then(|| OPTIONS.iter().position(|v| v.starts_with(name)))
-        .flatten()
-}
-fn takes_value(id: usize) -> bool {
-    matches!(id, 1 | 2 | 3 | 4 | 7)
 }
 fn key_json(key: &CrateKey, paths: bool, out: &mut String) -> std::fmt::Result {
     if paths {
@@ -72,91 +146,47 @@ pub fn run(argv: impl IntoIterator<Item = OsString>) -> anyhow::Result<Exit> {
                 .map_err(|_| anyhow::anyhow!("rust-test-keys: argv is not UTF-8"))
         })
         .collect::<Result<_, _>>()?;
-    let (mut repo, mut tree, mut inputs) = (".", "HEAD", None);
-    let (mut paths, mut json) = (false, false);
-    let mut only = Vec::new();
-    let mut unknown = Vec::new();
-    let mut i = 0;
-    while i < args.len() {
-        let arg = &args[i];
-        if arg == "--" {
-            unknown.extend(args[i..].iter().map(String::as_str));
-            break;
-        }
-        let Some(id) = option(arg) else {
-            unknown.push(arg);
-            i += 1;
-            continue;
-        };
-        let explicit = arg.split_once('=').map(|(_, value)| value);
-        if !takes_value(id) {
-            if let Some(value) = explicit {
-                return Ok(diagnostic(format!(
-                    "argument {}: ignored explicit argument {}",
-                    if id == 0 { "-h/--help" } else { OPTIONS[id] },
-                    super::python_repr::Repr(value.into())
-                )));
-            }
-            if id == 0 {
-                return Ok(Exit {
-                    stdout: format!("{USAGE}{HELP}"),
-                    stderr: String::new(),
-                    code: 0,
-                });
-            }
-            if id == 5 {
-                paths = true;
-            } else {
-                json = true;
-            }
-        } else {
-            let value = match explicit {
-                Some(value) => value,
-                None => {
-                    i += 1;
-                    let Some(value) = args
-                        .get(i)
-                        .filter(|v| !v.starts_with('-') || v.parse::<f64>().is_ok())
-                    else {
-                        return Ok(diagnostic(format!(
-                            "argument {}: expected one argument",
-                            OPTIONS[id]
-                        )));
-                    };
-                    value
-                }
-            };
-            match id {
-                1 => repo = value,
-                2 => tree = value,
-                3 => inputs = Some(value),
-                4 => only.push(value.to_owned()),
-                _ => {}
-            }
-        }
-        i += 1;
-    }
-    if !unknown.is_empty() {
-        return Ok(diagnostic(format!(
-            "unrecognized arguments: {}",
-            unknown.join(" ")
-        )));
-    }
-    let keys = match (TreeSource {
-        repo: Path::new(repo),
-        tree,
-        no_lazy_fetch: false,
-    })
-    .keys_from(inputs, &only)
-    {
-        Ok(keys) => keys,
-        Err(error) => {
+    let parsed = match PARSER.parse(&args) {
+        Ok(parsed) => parsed,
+        Err(exit) => {
             return Ok(Exit {
-                stdout: String::new(),
-                stderr: format!("rust-test-keys: {}\n", error.detail),
-                code: 2,
+                stdout: exit.stdout,
+                stderr: exit.stderr,
+                code: u8::try_from(exit.code)?,
             });
         }
+    };
+    if parsed.provided.contains("--verifier") {
+        return Ok(Exit {
+            stdout: String::new(),
+            stderr: "rust-test-keys: --verifier is not supported; the projection is built into mergemaster\n".into(),
+            code: 2,
+        });
+    }
+    let mut values = parsed.values;
+    let repo =
+        string(values.remove("--repo")).ok_or_else(|| anyhow::anyhow!("missing --repo default"))?;
+    let tree =
+        string(values.remove("--tree")).ok_or_else(|| anyhow::anyhow!("missing --tree default"))?;
+    let inputs = string(values.remove("--inputs-from"));
+    let paths = values.remove("--paths") == Some(Value::Bool(true));
+    let json = values.remove("--json") == Some(Value::Bool(true));
+    let only = match values.remove("--crate") {
+        Some(Value::List(items)) => items
+            .into_iter()
+            .filter_map(|v| string(Some(v)))
+            .collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
+    let keys = match (TreeSource {
+        repo: Path::new(&repo),
+        tree: &tree,
+        no_lazy_fetch: false,
+    })
+    .keys_from(inputs.as_deref(), &only)
+    {
+        Ok(keys) => keys,
+        Err(error) => return Ok(refused(error)),
     };
     let mut keys: Vec<_> = keys.into_iter().collect();
     keys.sort_by(|a, b| a.0.cmp(&b.0));
