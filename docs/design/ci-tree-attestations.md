@@ -117,6 +117,19 @@ arm. Unsupported receipt versions produce an explicit unsupported-version error.
 This retained-source envelope is distinct from the OIDC producer-proof v1
 protocol below; that protocol's recipe digest and schema version do not change.
 
+`binary_sha256` comes from `/proc/self/exe` inside the accepted workflow. This
+measurement is only as trustworthy as that workflow and its runner. Tool
+identity equality is not proof of execution.
+
+#### Operator rollout and rotation
+
+Coordinate all four values: the new `.mergemaster/tool-pin.json`, the operator's
+raw-byte `tool_pin_sha256`, the operator's `accepted_base`, and the fleet workflow
+digest (`workflow_sha256`). Nothing updates them together automatically. Every
+mismatch fails closed: full eligibility is lost, and some mismatches reject the
+receipt before eligibility is evaluated. Publishing a new release does not
+revoke the old pin; only operator configuration changes revoke acceptance.
+
 
 ### Accepted producer proof v1
 

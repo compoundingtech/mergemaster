@@ -274,6 +274,20 @@ therefore change the binding. Version-1 source receipts are unsupported, not
 converted or accepted through a legacy arm. Source retention is provenance,
 not proof that checks passed or authorization for full trust.
 
+`binary_sha256` is measured from `/proc/self/exe` inside the accepted workflow.
+It is only as trustworthy as that workflow and its runner: matching tool
+identity is not proof that the tool executed.
+
+#### Source-receipt operator rollout and rotation
+
+Roll out these four values together: the new `.mergemaster/tool-pin.json`,
+the operator's raw-byte `tool_pin_sha256`, the operator's `accepted_base`,
+and the fleet workflow's operator `workflow_sha256`. Nothing updates these
+values together automatically. Every mismatch fails closed: full eligibility
+is lost (and receipt validation can fail before eligibility is considered).
+Publishing a new release does not revoke the old pin; only changing the
+operator configuration revokes its acceptance.
+
 Signing fragments take the consumer's full-history checkout steps, signing
 environment, check names, and lane-specific web-note environment. `configDir`
 and `legacyConfigDir` default to `.fractal` and `.st`; the accepted base decides
