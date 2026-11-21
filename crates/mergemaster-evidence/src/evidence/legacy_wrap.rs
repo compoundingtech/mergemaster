@@ -42,16 +42,25 @@ const RESERVED: [&str; 8] = [
 ];
 
 pub fn run(argv: &[String]) -> Result<()> {
+    let secrets = transport::Redactor::from_env();
     let code = match args::parse(argv) {
         Err(exit) => {
-            std::io::stdout().lock().write_all(exit.stdout.as_bytes())?;
-            std::io::stderr().lock().write_all(exit.stderr.as_bytes())?;
+            std::io::stdout()
+                .lock()
+                .write_all(secrets.text(&exit.stdout).as_bytes())?;
+            std::io::stderr()
+                .lock()
+                .write_all(secrets.text(&exit.stderr).as_bytes())?;
             exit.code
         }
-        Ok(args) => match wrap(args) {
+        Ok(args) => match wrap(args, &secrets) {
             Ok(code) => code,
             Err(error) => {
-                writeln!(std::io::stderr().lock(), "evidence-wrap: {error}")?;
+                writeln!(
+                    std::io::stderr().lock(),
+                    "evidence-wrap: {}",
+                    secrets.text(&error.to_string())
+                )?;
                 1
             }
         },
@@ -64,6 +73,14 @@ pub fn run(argv: &[String]) -> Result<()> {
 
 fn git(args: &[&str]) -> Result<Vec<u8>> {
     Ok(transport::git(args, None)?.stdout)
+}
+
+// CPython sys.exit converts through signed long long before POSIX keeps eight bits.
+fn process_status(integer: &str) -> i32 {
+    match integer.parse::<i64>() {
+        Ok(value) => (value & 0xff) as i32,
+        Err(_) => 255,
+    }
 }
 fn git_text(args: &[&str]) -> Result<String> {
     Ok(String::from_utf8(git(args)?)?
@@ -150,7 +167,7 @@ fn oid(text: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
-fn toolchain(override_digest: Option<&str>) -> Result<String> {
+fn toolchain(override_digest: Option<&str>, secrets: &transport::Redactor) -> Result<String> {
     if let Some(digest) = override_digest.filter(|s| !s.is_empty()) {
         return Ok(digest.to_owned());
     }
@@ -175,6 +192,7 @@ fn toolchain(override_digest: Option<&str>) -> Result<String> {
         } else {
             drv.stderr
         })?;
+        let detail = secrets.text(&detail);
         let detail = detail.trim();
         let at = detail.char_indices().rev().nth(299).map_or(0, |(at, _)| at);
         bail!(
@@ -206,6 +224,9 @@ fn run_command(command: &[String]) -> Result<(i32, String)> {
         .args(&command[1..])
         .stdout(Stdio::from(writer))
         .stderr(Stdio::from(error_writer));
+    launch
+        .env_remove("EVIDENCE_PUSH_TOKEN")
+        .env_remove("EVIDENCE_SIGNER");
     let child = launch.spawn().map_err(|error| {
         anyhow::anyhow!(
             "{}",
@@ -249,7 +270,13 @@ fn run_command(command: &[String]) -> Result<(i32, String)> {
     ))
 }
 
-fn lane_inputs(args: &args::Args, base: &str, tree: &str, command: &[String]) -> Result<String> {
+fn lane_inputs(
+    args: &args::Args,
+    base: &str,
+    tree: &str,
+    command: &[String],
+    secrets: &transport::Redactor,
+) -> Result<String> {
     let shown = git(&[
         "show",
         &format!("{base}:{}", config_path(base, "required-lanes.json")?),
@@ -319,9 +346,12 @@ fn lane_inputs(args: &args::Args, base: &str, tree: &str, command: &[String]) ->
             .map(|id| json::text(definition.node(*id)))
             .collect::<Result<_>>()?;
         eprintln!(
-            "evidence-wrap: this tree edits lane {} ({}); the note carries the edited definition's digest",
-            args.check,
-            changed.join(", ")
+            "{}",
+            secrets.text(&format!(
+                "evidence-wrap: this tree edits lane {} ({}); the note carries the edited definition's digest",
+                args.check,
+                changed.join(", ")
+            ))
         );
     }
     json::text(required(&definition, "tree_sha256")?)
@@ -370,6 +400,9 @@ fn signer_launch(encoded: &str) -> Result<Command> {
     };
     let mut launch = Command::new(program);
     launch.args(&argv[1..]).stdin(Stdio::piped());
+    launch
+        .env_remove("EVIDENCE_PUSH_TOKEN")
+        .env_remove("EVIDENCE_SIGNER");
     for (key, _) in std::env::vars_os() {
         let name = key.to_string_lossy();
         if name.starts_with("LD_")
@@ -384,7 +417,7 @@ fn signer_launch(encoded: &str) -> Result<Command> {
     Ok(launch)
 }
 
-fn wrap(args: args::Args) -> Result<i32> {
+fn wrap(args: args::Args, secrets: &transport::Redactor) -> Result<i32> {
     let top = git_text(&["rev-parse", "--show-toplevel"])?;
     std::env::set_current_dir(&top)?;
     let clean = dirty()?.is_empty();
@@ -413,7 +446,7 @@ fn wrap(args: args::Args) -> Result<i32> {
     json::set(
         &mut inputs,
         "toolchain_sha256",
-        &toolchain(args.toolchain_sha256.as_deref())?,
+        &toolchain(args.toolchain_sha256.as_deref(), secrets)?,
     );
     json::set(&mut inputs, "wrapper_sha256", super::producer_digest()?);
     json::set(&mut inputs, "system", &system);
@@ -522,7 +555,7 @@ fn wrap(args: args::Args) -> Result<i32> {
             json::set(
                 &mut inputs,
                 "lane_definition_sha256",
-                &lane_inputs(&args, base, &tree, &args.command)?,
+                &lane_inputs(&args, base, &tree, &args.command, secrets)?,
             );
         }
         let (exit, digest) = run_command(&args.command)?;
@@ -597,6 +630,7 @@ fn wrap(args: args::Args) -> Result<i32> {
     let signed = capture(&mut signer_launch(&args.signer)?, payload.as_bytes())?;
     if !signed.status.success() {
         let detail = String::from_utf8_lossy(&signed.stderr);
+        let detail = secrets.text(&detail);
         let detail = detail.trim_matches(super::legacy_verify::projection_oid::space);
         let at = detail.char_indices().rev().nth(499).map_or(0, |(at, _)| at);
         bail!("the signer refused: {}", &detail[at..]);
@@ -604,26 +638,15 @@ fn wrap(args: args::Args) -> Result<i32> {
     let answer = json::parse_bytes(&signed.stdout)?;
     let record = json::text(required(&answer, "record")?)?;
     ensure!(
-        json::get(&answer, answer.root(), "commit")
-            .map(json::text)
-            .transpose()?
-            .as_deref()
-            == Some(commit.as_str())
-            && json::get(&answer, answer.root(), "tree")
-                .map(json::text)
-                .transpose()?
-                .as_deref()
-                == Some(tree.as_str())
-            && json::get(&answer, answer.root(), "tier")
-                .map(json::text)
-                .transpose()?
-                .as_deref()
-                == Some("full"),
+        json::text_equals(json::get(&answer, answer.root(), "commit"), &commit)
+            && json::text_equals(json::get(&answer, answer.root(), "tree"), &tree)
+            && json::text_equals(json::get(&answer, answer.root(), "tier"), "full"),
         "the signer answered for a different commit, tree or tier"
     );
     let encoded_pack = json::text(required(&answer, "object_pack_base64")?)?;
     let pack = PACK_BASE64.decode(encoded_pack)?;
-    let exit_code = exit_json.parse::<i64>().unwrap_or(-1) as i32;
+    let succeeded = matches!(exit_json.as_str(), "0" | "-0");
+    let exit_code = process_status(&exit_json);
     let mut summary = json::Fields::new();
     if let Some(out) = args.out.as_deref().filter(|s| !s.is_empty()) {
         std::fs::create_dir_all(out)?;
@@ -642,7 +665,7 @@ fn wrap(args: args::Args) -> Result<i32> {
             Path::new(out).join(format!("{record}.json")),
             json::object(&summary, false),
         )?;
-        eprintln!("{}", json::object(&summary, true));
+        eprintln!("{}", secrets.text(&json::object(&summary, true)));
         return Ok(exit_code);
     }
     transport::git(&["index-pack", "--stdin"], Some(&pack))?;
@@ -683,10 +706,9 @@ fn wrap(args: args::Args) -> Result<i32> {
         summary.insert(key.into(), value);
     }
     let mut verified = false;
-    if exit_code == 0 && Path::new(&args.verifier).exists() {
-        let keys = if let Some(keys) = args.keys.as_deref().filter(|s| !s.is_empty()) {
-            PathBuf::from(keys)
-        } else {
+    if succeeded && Path::new(&args.verifier).exists() {
+        let supplied_keys = args.keys.as_deref().filter(|s| !s.is_empty());
+        let temporary_keys = if supplied_keys.is_none() {
             let shown = git(&[
                 "show",
                 &format!(
@@ -695,10 +717,21 @@ fn wrap(args: args::Args) -> Result<i32> {
                     config_path(&args.keys_from, "evidence-keys")?
                 ),
             ])?;
-            let path = PathBuf::from(std::env::var_os("TMPDIR").unwrap_or_else(|| "/tmp".into()))
-                .join(format!("evidence-keys-{}", std::process::id()));
-            std::fs::write(&path, shown)?;
-            path
+            let directory = std::env::var_os("TMPDIR").unwrap_or_else(|| "/tmp".into());
+            let mut file = tempfile::Builder::new()
+                .prefix("evidence-keys-")
+                .tempfile_in(directory)?;
+            file.write_all(&shown)?;
+            Some(file)
+        } else {
+            None
+        };
+        let keys = match supplied_keys {
+            Some(path) => Path::new(path),
+            None => temporary_keys
+                .as_ref()
+                .context("missing verifier keys")?
+                .path(),
         };
         let mut verify = Command::new(&args.verifier);
         verify
@@ -730,29 +763,45 @@ fn wrap(args: args::Args) -> Result<i32> {
         summary.insert("verified".into(), verified.to_string());
         if !verified {
             let detail = String::from_utf8_lossy(&checked.stdout);
+            let detail = secrets.text(&detail);
             let at = detail.char_indices().rev().nth(499).map_or(0, |(at, _)| at);
             summary.insert("verification".into(), json::quote(&detail[at..]));
         }
     }
     if let Some(remote) = args.push.as_deref().filter(|s| !s.is_empty()) {
         ensure!(
-            exit_code != 0 || verified,
+            !succeeded || verified,
             "not pushing: the note did not verify locally"
         );
-        transport::push_refs(
-            remote,
-            &refs,
-            &std::env::var("EVIDENCE_PUSH_TOKEN").unwrap_or_default(),
-        )?;
+        transport::push_refs(remote, &refs, secrets)?;
         summary.insert("pushed".into(), "true".into());
     }
-    eprintln!("{}", json::object(&summary, true));
+    eprintln!("{}", secrets.text(&json::object(&summary, true)));
     Ok(exit_code)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wide_integer_statuses_match_cpython_without_changing_success() {
+        // Mergemaster measured CPython 3.14.10 sys.exit: i64 overflow -> 255;
+        // values within i64 keep their low eight bits (including negative values).
+        for (integer, status) in [
+            ("9223372036854775808", 255),
+            ("18446744073709551616", 255),
+            ("4294967296", 0),
+            ("256", 0),
+            ("-1", 255),
+            ("9223372036854775807", 255),
+            ("-256", 0),
+            ("-9223372036854775809", 255),
+        ] {
+            assert_eq!(process_status(integer), status, "{integer}");
+            assert!(!matches!(integer, "0" | "-0"));
+        }
+    }
 
     #[test]
     fn pack_base64_allows_unused_trailing_bits_but_rejects_bad_alphabet_and_padding() {

@@ -40,6 +40,10 @@ pub(super) fn get<'a>(document: &'a Document, node: &'a Node, key: &str) -> Opti
         .map(|(_, id)| document.node(*id))
 }
 
+pub(super) fn text_equals(node: Option<&Node>, expected: &str) -> bool {
+    matches!(node, Some(Node::String(points)) if points.iter().copied().eq(expected.chars().map(u32::from)))
+}
+
 pub(super) fn text(node: &Node) -> Result<String> {
     let Node::String(points) = node else {
         bail!("expected a JSON string");
