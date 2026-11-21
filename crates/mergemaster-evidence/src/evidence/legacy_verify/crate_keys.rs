@@ -20,6 +20,16 @@ impl TreeSource<'_> {
         inputs_from: Option<&str>,
         only: &[String],
     ) -> Result<IndexMap<String, CrateKey>, PolicyError> {
+        self.keys_from_with_projection_error(inputs_from, only, std::convert::identity)
+    }
+    /// Preserve the script/module exception boundary without reclassifying
+    /// failures from tree resolution, inputs, manifests or crate selection.
+    pub(super) fn keys_from_with_projection_error(
+        &self,
+        inputs_from: Option<&str>,
+        only: &[String],
+        projection_error: impl FnOnce(PolicyError) -> PolicyError,
+    ) -> Result<IndexMap<String, CrateKey>, PolicyError> {
         let tree = self.resolve()?;
         let inputs = TreeSource {
             repo: self.repo,
@@ -27,12 +37,13 @@ impl TreeSource<'_> {
             no_lazy_fetch: self.no_lazy_fetch,
         }
         .read_inputs()?;
-        TreeSource {
+        let (tree, paths) = TreeSource {
             repo: self.repo,
             tree: &tree,
             no_lazy_fetch: self.no_lazy_fetch,
         }
-        .keys(&inputs, only)
+        .key_paths(&inputs, only)?;
+        project_keys(self.repo, &tree, paths, self.no_lazy_fetch).map_err(projection_error)
     }
     pub fn keys(
         &self,

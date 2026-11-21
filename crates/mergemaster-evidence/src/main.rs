@@ -37,20 +37,23 @@ fn main() -> ExitCode {
     let helper = command
         .as_ref()
         .is_some_and(|v| v == "legacy-evidence-verify-helper");
-    if helper
-        || command
-            .as_ref()
-            .is_some_and(|v| v == "legacy-evidence-verify")
-    {
-        let result = if helper {
+    let result = match command.as_ref() {
+        Some(v) if v == "legacy-evidence-verify" => {
+            Some(mergemaster_evidence::evidence::legacy_verify::cli_dispatch::run(raw))
+        }
+        Some(v) if v == "legacy-rust-test-keys" => {
+            Some(mergemaster_evidence::evidence::legacy_verify::rust_test_keys::run(raw))
+        }
+        Some(v) if v == "legacy-evidence-verify-helper" => Some(
             mergemaster_evidence::evidence::legacy_verify::cli_helper::run(
                 raw,
                 &mut std::io::stdin().lock(),
-            )
-        } else {
-            mergemaster_evidence::evidence::legacy_verify::cli_dispatch::run(raw)
-        }
-        .and_then(|exit| {
+            ),
+        ),
+        _ => None,
+    };
+    if let Some(result) = result {
+        let result = result.and_then(|exit| {
             std::io::stdout().lock().write_all(exit.stdout.as_bytes())?;
             std::io::stderr().lock().write_all(exit.stderr.as_bytes())?;
             Ok(exit.code)
