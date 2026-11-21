@@ -1,7 +1,11 @@
 //! Per-pull-request evidence decisions and release build cost accounting.
 use super::flip_ready::{
-    GitHub, cache_dir, config_path, fields_of, git, iso, json_pretty, parse_time,
+    GitHub, cache_dir, config_path, fields_of, git, iso, json_pretty, parse_api, parse_time,
 };
+use super::flip_skip_python::{
+    general, node_json, node_str, rounded, splitlines, truthy, value_str,
+};
+use super::legacy_verify::statement_document::{Document, Node};
 use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Duration, Timelike, Utc};
 use serde_json::{Map, Value, json};
@@ -87,7 +91,12 @@ fn text<'a>(value: &'a Value, key: &str) -> &'a str {
 }
 fn selected(run: &Value, actors: &BTreeSet<String>) -> bool {
     text(run, "status") == "completed"
-        && (actors.is_empty() || actors.contains(text(&run["actor"], "login")))
+        && (actors.is_empty()
+            || run
+                .get("actor")
+                .and_then(|actor| actor.get("login"))
+                .and_then(Value::as_str)
+                .is_some_and(|login| actors.contains(login)))
 }
 fn revision(base: &str) -> &str {
     if base.is_empty() { "origin/main" } else { base }
@@ -114,20 +123,42 @@ fn lanes_at<'a>(
                 read_config(root, ".st/required-lanes.json", base)?
             }
         };
-        let data: Value = serde_json::from_str(&data)?;
-        let lanes = data
-            .get("lanes")
-            .filter(|v| !v.is_null())
-            .unwrap_or(&data)
-            .as_object()
-            .ok_or_else(|| anyhow!("required lanes must be an object"))?;
+        let data = Document::from_text_with_depth_limit(&data, None)
+            .map_err(|error| anyhow!("invalid required lanes JSON: {error:?}"))?;
+        let lanes = node_get(&data, data.root(), "lanes")
+            .filter(|node| truthy(*node))
+            .unwrap_or(data.root());
+        let Node::Object(lanes) = lanes else {
+            return Err(anyhow!("required lanes must be an object"));
+        };
         let mut parsed = Lanes::new();
-        for (check, lane) in lanes {
-            let paths = match lane.get("definition_paths").filter(|v| !v.is_null()) {
-                Some(paths) => serde_json::from_value(paths.clone())?,
+        for (check, id) in lanes {
+            let check = scalar_text(check)?;
+            let lane = data.node(*id);
+            if !matches!(lane, Node::Object(_)) {
+                return Err(anyhow!("required lane definition must be an object"));
+            }
+            let paths = match node_get(&data, lane, "definition_paths").filter(|node| truthy(*node))
+            {
                 None => Vec::new(),
+                Some(Node::Array(paths)) => paths
+                    .iter()
+                    .map(|id| match data.node(*id) {
+                        Node::String(points) => scalar_text(points),
+                        _ => Err(anyhow!("definition path must be text")),
+                    })
+                    .collect::<Result<_>>()?,
+                Some(Node::String(points)) => points
+                    .iter()
+                    .map(|point| scalar_text(&[*point]))
+                    .collect::<Result<_>>()?,
+                Some(Node::Object(paths)) => paths
+                    .keys()
+                    .map(|points| scalar_text(points))
+                    .collect::<Result<_>>()?,
+                Some(_) => return Err(anyhow!("definition paths must be iterable")),
             };
-            parsed.insert(check.clone(), paths);
+            parsed.insert(check, paths);
         }
         cache.insert(base.to_owned(), parsed);
     }
@@ -138,27 +169,50 @@ fn lanes_at<'a>(
 fn enforced_at(
     root: &Path,
     base: &str,
-    cache: &mut BTreeMap<String, Value>,
+    cache: &mut BTreeMap<String, Option<Document>>,
     check: &str,
 ) -> Result<bool> {
     let policy = match cache.entry(base.to_owned()) {
         std::collections::btree_map::Entry::Occupied(slot) => slot.into_mut(),
         std::collections::btree_map::Entry::Vacant(slot) => {
             let checks = match read_config(root, ".st/evidence-skip-policy.json", base) {
-                Ok(text) => serde_json::from_str::<Value>(&text)
-                    .ok()
-                    .and_then(|v| v.get("checks").cloned())
-                    .unwrap_or(Value::Null),
-                Err(error) if super::flip_ready::child_exited(&error) => Value::Null,
+                Ok(text) => Document::from_text_with_depth_limit(&text, None).ok(),
+                Err(error) if super::flip_ready::child_exited(&error) => None,
                 Err(error) => return Err(error),
             };
             slot.insert(checks)
         }
     };
-    Ok(match policy.get(check).filter(|v| v.is_object()) {
-        Some(entry) => entry.get("enforce") == Some(&Value::Bool(true)),
-        None => true,
-    })
+    let checks = policy.as_ref().and_then(|document| {
+        node_get(document, document.root(), "checks").map(|checks| (document, checks))
+    });
+    Ok(
+        match checks.and_then(|(document, checks)| {
+            node_get(document, checks, check).map(|entry| (document, entry))
+        }) {
+            Some((document, entry @ Node::Object(_))) => {
+                matches!(node_get(document, entry, "enforce"), Some(Node::Bool(true)))
+            }
+            _ => true,
+        },
+    )
+}
+fn node_get<'a>(document: &'a Document, node: &'a Node, key: &str) -> Option<&'a Node> {
+    let Node::Object(values) = node else {
+        return None;
+    };
+    values
+        .iter()
+        .find(|(points, _)| points.iter().copied().eq(key.chars().map(u32::from)))
+        .map(|(_, id)| document.node(*id))
+}
+fn scalar_text(points: &[u32]) -> Result<String> {
+    points
+        .iter()
+        .copied()
+        .map(char::from_u32)
+        .collect::<Option<String>>()
+        .ok_or_else(|| anyhow!("configuration name or path contains a lone surrogate"))
 }
 fn touches(files: &[String], paths: &[String]) -> bool {
     files.iter().any(|file| {
@@ -184,7 +238,7 @@ fn pr_of(source: &impl Source, run: &Value) -> Result<Option<u64>> {
         source.repo(),
         text(run, "head_sha")
     );
-    let pulls: Vec<Value> = serde_json::from_str(&source.gh(&["api", &path])?)?;
+    let pulls: Vec<Value> = serde_json::from_value(parse_api(&source.gh(&["api", &path])?)?)?;
     Ok(pulls.first().and_then(|v| v["number"].as_u64()))
 }
 fn pr_files<'a>(
@@ -194,8 +248,12 @@ fn pr_files<'a>(
 ) -> Result<&'a [String]> {
     if let std::collections::btree_map::Entry::Vacant(slot) = cache.entry(number) {
         let path = format!("repos/{}/pulls/{number}/files?per_page=100", source.repo());
-        let pages: Vec<Vec<Value>> =
-            serde_json::from_str(&source.gh(&["api", "--paginate", "--slurp", &path])?)?;
+        let pages: Vec<Vec<Value>> = serde_json::from_value(parse_api(&source.gh(&[
+            "api",
+            "--paginate",
+            "--slurp",
+            &path,
+        ])?)?)?;
         let files = pages
             .into_iter()
             .flatten()
@@ -249,30 +307,133 @@ fn not_run(conclusions: &BTreeMap<&str, &str>, check: &str) -> bool {
     conclusions.get(format!("{check}-execution").as_str()) == Some(&"skipped")
         && conclusions.get(check) == Some(&"success")
 }
-fn seats(receipts: &[PathBuf]) -> BTreeMap<String, Value> {
+struct Receipt {
+    document: Document,
+    agent: usize,
+}
+impl Receipt {
+    fn node(&self) -> &Node {
+        self.document.node(self.agent)
+    }
+}
+fn seats(receipts: &[PathBuf]) -> Result<BTreeMap<String, Receipt>> {
     let mut found = BTreeMap::new();
     for path in receipts {
         let Ok(bytes) = fs::read(path) else { continue };
-        for line in String::from_utf8_lossy(&bytes).lines() {
-            let Ok(record) = serde_json::from_str::<Value>(line) else {
+        // Rust and Python both replace each maximal invalid UTF-8 subsequence.
+        for line in splitlines(&String::from_utf8_lossy(&bytes)) {
+            let Ok(document) = Document::from_text_with_depth_limit(line, None) else {
                 continue;
             };
-            if let Some(branch) = record["branch"].as_str().filter(|v| !v.is_empty())
-                && let Some(agent) = record.get("agent").filter(|v| {
-                    !v.is_null() && **v != json!("") && **v != json!(false) && **v != json!(0)
-                })
-            {
-                found.insert(branch.to_owned(), agent.clone());
+            let Node::Object(record) = document.root() else {
+                continue;
+            };
+            let get = |key: &str| {
+                record
+                    .iter()
+                    .find(|(points, _)| points.iter().copied().eq(key.chars().map(u32::from)))
+                    .map(|(_, id)| *id)
+            };
+            let (Some(branch), Some(agent)) = (get("branch"), get("agent")) else {
+                continue;
+            };
+            if !truthy(document.node(branch)) || !truthy(document.node(agent)) {
+                continue;
             }
+            if matches!(document.node(branch), Node::Array(_) | Node::Object(_)) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "TypeError: unhashable receipt branch",
+                )
+                .into());
+            }
+            // GitHub head_branch is text; only text keys can match it.
+            let Node::String(branch) = document.node(branch) else {
+                continue;
+            };
+            let Some(branch) = branch
+                .iter()
+                .copied()
+                .map(char::from_u32)
+                .collect::<Option<String>>()
+            else {
+                continue;
+            };
+            found.insert(branch, Receipt { document, agent });
         }
     }
-    found
+    Ok(found)
 }
-fn rounded_minutes(value: f64) -> f64 {
-    // Like Python round(value, 1): fixed-precision formatting rounds the exact
-    // binary value (ties-to-even), and parsing correctly rounds it back.
-    // Parsing cannot fail for a finite formatted f64; keep the input otherwise.
-    format!("{value:.1}").parse().unwrap_or(value)
+struct Report {
+    value: Value,
+    seats: BTreeMap<String, Receipt>,
+}
+impl std::ops::Deref for Report {
+    type Target = Value;
+    fn deref(&self) -> &Value {
+        &self.value
+    }
+}
+impl Report {
+    fn receipt(&self, entry: &Value) -> Option<&Receipt> {
+        entry["branch"]
+            .as_str()
+            .and_then(|branch| self.seats.get(branch))
+    }
+    fn json(&self) -> Result<String> {
+        let mut out = String::new();
+        self.write_json(&self.value, 0, &mut out)?;
+        Ok(out)
+    }
+    fn write_json(&self, value: &Value, depth: usize, out: &mut String) -> Result<()> {
+        use std::fmt::Write;
+        match value {
+            Value::Array(values) => {
+                out.push('[');
+                for (index, value) in values.iter().enumerate() {
+                    if index != 0 {
+                        out.push(',');
+                    }
+                    write!(out, "\n{:width$}", "", width = (depth + 1) * 2)?;
+                    self.write_json(value, depth + 1, out)?;
+                }
+                if !values.is_empty() {
+                    write!(out, "\n{:width$}", "", width = depth * 2)?;
+                }
+                out.push(']');
+            }
+            Value::Object(values) => {
+                out.push('{');
+                for (index, (key, child)) in values.iter().enumerate() {
+                    if index != 0 {
+                        out.push(',');
+                    }
+                    // Entries keep seats in the lossless receipt arena instead
+                    // of projecting arbitrary Python JSON into serde_json.
+                    if key == "checks" && depth == 2 && values.contains_key("pr") {
+                        write!(out, "\n{:width$}\"seat\": ", "", width = (depth + 1) * 2)?;
+                        match self.receipt(value) {
+                            Some(receipt) => {
+                                node_json(&receipt.document, receipt.node(), depth + 1, out)?
+                            }
+                            None => out.push_str("\"unknown\""),
+                        }
+                        out.push(',');
+                    }
+                    write!(out, "\n{:width$}", "", width = (depth + 1) * 2)?;
+                    super::legacy_json::string(key, out)?;
+                    out.push_str(": ");
+                    self.write_json(child, depth + 1, out)?;
+                }
+                if !values.is_empty() {
+                    write!(out, "\n{:width$}", "", width = depth * 2)?;
+                }
+                out.push('}');
+            }
+            _ => out.push_str(&json_pretty(value)?),
+        }
+        Ok(())
+    }
 }
 fn release_surface(
     source: &impl Source,
@@ -326,7 +487,7 @@ fn release_surface(
         }
     }
     Ok(
-        json!({"workflow": RELEASE_WORKFLOW, "runs": count, "minutes": rounded_minutes(minutes), "macos_minutes": rounded_minutes(macos), "prs": prs}),
+        json!({"workflow": RELEASE_WORKFLOW, "runs": count, "minutes": rounded(minutes, 1), "macos_minutes": rounded(macos, 1), "prs": prs}),
     )
 }
 #[derive(Default)]
@@ -342,7 +503,7 @@ fn report(
     until: DateTime<Utc>,
     actors: &BTreeSet<String>,
     receipts: &[PathBuf],
-) -> Result<Value> {
+) -> Result<Report> {
     let runs = source.pr_runs(since, until, "fleet.yml")?;
     let mut count = 0;
     let mut counts: BTreeMap<String, [u64; 11]> = BTreeMap::new();
@@ -386,7 +547,9 @@ fn report(
                     number = pr_of(source, run)?;
                 }
                 let lanes = lanes_at(root, text(&fields, "base"), &mut lane_cache)?;
-                if let (Some(n), Some(paths)) = (number, lanes.get(check)) {
+                if let (Some(n), Some(paths)) =
+                    (number.filter(|number| *number != 0), lanes.get(check))
+                {
                     lane_edit = touches(pr_files(source, n, &mut file_cache)?, paths);
                 }
             }
@@ -432,8 +595,8 @@ fn report(
             }
         }
     }
-    let by_branch = seats(receipts);
-    let listed: Vec<Value> = unsigned.into_iter().map(|(pr, entry)| json!({"pr": pr, "branch": entry.branch, "seat": by_branch.get(entry.branch.as_str().unwrap_or("")).cloned().unwrap_or(json!("unknown")), "checks": entry.checks, "runs": entry.runs.len()})).collect();
+    let by_branch = seats(receipts)?;
+    let listed: Vec<Value> = unsigned.into_iter().map(|(pr, entry)| json!({"pr": pr, "branch": entry.branch, "checks": entry.checks, "runs": entry.runs.len()})).collect();
     let checks: Map<String, Value> = counts
         .into_iter()
         .map(|(check, counts)| {
@@ -449,11 +612,12 @@ fn report(
             )
         })
         .collect();
-    Ok(
-        json!({"window": {"since": iso(since), "until": iso(until)}, "actors": actors, "runs": count, "checks": checks, "other_reasons": others, "not_signed": listed, "release_surface": release_surface(source, since, until, actors)?}),
-    )
+    Ok(Report {
+        value: json!({"window": {"since": iso(since), "until": iso(until)}, "actors": actors, "runs": count, "checks": checks, "other_reasons": others, "not_signed": listed, "release_surface": release_surface(source, since, until, actors)?}),
+        seats: by_branch,
+    })
 }
-fn markdown(result: &Value) -> String {
+fn markdown(result: &Report) -> Result<String> {
     let actors = result["actors"]
         .as_array()
         .map(|a| {
@@ -470,7 +634,7 @@ fn markdown(result: &Value) -> String {
                 "| {check} | {} |",
                 CATEGORIES
                     .iter()
-                    .map(|category| row[*category].to_string())
+                    .map(|category| value_str(&row[*category]))
                     .collect::<Vec<_>>()
                     .join(" | ")
             ));
@@ -492,10 +656,10 @@ fn markdown(result: &Value) -> String {
                         .join(", ")
                 })
                 .unwrap_or_default();
-            let seat = entry["seat"]
-                .as_str()
-                .map(str::to_owned)
-                .unwrap_or_else(|| entry["seat"].to_string());
+            let seat = match result.receipt(entry) {
+                Some(receipt) => node_str(&receipt.document, receipt.node())?,
+                None => "unknown".to_owned(),
+            };
             lines.push(format!(
                 "- #{} `{}`, seat {seat}: {checks} ({} run(s))",
                 entry["pr"],
@@ -514,19 +678,19 @@ fn markdown(result: &Value) -> String {
                     .join(", ")
             })
             .unwrap_or_default();
-        lines.extend([String::new(), format!("**Release-surface PR runs** ({} on pull_request, real release builds): {} runs, {} job minutes ({} on macOS){}", text(release, "workflow"), release["runs"], release["minutes"].as_f64().unwrap_or(0.0), release["macos_minutes"].as_f64().unwrap_or(0.0), if prs.is_empty() { String::new() } else { format!(": {prs}") })]);
+        lines.extend([String::new(), format!("**Release-surface PR runs** ({} on pull_request, real release builds): {} runs, {} job minutes ({} on macOS){}", text(release, "workflow"), release["runs"], general(release["minutes"].as_f64().unwrap_or(0.0)), general(release["macos_minutes"].as_f64().unwrap_or(0.0)), if prs.is_empty() { String::new() } else { format!(": {prs}") })]);
     }
-    lines.join("\n") + "\n"
+    Ok(lines.join("\n") + "\n")
 }
-fn emit(result: Result<Value>, as_markdown: bool) -> Result<i32> {
+fn emit(result: Result<Report>, as_markdown: bool) -> Result<i32> {
     match result {
         Ok(result) => {
             crate::cli_println!(
                 "{}",
                 if as_markdown {
-                    markdown(&result)
+                    markdown(&result)?
                 } else {
-                    json_pretty(&result)?
+                    result.json()?
                 }
             );
             Ok(0)

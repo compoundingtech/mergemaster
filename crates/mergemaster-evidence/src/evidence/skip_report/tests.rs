@@ -1,3 +1,4 @@
+use super::super::flip_skip_python::value_str;
 use super::*;
 use std::cell::RefCell;
 use std::process::Command;
@@ -129,7 +130,7 @@ impl Fixture {
         self.release_runs.push(json!({"id": id, "status": "completed", "created_at": iso(start), "actor": {"login": actor}, "pull_requests": [{"number": pr}]}));
         self.jobs.insert(id, jobs.iter().map(|(name, label, conclusion, minutes)| json!({"name": name, "labels": [label], "conclusion": conclusion, "started_at": iso(start), "completed_at": iso(start + Duration::milliseconds((minutes * 60_000.0) as i64))})).collect());
     }
-    fn report(&self, root: &Path, receipts: &[PathBuf]) -> Value {
+    fn report(&self, root: &Path, receipts: &[PathBuf]) -> Report {
         report(
             self,
             root,
@@ -408,14 +409,21 @@ fn report_counts_our_runs_per_check_and_lists_unsigned_with_seat() {
             .as_array()
             .unwrap()
             .iter()
-            .map(|e| json!([e["pr"], e["seat"], e["checks"]]))
+            .map(|e| json!([
+                e["pr"],
+                result
+                    .receipt(e)
+                    .map(|receipt| node_str(&receipt.document, receipt.node()).unwrap())
+                    .unwrap_or_else(|| "unknown".to_owned()),
+                e["checks"]
+            ]))
             .collect::<Vec<_>>(),
         vec![
             json!([101, "agent/seat-one", ["linux-gate"]]),
             json!([102, "unknown", ["typescript-client"]])
         ]
     );
-    let text = markdown(&result);
+    let text = markdown(&result).unwrap();
     assert!(text.contains("| linux-gate | 0 | 0 | 1 | 1 | 1 |"));
     assert!(text.contains("#101 `agent/a`, seat agent/seat-one: linux-gate (1 run(s))"));
     assert!(
@@ -470,6 +478,7 @@ fn unsigned_check_whose_skip_is_off_is_shadow_unsigned_and_not_listed() {
     );
     assert!(
         markdown(&result)
+            .unwrap()
             .contains("| linux-fleet-compat | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 |")
     );
 }
@@ -564,7 +573,11 @@ fn unsigned_check_that_passed_with_execution_skipped_was_not_run_and_not_listed(
             .collect::<Vec<_>>(),
         vec![json!([103, ["fractal-web"]]), json!([104, ["linux-gate"]])]
     );
-    assert!(markdown(&result).contains("| fractal-web | 0 | 2 | 0 | 0 | 1 |"));
+    assert!(
+        markdown(&result)
+            .unwrap()
+            .contains("| fractal-web | 0 | 2 | 0 | 0 | 1 |")
+    );
 }
 #[test]
 fn release_surface_pull_request_runs_are_counted_apart_with_minutes() {
@@ -624,7 +637,7 @@ fn release_surface_pull_request_runs_are_counted_apart_with_minutes() {
         result["release_surface"],
         json!({"workflow":"release-fractal.yml","runs":1,"minutes":30.5,"macos_minutes":22.5,"prs":[4629]})
     );
-    assert!(markdown(&result).contains("**Release-surface PR runs** (release-fractal.yml on pull_request, real release builds): 1 runs, 30.5 job minutes (22.5 on macOS): #4629"));
+    assert!(markdown(&result).unwrap().contains("**Release-surface PR runs** (release-fractal.yml on pull_request, real release builds): 1 runs, 30.5 job minutes (22.5 on macOS): #4629"));
     assert!(
         gh.requests
             .borrow()
@@ -654,5 +667,189 @@ fn receipts_last_record_wins_and_unreadable_paths_are_ignored() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("receipts");
     fs::write(&path,"{\"branch\":\"a\",\"agent\":\"first\"}\n[]\ninvalid\n{\"branch\":\"a\",\"agent\":\"last\"}\n").unwrap();
-    assert_eq!(seats(&[root.path().join("missing"), path])["a"], "last");
+    let found = seats(&[root.path().join("missing"), path]).unwrap();
+    assert_eq!(
+        node_str(&found["a"].document, found["a"].node()).unwrap(),
+        "last"
+    );
+}
+
+#[test]
+fn shared_python_scalar_semantics_match_pinned_interpreter() {
+    let literals = [
+        "null",
+        "false",
+        "true",
+        "0",
+        "-0",
+        "0.0",
+        "-0.0",
+        "[]",
+        "{}",
+        "\"\"",
+        "[false]",
+        "{\"z\":false,\"a\":[null,true,\"x'y\"]}",
+        "1e-5",
+        "1e16",
+        "NaN",
+        "Infinity",
+        "-Infinity",
+        "1e400",
+        "184467440737095516160000",
+    ];
+    let output = crate::pinned_python::command()
+        .args(["-B", "-c", "import json,sys; print(json.dumps([(bool(v:=json.loads(s)), str(v), json.dumps(v,indent=2)) for s in sys.argv[1:]]))"])
+        .args(literals)
+        .output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let expected: Value = serde_json::from_slice(&output.stdout).unwrap();
+    for (index, literal) in literals.iter().enumerate() {
+        let document = Document::from_text_with_depth_limit(literal, None).unwrap();
+        assert_eq!(truthy(document.root()), expected[index][0], "{literal}");
+        assert_eq!(
+            node_str(&document, document.root()).unwrap(),
+            expected[index][1],
+            "{literal}"
+        );
+        let mut encoded = String::new();
+        node_json(&document, document.root(), 0, &mut encoded).unwrap();
+        assert_eq!(encoded, expected[index][2], "{literal}");
+        if let Ok(value) = serde_json::from_str::<Value>(literal) {
+            assert_eq!(truthy(&value), expected[index][0], "{literal}");
+            // The API schema rejects integers that serde would turn into floats.
+            if *literal != "-0" && (!value.is_f64() || literal.contains(['.', 'e', 'E'])) {
+                assert_eq!(value_str(&value), expected[index][1], "{literal}");
+            }
+        }
+    }
+}
+
+#[test]
+fn shared_rounding_and_general_format_match_pinned_exact_ties() {
+    let values = [
+        -0.0,
+        0.05,
+        0.15,
+        0.25,
+        0.35,
+        0.75,
+        1.25,
+        1.75,
+        2.25,
+        2.675,
+        123456.5,
+        123457.5,
+        999999.5,
+        999999.95,
+        1000000.0,
+        0.00009999995,
+        0.00001,
+        1e20,
+    ];
+    let output = crate::pinned_python::command()
+        .args(["-B", "-c", "import json,struct,sys; print(json.dumps([(format(v,'g'),[struct.pack('>d',round(v,n)).hex() for n in (1,2)]) for v in map(float,sys.argv[1:])]))"])
+        .args(values.iter().map(|value| format!("{value:?}")))
+        .output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let expected: Value = serde_json::from_slice(&output.stdout).unwrap();
+    for (index, value) in values.into_iter().enumerate() {
+        assert_eq!(general(value), expected[index][0], "{value:?}");
+        for digits in [1, 2] {
+            assert_eq!(
+                format!("{:016x}", rounded(value, digits).to_bits()),
+                expected[index][1][digits - 1].as_str().unwrap(),
+                "{value:?}, {digits}"
+            );
+        }
+    }
+    // Independent fixed expectations include exact binary halfway ties and
+    // decimal-looking non-ties; the CLI differential covers release accounting.
+    for (value, digits, expected) in [
+        (0.25, 1, 0.2_f64),
+        (0.75, 1, 0.8),
+        (1.25, 1, 1.2),
+        (1.75, 1, 1.8),
+        (2.675, 2, 2.67),
+        (0.15, 1, 0.1),
+        (-0.0, 1, -0.0),
+    ] {
+        assert_eq!(
+            rounded(value, digits).to_bits(),
+            expected.to_bits(),
+            "{value} {digits}"
+        );
+    }
+}
+
+#[test]
+fn receipt_splitlines_matches_python_all_boundaries_and_replacement() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("receipts");
+    for separator in [
+        "\n", "\r", "\r\n", "\u{b}", "\u{c}", "\u{1c}", "\u{1d}", "\u{1e}", "\u{85}", "\u{2028}",
+        "\u{2029}",
+    ] {
+        let bytes = format!(
+            "{{\"branch\":\"a\",\"agent\":\"first\"}}{separator}{{\"branch\":\"a\",\"agent\":\"last\"}}{separator}"
+        );
+        fs::write(&path, bytes).unwrap();
+        let found = seats(std::slice::from_ref(&path)).unwrap();
+        assert_eq!(
+            node_str(&found["a"].document, found["a"].node()).unwrap(),
+            "last",
+            "{separator:?}"
+        );
+    }
+    fs::write(
+        &path,
+        b"{\"branch\":\"a\",\"agent\":\"\xed\xa0\x80\xf0\x90\x80x\xff\"}\n",
+    )
+    .unwrap();
+    let found = seats(&[path]).unwrap();
+    assert_eq!(
+        node_str(&found["a"].document, found["a"].node()).unwrap(),
+        "\u{fffd}\u{fffd}\u{fffd}\u{fffd}x\u{fffd}"
+    );
+}
+
+#[test]
+fn raw_surrogate_seats_and_unhashable_branches_fail_instead_of_changing_data() {
+    let document = Document::from_text_with_depth_limit("\"\\ud800\"", None).unwrap();
+    assert!(
+        node_str(&document, document.root())
+            .unwrap_err()
+            .to_string()
+            .contains("UnicodeEncodeError")
+    );
+    let document = Document::from_text_with_depth_limit("[\"\\ud800\"]", None).unwrap();
+    assert_eq!(node_str(&document, document.root()).unwrap(), "['\\ud800']");
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("receipts");
+    for branch in ["[1]", "{\"x\":1}"] {
+        fs::write(&path, format!("{{\"branch\":{branch},\"agent\":\"seat\"}}")).unwrap();
+        assert!(seats(std::slice::from_ref(&path)).is_err(), "{branch}");
+    }
+}
+
+#[test]
+fn absent_actor_is_not_an_empty_login() {
+    let actors = BTreeSet::from([String::new()]);
+    for actor in [Value::Null, json!({}), json!({"login":null})] {
+        assert!(!selected(
+            &json!({"status":"completed","actor":actor}),
+            &actors
+        ));
+    }
+    assert!(selected(
+        &json!({"status":"completed","actor":{"login":""}}),
+        &actors
+    ));
 }

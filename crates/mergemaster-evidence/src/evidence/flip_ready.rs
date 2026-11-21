@@ -1,5 +1,10 @@
 //! Read-only skip readiness and the explicit, opt-in proposal operation.
+use super::flip_skip_python::{rounded, truthy};
+use policy::flip_policy;
+mod api;
+mod policy;
 use anyhow::{Context, Result, anyhow, bail, ensure};
+pub(super) use api::parse_api;
 use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use clap::Args as ClapArgs;
 use serde_json::{Map, Value, json};
@@ -127,7 +132,14 @@ impl GitHub {
         for attempt in 0..3 {
             let done = capture(Command::new("gh").args(args))?;
             if done.status.success() {
-                return Ok(String::from_utf8_lossy(&done.stdout).into_owned());
+                return if (args.first() == Some(&"api") || args.contains(&"--json"))
+                    && !args.last().is_some_and(|path| path.ends_with("/logs"))
+                {
+                    String::from_utf8(done.stdout)
+                        .context("GitHub API JSON outside schema: invalid UTF-8")
+                } else {
+                    Ok(String::from_utf8_lossy(&done.stdout).into_owned())
+                };
             }
             error = tail(String::from_utf8_lossy(&done.stderr).trim(), 200).to_owned();
             if attempt < 2 {
@@ -141,11 +153,20 @@ impl GitHub {
         .into())
     }
     pub fn items(&self, path: &str, key: &str) -> Result<Vec<Value>> {
-        let pages: Vec<Value> =
-            serde_json::from_str(&self.gh(&["api", "--paginate", "--slurp", path])?)?;
+        let mut pages = parse_api(&self.gh(&["api", "--paginate", "--slurp", path])?)?;
+        let pages = pages
+            .as_array_mut()
+            .ok_or_else(|| anyhow!("GitHub API pages outside schema: expected an array"))?;
         let mut result = Vec::new();
-        for mut page in pages {
-            if let Some(items) = page.get_mut(key).and_then(Value::as_array_mut) {
+        for page in pages {
+            ensure!(
+                page.is_object(),
+                "GitHub API page outside schema: expected an object"
+            );
+            if let Some(items) = page.get_mut(key) {
+                let items = items
+                    .as_array_mut()
+                    .ok_or_else(|| anyhow!("GitHub API {key} outside schema: expected an array"))?;
                 result.append(items);
             }
         }
@@ -214,7 +235,11 @@ impl GitHub {
             );
             let mut batch = Vec::new();
             for attempt in 0..4 {
-                let mut out: Value = serde_json::from_str(&self.gh(&["api", &path])?)?;
+                let mut out = parse_api(&self.gh(&["api", &path])?)?;
+                ensure!(
+                    out.is_object(),
+                    "GitHub API runs outside schema: expected an object"
+                );
                 let total = out["total_count"].as_u64().unwrap_or(0).min(1000) as usize;
                 batch = out
                     .get_mut("workflow_runs")
@@ -503,7 +528,6 @@ fn collect(
                     actor: run
                         .pointer("/actor/login")
                         .and_then(Value::as_str)
-                        .filter(|s| !s.is_empty())
                         .unwrap_or("-")
                         .to_owned(),
                     base: run
@@ -573,12 +597,10 @@ fn old_base(
                     if git(root, &["ls-tree", "--full-tree", "-z", base, "--", &path])?.is_empty() {
                         return Ok(true);
                     }
-                    let policy: Value =
-                        serde_json::from_str(&git(root, &["show", &format!("{base}:{path}")])?)?;
-                    Ok(!policy["checks"]
-                        .as_object()
-                        .ok_or_else(|| anyhow!("invalid policy"))?
-                        .contains_key(&row.check))
+                    Ok(!policy::has_check(
+                        &git(root, &["show", &format!("{base}:{path}")])?,
+                        &row.check,
+                    )?)
                 };
                 match read() {
                     Ok(value) => value,
@@ -764,7 +786,7 @@ fn evaluate<'a>(
         .filter(|row| row.cancelled)
         .map(|row| row.run)
         .collect();
-    let mut ignored: BTreeMap<String, usize> = BTreeMap::new();
+    let mut ignored: indexmap::IndexMap<String, usize> = indexmap::IndexMap::new();
     for row in &window {
         if let Some(reason) = &row.old_base {
             *ignored.entry(reason.clone()).or_default() += 1;
@@ -883,12 +905,7 @@ fn preconditions(
                 "the policy does not order kit_inputs (true before false) for fractal-web notes"
             ));
         }
-        if wrapper["shard_inputs"].is_null()
-            || wrapper["shard_inputs"]
-                .as_object()
-                .is_some_and(Map::is_empty)
-            || wrapper["shard_inputs"] == false
-        {
+        if !truthy(&wrapper["shard_inputs"]) {
             why.push(json!(
                 "the policy does not check the shard inputs of fractal-web notes"
             ));
@@ -940,7 +957,24 @@ fn presign_rates(rows: &[Row], now: DateTime<Utc>) -> Value {
     for ((actor, _, _), rank) in heads {
         counts.entry(actor).or_default()[rank] += 1;
     }
-    Value::Object(counts.into_iter().map(|(actor, counts)| { let total: usize = counts.iter().sum(); (actor.to_owned(), json!({"heads":total,"presigned":counts[2],"ci_note":counts[1],"no_note":counts[0],"presigned_share":((counts[2] as f64 / total as f64)*1000.0).round_ties_even()/1000.0})) }).collect())
+    Value::Object(
+        counts
+            .into_iter()
+            .map(|(actor, counts)| {
+                let total: usize = counts.iter().sum();
+                (
+                    actor.to_owned(),
+                    json!({
+                        "heads": total,
+                        "presigned": counts[2],
+                        "ci_note": counts[1],
+                        "no_note": counts[0],
+                        "presigned_share": rounded(counts[2] as f64 / total as f64, 3),
+                    }),
+                )
+            })
+            .collect(),
+    )
 }
 
 pub fn run(args: Args) -> Result<i32> {
@@ -971,12 +1005,7 @@ pub fn run(args: Args) -> Result<i32> {
     let read = || -> Result<_> {
         git(&root, &["fetch", "-q", "origin", "main"])?;
         let path = config_path(&root, POLICY, Some("origin/main"))?;
-        let policy: Value =
-            serde_json::from_str(&git(&root, &["show", &format!("origin/main:{path}")])?)?;
-        let checks = policy["checks"]
-            .as_object()
-            .ok_or_else(|| anyhow!("invalid checks"))?
-            .clone();
+        let checks = policy::checks(&git(&root, &["show", &format!("origin/main:{path}")])?)?;
         let members = skipped_members(
             &git(&root, &["show", &format!("origin/main:{WORKFLOW}")])?,
             &checks,
@@ -1059,124 +1088,7 @@ fn pretty(value: &Value) -> Result<String> {
     text.push('\n');
     Ok(text)
 }
-fn flipped_entry(entry: &Value, lowered: bool) -> Result<Value> {
-    let object = entry
-        .as_object()
-        .ok_or_else(|| anyhow!("invalid policy entry"))?;
-    let mut out = Map::new();
-    for (key, value) in object {
-        out.insert(
-            key.clone(),
-            match key.as_str() {
-                "enforce" => json!(true),
-                "sample_one_in" => json!(1),
-                _ => value.clone(),
-            },
-        );
-        if key == "enforce" {
-            out.entry("events".to_owned()).or_insert_with(|| {
-                object
-                    .get("events")
-                    .cloned()
-                    .unwrap_or_else(|| json!(["pull_request"]))
-            });
-            out.entry("sample_one_in".to_owned()).or_insert(json!(1));
-        }
-    }
-    if lowered {
-        let levels = out
-            .get("kinds")
-            .and_then(|k| k.get("wrapper"))
-            .and_then(|w| w.get("trust_levels"))
-            .and_then(Value::as_array)
-            .ok_or_else(|| {
-                anyhow!("{POLICY}: the wrapper kind does not already trust host, agent, queue")
-            })?;
-        ensure!(
-            ["host", "agent", "queue"]
-                .iter()
-                .all(|level| levels.iter().any(|v| v.as_str() == Some(*level))),
-            "{POLICY}: the wrapper kind does not already trust host, agent, queue"
-        );
-        let narrowed: Vec<Value> = levels
-            .iter()
-            .filter(|v| matches!(v.as_str(), Some("host" | "agent" | "queue")))
-            .cloned()
-            .collect();
-        let mut value = Value::Object(out);
-        value["kinds"]["wrapper"]["trust_levels"] = json!(narrowed);
-        return Ok(value);
-    }
-    Ok(Value::Object(out))
-}
-fn flip_policy(text: &str, check: &str) -> Result<(String, Value)> {
-    let doc: Value = serde_json::from_str(text)?;
-    let entry = &doc["checks"][check];
-    ensure!(
-        entry.is_object() && entry["enforce"] == false,
-        "{POLICY}: {check} has no \"enforce\": false"
-    );
-    let expected_entry = flipped_entry(entry, check == "rust-tests")?;
-    let mut expected = doc.clone();
-    expected["checks"][check] = expected_entry.clone();
-    if pretty(&doc)? == text {
-        return Ok((pretty(&expected)?, expected_entry));
-    }
-    let lines: Vec<&str> = text.split_inclusive('\n').collect();
-    let block = lines
-        .iter()
-        .position(|line| line.trim_start() == format!("\"{check}\": {{\n"))
-        .ok_or_else(|| anyhow!("{POLICY}: cannot find the enforce line of {check}"))?;
-    let pad = format!("{}  ", lines[block].split('"').next().unwrap_or(""));
-    let enforce = lines
-        .iter()
-        .enumerate()
-        .skip(block + 1)
-        .find(|(_, line)| {
-            **line == format!("{pad}\"enforce\": false,\n")
-                || **line == format!("{pad}\"enforce\": false\n")
-        })
-        .map(|(i, _)| i)
-        .ok_or_else(|| anyhow!("{POLICY}: cannot find the enforce line of {check}"))?;
-    ensure!(
-        lines[enforce].ends_with(",\n"),
-        "{POLICY}: a textual edit of {check} would not give the expected policy"
-    );
-    let mut output = String::new();
-    let mut sample_replaced = false;
-    for (i, line) in lines.iter().enumerate() {
-        if i == enforce {
-            output.push_str(&format!("{pad}\"enforce\": true,\n"));
-            for key in ["events", "sample_one_in"] {
-                if entry.get(key).is_none() {
-                    let compact =
-                        serde_json::to_string(&expected_entry[key])?.replace("\",\"", "\", \"");
-                    output.push_str(&format!("{pad}\"{key}\": {compact},\n"));
-                }
-            }
-        } else if i > block
-            && !sample_replaced
-            && entry.get("sample_one_in").is_some()
-            && line.starts_with(&format!("{pad}\"sample_one_in\": "))
-        {
-            let comma = if line.trim_end().ends_with(',') {
-                ","
-            } else {
-                ""
-            };
-            output.push_str(&format!("{pad}\"sample_one_in\": 1{comma}\n"));
-            sample_replaced = true;
-        } else {
-            output.push_str(line);
-        }
-    }
-    ensure!(
-        serde_json::from_str::<Value>(&output)? == expected,
-        "{POLICY}: a textual edit of {check} would not give the expected policy"
-    );
-    Ok((output, expected_entry))
-}
-fn flip_doc(text: &str, check: &str, entry: &Value, today: &str) -> Result<String> {
+fn flip_doc(text: &str, check: &str, entry: &str, today: &str) -> Result<String> {
     let head = text
         .find(&format!("{DOC_SECTION}\n"))
         .ok_or_else(|| anyhow!("{DOC}: no \"{DOC_SECTION}\" section"))?;
@@ -1224,16 +1136,8 @@ fn flip_doc(text: &str, check: &str, entry: &Value, today: &str) -> Result<Strin
     }
     let (row, rest, name, old) = found
         .ok_or_else(|| anyhow!("{DOC}: {check} is not in a row of the table with enforce false"))?;
-    let events = array(&entry["events"])
-        .iter()
-        .filter_map(Value::as_str)
-        .map(|event| format!("`{event}`"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let new_row = format!(
-        "| {name} | true | {events} | {} | {today} |",
-        entry["sample_one_in"]
-    );
+    let (events, sample) = policy::doc_cells(entry)?;
+    let new_row = format!("| {name} | true | {events} | {sample} | {today} |");
     let after = table
         .iter()
         .skip(2)
@@ -1246,10 +1150,12 @@ fn flip_doc(text: &str, check: &str, entry: &Value, today: &str) -> Result<Strin
     } else {
         lines[row] = format!("| {} | {} |", rest.join(", "), old[1..].join(" | "));
     }
-    if rest.is_empty() {
-        lines.remove(row);
-    }
+    // Python inserts while the removed row is still a placeholder, then filters
+    // it out. Removing it first would invalidate `after` when row < after.
     lines.insert(after + 1, new_row);
+    if rest.is_empty() {
+        lines.remove(row + usize::from(after < row));
+    }
     Ok(format!("{}{}", &text[..head], lines.join("\n")))
 }
 fn flip_test_list(text: &str, path: &str, name: &str, check: &str) -> Result<String> {
@@ -1378,7 +1284,19 @@ fn propose(
                 "--json",
                 "number",
             ])
-            .and_then(|s| Ok(serde_json::from_str::<Value>(&s)?));
+            .and_then(|text| {
+                let value = parse_api(&text)?;
+                let pulls = value.as_array().ok_or_else(|| {
+                    anyhow!("GitHub API pull requests outside schema: expected an array")
+                })?;
+                ensure!(
+                    pulls
+                        .iter()
+                        .all(|pull| pull.get("number").and_then(Value::as_u64).is_some()),
+                    "GitHub API pull requests outside schema: missing integral number"
+                );
+                Ok(value)
+            });
         let open = match listed {
             Ok(value) => value,
             Err(error) if uncaught(&error) => return Err(error),
@@ -1475,3 +1393,7 @@ fn propose(
 
 #[cfg(test)]
 mod flip_ready_tests;
+
+#[cfg(test)]
+#[path = "flip_ready/parity_tests.rs"]
+mod parity_tests;

@@ -435,6 +435,7 @@ fn flip_policy_preserves_other_entries_order_and_narrows_only_lowered_trust() {
     let policy = json!({"version":1,"checks":{"genie-freshness":{"trust_levels":["host"],"enforce":false,"kinds":{"wrapper":{"trust_levels":["host","fleet"]}}},"linux-gate":{"trust_levels":[],"enforce":false,"sample_one_in":5},"rust-tests":{"enforce":false,"events":["pull_request"],"sample_one_in":5,"kinds":{"wrapper":{"trust_levels":["fleet","host","agent","queue"],"by_level":{"queue":{"events":["merge_group"]}}}}},"already":{"enforce":true}}});
     let text = pretty(&policy).unwrap();
     let (new, entry) = flip_policy(&text, "genie-freshness").unwrap();
+    let entry: Value = serde_json::from_str(&entry).unwrap();
     let new: Value = serde_json::from_str(&new).unwrap();
     assert_eq!(
         entry
@@ -454,6 +455,7 @@ fn flip_policy_preserves_other_entries_order_and_narrows_only_lowered_trust() {
     expected["checks"]["genie-freshness"] = entry;
     assert_eq!(new, expected);
     let (new, entry) = flip_policy(&text, "rust-tests").unwrap();
+    let entry: Value = serde_json::from_str(&entry).unwrap();
     assert_eq!(
         entry["kinds"]["wrapper"]["trust_levels"],
         json!(["host", "agent", "queue"])
@@ -469,6 +471,7 @@ fn flip_policy_preserves_other_entries_order_and_narrows_only_lowered_trust() {
     let unusual = text.replace("\"version\": 1,", "\"version\":  1,");
     for check in ["genie-freshness", "linux-gate"] {
         let (new, entry) = flip_policy(&unusual, check).unwrap();
+        let entry: Value = serde_json::from_str(&entry).unwrap();
         assert!(new.contains("\"version\":  1,"));
         assert_eq!(entry["sample_one_in"], 1);
         assert_eq!(
@@ -479,7 +482,13 @@ fn flip_policy_preserves_other_entries_order_and_narrows_only_lowered_trust() {
     assert!(flip_policy(&unusual, "already").is_err());
     let mut bad = policy["checks"]["rust-tests"].clone();
     bad["kinds"]["wrapper"]["trust_levels"] = json!(["host"]);
-    assert!(flipped_entry(&bad, true).is_err());
+    assert!(
+        flip_policy(
+            &pretty(&json!({"checks":{"rust-tests":bad}})).unwrap(),
+            "rust-tests"
+        )
+        .is_err()
+    );
 }
 fn doc() -> String {
     format!(
@@ -489,13 +498,13 @@ fn doc() -> String {
 #[test]
 fn documentation_note_moves_with_check_and_tuple_is_appended() {
     let entry = json!({"events":["pull_request"],"sample_one_in":5});
-    let flipped = flip_doc(&doc(), "web", &entry, "2026-10-23").unwrap();
+    let flipped = flip_doc(&doc(), "web", &entry.to_string(), "2026-10-23").unwrap();
     assert!(flipped.contains("| `web` (whole-check note; one shard never counts) | true | `pull_request` | 5 | 2026-10-23 |\n"));
     assert!(flipped.contains("| `other` | false |"));
-    assert!(flip_doc(&doc(), "we", &entry, "today").is_err());
+    assert!(flip_doc(&doc(), "we", &entry.to_string(), "today").is_err());
     let only = doc().replace(", `other`", "");
     assert!(
-        !flip_doc(&only, "web", &entry, "today")
+        !flip_doc(&only, "web", &entry.to_string(), "today")
             .unwrap()
             .contains("| false |")
     );

@@ -10,11 +10,13 @@ use std::{
     process::{Command, Stdio},
 };
 
+mod argparse_compat;
 mod ci_reattest;
 mod ci_transport;
 pub mod cli;
 pub(crate) mod derivation;
 pub mod flip_ready;
+mod flip_skip_python;
 pub mod generic;
 pub mod keygen;
 mod legacy_json;

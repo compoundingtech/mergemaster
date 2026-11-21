@@ -970,6 +970,14 @@ window comparisons still use the correct UTC instants.
 Completed nonzero probes may establish absence; capture timeouts, spawn failures
 and read failures instead abort. Published-log OS errors retain the observed-time
 fallback and their original diagnostics, but published-log timeouts do not.
+Operator-owned policy/configuration and receipt JSON use the lossless Python
+document reader, including arbitrary-size integers, nonfinite floats, escaped
+surrogates and insertion order. GitHub API JSON is instead schema-bound: GitHub
+emits RFC 8259 JSON without NaN/Infinity, UTF-8 strings without lone surrogates,
+and IDs/counts within the exact 53-bit integer range. Both commands validate
+these boundaries before bounded conversion; wrong consumed-field types and
+out-of-range numbers fail clearly rather than narrowing or dropping items.
+Long options retain argparse's unique-prefix resolution and ambiguity errors.
 
 The protected CI fetch instead retains its existing external `timeout` wrapper:
 30 seconds with a 2-second kill-after, not a GitChild deadline. Direct Git fixture
