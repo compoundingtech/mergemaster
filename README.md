@@ -1774,7 +1774,7 @@ Intentional `legacy-sign` divergences from the pinned Python oracle:
 - Native signing reproduces Python's lone-surrogate escapes byte for byte, but
   the native typed v1 verifier (`evidence verify`) refuses such statements
   (fail-closed), whereas the removed Python `evidence-verify` accepted them.
-  Verifier parity for these statements remains a tracked follow-up.
+  Verifier parity for these statements remains a tracked follow-up (#425).
 - Missing configuration errors name the configuration path without Python's
   `[Errno ...]` text. Malformed configuration types produce normalized
   refusals instead of Python crash tracebacks.
@@ -1792,6 +1792,9 @@ Intentional `legacy-sign` divergences from the pinned Python oracle:
 - If the account has no passwd entry, native emits the normalized refusal
   `evidence-sign refused: Could not determine home directory.` instead of
   Python's uncaught `RuntimeError` traceback; the message itself matches Python.
+- `ssh_key`, `scratch_repo` and a truthy configuration `path` must be plain
+  strings: Python accepts escaped lone surrogates `\udc80`–`\udcff` as raw
+  filesystem bytes via `os.fsencode` surrogateescape; native signing refuses them.
 
 The configuration, signing key and `scratch_repo` are trusted launcher state.
 Neither implementation checks the key's mode, owner or file type, or rejects
@@ -1801,7 +1804,70 @@ Empty `HOME` resolves to `/`; unset `HOME` uses the account database.
 Request and configuration JSON retain Python's non-finite numbers and lone-surrogate
 escapes, including `NaN`/`Infinity` check-key spelling, and its 4300-digit integer limit.
 
-Existing callers and the Python scripts remain unchanged in this signer-only slice.
+`mergemaster evidence legacy-wrap` implements the cooperative v1 wrapper,
+separately from the v2 `evidence wrap` below. It accepts the legacy command,
+aggregate, input/input-file, lane, verification, artifact and publication flags.
+Commands stream their combined stdout/stderr unchanged; passing and failing runs
+produce legacy signed packs. `--out` writes the pack and summary without importing
+or publishing refs; otherwise note/tag and optional source-input indexes are
+created locally, with publication only when `--push REMOTE` is given.
+
+Without `--signer` or a nonempty `EVIDENCE_SIGNER`, the default argv is
+`["st","sekrets","--","mergemaster","evidence","legacy-sign"]`.
+This preserves the secret-manager boundary: the installed sekrets grant must name
+`mergemaster evidence legacy-sign`. That grant belongs to its external owner and
+is not provisioned here. Until it exists, the default fails closed as
+`evidence-wrap: the signer refused: <last 500 characters of sekrets stderr>`
+with exit 1; if `st` is absent, the exact refusal is
+`evidence-wrap: the signer 'st' is not on PATH`.
+Explicit `--signer` and `EVIDENCE_SIGNER` remain JSON argv overrides.
+
+Legacy failure semantics intentionally do **not** use v2's exit-75 infrastructure
+classes. Invalid CLI arguments exit 2. Missing/unavailable signers and explicit
+signer refusals exit 1 without publishing a new note. A completed command's own
+nonzero exit is signed and returned; if that child dies from signal N, its signed
+exit code is `-N` and the POSIX shell observes `256-N`, matching Python.
+An external signal terminating the wrapper itself stops it before signing any
+incomplete run (SIGINT shell status 130); native termination omits Python's
+`KeyboardInterrupt` traceback. A command that actually exits 75 still returns 75,
+but no `infra_unavailable` classification is added in legacy mode.
+
+Intentional `legacy-wrap` divergences from the pinned Python wrapper:
+`wrapper_sha256` measures the running native executable instead of the script,
+as `producer_sha256` does for the native signer. `--verifier` names the trusted
+native `mergemaster` binary (`MERGEMASTER_BIN`, otherwise PATH), using its legacy
+verification and lane-helper subcommands rather than importing Python.
+The native signer's completeness preflight described above also applies.
+Local verification is skipped when the literal verifier path does not exist:
+the summary records `verified=false` and a successful run still exits 0 unless
+`--push` was requested. Supply an existing absolute verifier path to enable it.
+- Each native lane-helper evaluation has a 300-second deadline; the pinned
+  Python imports and evaluates the lane without an overall helper deadline.
+- Aggregate JSON parsing and output encoding have no nesting-depth limit and
+  use iterative traversal. Python raises `RecursionError` at roughly 1,000
+  nested containers instead of accepting these deeper aggregate outputs.
+- Usage and help use a fixed 80-column layout, regardless of `COLUMNS` or
+  terminal width; Python's argparse derives its wrapping from that width.
+- Security divergence: `EVIDENCE_PUSH_TOKEN` and `EVIDENCE_SIGNER` are removed
+  from both the lane command and signer environments. Python forwards them.
+- Security divergence: every wrapper diagnostic redacts both the raw push token
+  and its base64 `x-access-token:TOKEN` form, including signer, verifier,
+  measurement and publication errors. Python only redacts the raw token in
+  final push failures.
+- Security divergence: BASE-derived verifier keys use an exclusively created
+  mode-0600 tempfile, removed after verification on success and every error path.
+  Python writes a predictable PID-based path and leaves it behind.
+
+**Legacy-wrap trust model:** apart from the two credential variables above, the
+caller's environment reaches the lane command. The signer also inherits caller
+state, except for the loader/Python-variable scrub, fixed PATH and those two
+credential removals; it is not an environment-isolated boundary. For publication
+parity, checkout/global Git transport configuration remains active, including
+`pushurl`, `insteadOf`, `includeIf`, `credential.helper`, `sshCommand` and
+`http.*`. A hostile checkout configuration can therefore redirect the authenticated
+push. This inherited transport trust boundary is tracked in #426.
+
+Existing callers and Python scripts remain unchanged until the separate cutover.
 
 `mergemaster evidence wrap` runs the exact BASE-declared command once, measures
 its inputs before and after execution, signs successes and failures, imports the
