@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Rust port wave 1: `mergemaster evidence log-watch` replaces `scripts/evidence-log-watch` and its self-test; the source systemd unit runs the native command.
+- Rust port wave 1: `mergemaster evidence presign-notice` replaces `scripts/ci-evidence-presign-notice` and its self-test. The generated `evidence-presign-notice` job provisions the pinned, attestation-verified release binary from the base `.mergemaster/tool-pin.json` instead of running the base Python copy; it still says nothing when it cannot run.
 - Port evidence-gate SLO counters to `mergemaster evidence slo`; remove the Python command/self-test, preserve their assertions in Rust integration tests, and replay frozen CLI/API observations against the pinned Python oracle.
 - Preserve Python-compatible SLO ISO timestamp forms and naive intervals; fail SLO reports on log-capture deadlines or I/O errors instead of silently attributing unknown producers.
 - Rust port wave 1: remove the Python keygen (`scripts/evidence-keygen`, its self-test and `tests/test-native-keygen.py`); `mergemaster evidence keygen` owns every former assertion, with frozen recordings compared against the pinned Python oracle.

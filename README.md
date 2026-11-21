@@ -91,6 +91,23 @@ in `tests/fixtures/oracle/keygen.json`; `tests/oracle_corpus.py` replays them
 independently. Retained copied self-tests are discovered from this checkout so
 removed leaves cannot silently return from the oracle fixture.
 
+### Advisory pre-signing notice
+
+`mergemaster evidence presign-notice` replaces the Python notice adapter and its
+self-test. It reads `LINES`, `BASE_SHA`, `REPOSITORY`, `PR_NUMBER`, `GH_TOKEN`
+and `GITHUB_STEP_SUMMARY`, retaining the decision record, annotation and appended
+summary bytes. Unreadable evidence produces no unsupported notice; the command
+always succeeds and never controls a gate. Git reads the accepted base's lane
+definitions and `gh api` reads the pull request's changed paths.
+
+Consumer adapters provision the accepted base's pinned, SHA-256-checked release
+and verify its GitHub attestation before running the native command. Missing pins,
+unavailable releases and older releases without this command retain the advisory
+fallback. Provisioning explicitly errors on runners other than x86_64 instead of
+silently substituting that fallback for an incompatible release asset.
+Rust tests own the former self-test assertions; frozen independent Python
+recordings are replayed by `tests/oracle_corpus.py`.
+
 ## Evidence gate SLO counters
 
 ```sh

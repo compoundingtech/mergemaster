@@ -15,6 +15,8 @@ pub enum EvidenceCommand {
     /// Provision this account's signing key and print its public enrollment line.
     Keygen(super::keygen::KeygenArgs),
     LogWatch(super::log_watch::LogWatchArgs),
+    /// Explain which signable gates ran without a pre-signed note; never fails.
+    PresignNotice,
     /// Report read-only evidence-gate SLO counters from GitHub Actions.
     #[command(disable_help_flag = true)]
     Slo {
@@ -85,6 +87,10 @@ pub fn run(args: EvidenceArgs) -> Result<()> {
     let value = match args.command {
         EvidenceCommand::Keygen(args) => return super::keygen::run_keygen(args),
         EvidenceCommand::LogWatch(args) => return super::log_watch::run(args),
+        EvidenceCommand::PresignNotice => {
+            super::presign_notice::run();
+            return Ok(());
+        }
         EvidenceCommand::Slo { argv } => {
             use std::io::Write;
             let exit = super::slo::run(&argv);

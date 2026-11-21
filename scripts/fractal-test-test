@@ -93,8 +93,7 @@ class ConfigBridgeTest(unittest.TestCase):
     """Real Git objects and individually copied readers, without sibling resolver imports."""
 
     def test_extracted_readers_select_only_the_pinned_layout(self):
-        names = ('st-test', 'evidence-wrap', 'evidence-prepush', 'evidence-log', 'ci-evidence-observe',
-                 'ci-evidence-presign-notice')
+        names = ('st-test', 'evidence-wrap', 'evidence-prepush', 'evidence-log', 'ci-evidence-observe')
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)
             repo = root / 'repo'
@@ -120,9 +119,7 @@ class ConfigBridgeTest(unittest.TestCase):
                 def assert_layout(revision, expected):
                     for name, module in modules.items():
                         with self.subTest(reader=name, layout=expected):
-                            if name == 'ci-evidence-presign-notice':
-                                self.assertEqual(set(module.lanes_at(revision)), {expected})
-                            elif name in ('evidence-log', 'ci-evidence-observe'):
+                            if name in ('evidence-log', 'ci-evidence-observe'):
                                 self.assertEqual(module.config_path(repo, revision, 'required-lanes.json'),
                                                  f'{".st" if expected == "old" else ".fractal"}/required-lanes.json')
                             else:
@@ -160,9 +157,8 @@ class ConfigBridgeTest(unittest.TestCase):
                 (repo / '.fractal/rust-test-inputs.json').write_text('{malformed')
                 git(repo, 'add', '.')
                 git(repo, 'commit', '-qm', 'malformed selected config')
-                for module in (modules['st-test'], modules['ci-evidence-presign-notice']):
-                    with self.assertRaises(ValueError):
-                        (module.lane_names if hasattr(module, 'lane_names') else module.lanes_at)('HEAD')
+                with self.assertRaises(ValueError):
+                    modules['st-test'].lane_names('HEAD')
                 with self.assertRaises(ValueError):
                     modules['st-test'].branch_point(old_revision, 'HEAD')
                 with self.assertRaises(ValueError):
@@ -175,13 +171,9 @@ class ConfigBridgeTest(unittest.TestCase):
                     modules['st-test'].config_blob('HEAD', 'required-lanes.json')
                 with self.assertRaises(modules['st-test'].Failure):
                     modules['st-test'].branch_point(old_revision, 'HEAD')
-                with self.assertRaises(RuntimeError):
-                    modules['ci-evidence-presign-notice'].lanes_at('HEAD')
                 for name, module in modules.items():
                     with self.subTest(reader=name, missing_revision=True), self.assertRaises(Exception):
-                        if name == 'ci-evidence-presign-notice':
-                            module.lanes_at('missing-revision')
-                        elif name in ('evidence-log', 'ci-evidence-observe'):
+                        if name in ('evidence-log', 'ci-evidence-observe'):
                             module.config_path(repo, 'missing-revision', 'required-lanes.json')
                         else:
                             module.config_path('missing-revision', 'required-lanes.json')
