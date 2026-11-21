@@ -9,6 +9,8 @@ use std::{
     os::unix::fs::DirBuilderExt,
 };
 
+pub(super) const TOOL_REPOSITORY: &str = "compoundingtech/mergemaster";
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ToolIdentity {
@@ -28,7 +30,7 @@ fn lower_hex(value: &str, length: usize) -> bool {
 pub(super) fn parse_tool_pin(bytes: &[u8]) -> Result<ToolIdentity> {
     let pin: Value = serde_json::from_slice(bytes).context("tool pin JSON")?;
     ensure!(
-        pin["version"] == 1 && pin["repository"] == "compoundingtech/mergemaster",
+        pin["version"] == 1 && pin["repository"] == TOOL_REPOSITORY,
         "unsupported tool repository"
     );
     let revision = pin["revision"].as_str().context("tool revision")?;
@@ -53,7 +55,7 @@ pub(super) fn parse_tool_pin(bytes: &[u8]) -> Result<ToolIdentity> {
         .context("release digest")?;
     ensure!(lower_hex(digest, 64), "invalid release digest");
     Ok(ToolIdentity {
-        repository: "compoundingtech/mergemaster".into(),
+        repository: TOOL_REPOSITORY.into(),
         revision: revision.into(),
         release_version: version.into(),
         binary_sha256: digest.into(),
@@ -255,6 +257,11 @@ fn file_digest(path: &Path) -> Result<String> {
     Ok(hex::encode(digest.finalize()))
 }
 
+/// Hash the executable actually running, not a path resolved through argv or PATH.
+pub(super) fn running_binary_sha256() -> Result<String> {
+    file_digest(Path::new("/proc/self/exe"))
+}
+
 fn environment(name: &str) -> Result<String> {
     std::env::var(name).with_context(|| format!("missing {name}"))
 }
@@ -299,7 +306,7 @@ pub fn run() -> Result<()> {
         &["show", &format!("{base}:.mergemaster/tool-pin.json")],
         None,
     )?)?;
-    tool.binary_sha256 = file_digest(Path::new("/proc/self/exe"))?;
+    tool.binary_sha256 = running_binary_sha256()?;
     let objects = git_source(
         &repo,
         &["rev-list", "--objects", "--no-object-names", &tree],

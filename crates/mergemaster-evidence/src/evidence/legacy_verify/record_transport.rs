@@ -4,7 +4,7 @@ use super::{
     projection_capture::{self, ExpectedOutput},
 };
 use crate::evidence::legacy_policy::PolicyError;
-use std::{path::Path, process::Command, time::Duration};
+use std::{ffi::OsStr, path::Path, process::Command, time::Duration};
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Transport {
     Native,
@@ -47,6 +47,29 @@ impl Transport {
                 Duration::from_secs(60),
             )
         }
+    }
+    /// CLI-only record arguments retain Python's surrogateescaped argv bytes.
+    pub(super) fn read_record(
+        repo: &Path,
+        args: &[&str],
+        record: &OsStr,
+        limit: usize,
+    ) -> Result<Vec<u8>, PolicyError> {
+        if record.as_encoded_bytes().contains(&0) {
+            return Err(super::crate_manifest_ops::exception(
+                "ValueError",
+                "embedded null byte",
+            ));
+        }
+        let mut command = Self::command(repo, args)?;
+        command.arg(record);
+        projection_capture::exchange(
+            &mut command,
+            b"",
+            args[0],
+            ExpectedOutput::Bytes(limit),
+            Duration::from_secs(60),
+        )
     }
     pub(super) fn subject(self, repo: &Path, object: &str) -> Result<Option<Vec<u8>>, PolicyError> {
         let args = [

@@ -33,7 +33,7 @@ enum Operation {
         #[arg(long, default_value = ".")]
         repo: PathBuf,
         #[arg(long)]
-        tree: String,
+        tree: OsString,
         #[arg(long)]
         input: Vec<OsString>,
     },
@@ -59,6 +59,37 @@ enum Operation {
         #[arg(long)]
         check: OsString,
     },
+    ToolIdentity,
+    VerifyToolPin {
+        #[arg(long)]
+        repo: PathBuf,
+        #[arg(long)]
+        base: OsString,
+    },
+    PolicyRules {
+        #[arg(long)]
+        check: OsString,
+        #[arg(long)]
+        repository: OsString,
+    },
+    ReadStatement {
+        #[arg(long)]
+        repo: PathBuf,
+        #[arg(long)]
+        record: OsString,
+        #[arg(long)]
+        tree: Option<OsString>,
+    },
+    Signature {
+        #[arg(long)]
+        repo: PathBuf,
+        #[arg(long)]
+        record: OsString,
+        #[arg(long)]
+        keys: PathBuf,
+        #[arg(long)]
+        revocations: PathBuf,
+    },
 }
 fn texts(values: &[OsString]) -> Vec<NormalizedText> {
     values.iter().map(|value| decode(value)).collect()
@@ -76,6 +107,46 @@ fn evaluate(
     output: &mut String,
 ) -> Result<(), PolicyError> {
     let written = match operation {
+        Operation::ToolIdentity => return super::helper_tool_pin::identity(output),
+        Operation::VerifyToolPin { repo, base } => {
+            return super::helper_tool_pin::verify(&repo, decode(&base).borrowed(), output);
+        }
+        Operation::PolicyRules { check, repository } => {
+            return super::helper_policy::write(
+                &stdin_text(input)?,
+                decode(&check).borrowed(),
+                decode(&repository).borrowed(),
+                output,
+            );
+        }
+        Operation::ReadStatement { repo, record, tree } => {
+            match super::records::read_statement_cli(&repo, &record, tree.as_deref())? {
+                Some(document) => {
+                    output.push_str(&super::helper_selection::statement_json(&document)?)
+                }
+                None => output.push_str("null"),
+            }
+            return Ok(());
+        }
+        Operation::Signature {
+            repo,
+            record,
+            keys,
+            revocations,
+        } => {
+            let (status, principal) = super::cli_signature::signature(
+                &repo,
+                decode(&record).borrowed(),
+                &keys,
+                &revocations,
+            )?;
+            legacy_output::write(output, |w| {
+                w.array(|a| {
+                    a.item(|w| w.text(&status))?;
+                    a.item(|w| w.text(&principal))
+                })
+            })
+        }
         Operation::CiInputs {
             repo,
             revision,
@@ -254,3 +325,7 @@ pub fn run(
 #[cfg(test)]
 #[path = "cli_helper_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "helper_record_tests.rs"]
+mod record_tests;
