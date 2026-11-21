@@ -183,8 +183,16 @@ pub fn run(argv: impl IntoIterator<Item = OsString>) -> anyhow::Result<Exit> {
         tree: &tree,
         no_lazy_fetch: false,
     })
-    .keys_from(inputs.as_deref(), &only)
-    {
+    .keys_from_with_projection_error(inputs.as_deref(), &only, |mut error| {
+        // Python catches the key script's Failure, not the distinct Failure
+        // class exported by its loaded evidence-verify projection module.
+        if error.origin == ErrorOrigin::Failure {
+            error.origin = ErrorOrigin::Exception {
+                class: "evidence_verify_for_rust_test_keys.Failure",
+            };
+        }
+        error
+    }) {
         Ok(keys) => keys,
         Err(error) => return Ok(refused(error)),
     };

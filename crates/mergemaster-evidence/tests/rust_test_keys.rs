@@ -57,6 +57,16 @@ for algorithm in ['sha1','sha256']:
  for output in [[],['--json'],['--paths'],['--json','--paths']]: key(['--repo',str(repo),'--tree',empty]+output)
  write('Cargo.toml','[workspace]\nmembers=1\n'); git('add','.'); malformed=git('write-tree')
  key(['--repo',str(repo),'--tree',malformed])
+ # The loaded verifier's Failure is distinct from the key script's Failure.
+ write('Cargo.toml','[package]\nname="a"\n')
+ write('.fractal/rust-test-inputs.json',json.dumps({'crates':{'a':{'extra':['bad.json::foo']}}}))
+ for content in [b'\xff',b'not JSON']:
+  (repo/'bad.json').write_bytes(content); git('add','.'); selected=git('write-tree')
+  key(['--repo',str(repo),'--tree',selected])
+  assert cases[-1]['code']==1 and cases[-1]['stderr'].splitlines()[-1].startswith('evidence_verify_for_rust_test_keys.Failure: ')
+ write('.fractal/rust-test-inputs.json',json.dumps({'crates':{'a':{'extra':['missing.json::foo']}}}))
+ git('add','.'); selected=git('write-tree')
+ key(['--repo',str(repo),'--tree',selected])
 for argv in [['--help'],['-h'],['--unknown'],['--repo'],['--tree','--json'],['--crate'],['--paths=yes'],['--json='],['--help=x'],['--'],['positional'],['--wat','--help'],['--crate','-1'],['--repo','--'],['--tree=absent'],['-hh'],['-h','--json'],['--json','-h'],['--json=1']]: record(argv)
 # Explicit native contract: arbitrary Python projection modules cannot be selected.
 for option in ['--verifier','--v']:
@@ -76,7 +86,7 @@ print(json.dumps(cases))
         String::from_utf8_lossy(&output.stderr)
     );
     let cases: Vec<Case> = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(cases.len(), 95);
+    assert_eq!(cases.len(), 101);
     for case in cases {
         let actual = Command::new(env!("CARGO_BIN_EXE_mergemaster"))
             .arg("legacy-rust-test-keys")
