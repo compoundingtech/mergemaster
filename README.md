@@ -919,6 +919,10 @@ job-log caching; `.fractal` configuration takes precedence over `.st` at the
 selected revision. They replace the removed Python flip-ready/skip-report leaves
 and self-tests; frozen independent-Python recordings live in
 `tests/fixtures/oracle/{flip-ready,skip-report}.json`.
+Zoned timestamps retain Python-compatible ISO forms and microsecond precision.
+Completed nonzero probes may establish absence; capture timeouts, spawn failures
+and read failures instead abort. Published-log OS errors retain the observed-time
+fallback and their original diagnostics, but published-log timeouts do not.
 
 The protected CI fetch instead retains its existing external `timeout` wrapper:
 30 seconds with a 2-second kill-after, not a GitChild deadline. Direct Git fixture

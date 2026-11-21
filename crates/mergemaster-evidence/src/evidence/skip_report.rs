@@ -107,7 +107,7 @@ fn lanes_at<'a>(
         let data = match read {
             Ok(data) => data,
             Err(error) => {
-                if base.is_empty() {
+                if base.is_empty() || !super::flip_ready::child_exited(&error) {
                     return Err(error);
                 }
                 git(root, &["fetch", "-q", "origin", base])?;
@@ -135,18 +135,30 @@ fn lanes_at<'a>(
         .get(base)
         .ok_or_else(|| anyhow!("missing lane cache entry"))
 }
-fn enforced_at(root: &Path, base: &str, cache: &mut BTreeMap<String, Value>, check: &str) -> bool {
-    let policy = cache.entry(base.to_owned()).or_insert_with(|| {
-        read_config(root, ".st/evidence-skip-policy.json", base)
-            .ok()
-            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
-            .and_then(|v| v.get("checks").cloned())
-            .unwrap_or(Value::Null)
-    });
-    match policy.get(check).filter(|v| v.is_object()) {
+fn enforced_at(
+    root: &Path,
+    base: &str,
+    cache: &mut BTreeMap<String, Value>,
+    check: &str,
+) -> Result<bool> {
+    let policy = match cache.entry(base.to_owned()) {
+        std::collections::btree_map::Entry::Occupied(slot) => slot.into_mut(),
+        std::collections::btree_map::Entry::Vacant(slot) => {
+            let checks = match read_config(root, ".st/evidence-skip-policy.json", base) {
+                Ok(text) => serde_json::from_str::<Value>(&text)
+                    .ok()
+                    .and_then(|v| v.get("checks").cloned())
+                    .unwrap_or(Value::Null),
+                Err(error) if super::flip_ready::child_exited(&error) => Value::Null,
+                Err(error) => return Err(error),
+            };
+            slot.insert(checks)
+        }
+    };
+    Ok(match policy.get(check).filter(|v| v.is_object()) {
         Some(entry) => entry.get("enforce") == Some(&Value::Bool(true)),
         None => true,
-    }
+    })
 }
 fn touches(files: &[String], paths: &[String]) -> bool {
     files.iter().any(|file| {
@@ -256,6 +268,12 @@ fn seats(receipts: &[PathBuf]) -> BTreeMap<String, Value> {
     }
     found
 }
+fn rounded_minutes(value: f64) -> f64 {
+    // Like Python round(value, 1): fixed-precision formatting rounds the exact
+    // binary value (ties-to-even), and parsing correctly rounds it back.
+    // Parsing cannot fail for a finite formatted f64; keep the input otherwise.
+    format!("{value:.1}").parse().unwrap_or(value)
+}
 fn release_surface(
     source: &impl Source,
     since: DateTime<Utc>,
@@ -294,11 +312,9 @@ fn release_surface(
             ) else {
                 continue;
             };
-            let duration = end - start;
-            let spent = ((duration.num_seconds() as f64
-                + f64::from(duration.subsec_nanos()) / 1_000_000_000.0)
-                / 60.0)
-                .max(0.0);
+            let spent =
+                ((end.timestamp_micros() - start.timestamp_micros()) as f64 / 1_000_000.0 / 60.0)
+                    .max(0.0);
             minutes += spent;
             if job["labels"].as_array().is_some_and(|labels| {
                 labels
@@ -310,7 +326,7 @@ fn release_surface(
         }
     }
     Ok(
-        json!({"workflow": RELEASE_WORKFLOW, "runs": count, "minutes": (minutes * 10.0).round_ties_even() / 10.0, "macos_minutes": (macos * 10.0).round_ties_even() / 10.0, "prs": prs}),
+        json!({"workflow": RELEASE_WORKFLOW, "runs": count, "minutes": rounded_minutes(minutes), "macos_minutes": rounded_minutes(macos), "prs": prs}),
     )
 }
 #[derive(Default)]
@@ -379,7 +395,7 @@ fn report(
                 category = "not_relevant";
             }
             if category == "not_signed"
-                && !enforced_at(root, text(&fields, "base"), &mut policy_cache, check)
+                && !enforced_at(root, text(&fields, "base"), &mut policy_cache, check)?
             {
                 category = "shadow_unsigned";
             }
@@ -515,6 +531,7 @@ fn emit(result: Result<Value>, as_markdown: bool) -> Result<i32> {
             );
             Ok(0)
         }
+        Err(error) if super::flip_ready::uncaught(&error) => Err(error),
         Err(error) => {
             eprintln!("could not read GitHub or selected base: {error}");
             Ok(2)

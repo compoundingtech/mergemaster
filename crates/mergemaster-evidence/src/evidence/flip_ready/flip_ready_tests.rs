@@ -36,7 +36,7 @@ fn history(count: usize) -> Vec<Row> {
         .collect()
 }
 fn eval(rows: &[Row]) -> Value {
-    evaluate(rows, false, now(), false, None)
+    evaluate(rows, false, now(), false, None).unwrap()
 }
 fn reasons(result: &Value) -> Vec<String> {
     array(&result["why_not"])
@@ -54,8 +54,11 @@ fn thirty_fresh_lines_require_full_window_and_enforced_checks_still_report() {
     );
     rows.push(row(2000, 1));
     assert_eq!(reasons(&eval(&rows)), Vec::<String>::new());
-    assert_eq!(evaluate(&[], true, now(), false, None)["enforce"], true);
-    assert_eq!(evaluate(&[], true, now(), false, None)["lines"], 0);
+    assert_eq!(
+        evaluate(&[], true, now(), false, None).unwrap()["enforce"],
+        true
+    );
+    assert_eq!(evaluate(&[], true, now(), false, None).unwrap()["lines"], 0);
 }
 #[test]
 fn freshness_unpinned_missing_and_latency_reasons() {
@@ -138,14 +141,14 @@ fn none_and_aggregate_member_times_are_not_the_oldest_note() {
     r.fields["log"] = json!("unlogged_pass");
     r.fields["observed_at"] = json!(iso(at(3) - Duration::seconds(170)));
     r.fields["log_unlogged_observed_at"] = json!("None");
-    assert!(explained(&r, None));
+    assert!(explained(&r, None).unwrap());
     r.fields["observed_at"] = json!("None");
-    assert!(!explained(&r, None));
+    assert!(!explained(&r, None).unwrap());
     r.fields["observed_at"] = json!(iso(at(4)));
     r.fields["log_unlogged_observed_at"] = json!(iso(at(3) - Duration::seconds(100)));
-    assert!(explained(&r, None));
+    assert!(explained(&r, None).unwrap());
     r.fields["log_unlogged_observed_at"] = json!(iso(at(3) - Duration::seconds(300)));
-    assert!(!explained(&r, None));
+    assert!(!explained(&r, None).unwrap());
     for bad in ["a=0123456789ab+2_more", "a=not-hex", "bad"] {
         r.fields["log_unlogged_crates"] = json!(bad);
         assert!(unlogged_records(&r.fields).is_none());
@@ -222,7 +225,7 @@ fn lowered_host_only_five_agreements_and_no_disagreement() {
         r.fields["trust_level"] = json!("host");
         rows.push(r);
     }
-    let result = evaluate(&rows, false, now(), true, None);
+    let result = evaluate(&rows, false, now(), true, None).unwrap();
     assert_eq!(result["agreeing"], 4);
     assert_eq!(result["disagreeing"], json!([]));
     assert_eq!(result["ready"], false);
@@ -236,17 +239,23 @@ fn lowered_host_only_five_agreements_and_no_disagreement() {
     unlogged.fields["log"] = json!("unlogged_pass");
     unlogged.fields["observed_at"] = json!(iso(at(2) - Duration::seconds(60)));
     rows.push(unlogged);
-    assert_eq!(evaluate(&rows, false, now(), true, None)["agreeing"], 4);
+    assert_eq!(
+        evaluate(&rows, false, now(), true, None).unwrap()["agreeing"],
+        4
+    );
     let mut host = row(1301, 1);
     host.fields["trust_level"] = json!("host");
     rows.push(host.clone());
-    assert_eq!(evaluate(&rows, false, now(), true, None)["ready"], true);
+    assert_eq!(
+        evaluate(&rows, false, now(), true, None).unwrap()["ready"],
+        true
+    );
     host.run = 1302;
     rows.push(host.clone());
     host.run = 1303;
     host.real = Some("failure".to_owned());
     rows.push(host);
-    let result = evaluate(&rows, false, now(), true, None);
+    let result = evaluate(&rows, false, now(), true, None).unwrap();
     assert_eq!(result["agreeing"], 6);
     assert_eq!(result["disagreeing"], json!([1303]));
     assert_eq!(result["hidden_red"], json!([1303]));
@@ -591,30 +600,33 @@ fn historical_base_proof_requires_readable_commit_and_missing_gate_or_policy_ent
     let mut r = row(3000, 1);
     r.fields = json!({"outcome":"unavailable","reason":"no_policy","log":"-","base":no_entry});
     let mut seen = BTreeMap::new();
-    assert_eq!(old_base(root, &r, &mut seen).as_deref(), Some("no_policy"));
+    assert_eq!(
+        old_base(root, &r, &mut seen).unwrap().as_deref(),
+        Some("no_policy")
+    );
     r.fields["base"] = json!(main);
-    assert!(old_base(root, &r, &mut seen).is_none());
+    assert!(old_base(root, &r, &mut seen).unwrap().is_none());
     r.fields["reason"] = json!("no-gate-at-base");
     r.fields.as_object_mut().unwrap().remove("base");
     r.base = main;
     assert_eq!(
-        old_base(root, &r, &mut seen).as_deref(),
+        old_base(root, &r, &mut seen).unwrap().as_deref(),
         Some("no-gate-at-base")
     );
     r.base = with_gate;
-    assert!(old_base(root, &r, &mut seen).is_none());
+    assert!(old_base(root, &r, &mut seen).unwrap().is_none());
     r.base = "f".repeat(40);
-    assert!(old_base(root, &r, &mut seen).is_none());
+    assert!(old_base(root, &r, &mut seen).unwrap().is_none());
     r.base.clear();
-    assert!(old_base(root, &r, &mut seen).is_none());
+    assert!(old_base(root, &r, &mut seen).unwrap().is_none());
     r.fields["outcome"] = json!("satisfied");
-    assert!(old_base(root, &r, &mut seen).is_none());
+    assert!(old_base(root, &r, &mut seen).unwrap().is_none());
     // A present .fractal policy is authoritative, including malformed contents.
     fs::create_dir_all(root.join(".fractal")).unwrap();
     fs::write(root.join(".fractal/evidence-skip-policy.json"), "bad").unwrap();
     let malformed = commit(root, "malformed");
     r.fields = json!({"outcome":"unavailable","reason":"no_policy","log":"-","base":malformed});
-    assert!(old_base(root, &r, &mut seen).is_none());
+    assert!(old_base(root, &r, &mut seen).unwrap().is_none());
 }
 #[test]
 fn published_log_latency_uses_run_creation_and_newest_head_not_note_observation() {
@@ -678,18 +690,18 @@ fn published_log_latency_uses_run_creation_and_newest_head_not_note_observation(
     let mut r = row(3000, 3);
     r.fields["record"] = json!(late);
     r.fields["observed_at"] = json!(iso(at(3) - Duration::seconds(366)));
-    assert!(explained(&r, Some(&log)));
+    assert!(explained(&r, Some(&log)).unwrap());
     r.created = Some(at(2));
     r.fields["record"] = json!(stalled);
     r.fields["observed_at"] = json!(iso(at(2) - Duration::seconds(100)));
-    assert!(!explained(&r, Some(&log))); // observed fallback would incorrectly excuse this.
+    assert!(!explained(&r, Some(&log)).unwrap()); // observed fallback would incorrectly excuse this.
     r.created = Some(at(3) + Duration::seconds(134));
     r.fields["record"] = json!(one_pull);
     r.fields["observed_at"] = json!(iso(r.created.unwrap() - Duration::seconds(289)));
-    assert!(explained(&r, Some(&log)));
+    assert!(explained(&r, Some(&log)).unwrap());
     r.fields["log_unlogged_crates"] = json!("crate=aaaaaaaaaaaa+2_more");
     r.fields["observed_at"] = json!(iso(r.created.unwrap() - Duration::seconds(100)));
-    assert!(explained(&r, Some(&log)));
+    assert!(explained(&r, Some(&log)).unwrap());
 }
 
 #[test]
@@ -755,4 +767,40 @@ fn cancelled_wrapper_aggregate_and_matrix_member_decisions_keep_only_real_failur
         &aggregate,
         Some("failure")
     ));
+}
+
+#[test]
+fn capture_timeout_and_spawn_errors_have_distinct_published_log_handling() {
+    let timeout = capture_with_timeout(
+        Command::new("sh").args(["-c", "while :; do :; done"]),
+        Sleep::ZERO,
+    )
+    .unwrap_err();
+    assert!(uncaught(&timeout));
+    assert!(!child_exited(&timeout));
+    assert!(!published_fallback(&timeout));
+    assert_eq!(
+        timeout.downcast_ref::<CaptureFailure>().unwrap().0.kind(),
+        std::io::ErrorKind::TimedOut
+    );
+    let missing = tempfile::tempdir().unwrap();
+    let spawn = capture(&mut Command::new(missing.path().join("missing-git"))).unwrap_err();
+    assert!(uncaught(&spawn));
+    assert!(!child_exited(&spawn));
+    assert!(published_fallback(&spawn));
+    assert_eq!(
+        spawn.downcast_ref::<CaptureFailure>().unwrap().0.kind(),
+        std::io::ErrorKind::NotFound
+    );
+    let read_failure: anyhow::Error =
+        CaptureFailure(std::io::Error::other("capture read failed")).into();
+    assert!(uncaught(&read_failure));
+    assert!(published_fallback(&read_failure));
+    let exited: anyhow::Error = ChildExit("git exited nonzero".to_owned()).into();
+    assert!(child_exited(&exited));
+    assert!(!uncaught(&exited));
+    assert!(!published_fallback(&exited));
+    let unreadable: anyhow::Error = Unreadable("published log unavailable".to_owned()).into();
+    assert!(published_fallback(&unreadable));
+    assert!(!uncaught(&unreadable));
 }

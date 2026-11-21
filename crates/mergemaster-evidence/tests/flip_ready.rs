@@ -155,8 +155,13 @@ impl Fixture {
         )
         .unwrap();
         fs::write(data.join("open.json"), "[]").unwrap();
-        let shim = r#"#!/usr/bin/env bash
-set -eu
+        let shell = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+            .map(|directory| directory.join("bash"))
+            .find(|candidate| candidate.is_file())
+            .unwrap()
+            .canonicalize()
+            .unwrap();
+        let shim = r#"set -eu
 printf '%s\0' "$@" >> "$DATA/calls"
 printf '\n' >> "$DATA/calls"
 if [[ "$1" == pr ]]; then
@@ -174,7 +179,7 @@ case "$path" in
   *) echo "unexpected $*" >&2; exit 1;;
 esac
 "#;
-        fs::write(bin.join("gh"), shim).unwrap();
+        fs::write(bin.join("gh"), format!("#!{}\n{shim}", shell.display())).unwrap();
         fs::set_permissions(bin.join("gh"), fs::Permissions::from_mode(0o755)).unwrap();
         Self {
             _temp: temp,

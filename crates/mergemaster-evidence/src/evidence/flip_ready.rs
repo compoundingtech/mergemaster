@@ -37,9 +37,8 @@ pub struct Args {
 }
 
 pub fn parse_time(text: &str) -> Option<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(text)
-        .ok()
-        .map(|t| t.with_timezone(&Utc))
+    let points: Vec<u32> = text.chars().map(u32::from).collect();
+    DateTime::from_timestamp_micros(super::legacy_verify::statement::zoned_time_micros(&points)?)
 }
 pub fn iso(moment: DateTime<Utc>) -> String {
     moment.to_rfc3339_opts(SecondsFormat::Secs, true)
@@ -89,6 +88,35 @@ impl std::fmt::Display for Unreadable {
     }
 }
 impl std::error::Error for Unreadable {}
+#[derive(Debug)]
+pub(super) struct ChildExit(String);
+impl std::fmt::Display for ChildExit {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+impl std::error::Error for ChildExit {}
+#[derive(Debug)]
+struct CaptureFailure(std::io::Error);
+impl std::fmt::Display for CaptureFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, formatter)
+    }
+}
+impl std::error::Error for CaptureFailure {}
+pub(super) fn child_exited(error: &anyhow::Error) -> bool {
+    error.is::<ChildExit>()
+}
+pub(super) fn uncaught(error: &anyhow::Error) -> bool {
+    error.is::<CaptureFailure>() || error.is::<std::io::Error>()
+}
+fn published_fallback(error: &anyhow::Error) -> bool {
+    error.is::<Unreadable>()
+        || error.is::<std::io::Error>()
+        || error
+            .downcast_ref::<CaptureFailure>()
+            .is_some_and(|error| error.0.kind() != std::io::ErrorKind::TimedOut)
+}
 pub struct GitHub {
     pub repo: String,
     pub cache: PathBuf,
@@ -251,18 +279,31 @@ fn strip_ansi(input: &str) -> String {
     }
     out
 }
-fn capture(command: &mut Command) -> std::io::Result<std::process::Output> {
-    crate::gate::git::deadline::GitChild::capture(command, None, Sleep::from_secs(300))
+fn capture(command: &mut Command) -> Result<std::process::Output> {
+    capture_with_timeout(command, Sleep::from_secs(300))
+}
+fn capture_with_timeout(command: &mut Command, timeout: Sleep) -> Result<std::process::Output> {
+    crate::gate::git::deadline::GitChild::capture(command, None, timeout)
+        .map_err(|error| CaptureFailure(error).into())
 }
 pub fn git(root: &Path, args: &[&str]) -> Result<String> {
     let done = capture(Command::new("git").arg("-C").arg(root).args(args))?;
-    ensure!(
-        done.status.success(),
-        "git {}: {}",
-        args.first().copied().unwrap_or(""),
-        tail(String::from_utf8_lossy(&done.stderr).trim(), 300)
-    );
+    if !done.status.success() {
+        return Err(ChildExit(format!(
+            "git {}: {}",
+            args.first().copied().unwrap_or(""),
+            tail(String::from_utf8_lossy(&done.stderr).trim(), 300)
+        ))
+        .into());
+    }
     Ok(String::from_utf8_lossy(&done.stdout).into_owned())
+}
+fn git_ok(root: &Path, args: &[&str]) -> Result<bool> {
+    match git(root, args) {
+        Ok(_) => Ok(true),
+        Err(error) if child_exited(&error) => Ok(false),
+        Err(error) => Err(error),
+    }
 }
 pub fn config_path(root: &Path, path: &str, revision: Option<&str>) -> Result<String> {
     let new = path.replacen(".st/", ".fractal/", 1);
@@ -479,7 +520,7 @@ fn old_base(
     root: &Path,
     row: &Row,
     seen: &mut BTreeMap<(String, String, String), bool>,
-) -> Option<String> {
+) -> Result<Option<String>> {
     let reason = text(&row.fields, "reason");
     let base = row
         .fields
@@ -492,43 +533,51 @@ fn old_base(
         || !matches!(reason, "no_policy" | "no-gate-at-base")
         || !valid_hex(base, &[40])
     {
-        return None;
+        return Ok(None);
     }
     let key = (base.to_owned(), reason.to_owned(), row.check.clone());
-    let predates = *seen.entry(key).or_insert_with(|| {
-        let commit = format!("{base}^{{commit}}");
-        if git(root, &["cat-file", "-e", &commit]).is_err()
-            && (git(root, &["fetch", "-q", "origin", base]).is_err()
-                || git(root, &["cat-file", "-e", &commit]).is_err())
-        {
-            return false;
+    let predates = match seen.entry(key) {
+        std::collections::btree_map::Entry::Occupied(slot) => *slot.get(),
+        std::collections::btree_map::Entry::Vacant(slot) => {
+            let commit = format!("{base}^{{commit}}");
+            let known = git_ok(root, &["cat-file", "-e", &commit])?
+                || (git_ok(root, &["fetch", "-q", "origin", base])?
+                    && git_ok(root, &["cat-file", "-e", &commit])?);
+            let predates = if !known {
+                false
+            } else if reason == "no-gate-at-base" {
+                !git_ok(
+                    root,
+                    &[
+                        "cat-file",
+                        "-e",
+                        &format!("{base}:scripts/ci-evidence-gate"),
+                    ],
+                )?
+            } else {
+                let read = || -> Result<bool> {
+                    let path = config_path(root, POLICY, Some(base))?;
+                    if git(root, &["ls-tree", "--full-tree", "-z", base, "--", &path])?.is_empty() {
+                        return Ok(true);
+                    }
+                    let policy: Value =
+                        serde_json::from_str(&git(root, &["show", &format!("{base}:{path}")])?)?;
+                    Ok(!policy["checks"]
+                        .as_object()
+                        .ok_or_else(|| anyhow!("invalid policy"))?
+                        .contains_key(&row.check))
+                };
+                match read() {
+                    Ok(value) => value,
+                    Err(error) if uncaught(&error) => return Err(error),
+                    Err(_) => false,
+                }
+            };
+            slot.insert(predates);
+            predates
         }
-        if reason == "no-gate-at-base" {
-            return git(
-                root,
-                &[
-                    "cat-file",
-                    "-e",
-                    &format!("{base}:scripts/ci-evidence-gate"),
-                ],
-            )
-            .is_err();
-        }
-        let read = || -> Result<bool> {
-            let path = config_path(root, POLICY, Some(base))?;
-            if git(root, &["ls-tree", "--full-tree", "-z", base, "--", &path])?.is_empty() {
-                return Ok(true);
-            }
-            let policy: Value =
-                serde_json::from_str(&git(root, &["show", &format!("{base}:{path}")])?)?;
-            Ok(!policy["checks"]
-                .as_object()
-                .ok_or_else(|| anyhow!("invalid policy"))?
-                .contains_key(&row.check))
-        };
-        read().unwrap_or(false)
-    });
-    predates.then(|| reason.to_owned())
+    };
+    Ok(predates.then(|| reason.to_owned()))
 }
 struct PublishedLog {
     repo: PathBuf,
@@ -536,8 +585,13 @@ struct PublishedLog {
 }
 impl PublishedLog {
     fn load(root: &Path, cache: &Path, since: DateTime<Utc>) -> Result<Self> {
-        let url = git(root, &["remote", "get-url", "origin"])
-            .map_err(|_| anyhow!("origin has no URL"))?;
+        let url = match git(root, &["remote", "get-url", "origin"]) {
+            Ok(url) => url,
+            Err(error) if child_exited(&error) => {
+                return Err(Unreadable("origin has no URL".to_owned()).into());
+            }
+            Err(error) => return Err(error),
+        };
         let repo = cache.join("log.git");
         if !repo.join("objects").is_dir() {
             let _ = capture(
@@ -554,11 +608,13 @@ impl PublishedLog {
             url.trim(),
             &format!("+{LOG_REF}:{LOG_REF}"),
         ]))?;
-        ensure!(
-            fetched.status.success(),
-            "the published log: {}",
-            tail(String::from_utf8_lossy(&fetched.stderr).trim(), 160)
-        );
+        if !fetched.status.success() {
+            return Err(Unreadable(format!(
+                "the published log: {}",
+                tail(String::from_utf8_lossy(&fetched.stderr).trim(), 160)
+            ))
+            .into());
+        }
         let listed = capture(Command::new("git").arg("-C").arg(&repo).args([
             "log",
             "--format=%H %s",
@@ -577,23 +633,24 @@ impl PublishedLog {
             }
         }
         heads.sort();
-        ensure!(
-            !heads.is_empty(),
-            "the published log has no head with a time"
-        );
+        if heads.is_empty() {
+            return Err(Unreadable("the published log has no head with a time".to_owned()).into());
+        }
         Ok(Self { repo, heads })
     }
-    fn lists(&self, moment: DateTime<Utc>, records: &[String]) -> bool {
+    fn lists(&self, moment: DateTime<Utc>, records: &[String]) -> Result<bool> {
         let Some((_, head)) = self.heads.iter().rev().find(|(when, _)| *when <= moment) else {
-            return false;
+            return Ok(false);
         };
-        records.iter().all(|record| {
-            git(
+        for record in records {
+            if !git_ok(
                 &self.repo,
                 &["grep", "-q", "-F", "-e", &format!("record {record}"), head],
-            )
-            .is_ok()
-        })
+            )? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 }
 fn no_time(text: Option<&str>) -> bool {
@@ -619,9 +676,9 @@ fn unlogged_records(fields: &Value) -> Option<Vec<String>> {
     let record = text(fields, "record");
     valid_hex(record, &[40, 64]).then(|| vec![record.to_owned()])
 }
-fn explained(row: &Row, published: Option<&PublishedLog>) -> bool {
+fn explained(row: &Row, published: Option<&PublishedLog>) -> Result<bool> {
     let Some(created) = row.created else {
-        return false;
+        return Ok(false);
     };
     let unlogged = row
         .fields
@@ -633,12 +690,12 @@ fn explained(row: &Row, published: Option<&PublishedLog>) -> bool {
         unlogged.unwrap_or_default()
     });
     if observed.is_some_and(|t| t >= created) {
-        return true;
+        return Ok(true);
     }
     if let (Some(log), Some(records)) = (published, unlogged_records(&row.fields)) {
         return log.lists(created + Duration::seconds(240), &records);
     }
-    observed.is_some_and(|t| created.signed_duration_since(t) <= Duration::seconds(240))
+    Ok(observed.is_some_and(|t| created.signed_duration_since(t) <= Duration::seconds(240)))
 }
 fn log_value(row: &Row) -> &str {
     row.fields.get("log").and_then(Value::as_str).unwrap_or("-")
@@ -649,7 +706,7 @@ fn evaluate<'a>(
     now: DateTime<Utc>,
     lowered: bool,
     published: Option<&PublishedLog>,
-) -> Value {
+) -> Result<Value> {
     let start = now - Duration::days(1);
     let mut rows: Vec<&Row> = rows
         .into_iter()
@@ -661,10 +718,12 @@ fn evaluate<'a>(
         .copied()
         .filter(|row| row.created.is_some_and(|t| t >= start && t <= now))
         .collect();
-    let unexplained = window
-        .iter()
-        .filter(|row| log_value(row) == "unlogged_pass" && !explained(row, published))
-        .count();
+    let mut unexplained = 0;
+    for row in &window {
+        if log_value(row) == "unlogged_pass" && !explained(row, published)? {
+            unexplained += 1;
+        }
+    }
     let counted: Vec<&Row> = window
         .iter()
         .copied()
@@ -778,7 +837,7 @@ fn evaluate<'a>(
     }
     result["ready"] = json!(why.is_empty());
     result["why_not"] = json!(why);
-    result
+    Ok(result)
 }
 fn preconditions(
     mut result: Value,
@@ -911,21 +970,22 @@ pub fn run(args: Args) -> Result<i32> {
         let mut rows = collect(&github, &checks, since, now, &members)?;
         let mut seen = BTreeMap::new();
         for row in &mut rows {
-            row.old_base = old_base(&root, row, &mut seen);
+            row.old_base = old_base(&root, row, &mut seen)?;
         }
         Ok((checks, members, rows))
     };
     let (policy, members, rows) = match read() {
         Ok(result) => result,
+        Err(error) if uncaught(&error) => return Err(error),
         Err(error) => {
             eprintln!("could not read GitHub or origin/main: {error}");
             return Ok(2);
         }
     };
-    let log = PublishedLog::load(&root, &github.cache, since);
-    let clock = match &log {
-        Ok(_) => "published log".to_owned(),
-        Err(error) => format!("observed_at ({error})"),
+    let (log, clock) = match PublishedLog::load(&root, &github.cache, since) {
+        Ok(log) => (Some(log), "published log".to_owned()),
+        Err(error) if published_fallback(&error) => (None, format!("observed_at ({error})")),
+        Err(error) => return Err(error),
     };
     let mut checks = Map::new();
     for (check, entry) in &policy {
@@ -937,8 +997,8 @@ pub fn run(args: Args) -> Result<i32> {
                     entry["enforce"] == true,
                     now,
                     check == "rust-tests",
-                    log.as_ref().ok(),
-                ),
+                    log.as_ref(),
+                )?,
                 check,
                 entry,
                 members.get(check),
@@ -1307,6 +1367,7 @@ fn propose(
             .and_then(|s| Ok(serde_json::from_str::<Value>(&s)?));
         let open = match listed {
             Ok(value) => value,
+            Err(error) if uncaught(&error) => return Err(error),
             Err(error) => {
                 eprintln!("{check}: not proposed: could not list pull requests: {error}");
                 failed = true;
@@ -1328,6 +1389,9 @@ fn propose(
         )?;
         let operation = || -> Result<()> {
             if let Err(error) = flip(&tree, check, today) {
+                if uncaught(&error) {
+                    return Err(error);
+                }
                 eprintln!("{check}: not proposed, the flip cannot be made mechanically: {error}");
                 bail!("mechanical flip");
             }
@@ -1377,8 +1441,15 @@ fn propose(
             Ok(())
         };
         let result = operation();
-        let _ = git(root, &["worktree", "remove", "--force", tree_arg]);
+        if let Err(error) = git(root, &["worktree", "remove", "--force", tree_arg])
+            && !child_exited(&error)
+        {
+            return Err(error);
+        }
         if let Err(error) = result {
+            if uncaught(&error) {
+                return Err(error);
+            }
             if error.to_string() != "mechanical flip" {
                 eprintln!("{check}: not proposed: {error}");
             }
