@@ -10,3 +10,7 @@ system_genrule_toolchain(name = "genrule", visibility = ["PUBLIC"])
 alias(name = "package_tree_runtime", actual = "@rules//:package_tree_runtime", visibility = ["PUBLIC"])
 alias(name = "package_command_runtime", actual = "@rules//:package_command_runtime", visibility = ["PUBLIC"])
 
+load("@prelude//tests:test_toolchain.bzl", "noop_test_toolchain")
+load("@prelude//toolchains:remote_test_execution.bzl", "remote_test_execution_toolchain")
+noop_test_toolchain(name = "test", visibility = ["PUBLIC"])
+remote_test_execution_toolchain(name = "remote_test_execution", visibility = ["PUBLIC"])

@@ -1,0 +1,3 @@
+# Consumer addition to effect-utils 9c4ee91c (no upstream fixup for 0.14.7).
+# The crate's pinned build.rs probes rustc with version_check and emits relaxed_coherence.
+[buildscript.run]

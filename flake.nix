@@ -1,11 +1,9 @@
 {
   description = "Portable signed Git evidence core and CLI";
 
-  # Genie shares effect-utils' pinned Buck toolchain and nixpkgs authority.
-  inputs.nixpkgs.follows = "effect-utils/nixpkgs";
-  inputs.effect-utils.url = "github:overengineeringstudio/effect-utils/d883d18e3ad7609602db0ec8687c14a77625b905";
-  inputs.effect-utils.inputs.nixpkgs.url = "github:NixOS/nixpkgs/4ba99f3209788ed04f01af38f77ddb803ad6ec63";
-  inputs.effect-utils.inputs.tsgo.inputs.nixpkgsUnstable.url = "github:NixOS/nixpkgs/44a91898084f46797b5fac650c7e8c9ac38c43d4";
+  # Preserve the frozen Python oracle while Buck uses its provider's own toolchain.
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/4ba99f3209788ed04f01af38f77ddb803ad6ec63";
+  inputs.effect-utils.url = "github:overengineeringstudio/effect-utils/9c4ee91cbcecf75b9842dcf6f5607975c45629c6";
   inputs.fractal-fixture = {
     url = "git+https://github.com/compoundingtech/fractal?rev=787e8ed592dff34d2bdc2a2b0b584482da567e7f&shallow=1";
     flake = false;
@@ -192,32 +190,65 @@
         });
       devShells = forAllSystems (system:
         let
-          pkgs = import nixpkgs { inherit system; };
-          oraclePython = oraclePythonFor pkgs;
+          pkgs = import effect-utils.inputs.nixpkgs { inherit system; };
+          rustPkgs = import nixpkgs { inherit system; };
+          oraclePython = oraclePythonFor rustPkgs;
           effectUtilsPackages = effect-utils.packages.${system};
+          # Inject the production compiler through the provider's capability renderer.
+          # Its unrelated wasm tools retain provider pins; native tools use root nixpkgs.
+          rustCapability = import "${effect-utils}/nix/workspace-tools/lib/buck2-rust-toolchain-capability.nix" {
+            pkgs = rustPkgs // {
+              inherit (pkgs) binaryen;
+              "wasm-bindgen-cli_0.2.127" = pkgs."wasm-bindgen-cli_0.2.127";
+            };
+            nixpkgsRevision = nixpkgs.rev;
+          };
+          capabilities = import "${effect-utils}/nix/buck2-capabilities.nix" {
+            inherit pkgs;
+            src = effect-utils;
+            inherit (effectUtilsPackages.buck2-capabilities) extraCapabilities;
+            capabilityPackages = effectUtilsPackages.buck2-capabilities.capabilityPackages
+              // pkgs.lib.mapAttrs' (name: value: pkgs.lib.nameValuePair "buck2-${name}" value)
+                rustCapability.packages;
+          };
           # Same consumer-root renderer and cell materialization as Fractal
           # 2b0246c95a28f3c4f43b4d6fd87ad50e8e5d05cd:nix/web-shell.nix.
           # flake.lock pins the rules, capabilities and Buck2 to one effect-utils revision.
           buckRoot = effect-utils.lib.mkConsumerBuckRoot {
             inherit pkgs;
             rules = effectUtilsPackages.buck2-rules;
-            capabilities = effectUtilsPackages.buck2-capabilities;
+            inherit capabilities;
             cellName = "mergemaster";
             projectIgnore = [
               "**/__pycache__" "**/dist" "**/node_modules" "**/target"
               ".devenv" ".git" "buck-out" "node_modules" "repos" "target" "tmp"
             ];
           };
+          # Fractal's test-provider extension, on top of the shared root renderer.
+          rootBuckWithTests = pkgs.writeText "mergemaster-root-BUCK" (buckRoot.rootBuck + "\n" + ''
+            load("@prelude//tests:test_toolchain.bzl", "noop_test_toolchain")
+            load("@prelude//toolchains:remote_test_execution.bzl", "remote_test_execution_toolchain")
+            noop_test_toolchain(name = "test", visibility = ["PUBLIC"])
+            remote_test_execution_toolchain(name = "remote_test_execution", visibility = ["PUBLIC"])
+          '');
           buckShell = {
-            packages = [ pkgs.watchman effectUtilsPackages.buck2 ];
+            packages = [
+              pkgs.watchman effectUtilsPackages.buck2 pkgs.bun rustPkgs.cargo rustPkgs.rustc
+              pkgs.jq pkgs.time
+              (import "${effect-utils}/nix/reindeer.nix" { inherit pkgs; })
+            ] ++ scriptInputs pkgs;
             BUCK2_BIN = "${effectUtilsPackages.buck2}/bin/buck2";
             MERGEMASTER_BUCK_ROOT = "${buckRoot}";
+            MERGEMASTER_EFFECT_UTILS = "${effect-utils}";
+            MERGEMASTER_RUSTC = "${rustPkgs.rustc}/bin/rustc";
+            MERGEMASTER_BUCK_RUSTC = rustCapability.tools.rust-compiler;
             shellHook = ''
               # Consumer files come from the shared renderer, not a second configuration.
-              for file in .buckconfig BUCK buck2/toolchains/BUCK .watchmanconfig; do
+              ${pkgs.diffutils}/bin/cmp BUCK ${rootBuckWithTests} || exit 1
+              for file in .buckconfig buck2/toolchains/BUCK .watchmanconfig; do
                 if ! ${pkgs.diffutils}/bin/cmp "$file" "${buckRoot}/$file"; then
                   echo "Buck2 consumer file differs from pinned mkConsumerBuckRoot: $file" >&2
-                  return 1
+                  exit 1
                 fi
               done
               mkdir -p .buck2
@@ -227,7 +258,7 @@
           };
         in { default = pkgs.mkShell {
           packages = [
-            pkgs.cargo pkgs.rustc pkgs.rustfmt pkgs.clippy oraclePython
+            rustPkgs.cargo rustPkgs.rustc rustPkgs.rustfmt rustPkgs.clippy oraclePython
           ] ++ buckShell.packages ++ scriptInputs pkgs;
           inherit (buckShell) BUCK2_BIN MERGEMASTER_BUCK_ROOT shellHook;
           MERGEMASTER_ORACLE_PYTHON = "${oraclePython}/bin/python3.14";
@@ -242,6 +273,14 @@
         };
           # Resolving Buck2's toolchain must not first build the Cargo application.
           buck2 = pkgs.mkShell buckShell;
+          buck2-evidence = pkgs.mkShell (buckShell // {
+            MERGEMASTER_ORACLE_PYTHON = "${oraclePython}/bin/python3.14";
+            MERGEMASTER_PYTHON_KEYS_ORACLE = "${python-keys-oracle}";
+            MERGEMASTER_FRACTAL_FIXTURE = "${fractal-fixture}";
+            MERGEMASTER_PYTHON_ORACLE = "${python-oracle}";
+            MERGEMASTER_PYTHON_PARITY_ORACLE = "${python-oracle-parity}";
+            packages = buckShell.packages ++ [ oraclePython ];
+          });
         });
     };
 }

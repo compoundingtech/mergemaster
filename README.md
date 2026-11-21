@@ -39,6 +39,41 @@ cargo test --workspace
 cargo run -- evidence --help
 ```
 
+### Buck2 workspace lane
+
+The Buck2 lane consumes Fractal's `mkConsumerBuckRoot` layout and effect-utils
+`9c4ee91cbcecf75b9842dcf6f5607975c45629c6` rules, capabilities and Cargo projector.
+It generates unit and integration harnesses for every Cargo workspace member,
+including newly discovered integration tests, rather than maintaining a test list.
+Native Rust compilation uses the production flake's compiler; the provider's
+nixpkgs supplies Buck/Bun tooling. The frozen Python oracle remains unchanged.
+
+```sh
+nix develop .#buck2-evidence -c bash scripts/buck2-prepare
+nix develop .#buck2-evidence -c buck2 build --local-only --num-threads 1 //crates/...
+nix develop .#buck2-evidence -c buck2 test --local-only --num-threads 1 //crates/...
+nix develop .#buck2-evidence -c bun scripts/buck2-parity.ts tmp/buck2-evidence
+nix develop .#buck2-evidence -c bash scripts/buck2-timing tmp/buck2-evidence
+```
+
+**Not yet a passing adoption:** the pinned projector rejects Cargo resolver 3
+and lacks repository-layout resource staging. Existing tests read repository-level
+fixtures/scripts, and the reconciler includes `iac/consumers.json` in production.
+The lane fails rather than omitting targets or declaring partial parity.
+Vendored AWS-LC builds through the shared native toolchain; unresolved fixup errors stay enabled.
+Doctests are not supported by the shared projector; the inventory comparison
+refuses any Cargo doctests missing from Buck.
+
+Parity artifacts contain sorted `(package, harness, test-name)` lists, counts,
+and a multiset diff, including ignored tests. Timing is engine-cold/warm,
+not Nix-provisioning-cold: fresh Cargo target/registry and Buck isolation outputs
+(including downloaded crates), same revision/host/lockfiles/compiler, one job,
+debug information and incremental compilation disabled, no compiler wrappers or
+remote action cache. Nix tools remain realized; OS page caches are not flushed.
+Cargo and Buck have different graph evaluation, feature resolution and
+codegen defaults, so timings must be explained, not judged against a speedup
+threshold. CI retains logs even when preparation fails.
+
 ## Producer receipt verification
 
 `evidence::producer_proof::verify` authenticates a canonical v1 receipt using an

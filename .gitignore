@@ -11,3 +11,13 @@
 /.buck2/
 /buck-out/
 /.buckconfig.local
+/.devenv/
+# Regenerated from the pinned provider and Cargo metadata; not source authorities.
+/crates/*/BUCK
+/buck2/dependencies/BUCK
+/buck2/dependencies/cargo-resolution.json
+/buck2/dependencies/git-crate-archives.json
+/buck2/dependencies/fixups/*
+!/buck2/dependencies/fixups/generic-array/
+!/buck2/dependencies/fixups/aws-lc-rs/
+!/buck2/dependencies/fixups/aws-lc-sys/

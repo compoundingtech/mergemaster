@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+: "${MERGEMASTER_RUSTC:?Run inside nix develop .#buck2-evidence}"
+out="${1:-tmp/buck2-evidence}"
+mkdir -p "$out"
+out="$(realpath "$out")"
+# Engine-cold, NOT provisioning-cold: Nix tools stay realized, while Cargo's
+# target/registry and Buck's isolated outputs (including crate archives) start empty.
+# Never GC a shared Nix store to manufacture a cold benchmark.
+# Both build every production/test target, dev mode, debug=0, no incremental/wrappers.
+export CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
+unset RUSTC_WRAPPER CARGO_BUILD_RUSTC_WRAPPER
+export RUSTC="$MERGEMASTER_RUSTC"
+export CARGO_TARGET_DIR="$(mktemp -d "$out/cargo-target.XXXXXX")"
+export CARGO_HOME="$(mktemp -d "$out/cargo-home.XXXXXX")"
+isolation="mergemaster-timing-$(date +%s)-$$"
+{
+  git rev-parse HEAD
+  hostname
+  uname -a
+  sha256sum Cargo.lock flake.lock reindeer.toml
+  printf 'Cargo compiler: %s\nBuck compiler wrapper: %s\n' "$RUSTC" "$MERGEMASTER_BUCK_RUSTC"
+  "$RUSTC" -vV
+  "$MERGEMASTER_BUCK_RUSTC" --effect-utils-compiler-identity
+  printf 'Cargo target=%s\nCargo home=%s\nBuck isolation=%s\n' "$CARGO_TARGET_DIR" "$CARGO_HOME" "$isolation"
+  printf 'Cold=empty engine outputs and package-source caches; warm=identical command, no edits. Nix store warm; OS page cache not flushed. No remote action cache, 1 job. Order=Cargo cold/warm then Buck cold/warm.\n'
+} | tee "$out/timing-inputs.txt"
+cargo_sysroot="$(realpath "$("$RUSTC" --print sysroot)")"
+buck_sysroot="$("$MERGEMASTER_BUCK_RUSTC" --effect-utils-compiler-identity | jq -r .sysroot)"
+test "$cargo_sysroot" = "$buck_sysroot"
+for temperature in cold warm; do
+  /usr/bin/env time -f 'elapsed_seconds=%e user_seconds=%U system_seconds=%S max_rss_kib=%M exit=%x' \
+    -o "$out/cargo-$temperature.time" cargo build --locked --workspace --all-targets
+  cat "$out/cargo-$temperature.time"
+done
+for temperature in cold warm; do
+  /usr/bin/env time -f 'elapsed_seconds=%e user_seconds=%U system_seconds=%S max_rss_kib=%M exit=%x' \
+    -o "$out/buck-$temperature.time" "$BUCK2_BIN" --isolation-dir "$isolation" \
+    build --local-only --num-threads 1 //crates/...
+  cat "$out/buck-$temperature.time"
+done
+# Retain outputs for evidence; caller owns cleanup of these uniquely named engine caches.
