@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+- Opt the `mergemaster` and `mergemaster-reconciler` packages out of the nixpkgs `cargoUseSystemLibs` hook so vendored native crates (aws-lc-sys) build unchanged under consumer nixpkgs; consumers can drop their `dontCargoUseSystemLibs` overrides.
+
 ## [0.12.0] - 2026-11-21
 
 - Add a BASE-only `.mergemaster/producers.json` manifest, the report-only `producer_digest` decision field (`listed` / `unlisted` / `no_manifest` / `not_applicable`), `mergemaster producers measure`, and the reusable `producers.yml` workflow. (#416, #417)
