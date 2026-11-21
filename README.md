@@ -1751,6 +1751,25 @@ authorized workflow's implementation. Reviewers must inspect such changes.
 
 ## Generic lane execution and signing
 
+`mergemaster evidence legacy-sign` is the separate cooperative **v1** signer.
+It reads the same single JSON request from stdin and
+`$HOME/.config/st/evidence-sign.json` (`signer`, `ssh_key`, `scratch_repo`,
+optional `path` and test-only `test_clock`) as `scripts/evidence-sign`.
+It returns `record`, `tier`, `tree`, `commit` and `object_pack_base64`;
+it does not publish refs or accept the v2 `--config` option.
+Intentional `legacy-sign` divergences from the pinned Python oracle:
+
+- The signed `producer_sha256` identifies the resolved running native executable,
+  not `scripts/evidence-sign`. All other statement encoding and pack/object
+  conventions remain v1.
+- Native signing first checks object completeness with `git rev-list --objects
+  --missing=print`, refusing missing objects before signing. The pinned Python
+  has no completeness preflight: an absent commit first fails at `git cat-file -t`.
+  Recorded valid requests with synthetic absent commits therefore produce
+  `git rev-list failed:` natively versus `git cat-file failed:` in the oracle.
+
+Existing callers and the Python scripts remain unchanged in this signer-only slice.
+
 `mergemaster evidence wrap` runs the exact BASE-declared command once, measures
 its inputs before and after execution, signs successes and failures, imports the
 immutable signed note and explicitly pushes its note ref to `origin`:

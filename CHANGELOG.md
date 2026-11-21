@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add `mergemaster evidence legacy-sign`, the native cooperative v1 signer, separately from the BASE-bound `evidence sign` protocol. It retains the legacy HOME configuration, request and signed-pack response. The intended producer-identity change is `producer_sha256`: it identifies the native signing executable instead of the Python script; the remaining statement bytes retain the legacy encoding.
+
 ## [0.13.0] - 2026-11-21
 
 - Native v2 `evidence wrap` reports temporary execution interruption, signer unavailability and origin publication failure as exit 75 with stable `infra_unavailable` class tokens, allowing consumers to retry/park rather than fail checks. External termination is never signed; crashes and explicit signer refusals retain their existing behavior. Legacy wrappers are unchanged.

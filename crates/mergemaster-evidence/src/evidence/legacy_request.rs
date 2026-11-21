@@ -31,7 +31,7 @@ const INPUTS: [&str; 5] = [
 fn end(value: &str) -> &str {
     value.strip_suffix('\n').unwrap_or(value)
 }
-fn token(value: &Value) -> Result<Cow<'_, str>> {
+pub(super) fn token(value: &Value) -> Result<Cow<'_, str>> {
     match value {
         Value::String(s) => Ok(Cow::Borrowed(s)),
         Value::Number(n) => number_token(n),
@@ -126,13 +126,13 @@ fn signature(value: &str) -> bool {
 
 // Git bindings and signing authority are checked separately.
 fn validate(request: &Value) -> Result<()> {
-    let fields = request.as_object().context("request must be an object")?;
+    let fields = request.as_object().context("request must have exactly: change_id, check, command, commit, exit_code, inputs, output_sha256 (and optionally runner)")?;
     ensure!(
         REQUIRED.iter().all(|key| fields.contains_key(*key))
             && fields
                 .keys()
                 .all(|key| REQUIRED.contains(&key.as_str()) || key == "runner"),
-        "unexpected or missing request keys"
+        "request must have exactly: change_id, check, command, commit, exit_code, inputs, output_sha256 (and optionally runner)"
     );
     let runner = request.get("runner").map_or(Some("wrapper"), Value::as_str);
     ensure!(
@@ -150,12 +150,12 @@ fn validate(request: &Value) -> Result<()> {
         !name.is_empty()
             && name.len() <= 64
             && (name.as_bytes()[0].is_ascii_lowercase() || name.as_bytes()[0].is_ascii_digit()),
-        "check name must start with a lowercase letter or digit"
+        "check name must be lowercase letters, digits, dot, dash or underscore"
     );
     ensure!(
         name.bytes()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || b"._-".contains(&c)),
-        "invalid check name"
+        "check name must be lowercase letters, digits, dot, dash or underscore"
     );
     let command = request["command"]
         .as_array()
@@ -192,14 +192,14 @@ fn validate(request: &Value) -> Result<()> {
     );
     let inputs = request["inputs"]
         .as_object()
-        .context("inputs must be an object")?;
+        .context("inputs must be short nonempty strings and include: attempt, flake_lock_sha256, system, toolchain_sha256, wrapper_sha256")?;
     ensure!(
         INPUTS.iter().all(|key| inputs.contains_key(*key))
             && inputs.len() <= 40
             && inputs.values().all(|v| v
                 .as_str()
                 .is_some_and(|s| !s.is_empty() && s.chars().take(501).count() <= 500)),
-        "inputs must be short nonempty strings with required fingerprints"
+        "inputs must be short nonempty strings and include: attempt, flake_lock_sha256, system, toolchain_sha256, wrapper_sha256"
     );
     for key in inputs.keys().filter(|key| !INPUTS.contains(&key.as_str())) {
         let name = end(key);
@@ -210,7 +210,10 @@ fn validate(request: &Value) -> Result<()> {
                 && name
                     .bytes()
                     .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_'),
-            "invalid input name"
+            "input name {} must be lowercase letters, digits and underscore",
+            super::legacy_verify::python_repr::Repr(
+                super::legacy_verify::value_inputs::TextRef::Str(key)
+            )
         );
     }
     for key in &INPUTS[..3] {
@@ -225,7 +228,7 @@ fn validate(request: &Value) -> Result<()> {
     let attempt = inputs
         .get("attempt")
         .and_then(Value::as_str)
-        .context("inputs must be short nonempty strings with required fingerprints")?;
+        .context("inputs must be short nonempty strings and include: attempt, flake_lock_sha256, system, toolchain_sha256, wrapper_sha256")?;
     ensure!(
         (1..=4).contains(&attempt.len())
             && (b'1'..=b'9').contains(&attempt.as_bytes()[0])
@@ -268,7 +271,7 @@ fn validate_nix(
     let drv = input("drv_path");
     ensure!(
         store(drv) && drv.ends_with(".drv"),
-        "a nix record needs drv_path ending in .drv"
+        "a nix record needs drv_path, a store path ending in .drv"
     );
     if !matches!(request["exit_code"].as_number(), Some("0" | "-0")) {
         ensure!(
@@ -298,7 +301,7 @@ fn validate_nix(
                     .next()
                     .and_then(|s| s.split_once('-'))
                     .map(|(_, s)| Some(s)),
-        "out_path must be named like drv_path without .drv"
+        "out_path must be a store path named like drv_path without .drv"
     );
     ensure!(
         input("nar_hash")
@@ -319,7 +322,7 @@ fn validate_nix(
             || references.split(',').all(
                 |path| store(path) && previous.replace(path).is_none_or(|before| before < path)
             ),
-        "references must be sorted distinct store paths or -"
+        "references must be sorted, distinct store paths joined by commas, or - for none"
     );
     ensure!(
         matches!(input("cache_hit"), "true" | "false"),
@@ -329,11 +332,11 @@ fn validate_nix(
     let unsigned = signatures == "none";
     ensure!(
         unsigned || signatures.split(',').all(signature),
-        "nix_signatures must be name:base64 signatures or none"
+        "nix_signatures must be name:base64 signatures joined by commas, or none"
     );
     ensure!(
         input("nix_unsigned") == if unsigned { "true" } else { "false" },
-        "nix_unsigned contradicts signatures"
+        "nix_unsigned must say whether nix_signatures is none"
     );
     ensure!(
         input("nix_key_id")
@@ -344,7 +347,7 @@ fn validate_nix(
                     .split_once(':')
                     .map_or(signatures, |(name, _)| name)
             },
-        "nix_key_id must name the first signature key"
+        "nix_key_id must name the first signature's key, or none"
     );
     Ok(())
 }
