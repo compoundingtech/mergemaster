@@ -808,6 +808,10 @@ fn evaluate<'a>(
         .iter()
         .filter(|row| log_value(row) == "missing")
         .count();
+    let ignored: Map<String, Value> = ignored
+        .into_iter()
+        .map(|(reason, count)| (reason, json!(count)))
+        .collect();
     let mut result = json!({"enforce":enforce,"lines":window.len(),"satisfied_log_ok":satisfied,"log_missing":missing,"unlogged_pass_unexplained":unexplained,"hidden_red":hidden,"visible_red":visible,"log_window_start":began_local.map(iso),"old_base_lines":ignored,"cancelled_runs":cancelled});
     let mut why = Vec::new();
     for value in ["stale", "absent", "unsigned", "-"] {
