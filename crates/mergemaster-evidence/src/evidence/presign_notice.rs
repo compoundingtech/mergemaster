@@ -22,25 +22,33 @@ struct TextOutput {
 }
 
 fn decode_stream(bytes: Vec<u8>) -> Result<String, String> {
-    String::from_utf8(bytes).map_err(|error| {
-        let invalid = error.utf8_error();
-        let start = invalid.valid_up_to();
-        let byte = error.as_bytes()[start];
-        let reason = match invalid.error_len() {
-            None => "unexpected end of data",
-            Some(_) if !(0xc2..=0xf4).contains(&byte) => "invalid start byte",
-            Some(_) => "invalid continuation byte",
-        };
-        let length = invalid
-            .error_len()
-            .unwrap_or(error.as_bytes().len() - start);
-        let location = if length == 1 {
-            format!("byte 0x{byte:02x} in position {start}")
-        } else {
-            format!("bytes in position {start}-{}", start + length - 1)
-        };
-        format!("'utf-8' codec can't decode {location}: {reason}")
-    })
+    String::from_utf8(bytes)
+        .map_err(|error| {
+            let invalid = error.utf8_error();
+            let start = invalid.valid_up_to();
+            let byte = error.as_bytes()[start];
+            let reason = match invalid.error_len() {
+                None => "unexpected end of data",
+                Some(_) if !(0xc2..=0xf4).contains(&byte) => "invalid start byte",
+                Some(_) => "invalid continuation byte",
+            };
+            let length = invalid
+                .error_len()
+                .unwrap_or(error.as_bytes().len() - start);
+            let location = if length == 1 {
+                format!("byte 0x{byte:02x} in position {start}")
+            } else {
+                format!("bytes in position {start}-{}", start + length - 1)
+            };
+            format!("'utf-8' codec can't decode {location}: {reason}")
+        })
+        .map(|text| {
+            if text.contains('\r') {
+                text.replace("\r\n", "\n").replace('\r', "\n")
+            } else {
+                text
+            }
+        })
 }
 
 fn output(program: &str, args: &[&str]) -> Result<TextOutput, String> {
@@ -57,6 +65,18 @@ fn output(program: &str, args: &[&str]) -> Result<TextOutput, String> {
         stdout: decode_stream(done.stdout)?,
         stderr: decode_stream(done.stderr)?,
     })
+}
+
+fn python_type(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "NoneType",
+        Value::Bool(_) => "bool",
+        Value::Number(number) if number.is_i64() || number.is_u64() => "int",
+        Value::Number(_) => "float",
+        Value::String(_) => "str",
+        Value::Array(_) => "list",
+        Value::Object(_) => "dict",
+    }
 }
 
 fn lanes_at(base: &str) -> Result<Lanes, String> {
@@ -78,14 +98,21 @@ fn lanes_at(base: &str) -> Result<Lanes, String> {
             .err()
             .map_or_else(|| error.to_string(), |error| error.detail.to_string())
     })?;
-    let lanes = document
-        .get("lanes")
-        .ok_or("'lanes'")?
+    let document = document.as_object().ok_or_else(|| match &document {
+        Value::String(_) => "string indices must be integers, not 'str'".to_owned(),
+        Value::Array(_) => "list indices must be integers or slices, not str".to_owned(),
+        _ => format!("'{}' object is not subscriptable", python_type(&document)),
+    })?;
+    let lanes = document.get("lanes").ok_or("'lanes'")?;
+    let lanes = lanes
         .as_object()
-        .ok_or("'lanes' is not an object")?;
+        .ok_or_else(|| format!("'{}' object has no attribute 'items'", python_type(lanes)))?;
     lanes
         .iter()
         .map(|(name, lane)| {
+            let lane = lane
+                .as_object()
+                .ok_or_else(|| format!("'{}' object has no attribute 'get'", python_type(lane)))?;
             let paths = match lane.get("definition_paths") {
                 None | Some(Value::Null) => Vec::new(),
                 Some(value) => value

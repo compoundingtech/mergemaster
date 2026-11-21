@@ -140,6 +140,12 @@ def tool_provisioning(script, scratch, command):
     # Only transport/process boundaries are faked; run the generated shell's real
     # pin parsing, digest verification, control flow and native executable dispatch.
     prologue = r'''
+uname() {
+  if [ "$TEST_FAILURE" = architecture-probe ]; then return 1; fi
+  if [ "$TEST_FAILURE" = arm ]; then echo aarch64
+  elif [ "$TEST_FAILURE" = unsupported ]; then echo riscv64
+  else echo x86_64; fi
+}
 git() {
   case "$1" in
     fetch)
@@ -174,6 +180,7 @@ chmod() {
                ('fetch', 'show', 'download', 'attestation', 'chmod', 'subcommand')]]
     if command == 'source':
         cases.extend((name, pin, '') for name in ('pr-effective-base', 'pr-event-base', 'missing-base'))
+    cases.extend((failure, pin, failure) for failure in ('arm', 'unsupported', 'architecture-probe'))
     for field, value in (
         ('version', 2), ('version', True), ('repository', 'attacker/mergemaster'),
         ('revision', 'a' * 39), ('revision', 'A' * 40), ('revision', 'a' * 40 + '\n'),
@@ -205,6 +212,11 @@ chmod() {
                                        TEST_PIN=str(pin_path), TEST_BINARY=str(binary),
                                        TEST_FAILURE=failure, TEST_INVOKED=str(invoked),
                                        TEST_FETCHED_BASE=str(fetched_base), TEST_GH_LOG=str(gh_log)))
+        if name in ('arm', 'unsupported', 'architecture-probe'):
+            assert done.returncode == 1, (name, done)
+            assert '::error::' in done.stderr, (name, done)
+            assert not done.stdout and not invoked.exists() and not gh_log.exists(), (name, done)
+            continue
         if command == 'presign-notice':
             assert done.returncode == 0, (name, done.stderr)
             expected_stdout = 'native-tool' if success else NOTICE_FALLBACK

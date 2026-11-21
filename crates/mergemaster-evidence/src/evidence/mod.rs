@@ -27,6 +27,7 @@ pub mod presign_notice;
 pub mod producer_proof;
 pub mod signer_input;
 pub mod signing;
+pub mod slo;
 pub mod source;
 #[cfg(test)]
 mod tests;
