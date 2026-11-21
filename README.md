@@ -1848,8 +1848,9 @@ the summary records `verified=false` and a successful run still exits 0 unless
   nested containers instead of accepting these deeper aggregate outputs.
 - Usage and help use a fixed 80-column layout, regardless of `COLUMNS` or
   terminal width; Python's argparse derives its wrapping from that width.
-- Security divergence: `EVIDENCE_PUSH_TOKEN` and `EVIDENCE_SIGNER` are removed
-  from both the lane command and signer environments. Python forwards them.
+- Security divergence: `EVIDENCE_PUSH_TOKEN`, `EVIDENCE_SIGNER` and caller
+  `GIT_CONFIG_*` overrides are removed from both lane and signer environments.
+  Python forwards them.
 - Security divergence: every wrapper diagnostic redacts both the raw push token
   and its base64 `x-access-token:TOKEN` form, including signer, verifier,
   measurement and publication errors. Python only redacts the raw token in
@@ -1857,15 +1858,46 @@ the summary records `verified=false` and a successful run still exits 0 unless
 - Security divergence: BASE-derived verifier keys use an exclusively created
   mode-0600 tempfile, removed after verification on success and every error path.
   Python writes a predictable PID-based path and leaves it behind.
+- Security divergence: publication reads the literal local `remote.REMOTE.url`
+  once, without includes or URL rewriting, rather than honoring `pushurl`.
+  Explicit URLs in `--push` are also validated. Only `https://github.com/OWNER/REPO`
+  (optional `.git`) and GitHub SSH forms are accepted; credentials in URLs,
+  ports, queries, fragments, escapes and other hosts are refused. With a push
+  token, SSH forms become HTTPS. Without a token, SSH stays SSH and absolute
+  local filesystem destinations are also allowed when passed explicitly to `--push`.
+  An explicit local `--push` destination runs that repository's hooks and config
+  as the caller; a checkout-configured local remote is refused.
+- Publication imports only the signed pack and requested refs into a fresh
+  bare repository, with an empty template and no shared object directory or
+  alternates. System/global Git config and caller `GIT_*` overrides are disabled;
+  checkout hooks, includes, credentials, HTTP settings and URL rewrites cannot
+  affect that repository. The token is injected only through environment config
+  as `http.<validated-url>.extraheader`, never an argv or unscoped header.
+  HTTPS redirects are disabled. Python retains the checkout's transport config.
 
-**Legacy-wrap trust model:** apart from the two credential variables above, the
+**Legacy-wrap trust model:** apart from the credential/config removals above, the
 caller's environment reaches the lane command. The signer also inherits caller
-state, except for the loader/Python-variable scrub, fixed PATH and those two
-credential removals; it is not an environment-isolated boundary. For publication
-parity, checkout/global Git transport configuration remains active, including
-`pushurl`, `insteadOf`, `includeIf`, `credential.helper`, `sshCommand` and
-`http.*`. A hostile checkout configuration can therefore redirect the authenticated
-push. This inherited transport trust boundary is tracked in #426.
+state, except for the loader/Python-variable scrub and fixed PATH; it is not an
+environment-isolated boundary. SSH may still use the caller's agent and SSH
+configuration, but never checkout `core.sshCommand`. HTTPS publication requiring
+credentials must supply `EVIDENCE_PUSH_TOKEN`; Git credential helpers are not used.
+The checkout still chooses the GitHub owner/repository: a token may reach any
+GitHub repository it can write to. Fully removing that residual authority requires
+an explicit trusted publication URL supplied by the caller, not checkout state.
+Verifier-key tempfiles and bare publication repositories use RAII cleanup on
+normal returns and errors, not process-terminating signals (including SIGKILL);
+their containing launcher scratch directory must be cleaned after interruption.
+
+Caller inventory for this transport change (GitHub main, 2026-11-21):
+this repo and Fractal `scripts/st-test` (through the `fractal-test` shim), pre-push
+hook and presign worker use `--push REMOTE`/`origin`; presign clones HTTPS GitHub.
+CI exports with `--out` and publishes separately. None of those production callers
+sets a wrapper-specific `pushurl`; transport-override/pushurl uses in wrapper tests
+are intentional Python-only compatibility witnesses now. Fractal's cached-record
+publication in `st-test` is separate and is not hardened by this native-wrapper
+change. Dotfiles' `scripts/mergemaster-landing-evidence` invokes v2 `evidence wrap`,
+not the legacy wrapper; its push-destination validation permits GitHub HTTPS/SSH.
+The dotfiles factory-evidence module has no legacy wrapper invocation.
 
 Existing callers and Python scripts remain unchanged until the separate cutover.
 

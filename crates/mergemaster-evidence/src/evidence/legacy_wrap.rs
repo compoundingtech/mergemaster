@@ -17,6 +17,7 @@ use base64::{
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeSet,
+    ffi::OsStr,
     io::{Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -229,9 +230,7 @@ fn run_command(command: &[String]) -> Result<(i32, String)> {
         .args(&command[1..])
         .stdout(Stdio::from(writer))
         .stderr(Stdio::from(error_writer));
-    launch
-        .env_remove("EVIDENCE_PUSH_TOKEN")
-        .env_remove("EVIDENCE_SIGNER");
+    scrub_publication_environment(&mut launch);
     let child = launch.spawn().map_err(|error| {
         anyhow::anyhow!(
             "{}",
@@ -375,6 +374,17 @@ fn executable(path: &Path) -> bool {
     unsafe { libc::access(path.as_ptr(), libc::X_OK) == 0 }
 }
 
+fn scrub_publication_environment(command: &mut Command) {
+    command
+        .env_remove("EVIDENCE_PUSH_TOKEN")
+        .env_remove("EVIDENCE_SIGNER");
+    for (key, _) in std::env::vars_os() {
+        if key == OsStr::new("GIT_CONFIG") || key.as_encoded_bytes().starts_with(b"GIT_CONFIG_") {
+            command.env_remove(key);
+        }
+    }
+}
+
 fn signer_launch(encoded: &str) -> Result<Command> {
     let document = json::parse(encoded)?;
     let Node::Array(argv) = document.root() else {
@@ -405,9 +415,7 @@ fn signer_launch(encoded: &str) -> Result<Command> {
     };
     let mut launch = Command::new(program);
     launch.args(&argv[1..]).stdin(Stdio::piped());
-    launch
-        .env_remove("EVIDENCE_PUSH_TOKEN")
-        .env_remove("EVIDENCE_SIGNER");
+    scrub_publication_environment(&mut launch);
     for (key, _) in std::env::vars_os() {
         let name = key.to_string_lossy();
         if name.starts_with("LD_")
@@ -778,7 +786,7 @@ fn wrap(args: args::Args, secrets: &transport::Redactor) -> Result<i32> {
             !succeeded || verified,
             "not pushing: the note did not verify locally"
         );
-        transport::push_refs(remote, &refs, secrets)?;
+        transport::push_refs(remote, &refs, &pack, secrets)?;
         summary.insert("pushed".into(), "true".into());
     }
     eprintln!("{}", secrets.text(&json::object(&summary, true)));
