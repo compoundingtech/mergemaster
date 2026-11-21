@@ -152,7 +152,7 @@
 # scripts/evidence_test_support.py: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/evidence_test_support.py 3590f507364ac813bed170e490149c25561fa2d5 9f60e5e6b4b07959045f402c45231f3770788652
 # scripts/fractal-test-test: wave-2 cutover: verifier and crate keys via mergemaster binary
-# local-patch scripts/fractal-test-test decb42b9d442807c9601b473c190b3743b24c4c0 191b6cf8090a825a410adf0be6a8c8401b9d182c
+# local-patch scripts/fractal-test-test decb42b9d442807c9601b473c190b3743b24c4c0 f583cad735578fa1bd29a45150b0826a2fca0c3f
 # scripts/lane-definition-closure: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/lane-definition-closure 492b3741b117092395855d9790dc96e6ce3612e6 df4cd022958b56316698ea7ca05225686329c69f
 # scripts/lane-definition-closure-test: wave-2 cutover: verifier and crate keys via mergemaster binary
