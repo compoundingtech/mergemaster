@@ -351,18 +351,17 @@ impl Parser {
                 continue;
             }
             let mut value = spec.default.value();
-            if !supplied {
-                if let (Action::Convert { name, parse }, Value::String(text)) =
+            if !supplied
+                && let (Action::Convert { name, parse }, Value::String(text)) =
                     (spec.action, &value)
-                {
-                    value = parse(text).ok_or_else(|| {
-                        self.error(format!(
-                            "argument {}: invalid {name} value: {}",
-                            spec.diagnostic(),
-                            repr(text)
-                        ))
-                    })?;
-                }
+            {
+                value = parse(text).ok_or_else(|| {
+                    self.error(format!(
+                        "argument {}: invalid {name} value: {}",
+                        spec.diagnostic(),
+                        repr(text)
+                    ))
+                })?;
             }
             values.insert(spec.long, value);
         }
