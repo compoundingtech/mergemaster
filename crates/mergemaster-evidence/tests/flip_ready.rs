@@ -155,6 +155,7 @@ impl Fixture {
         )
         .unwrap();
         fs::write(data.join("open.json"), "[]").unwrap();
+        fs::create_dir(data.join("calls")).unwrap();
         let shell = std::env::split_paths(&std::env::var_os("PATH").unwrap())
             .map(|directory| directory.join("bash"))
             .find(|candidate| candidate.is_file())
@@ -162,8 +163,8 @@ impl Fixture {
             .canonicalize()
             .unwrap();
         let shim = r#"set -eu
-printf '%s\0' "$@" >> "$DATA/calls"
-printf '\n' >> "$DATA/calls"
+# Each invocation owns its file, including the complete NUL-delimited argv.
+printf '%s\0' "$@" > "$(mktemp "$DATA/calls/call.XXXXXXXXXX")"
 if [[ "$1" == pr ]]; then
   if [[ "$2" == list ]]; then cat "$DATA/open.json"; exit; fi
   if [[ "$2" == create ]]; then
@@ -228,6 +229,20 @@ esac
             .env("PATH", format!("{}:{}", self.bin.display(), std::env::var("PATH").unwrap()))
             .output()
             .unwrap()
+    }
+    fn calls(&self) -> Vec<String> {
+        let mut calls: Vec<String> = fs::read_dir(self.data.join("calls"))
+            .unwrap()
+            .map(|entry| {
+                let call = fs::read_to_string(entry.unwrap().path()).unwrap();
+                assert!(call.ends_with('\0'), "incomplete call record: {call:?}");
+                call
+            })
+            .collect();
+        // The oracle fetches jobs and logs in thread pools, so arrival order
+        // is not part of this comparison. Preserve every argument byte.
+        calls.sort();
+        calls
     }
     fn show(&self, path: &str) -> String {
         git(
@@ -350,7 +365,7 @@ fn propose_pushes_exact_flip_opens_pr_and_removes_worktree() {
     assert_eq!(trigger["check"], "genie-freshness");
     assert_eq!(trigger["ready"], true);
     assert_eq!(trigger["satisfied_log_ok"], 30);
-    let calls = fs::read_to_string(f.data.join("calls")).unwrap();
+    let calls = f.calls().concat();
     assert_eq!(calls.matches("pr\0create\0").count(), 1);
     assert!(calls.contains("pr\0list\0--repo\0org/repo\0--head\0evidence-flip/genie-freshness\0--state\0open\0--json\0number\0"));
     assert_eq!(git(&f.root, &["worktree", "list"]).lines().count(), 1);
@@ -373,11 +388,7 @@ fn open_pr_and_dry_run_never_push_or_create_pr() {
     let stdout = String::from_utf8(out.stdout).unwrap();
     assert!(stdout.contains("+      \"enforce\": true,"));
     assert!(stdout.contains("+| `genie-freshness` | true | `pull_request` | 1 | 2026-10-22 |"));
-    assert!(
-        !fs::read_to_string(f.data.join("calls"))
-            .unwrap()
-            .contains("pr\0create\0")
-    );
+    assert!(!f.calls().concat().contains("pr\0create\0"));
     f.no_branch();
 }
 #[test]
@@ -431,21 +442,7 @@ fn proposal_and_dry_run_match_the_independent_pinned_python() {
         assert_eq!(actual.status.code(), expected.status.code(), "{mode}");
         assert_eq!(actual.stdout, expected.stdout, "{mode}: stdout");
         assert_eq!(actual.stderr, expected.stderr, "{mode}: stderr");
-        let canonical_calls = |fixture: &Fixture| {
-            let calls = fs::read_to_string(fixture.data.join("calls")).unwrap();
-            let mut calls: Vec<String> = calls
-                .split("\0\n")
-                .filter(|s| !s.is_empty())
-                .map(str::to_owned)
-                .collect();
-            calls.sort();
-            calls
-        };
-        assert_eq!(
-            canonical_calls(&native),
-            canonical_calls(&python),
-            "{mode}: GitHub access"
-        );
+        assert_eq!(native.calls(), python.calls(), "{mode}: GitHub access");
         if mode == "propose" {
             for path in [
                 ".st/evidence-skip-policy.json",
@@ -495,4 +492,28 @@ fn cleanup_records_backoff_until_success_or_exhaustion() {
                 .collect::<Vec<_>>()
         );
     }
+}
+
+#[test]
+fn concurrent_shim_calls_keep_complete_records_and_argument_whitespace() {
+    let fixture = Fixture::new();
+    let mut children = Vec::new();
+    let mut expected = Vec::new();
+    for index in 0..32 {
+        let branch = format!("\nbranch-{index}\n");
+        children.push(
+            Command::new(fixture.bin.join("gh"))
+                .args(["pr", "list", "--head", &branch])
+                .env("DATA", &fixture.data)
+                .stdout(std::process::Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        expected.push(format!("pr\0list\0--head\0{branch}\0"));
+    }
+    for mut child in children {
+        assert!(child.wait().unwrap().success());
+    }
+    expected.sort();
+    assert_eq!(fixture.calls(), expected);
 }
