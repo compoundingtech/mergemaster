@@ -76,7 +76,7 @@ enum Operation {
         #[arg(long)]
         repo: PathBuf,
         #[arg(long)]
-        record: String,
+        record: OsString,
         #[arg(long)]
         tree: Option<String>,
     },

@@ -31,6 +31,17 @@ pub struct ShardInputs {
     pub pull_request_count: Option<Option<u64>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub index: Option<NormalizedText>,
+    /// Original object order, retained for Python's dict(shards) helper output.
+    #[serde(skip)]
+    pub field_order: [Option<ShardField>; 4],
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ShardField {
+    Count,
+    Results,
+    PullRequestCount,
+    Index,
 }
 
 /// Borrow the two value-rule fields from the original Document; outer kind key validation is separate.
@@ -126,11 +137,27 @@ pub(super) fn from_source(
                         .ok_or_else(shard_error)?,
                 )),
             };
+            let mut field_order = [None; 4];
+            for (slot, (key, _)) in field_order
+                .iter_mut()
+                .zip(fields.entries().into_iter().flatten())
+            {
+                *slot = Some(if value_source::key_is(key, "count") {
+                    ShardField::Count
+                } else if value_source::key_is(key, "results") {
+                    ShardField::Results
+                } else if value_source::key_is(key, "pull_request_count") {
+                    ShardField::PullRequestCount
+                } else {
+                    ShardField::Index
+                });
+            }
             Some(ShardInputs {
                 count,
                 results,
                 pull_request_count,
                 index,
+                field_order,
             })
         }
     };

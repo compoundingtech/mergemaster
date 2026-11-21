@@ -1,6 +1,7 @@
 use super::run;
 use std::ffi::OsString;
-type Row = (Vec<String>, Vec<u8>, u8);
+use std::os::unix::ffi::OsStringExt;
+type Row = (Vec<Vec<u8>>, Vec<u8>, u8);
 
 #[test]
 fn wave2_a2_record_and_signature_helpers_match_pinned_python_bytes() {
@@ -18,7 +19,7 @@ def row(argv,operation):
   result=dict(reason='error',detail=type(error).__name__+': '+str(error));code=3
  # read-statement uses Python's default dumps, preserving all dictionary fields
  text=json.dumps(result) if code==0 and argv[0]=='read-statement' else json.dumps(result,indent=2)
- rows.append([argv,list((text+'\n').encode()),code])
+ rows.append([list(map(lambda arg:list(os.fsencode(arg)),argv)),list((text+'\n').encode()),code])
 for fmt in ['sha1','sha256']:
  repo=root/fmt;repo.mkdir()
  def git(*args,data=None):return subprocess.check_output(['git','-C',str(repo),*args],input=data,stderr=subprocess.PIPE).decode().strip()
@@ -32,6 +33,8 @@ for fmt in ['sha1','sha256']:
  signed=note(json.dumps(value).encode(),sign=True);unsigned=note(json.dumps(value).encode())
  variants=[(signed,None),(signed,tree),(signed,'0'*len(tree)),(unsigned,None),(note(b'not JSON'),None),(note(b'{}'),None),(note(json.dumps(value).encode(),mode='100755'),None),(note(json.dumps(value).encode(),extra=True),None),(note(json.dumps(value).encode(),parent=None),None),(note(json.dumps(value).encode(),path=b'\xff'),None),(note(json.dumps(value).encode('utf-16')),None)]
  bad=dict(value,predicateType='wrong');variants.append((note(json.dumps(bad).encode()),None));variants.append(('f'*len(tree),None))
+ raw_ref=b'refs/tags/record-\xff';git('update-ref',raw_ref,signed)
+ variants.append((os.fsdecode(raw_ref),None))
  for record,target in variants:
   argv=['read-statement','--repo',str(repo),'--record',record]+(['--tree',target] if target is not None else [])
   row(argv,lambda record=record,target=target:v['load'](str(repo),record,target))
@@ -51,9 +54,9 @@ print(json.dumps(rows))
         String::from_utf8_lossy(&output.stderr)
     );
     let rows: Vec<Row> = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(rows.len(), 40);
+    assert_eq!(rows.len(), 42);
     for (argv, stdout, code) in rows {
-        let actual = run(argv.iter().map(OsString::from), &mut &b""[..]).unwrap();
+        let actual = run(argv.iter().cloned().map(OsString::from_vec), &mut &b""[..]).unwrap();
         assert_eq!(actual.code, code, "{argv:?}");
         assert_eq!(actual.stdout.as_bytes(), stdout, "{argv:?}");
         assert!(actual.stderr.is_empty(), "{argv:?}");
