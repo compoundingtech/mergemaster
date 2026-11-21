@@ -31,11 +31,14 @@ pub fn run(args: RunnerReportArgs) -> anyhow::Result<()> {
 }
 
 fn time(text: &str) -> Option<DateTime<Utc>> {
+    time_points(&text.chars().map(u32::from).collect::<Vec<_>>())
+}
+fn time_points(points: &[u32]) -> Option<DateTime<Utc>> {
     use super::legacy_verify::statement::zoned_time_micros;
-    let mut points: Vec<_> = text.chars().map(u32::from).collect();
-    if let Some(micros) = zoned_time_micros(&points) {
+    if let Some(micros) = zoned_time_micros(points) {
         return DateTime::from_timestamp_micros(micros);
     }
+    let mut points = points.to_vec();
     let length = points.len();
     points.extend("+00:00".chars().map(u32::from));
     if let Some(micros) = zoned_time_micros(&points) {
@@ -177,9 +180,8 @@ pub fn run_at(argv: &[String], until: DateTime<Utc>) -> (i32, String, String) {
         };
         // The producer writes UTF-8 text. Match read_text(errors='replace') before
         // invoking the existing Python JSON parser; byte-encoding detection is not used.
-        for line in String::from_utf8_lossy(&bytes)
-            .lines()
-            .filter(|s| !s.trim().is_empty())
+        for line in crate::parity_drift::splitlines(&String::from_utf8_lossy(&bytes))
+            .filter(|s| !s.chars().all(super::legacy_verify::projection_oid::space))
         {
             let document = Document::from_text_with_depth_limit(line, None).ok();
             let ended = document.as_ref().and_then(|document| {
@@ -194,13 +196,7 @@ pub fn run_at(argv: &[String], until: DateTime<Utc>) -> (i32, String, String) {
                 {
                     return None;
                 }
-                let text: Option<String> = record
-                    .field("ended")
-                    .points()?
-                    .iter()
-                    .map(|p| char::from_u32(*p))
-                    .collect();
-                time(&text?)
+                time_points(record.field("ended").points()?)
             });
             match (document, ended) {
                 (Some(document), Some(ended)) => {
@@ -563,4 +559,31 @@ fn render_markdown(
         });
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod text_tests {
+    #[test]
+    fn whitespace_set_matches_pinned_python_exhaustively() {
+        let output = crate::pinned_python::command()
+            .args([
+                "-B",
+                "-c",
+                "import json; print(json.dumps([p for p in range(0x110000) if chr(p).isspace()]))",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let expected: Vec<u32> = serde_json::from_slice(&output.stdout).unwrap();
+        let actual: Vec<_> = (0..=0x10ffff)
+            .filter_map(|point| char::from_u32(point).map(|character| (point, character)))
+            .filter(|(_, character)| super::super::legacy_verify::projection_oid::space(*character))
+            .map(|(point, _)| point)
+            .collect();
+        assert_eq!(actual, expected);
+    }
 }

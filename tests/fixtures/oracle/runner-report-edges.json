@@ -705,6 +705,214 @@
       "exit": 0,
       "stdout": "**fractal-test full warm runs**, 2026-10-23T12:00:00Z .. 2026-10-24T12:00:00Z: 1 counted (left out: none)\n\nObjective: p90 at most 720s, no run over 900s; 100% of runs within 720s.\n\n| runs | count | p50 | p90 | max |\n|---|---:|---:|---:|---:|\n| all | 1 | 600s | 600s | 600s |\n| box-a | 1 | 600s | 600s | 600s |\n\n| waited for (every run in the window) | runs | p50 | p90 | max |\n|---|---:|---:|---:|---:|\n| pool tree | 1 | 1e-07s | 1e-07s | 1e-07s |\n\n| slowest stage or check | mean | p90 |\n|---|---:|---:|\n| large (stage) | 1e+16s | 10000000000000000s |\n| small (stage) | 0.0s | 1e-07s |\n\n**Within the objective.**\n",
       "stderr": ""
+    },
+    {
+      "id": "edge_text_splitlines_lf",
+      "files": {
+        "runs.jsonl": "\n{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\n{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 2,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 2,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_splitlines_cr",
+      "files": {
+        "runs.jsonl": "\r{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\r{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\r"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 2,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 2,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_splitlines_crlf",
+      "files": {
+        "runs.jsonl": "\r\n{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\r\n{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\r\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 2,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 2,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_splitlines_vt",
+      "files": {
+        "runs.jsonl": "\u000b{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u000b{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u000b"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 2,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 2,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_splitlines_ff",
+      "files": {
+        "runs.jsonl": "\f{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\f{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\f"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 2,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 2,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_splitlines_fs",
+      "files": {
+        "runs.jsonl": "\u001c{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u001c{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u001c"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 2,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 2,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_splitlines_gs",
+      "files": {
+        "runs.jsonl": "\u001d{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u001d{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u001d"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 2,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 2,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_splitlines_rs",
+      "files": {
+        "runs.jsonl": "\u001e{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u001e{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u001e"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 2,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 2,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_splitlines_nel",
+      "files": {
+        "runs.jsonl": "\u0085{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u0085{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u0085"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 2,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 2,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_splitlines_line_separator",
+      "files": {
+        "runs.jsonl": "\u2028{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u2028{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u2028"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 2,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 2,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_splitlines_paragraph_separator",
+      "files": {
+        "runs.jsonl": "\u2029{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u2029{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u2029"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 2,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 2,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_python_whitespace_only_lines",
+      "files": {
+        "runs.jsonl": "\t\t\n\n\n\n\u000b\u000b\n\f\f\n\r\r\n\u001c\u001c\n\u001d\u001d\n\u001e\u001e\n\u001f\u001f\n  \n\u0085\u0085\n\u00a0\u00a0\n\u1680\u1680\n\u2000\u2000\n\u2001\u2001\n\u2002\u2002\n\u2003\u2003\n\u2004\u2004\n\u2005\u2005\n\u2006\u2006\n\u2007\u2007\n\u2008\u2008\n\u2009\u2009\n\u200a\u200a\n\u2028\u2028\n\u2029\u2029\n\u202f\u202f\n\u205f\u205f\n\u3000\u3000\n{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 1,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 1,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_non_whitespace_controls",
+      "files": {
+        "runs.jsonl": "\u0000\n\u001b\n\u200b\n\ufeff\n{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 1,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 4,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 1,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_raw_line_separator_inside_json_string",
+      "files": {
+        "runs.jsonl": "{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"left\u2028right\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 0,\n  \"p50_s\": null,\n  \"p90_s\": null,\n  \"max_s\": null,\n  \"within_slo\": null,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 2,\n  \"by_host\": {},\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": []\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_time_lone_surrogate_separator_zoned",
+      "files": {
+        "runs.jsonl": "{\"v\":1,\"ended\":\"2026-10-24\\ud80011:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 1,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 1,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24\\ud80011:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_time_lone_surrogate_separator_naive",
+      "files": {
+        "runs.jsonl": "{\"v\":1,\"ended\":\"2026-10-24\\ud80011:00\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 1,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 1,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24\\ud80011:00\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
     }
   ]
 }

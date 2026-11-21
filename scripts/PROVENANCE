@@ -125,6 +125,10 @@
 # shared Python-JSON arena acceptance of nonfinite numbers and lone surrogates,
 # and Python float repr in Markdown. The reporter borrows source nodes rather
 # than narrowing records through serde_json; unrelated fields stay lossless.
+# Text-boundary recordings cover every Python splitlines separator, all 29
+# isspace code points, non-whitespace controls, raw U+2028 inside JSON strings,
+# and lone-surrogate ISO date/time separators. Existing splitlines/space helpers
+# are reused; ended timestamps reach the zoned parser as original code points.
 # pyfloat unit tests compare exact output bits with pinned Python across finite
 # exponent boundaries, decimal ties, random doubles and all supported precisions.
 # Intended divergence: native runner-report --slo-s/--max-s use signed i64.
