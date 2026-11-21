@@ -181,6 +181,7 @@ fn token_environment(token: &str, url: &str) -> Vec<(String, String)> {
 enum PublicationUrlError {
     UnsupportedTransport,
     InvalidRepository,
+    CheckoutLocalDestination,
 }
 
 impl std::fmt::Display for PublicationUrlError {
@@ -188,13 +189,18 @@ impl std::fmt::Display for PublicationUrlError {
         f.write_str(match self {
             Self::UnsupportedTransport => "publication URL must target github.com over HTTPS or Git SSH (absolute local paths require no token)",
             Self::InvalidRepository => "publication URL must name one GitHub owner/repository without userinfo, port, escapes, query or fragment",
+            Self::CheckoutLocalDestination => "checkout-configured local publication destination is refused; pass a trusted absolute path explicitly with --push",
         })
     }
 }
 
 impl std::error::Error for PublicationUrlError {}
 
-fn trusted_url(url: &str, authenticated: bool) -> std::result::Result<String, PublicationUrlError> {
+fn trusted_url(
+    url: &str,
+    authenticated: bool,
+    caller_explicit: bool,
+) -> std::result::Result<String, PublicationUrlError> {
     // No userinfo, ports, escapes, query, fragment, options or remote-helper syntax.
     let (path, ssh) = if let Some(path) = url.strip_prefix("https://github.com/") {
         (path, false)
@@ -204,7 +210,10 @@ fn trusted_url(url: &str, authenticated: bool) -> std::result::Result<String, Pu
         (path, true)
     } else {
         // Offline, credential-free publication remains useful for local callers.
-        if !authenticated && std::path::Path::new(url).is_absolute() {
+        if std::path::Path::new(url).is_absolute() && !caller_explicit {
+            return Err(PublicationUrlError::CheckoutLocalDestination);
+        }
+        if !authenticated && caller_explicit && std::path::Path::new(url).is_absolute() {
             return Ok(url.to_owned());
         }
         return Err(PublicationUrlError::UnsupportedTransport);
@@ -229,7 +238,8 @@ fn trusted_url(url: &str, authenticated: bool) -> std::result::Result<String, Pu
 }
 
 fn publication_url(remote: &str, authenticated: bool) -> Result<String> {
-    let url = if remote.contains('/') || remote.contains(':') {
+    let caller_explicit = remote.contains('/') || remote.contains(':');
+    let url = if caller_explicit {
         remote.to_owned()
     } else {
         // Read the literal URL once, not get-url (which applies insteadOf).
@@ -248,7 +258,7 @@ fn publication_url(remote: &str, authenticated: bool) -> Result<String> {
             .trim_end_matches('\n')
             .to_owned()
     };
-    Ok(trusted_url(&url, authenticated)?)
+    Ok(trusted_url(&url, authenticated, caller_explicit)?)
 }
 
 fn publication_repository(
@@ -263,7 +273,7 @@ fn publication_repository(
     if !done.status.success() {
         bail!("initializing isolated publication repository failed");
     }
-    let mut import = git_command(&["index-pack", "--stdin"], environ, &[], true);
+    let mut import = git_command(&["index-pack", "--strict", "--stdin"], environ, &[], true);
     import.current_dir(directory);
     if !capture(&mut import, Some(pack))?.status.success() {
         bail!("importing isolated publication pack failed");
@@ -748,7 +758,7 @@ mod tests {
             "-evil",
             "/local/repo",
         ] {
-            assert!(trusted_url(url, true).is_err(), "{url}");
+            assert!(trusted_url(url, true, true).is_err(), "{url}");
         }
         for url in [
             "https://github.com/owner/repo.git",
@@ -756,16 +766,23 @@ mod tests {
             "ssh://git@github.com/owner/repo.git",
         ] {
             assert_eq!(
-                trusted_url(url, true).unwrap(),
+                trusted_url(url, true, false).unwrap(),
                 "https://github.com/owner/repo.git"
             );
         }
         assert_eq!(
-            trusted_url("git@github.com:owner/repo", false).unwrap(),
+            trusted_url("git@github.com:owner/repo", false, false).unwrap(),
             "ssh://git@github.com/owner/repo"
         );
-        assert_eq!(trusted_url("/local/repo", false).unwrap(), "/local/repo");
-        assert!(trusted_url("file:///local/repo", false).is_err());
+        assert_eq!(
+            trusted_url("/local/repo", false, true).unwrap(),
+            "/local/repo"
+        );
+        assert_eq!(
+            trusted_url("/local/repo", false, false),
+            Err(PublicationUrlError::CheckoutLocalDestination)
+        );
+        assert!(trusted_url("file:///local/repo", false, true).is_err());
         let extra = token_environment("secret", "https://github.com/owner/repo");
         assert_eq!(extra[0].1, "1");
         assert_eq!(extra[1].1, "http.https://github.com/owner/repo.extraheader");

@@ -298,7 +298,7 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
         marker = root / 'wrongly-verified'
         verifier = executable(root / 'must-not-verify', '#!/bin/sh\ntouch ' + shlex.quote(str(marker)) + '\nexit 1\n')
         for native in (False, True):
-            done = invoke(native, flags=['--aggregate', str(stage), '--push', 'wide-sink', '--verifier', str(verifier)])
+            done = invoke(native, flags=['--aggregate', str(stage), '--push', str(sink), '--verifier', str(verifier)])
             assert done.returncode == 0, (native, done.stderr)
             packet = result(done)
             assert packet['exit_code'] == 4294967296 and packet['verified'] is False and packet['pushed'] is True, packet
@@ -575,7 +575,13 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
             assert native_done.returncode == 1 and b'publication URL' in native_done.stderr, native_done.stderr
             git(repo, 'remote', 'set-url', 'sink', str(sink))
             git(repo, 'remote', 'set-url', '--push', 'sink', 'ext::must-not-run')
+            marker = root / 'checkout-local-receive-hook-executed'
+            executable(sink / 'hooks/pre-receive', '#!/bin/sh\ntouch ' + shlex.quote(str(marker)) + '\n')
             native_done = invoke(True, ['sh', '-c', 'exit 3'], ['--push', 'sink'])
+            assert native_done.returncode == 1 and b'checkout-configured local publication destination is refused' in native_done.stderr, native_done.stderr
+            assert not marker.exists()
+            (sink / 'hooks/pre-receive').unlink()
+            native_done = invoke(True, ['sh', '-c', 'exit 3'], ['--push', str(sink)])
             assert native_done.returncode == 3 and result(native_done)['pushed'], native_done.stderr
             expected = {value[name] for value in (result(oracle_done), result(native_done)) for name in ('ref', 'tag')}
             assert set(text(sink, 'for-each-ref', '--format=%(refname)').splitlines()) == expected
@@ -610,7 +616,7 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
                                 ('credential.helper', '!touch ' + str(marker)), ('core.sshCommand', 'touch ' + str(marker)),
                                 ('http.extraheader', 'checkout-secret'), ('http.https://github.com/example/repo.git.extraheader', 'checkout-secret')]:
                 git(repo, 'config', name, value)
-            native_done = invoke(True, ['sh', '-c', 'exit 3'], ['--push', 'sink', '--attempt', '3', '--input', 'source_inputs=' + tree], extra=transport)
+            native_done = invoke(True, ['sh', '-c', 'exit 3'], ['--push', str(sink), '--attempt', '3', '--input', 'source_inputs=' + tree], extra=transport)
             assert native_done.returncode == 3 and result(native_done)['pushed'], native_done.stderr
             value = result(native_done)
             expected.update([value['tag'], value['ref'], f'refs/tags/evidence/input/linux-gate/{tree}/{value["record"]}', f'refs/notes/evidence-input/linux-gate/{tree}/{value["record"]}'])
@@ -621,7 +627,7 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
             for native in (False, True):
                 for failures in (2, 3):
                     if log.exists(): log.unlink()
-                    done = invoke(native, ['sh', '-c', 'exit 3'], ['--push', 'sink'], dict(PATH=str(shim)+':'+env['PATH'], FAILS=str(failures)))
+                    done = invoke(native, ['sh', '-c', 'exit 3'], ['--push', str(sink)], dict(PATH=str(shim)+':'+env['PATH'], FAILS=str(failures)))
                     assert len(log.read_text().splitlines()) == 3
                     if failures == 2:
                         assert done.returncode == 3 and result(done)['pushed']
@@ -632,7 +638,7 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
                 executable(sink / 'hooks/pre-receive', '#!/bin/sh\nexit 1\n')
                 log.unlink()
                 # A fresh attempt avoids an already-published deterministic ref.
-                done = invoke(native, ['sh', '-c', 'exit 3'], ['--push', 'sink', '--attempt', '9'], dict(PATH=str(shim)+':'+env['PATH'], FAILS='0'))
+                done = invoke(native, ['sh', '-c', 'exit 3'], ['--push', str(sink), '--attempt', '9'], dict(PATH=str(shim)+':'+env['PATH'], FAILS='0'))
                 assert done.returncode == 1 and len(log.read_text().splitlines()) == 1
                 assert b'pre-receive hook declined' in done.stderr and b'pushing them again' not in done.stderr
                 (sink / 'hooks/pre-receive').unlink()
@@ -641,7 +647,7 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
             executable(shim / 'git', '#!' + sys.executable + '\nimport os,sys\na=sys.argv[1:]\nif "push" in a:\n p=' + repr(str(log)) + '\n with open(p,"a") as f: f.write(" ".join(a)+"\\n")\n if len(open(p).read().splitlines())==1:\n  spec=a[-1]\n  print("!\\t"+spec+"\\t[remote rejected] (failed)")\n  sys.exit(1)\nos.execv(' + repr(real_git) + ',["git",*a])\n')
             for native in (False, True):
                 log.unlink()
-                done = invoke(native, ['sh', '-c', 'exit 3'], ['--push', 'sink', '--input', 'source_inputs='+tree], dict(PATH=str(shim)+':'+env['PATH']))
+                done = invoke(native, ['sh', '-c', 'exit 3'], ['--push', str(sink), '--input', 'source_inputs='+tree], dict(PATH=str(shim)+':'+env['PATH']))
                 assert done.returncode == 3 and result(done)['pushed'], done.stderr
                 calls = [shlex.split(line) for line in log.read_text().splitlines()]
                 assert len(calls) == 2
@@ -859,7 +865,7 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
         expected = json.loads((fixture / 'expected.json').read_bytes())
         imported = root / 'golden.git'
         init(imported, bare=True)
-        git(imported, 'index-pack', '--stdin', data=base64.b64decode((fixture / 'record.pack.base64').read_bytes(), validate=False))
+        git(imported, 'index-pack', '--strict', '--stdin', data=base64.b64decode((fixture / 'record.pack.base64').read_bytes(), validate=False))
         record, tree = expected['record'], expected['tree']
         git(imported, 'update-ref', f'refs/notes/evidence/{tree}/{record}', record)
         for verifier in ([sys.executable, '-I', '-B', verify_script, '--repo', imported, '--tree', tree, '--check', expected['check'], '--keys', fixture / 'allowed-signers'],

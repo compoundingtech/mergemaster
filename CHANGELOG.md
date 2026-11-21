@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Isolate native `legacy-wrap` publication in a fresh bare repository, validate literal GitHub remote URLs (or credential-free absolute local paths), ignore push URLs and checkout/caller transport configuration, and scope the environment-only token header to the validated HTTPS URL. Strip caller `GIT_CONFIG_*` overrides from lane/signer children; document the intentional Python divergence and signal-cleanup limitation.
+- Isolate native `legacy-wrap` publication in a fresh bare repository with strict pack validation, validate literal GitHub remote URLs (or caller-explicit credential-free absolute local paths), refuse checkout-configured local destinations that could execute receive hooks, ignore push URLs and checkout/caller transport configuration, and scope the environment-only token header to the validated HTTPS URL. Strip caller `GIT_CONFIG_*` overrides from lane/signer children; document the intentional Python divergence and signal-cleanup limitation.
 
 ## [0.14.0] - 2026-11-21
 

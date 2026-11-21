@@ -1864,7 +1864,9 @@ the summary records `verified=false` and a successful run still exits 0 unless
   (optional `.git`) and GitHub SSH forms are accepted; credentials in URLs,
   ports, queries, fragments, escapes and other hosts are refused. With a push
   token, SSH forms become HTTPS. Without a token, SSH stays SSH and absolute
-  local filesystem destinations are also allowed.
+  local filesystem destinations are also allowed when passed explicitly to `--push`.
+  An explicit local `--push` destination runs that repository's hooks and config
+  as the caller; a checkout-configured local remote is refused.
 - Publication imports only the signed pack and requested refs into a fresh
   bare repository, with an empty template and no shared object directory or
   alternates. System/global Git config and caller `GIT_*` overrides are disabled;
