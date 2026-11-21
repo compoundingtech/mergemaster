@@ -115,6 +115,26 @@ sys.stdout.buffer.write(data);sys.exit(int(sys.argv[1]))
 }
 
 #[test]
+fn communicate_capture_drains_early_refusal_and_waits_after_broken_stdin() {
+    let mut command = Command::new("python3");
+    command
+        .args([
+            "-c",
+            "import os,sys;os.close(0);sys.stdout.buffer.write(b'o'*1048576);sys.stderr.buffer.write(b'refused'*174763);sys.exit(7)",
+        ])
+        .stdin(Stdio::piped());
+    let output = GitChild::capture_communicate(
+        &mut command,
+        &vec![b'i'; 1_048_576],
+        Duration::from_secs(60),
+    )
+    .unwrap();
+    assert_eq!(output.status.code(), Some(7));
+    assert_eq!(output.stdout, vec![b'o'; 1_048_576]);
+    assert_eq!(output.stderr, b"refused".repeat(174763));
+}
+
+#[test]
 fn capture_deadline_handles_null_empty_and_expired_input() {
     for input in [None, Some(b"".as_slice())] {
         let mut command = Command::new("python3");

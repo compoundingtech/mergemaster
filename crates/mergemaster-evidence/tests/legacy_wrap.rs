@@ -469,7 +469,10 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
         shim = root / 'stub-bin'
         shim.mkdir()
         dump, argv0 = root / 'signer-env', root / 'signer-argv0'
-        executable(shim / 'stub-signer', '#!/bin/sh\nenv > ' + shlex.quote(str(dump)) + '\nprintf "%s" "$0" > ' + shlex.quote(str(argv0)) + '\nexit 7\n')
+        # The signer's fixed PATH has no utilities inside the Nix sandbox.
+        env_tool = shutil.which('env', path=env['PATH'])
+        assert env_tool is not None
+        executable(shim / 'stub-signer', '#!/bin/sh\n' + shlex.quote(env_tool) + ' > ' + shlex.quote(str(dump)) + '\nprintf "%s" "$0" > ' + shlex.quote(str(argv0)) + '\nexit 7\n')
         refused(['true'], extra=dict(hostile, PATH=str(shim) + ':' + env['PATH']), signer=['stub-signer'], contains=b'the signer refused')
         reached = dict(line.split('=', 1) for line in dump.read_text().splitlines() if '=' in line)
         assert not [name for name in reached if name.startswith(('LD_', 'DYLD_', 'PYTHON')) or name in ('GLIBC_TUNABLES', 'GCONV_PATH', 'NLSPATH')]
@@ -550,9 +553,9 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
             (home / '.gitconfig').write_text('[url "git@invalid.example:"]\n\tinsteadOf = https://evidence.invalid/\n')
             transport = dict(GIT_CONFIG_COUNT='2', GIT_CONFIG_KEY_0='url.' + sink.as_uri() + '.insteadOf', GIT_CONFIG_VALUE_0=url,
                              GIT_CONFIG_KEY_1='protocol.file.allow', GIT_CONFIG_VALUE_1='always')
-            # Measurement must disregard all caller GIT_* overrides, while only
-            # publication preserves these transport settings.
-            transport['GIT_DIR'] = str(root / 'not-a-repository')
+            # Publication preserves transport settings. GIT_DIR must stay unset:
+            # the legacy verifier inherits it and would block publication before
+            # transport runs (covered separately by the hostile-state case).
             previous = pair(['true'])[0][1]['record']
             git(repo, 'update-ref', '--stdin', data=''.join(f'update refs/tags/evidence/{"a"*40}/cached-{i} {previous}\n' for i in range(2000)).encode())
             expected = set()
@@ -649,7 +652,11 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
         executable(hooks / 'reference-transaction', '#!/bin/sh\ntouch ' + shlex.quote(str(marker)) + '\n')
         for name, value in (('core.fsmonitor', str(evil)), ('core.hooksPath', str(hooks)), ('core.pager', str(evil)), ('uploadpack.packObjectsHook', str(evil)), ('core.sshCommand', str(evil)), ('gpg.ssh.program', str(evil))):
             git(repo, 'config', name, value)
-        pair(['true'], extra=dict(GIT_DIR=str(root / 'elsewhere'), GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='gpg.ssh.program', GIT_CONFIG_VALUE_0=str(evil)))
+        values = pair(['true'], extra=dict(GIT_DIR=str(root / 'elsewhere'), GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='gpg.ssh.program', GIT_CONFIG_VALUE_0=str(evil)), verify=False)
+        # Signer/measurement ignore GIT_DIR, but both legacy verifiers inherit it.
+        for _, value, _, _ in values:
+            assert value['verified'] is False and not value['pushed'], value
+            assert 'not a git repository' in value['verification'], value
         assert not marker.exists()
         config.write_text(json.dumps({k:v for k,v in signer_config.items() if k != 'test_clock'}))
         for native in (False, True):
@@ -797,7 +804,7 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
                     assert done.returncode == 1 and not marker.exists(), (done.returncode, done.stderr)
                     assert refs(checkout) == b''
     elif group == 'golden':
-        fixture = oracle / 'scripts/testdata/evidence/wrapper-note'
+        fixture = manifest / '../../tests/fixtures/fractal/scripts/testdata/evidence/wrapper-note'
         expected = json.loads((fixture / 'expected.json').read_bytes())
         imported = root / 'golden.git'
         init(imported, bare=True)

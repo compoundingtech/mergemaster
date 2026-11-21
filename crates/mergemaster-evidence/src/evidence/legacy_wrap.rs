@@ -100,9 +100,14 @@ fn output(command: &mut Command) -> Result<std::process::Output> {
         )
     })
 }
-fn capture(command: &mut Command, input: &[u8]) -> Result<std::process::Output> {
+fn capture(command: &mut Command, input: &[u8], signer: bool) -> Result<std::process::Output> {
     let timeout = std::time::Duration::from_secs(300);
-    GitChild::capture(command, Some(input), timeout).map_err(|error| {
+    let result = if signer {
+        GitChild::capture_communicate(command, input, timeout)
+    } else {
+        GitChild::capture(command, Some(input), timeout)
+    };
+    result.map_err(|error| {
         anyhow::anyhow!(
             "{}",
             super::legacy_verify::projection_process_error::diagnostic(
@@ -287,7 +292,7 @@ fn lane_inputs(
             .args(["legacy-evidence-verify-helper", operation])
             .args(extra)
             .stdin(Stdio::piped());
-        let result = capture(&mut launch, &shown)?;
+        let result = capture(&mut launch, &shown, false)?;
         if result.status.code() == Some(3) {
             let failure = json::parse(std::str::from_utf8(&result.stdout)?)?;
             bail!(
@@ -627,7 +632,7 @@ fn wrap(args: args::Args, secrets: &transport::Redactor) -> Result<i32> {
         request.insert("runner".into(), runner);
     }
     let payload = json::object(&request, false);
-    let signed = capture(&mut signer_launch(&args.signer)?, payload.as_bytes())?;
+    let signed = capture(&mut signer_launch(&args.signer)?, payload.as_bytes(), true)?;
     if !signed.status.success() {
         let detail = String::from_utf8_lossy(&signed.stderr);
         let detail = secrets.text(&detail);
