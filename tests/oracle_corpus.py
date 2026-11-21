@@ -166,6 +166,46 @@ def replay_keygen(interpreter):
     print(f"Replayed {len(manifest['cases'])} frozen keygen cases")
 
 
+def replay_presign_notice(interpreter):
+    """Compare both entrypoints to independent frozen stdout and summary bytes."""
+    manifest = json.loads((CORPUS.parent / "presign-notice.json").read_text())
+    assert manifest["version"] == 1
+    assert manifest["runtime"] == {"implementation": "CPython", "version": "3.14.7"}
+    pin = manifest["oracle"]
+    source = Path(os.environ[pin["environment"]])
+    assert git_blob((source / pin["path"]).read_bytes()) == pin["git_blob"]
+    lock = json.loads((ROOT / "flake.lock").read_text())
+    locked = lock["nodes"][lock["nodes"]["root"]["inputs"]["python-oracle"]]["locked"]
+    assert (pin["rev"], pin["nar_hash"]) == (locked["rev"], locked["narHash"])
+    required = manifest["required_lanes"]
+    data = (source / required["path"]).read_bytes()
+    assert git_blob(data) == required["git_blob"]
+    lanes = json.loads(data)["lanes"]
+    assert list(lanes) == required["names"]
+    assert all(lane.get("definition_paths") for lane in lanes.values())
+    native = Path(os.environ.get("MERGEMASTER_BIN", ROOT / "target/debug/mergemaster")).resolve()
+    for case in manifest["cases"]:
+        with tempfile.TemporaryDirectory(prefix="mergemaster-notice-corpus-") as temporary:
+            root = Path(temporary)
+            for name, script in case["executables"].items():
+                target = root / name
+                target.write_text(script)
+                target.chmod(0o755)
+            summary = root / "summary"
+            environment = dict(case["environment"], PATH=temporary, LC_ALL="C",
+                               GITHUB_STEP_SUMMARY=str(summary))
+            for implementation, command in (
+                ("python", [interpreter, "-I", "-B", source / pin["path"]]),
+                ("rust", [native, "evidence", "presign-notice"]),
+            ):
+                summary.write_bytes(case["summary_initial"].encode())
+                done = subprocess.run(command, cwd=root, env=environment, capture_output=True)
+                observed = {"stdout": done.stdout.decode(), "stderr": done.stderr.decode(),
+                            "exit_code": done.returncode, "summary": summary.read_bytes().decode()}
+                assert observed == case["expected"], (case["id"], implementation, observed)
+    print(f"Replayed {len(manifest['cases'])} frozen presign-notice cases against Python and Rust")
+
+
 def replay(record=False):
     manifest = json.loads((CORPUS / "manifest.json").read_text())
     interpreter = Path(os.environ["MERGEMASTER_ORACLE_PYTHON"])
@@ -236,6 +276,7 @@ def replay(record=False):
         replay_keygen(interpreter)
         replay_matrices(interpreter)
         replay_runner_report(interpreter)
+        replay_presign_notice(interpreter)
 
 
 if __name__ == "__main__":
