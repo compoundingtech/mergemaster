@@ -18,6 +18,8 @@ pub enum EvidenceCommand {
     FlipReady(super::flip_ready::Args),
     /// Count pull-request skips and explain checks that ran.
     SkipReport(super::skip_report::Args),
+    /// Explain which signable gates ran without a pre-signed note; never fails.
+    PresignNotice,
     /// Report read-only evidence-gate SLO counters from GitHub Actions.
     #[command(disable_help_flag = true)]
     Slo {
@@ -99,6 +101,10 @@ pub fn run(args: EvidenceArgs) -> Result<()> {
             if code != 0 {
                 std::process::exit(code);
             }
+            return Ok(());
+        }
+        EvidenceCommand::PresignNotice => {
+            super::presign_notice::run();
             return Ok(());
         }
         EvidenceCommand::Slo { argv } => {

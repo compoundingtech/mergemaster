@@ -1,0 +1,476 @@
+{
+  "version": 1,
+  "runtime": {
+    "implementation": "CPython",
+    "version": "3.14.7"
+  },
+  "oracle": {
+    "environment": "MERGEMASTER_PYTHON_ORACLE",
+    "path": "scripts/ci-evidence-presign-notice",
+    "rev": "cff667cd53bdb6c024f9d7a06259b8f9a3fbb0cb",
+    "nar_hash": "sha256-UeHYs08Nzqy50cvlWu1n5Z0bR2I/J2Ectj7ztd5gfNI=",
+    "git_blob": "0664161b622b9711716f81a2caaccbf3ce9db199"
+  },
+  "required_lanes": {
+    "path": "tests/fixtures/fractal/.st/required-lanes.json",
+    "git_blob": "c30dd4ac71e75877d551b1b8317e4b11359369e0",
+    "names": [
+      "fractal-web",
+      "genie-freshness",
+      "ci-script-tests",
+      "linux-gate",
+      "rust-tests",
+      "typescript-client",
+      "linux-clippy",
+      "linux-fleet-compat"
+    ]
+  },
+  "cases": [
+    {"id": "lane-null", "environment": {"LINES": "evidence-decision v1 check=stage-lane decision=run outcome=no_note tree_of=head head_tree=used fork=false", "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "REPOSITORY": "org/repo", "PR_NUMBER": "7"}, "summary_initial": "", "executables": {"git": "#!/bin/sh\ncase \"$1\" in\nls-tree) exit 0;;\nshow) printf %s '{\"lanes\": {\"stage-lane\": null}}';;\nesac\n", "gh": "#!/bin/sh\nexit 0\n"}, "expected": {"stdout": "evidence-presign-notice: 'NoneType' object has no attribute 'get'; nothing to say\n", "stderr": "", "exit_code": 0, "summary": ""}},
+    {"id": "lane-string", "environment": {"LINES": "evidence-decision v1 check=stage-lane decision=run outcome=no_note tree_of=head head_tree=used fork=false", "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "REPOSITORY": "org/repo", "PR_NUMBER": "7"}, "summary_initial": "", "executables": {"git": "#!/bin/sh\ncase \"$1\" in\nls-tree) exit 0;;\nshow) printf %s '{\"lanes\": {\"stage-lane\": \"broken\"}}';;\nesac\n", "gh": "#!/bin/sh\nexit 0\n"}, "expected": {"stdout": "evidence-presign-notice: 'str' object has no attribute 'get'; nothing to say\n", "stderr": "", "exit_code": 0, "summary": ""}},
+    {"id": "lane-number", "environment": {"LINES": "evidence-decision v1 check=stage-lane decision=run outcome=no_note tree_of=head head_tree=used fork=false", "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "REPOSITORY": "org/repo", "PR_NUMBER": "7"}, "summary_initial": "", "executables": {"git": "#!/bin/sh\ncase \"$1\" in\nls-tree) exit 0;;\nshow) printf %s '{\"lanes\": {\"stage-lane\": 1}}';;\nesac\n", "gh": "#!/bin/sh\nexit 0\n"}, "expected": {"stdout": "evidence-presign-notice: 'int' object has no attribute 'get'; nothing to say\n", "stderr": "", "exit_code": 0, "summary": ""}},
+    {"id": "lane-array", "environment": {"LINES": "evidence-decision v1 check=stage-lane decision=run outcome=no_note tree_of=head head_tree=used fork=false", "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "REPOSITORY": "org/repo", "PR_NUMBER": "7"}, "summary_initial": "", "executables": {"git": "#!/bin/sh\ncase \"$1\" in\nls-tree) exit 0;;\nshow) printf %s '{\"lanes\": {\"stage-lane\": []}}';;\nesac\n", "gh": "#!/bin/sh\nexit 0\n"}, "expected": {"stdout": "evidence-presign-notice: 'list' object has no attribute 'get'; nothing to say\n", "stderr": "", "exit_code": 0, "summary": ""}},
+    {"id": "lanes-null", "environment": {"LINES": "evidence-decision v1 check=stage-lane decision=run outcome=no_note tree_of=head head_tree=used fork=false", "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "REPOSITORY": "org/repo", "PR_NUMBER": "7"}, "summary_initial": "", "executables": {"git": "#!/bin/sh\ncase \"$1\" in\nls-tree) exit 0;;\nshow) printf %s '{\"lanes\": null}';;\nesac\n", "gh": "#!/bin/sh\nexit 0\n"}, "expected": {"stdout": "evidence-presign-notice: 'NoneType' object has no attribute 'items'; nothing to say\n", "stderr": "", "exit_code": 0, "summary": ""}},
+    {"id": "document-null", "environment": {"LINES": "evidence-decision v1 check=stage-lane decision=run outcome=no_note tree_of=head head_tree=used fork=false", "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "REPOSITORY": "org/repo", "PR_NUMBER": "7"}, "summary_initial": "", "executables": {"git": "#!/bin/sh\ncase \"$1\" in\nls-tree) exit 0;;\nshow) printf %s 'null';;\nesac\n", "gh": "#!/bin/sh\nexit 0\n"}, "expected": {"stdout": "evidence-presign-notice: 'NoneType' object is not subscriptable; nothing to say\n", "stderr": "", "exit_code": 0, "summary": ""}},
+    {"id": "lone-cr-at-eof", "environment": {"LINES": "evidence-decision v1 check=stage-lane decision=run outcome=no_note tree_of=head head_tree=used fork=false", "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "REPOSITORY": "org/repo", "PR_NUMBER": "7"}, "summary_initial": "", "executables": {"git": "#!/bin/sh\ncase \"$1\" in\nls-tree) exit 0;;\nshow) printf %s '{\"lanes\": {\"stage-lane\": {\"definition_paths\": [\"scripts\"]}}}';;\nesac\n", "gh": "#!/bin/sh\nprintf 'scripts\\r'\n"}, "expected": {"stdout": "evidence-presign-notice v1 pr=7 listed=- passed_over=stage-lane:edits_its_own_lane\n", "stderr": "", "exit_code": 0, "summary": "evidence-presign-notice v1 pr=7 listed=- passed_over=stage-lane:edits_its_own_lane\n"}},
+    {
+      "id": "carriage-return-gh-filenames",
+      "environment": {
+        "LINES": "evidence-decision v1 check=stage-lane decision=run outcome=no_note tree_of=head head_tree=used fork=false",
+        "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "REPOSITORY": "org/repo",
+        "PR_NUMBER": "7"
+      },
+      "summary_initial": "",
+      "executables": {
+        "git": "#!/bin/sh\ncase \"$1\" in\nls-tree) exit 0;;\nshow) printf %s '{\"lanes\":{\"stage-lane\":{\"definition_paths\":[\"scripts\"]}}}';;\nesac\n",
+        "gh": "#!/bin/sh\nprintf 'scripts\\r/file.rs\\r\\n'\n"
+      },
+      "expected": {
+        "stdout": "evidence-presign-notice v1 pr=7 listed=- passed_over=stage-lane:edits_its_own_lane\n",
+        "stderr": "",
+        "exit_code": 0,
+        "summary": "evidence-presign-notice v1 pr=7 listed=- passed_over=stage-lane:edits_its_own_lane\n"
+      }
+    },
+    {
+      "id": "invalid-utf8-gh-filename",
+      "environment": {
+        "LINES": "evidence-decision v1 check=stage-lane decision=run outcome=no_note tree_of=head head_tree=used fork=false",
+        "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "REPOSITORY": "org/repo",
+        "PR_NUMBER": "7"
+      },
+      "summary_initial": "",
+      "executables": {
+        "git": "#!/bin/sh\ncase \"$1\" in\nls-tree) exit 0;;\nshow) printf %s '{\"lanes\":{\"stage-lane\":{\"definition_paths\":[\"scripts\"]}}}';;\nesac\n",
+        "gh": "#!/bin/sh\nprintf 'scripts/\\377\\n'\n"
+      },
+      "expected": {
+        "stdout": "evidence-presign-notice: 'utf-8' codec can't decode byte 0xff in position 8: invalid start byte\nevidence-presign-notice v1 pr=7 listed=- passed_over=stage-lane:file_list_unreadable\n",
+        "stderr": "",
+        "exit_code": 0,
+        "summary": "evidence-presign-notice v1 pr=7 listed=- passed_over=stage-lane:file_list_unreadable\n"
+      }
+    },
+    {
+      "id": "invalid-utf8-lanes-stderr",
+      "environment": {
+        "LINES": "evidence-decision v1 check=stage-lane decision=run outcome=no_note tree_of=head head_tree=used fork=false",
+        "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "REPOSITORY": "org/repo",
+        "PR_NUMBER": "7"
+      },
+      "summary_initial": "",
+      "executables": {
+        "git": "#!/bin/sh\ncase \"$1\" in\nls-tree) exit 0;;\nshow) printf %s '{\"lanes\":{\"stage-lane\":{\"definition_paths\":[\"scripts\"]}}}'; printf '\\377' >&2;;\nesac\n",
+        "gh": "#!/bin/sh\nexit 0\n"
+      },
+      "expected": {
+        "stdout": "evidence-presign-notice: 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte; nothing to say\n",
+        "stderr": "",
+        "exit_code": 0,
+        "summary": ""
+      }
+    },
+    {
+      "id": "signable-sorted-and-unsigned",
+      "environment": {
+        "LINES": "evidence-decision v1 check=typescript-client decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc\nevidence-decision v1 check=genie-freshness decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc\nevidence-decision v1 check=linux-gate decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc",
+        "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "REPOSITORY": "org/repo",
+        "PR_NUMBER": "7"
+      },
+      "summary_initial": "",
+      "executables": {
+        "git": "#!/bin/sh\ncase \"$*\" in\n'ls-tree --full-tree -z bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -- .fractal/required-lanes.json') printf %s ''; printf %s '' >&2; exit 0;;\n'show bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:.st/required-lanes.json') printf %s '{\"version\": 1, \"lanes\": {\"genie-freshness\": {\"definition_paths\": [\".st\", \"flake.lock\", \"flake.nix\", \"scripts\"]}, \"typescript-client\": {\"definition_paths\": [\"package.json\", \"scripts/ci-typescript-client\"]}, \"stage-lane\": {\"definition_paths\": [\".st\", \"scripts\"]}}}'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n",
+        "gh": "#!/bin/sh\ncase \"$*\" in\n'api --paginate repos/org/repo/pulls/7/files?per_page=100 --jq .[].filename') printf %s 'crates/a.rs\n'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n"
+      },
+      "expected": {
+        "stdout": "evidence-presign-notice v1 pr=7 listed=genie-freshness,typescript-client passed_over=-\n::notice title=Not pre-signed::These jobs ran in full because no pre-signed note covered this head: genie-freshness, typescript-client. Run `scripts/fractal-test --push origin` before marking the pull request ready, and CI can skip them. How: https://github.com/compoundingtech/fractal/issues/3621. This never fails a check or blocks a merge.\n",
+        "stderr": "",
+        "exit_code": 0,
+        "summary": "These jobs ran in full because no pre-signed note covered this head: genie-freshness, typescript-client. Run `scripts/fractal-test --push origin` before marking the pull request ready, and CI can skip them. How: https://github.com/compoundingtech/fractal/issues/3621. This never fails a check or blocks a merge.\n\nevidence-presign-notice v1 pr=7 listed=genie-freshness,typescript-client passed_over=-\n"
+      }
+    },
+    {
+      "id": "whole-suite-command",
+      "environment": {
+        "LINES": "evidence-decision v1 check=stage-lane decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc",
+        "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "REPOSITORY": "org/repo",
+        "PR_NUMBER": "7"
+      },
+      "summary_initial": "",
+      "executables": {
+        "git": "#!/bin/sh\ncase \"$*\" in\n'ls-tree --full-tree -z bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -- .fractal/required-lanes.json') printf %s ''; printf %s '' >&2; exit 0;;\n'show bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:.st/required-lanes.json') printf %s '{\"version\": 1, \"lanes\": {\"genie-freshness\": {\"definition_paths\": [\".st\", \"flake.lock\", \"flake.nix\", \"scripts\"]}, \"typescript-client\": {\"definition_paths\": [\"package.json\", \"scripts/ci-typescript-client\"]}, \"stage-lane\": {\"definition_paths\": [\".st\", \"scripts\"]}}}'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n",
+        "gh": "#!/bin/sh\ncase \"$*\" in\n'api --paginate repos/org/repo/pulls/7/files?per_page=100 --jq .[].filename') printf %s 'crates/a.rs\n'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n"
+      },
+      "expected": {
+        "stdout": "evidence-presign-notice v1 pr=7 listed=stage-lane passed_over=-\n::notice title=Not pre-signed::These jobs ran in full because no pre-signed note covered this head: stage-lane. Run `scripts/fractal-test --push origin` before marking the pull request ready, and CI can skip them. How: https://github.com/compoundingtech/fractal/issues/3621. This never fails a check or blocks a merge.\n",
+        "stderr": "",
+        "exit_code": 0,
+        "summary": "These jobs ran in full because no pre-signed note covered this head: stage-lane. Run `scripts/fractal-test --push origin` before marking the pull request ready, and CI can skip them. How: https://github.com/compoundingtech/fractal/issues/3621. This never fails a check or blocks a merge.\n\nevidence-presign-notice v1 pr=7 listed=stage-lane passed_over=-\n"
+      }
+    },
+    {
+      "id": "covered-sampled-shadow-rejected",
+      "environment": {
+        "LINES": "evidence-decision v1 check=typescript-client decision=skip outcome=satisfied reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc\nevidence-decision v1 check=typescript-client decision=run outcome=satisfied reason=satisfied_but_not_skipped:_sampled tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc\nevidence-decision v1 check=genie-freshness decision=run outcome=satisfied reason=satisfied_but_not_skipped:_shadow tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc\nevidence-decision v1 check=stage-lane decision=run outcome=rejected reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc",
+        "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "REPOSITORY": "org/repo",
+        "PR_NUMBER": "7"
+      },
+      "summary_initial": "",
+      "executables": {
+        "git": "#!/bin/sh\ncase \"$*\" in\n'ls-tree --full-tree -z bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -- .fractal/required-lanes.json') printf %s ''; printf %s '' >&2; exit 0;;\n'show bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:.st/required-lanes.json') printf %s '{\"version\": 1, \"lanes\": {\"genie-freshness\": {\"definition_paths\": [\".st\", \"flake.lock\", \"flake.nix\", \"scripts\"]}, \"typescript-client\": {\"definition_paths\": [\"package.json\", \"scripts/ci-typescript-client\"]}, \"stage-lane\": {\"definition_paths\": [\".st\", \"scripts\"]}}}'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n",
+        "gh": "#!/bin/sh\ncase \"$*\" in\n'api --paginate repos/org/repo/pulls/7/files?per_page=100 --jq .[].filename') printf %s 'crates/a.rs\n'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n"
+      },
+      "expected": {
+        "stdout": "evidence-presign-notice v1 pr=7 listed=- passed_over=-\n",
+        "stderr": "",
+        "exit_code": 0,
+        "summary": "evidence-presign-notice v1 pr=7 listed=- passed_over=-\n"
+      }
+    },
+    {
+      "id": "merge-fork-own-lane",
+      "environment": {
+        "LINES": "evidence-decision v1 check=typescript-client decision=run outcome=no_note reason=no_record tree_of=merge head_tree=fallback:protected_files_differ_from_the_branch_point fork=false event=pull_request pr=7 gate_sha256=abc\nevidence-decision v1 check=stage-lane decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=true event=pull_request pr=7 gate_sha256=abc\nevidence-decision v1 check=genie-freshness decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc",
+        "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "REPOSITORY": "org/repo",
+        "PR_NUMBER": "7"
+      },
+      "summary_initial": "",
+      "executables": {
+        "git": "#!/bin/sh\ncase \"$*\" in\n'ls-tree --full-tree -z bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -- .fractal/required-lanes.json') printf %s ''; printf %s '' >&2; exit 0;;\n'show bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:.st/required-lanes.json') printf %s '{\"version\": 1, \"lanes\": {\"genie-freshness\": {\"definition_paths\": [\".st\", \"flake.lock\", \"flake.nix\", \"scripts\"]}, \"typescript-client\": {\"definition_paths\": [\"package.json\", \"scripts/ci-typescript-client\"]}, \"stage-lane\": {\"definition_paths\": [\".st\", \"scripts\"]}}}'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n",
+        "gh": "#!/bin/sh\ncase \"$*\" in\n'api --paginate repos/org/repo/pulls/7/files?per_page=100 --jq .[].filename') printf %s 'scripts/ci-local\ncrates/a.rs\n'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n"
+      },
+      "expected": {
+        "stdout": "evidence-presign-notice v1 pr=7 listed=- passed_over=genie-freshness:edits_its_own_lane,stage-lane:fork,typescript-client:merge_tree_(fallback:protected_files_differ_from_the_branch_point)\n",
+        "stderr": "",
+        "exit_code": 0,
+        "summary": "evidence-presign-notice v1 pr=7 listed=- passed_over=genie-freshness:edits_its_own_lane,stage-lane:fork,typescript-client:merge_tree_(fallback:protected_files_differ_from_the_branch_point)\n"
+      }
+    },
+    {
+      "id": "directory-descendant-edits",
+      "environment": {
+        "LINES": "evidence-decision v1 check=stage-lane decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc",
+        "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "REPOSITORY": "org/repo",
+        "PR_NUMBER": "7"
+      },
+      "summary_initial": "",
+      "executables": {
+        "git": "#!/bin/sh\ncase \"$*\" in\n'ls-tree --full-tree -z bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -- .fractal/required-lanes.json') printf %s ''; printf %s '' >&2; exit 0;;\n'show bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:.st/required-lanes.json') printf %s '{\"version\": 1, \"lanes\": {\"genie-freshness\": {\"definition_paths\": [\".st\", \"flake.lock\", \"flake.nix\", \"scripts\"]}, \"typescript-client\": {\"definition_paths\": [\"package.json\", \"scripts/ci-typescript-client\"]}, \"stage-lane\": {\"definition_paths\": [\".st\", \"scripts\"]}}}'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n",
+        "gh": "#!/bin/sh\ncase \"$*\" in\n'api --paginate repos/org/repo/pulls/7/files?per_page=100 --jq .[].filename') printf %s 'scripts/ci-local\n'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n"
+      },
+      "expected": {
+        "stdout": "evidence-presign-notice v1 pr=7 listed=- passed_over=stage-lane:edits_its_own_lane\n",
+        "stderr": "",
+        "exit_code": 0,
+        "summary": "evidence-presign-notice v1 pr=7 listed=- passed_over=stage-lane:edits_its_own_lane\n"
+      }
+    },
+    {
+      "id": "exact-file-edits",
+      "environment": {
+        "LINES": "evidence-decision v1 check=genie-freshness decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc",
+        "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "REPOSITORY": "org/repo",
+        "PR_NUMBER": "7"
+      },
+      "summary_initial": "",
+      "executables": {
+        "git": "#!/bin/sh\ncase \"$*\" in\n'ls-tree --full-tree -z bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -- .fractal/required-lanes.json') printf %s ''; printf %s '' >&2; exit 0;;\n'show bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:.st/required-lanes.json') printf %s '{\"version\": 1, \"lanes\": {\"genie-freshness\": {\"definition_paths\": [\".st\", \"flake.lock\", \"flake.nix\", \"scripts\"]}, \"typescript-client\": {\"definition_paths\": [\"package.json\", \"scripts/ci-typescript-client\"]}, \"stage-lane\": {\"definition_paths\": [\".st\", \"scripts\"]}}}'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n",
+        "gh": "#!/bin/sh\ncase \"$*\" in\n'api --paginate repos/org/repo/pulls/7/files?per_page=100 --jq .[].filename') printf %s 'flake.lock\n'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n"
+      },
+      "expected": {
+        "stdout": "evidence-presign-notice v1 pr=7 listed=- passed_over=genie-freshness:edits_its_own_lane\n",
+        "stderr": "",
+        "exit_code": 0,
+        "summary": "evidence-presign-notice v1 pr=7 listed=- passed_over=genie-freshness:edits_its_own_lane\n"
+      }
+    },
+    {
+      "id": "path-prefix-not-descendant",
+      "environment": {
+        "LINES": "evidence-decision v1 check=stage-lane decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc",
+        "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "REPOSITORY": "org/repo",
+        "PR_NUMBER": "7"
+      },
+      "summary_initial": "",
+      "executables": {
+        "git": "#!/bin/sh\ncase \"$*\" in\n'ls-tree --full-tree -z bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -- .fractal/required-lanes.json') printf %s ''; printf %s '' >&2; exit 0;;\n'show bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:.st/required-lanes.json') printf %s '{\"version\": 1, \"lanes\": {\"genie-freshness\": {\"definition_paths\": [\".st\", \"flake.lock\", \"flake.nix\", \"scripts\"]}, \"typescript-client\": {\"definition_paths\": [\"package.json\", \"scripts/ci-typescript-client\"]}, \"stage-lane\": {\"definition_paths\": [\".st\", \"scripts\"]}}}'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n",
+        "gh": "#!/bin/sh\ncase \"$*\" in\n'api --paginate repos/org/repo/pulls/7/files?per_page=100 --jq .[].filename') printf %s 'scripts-extra/x\ndocs/scripts\n'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n"
+      },
+      "expected": {
+        "stdout": "evidence-presign-notice v1 pr=7 listed=stage-lane passed_over=-\n::notice title=Not pre-signed::These jobs ran in full because no pre-signed note covered this head: stage-lane. Run `scripts/fractal-test --push origin` before marking the pull request ready, and CI can skip them. How: https://github.com/compoundingtech/fractal/issues/3621. This never fails a check or blocks a merge.\n",
+        "stderr": "",
+        "exit_code": 0,
+        "summary": "These jobs ran in full because no pre-signed note covered this head: stage-lane. Run `scripts/fractal-test --push origin` before marking the pull request ready, and CI can skip them. How: https://github.com/compoundingtech/fractal/issues/3621. This never fails a check or blocks a merge.\n\nevidence-presign-notice v1 pr=7 listed=stage-lane passed_over=-\n"
+      }
+    },
+    {
+      "id": "nested-filename-not-exact",
+      "environment": {
+        "LINES": "evidence-decision v1 check=typescript-client decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc",
+        "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "REPOSITORY": "org/repo",
+        "PR_NUMBER": "7"
+      },
+      "summary_initial": "",
+      "executables": {
+        "git": "#!/bin/sh\ncase \"$*\" in\n'ls-tree --full-tree -z bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -- .fractal/required-lanes.json') printf %s ''; printf %s '' >&2; exit 0;;\n'show bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:.st/required-lanes.json') printf %s '{\"version\": 1, \"lanes\": {\"genie-freshness\": {\"definition_paths\": [\".st\", \"flake.lock\", \"flake.nix\", \"scripts\"]}, \"typescript-client\": {\"definition_paths\": [\"package.json\", \"scripts/ci-typescript-client\"]}, \"stage-lane\": {\"definition_paths\": [\".st\", \"scripts\"]}}}'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n",
+        "gh": "#!/bin/sh\ncase \"$*\" in\n'api --paginate repos/org/repo/pulls/7/files?per_page=100 --jq .[].filename') printf %s 'apps/fractal-web/package.json\n'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n"
+      },
+      "expected": {
+        "stdout": "evidence-presign-notice v1 pr=7 listed=typescript-client passed_over=-\n::notice title=Not pre-signed::These jobs ran in full because no pre-signed note covered this head: typescript-client. Run `scripts/fractal-test --push origin` before marking the pull request ready, and CI can skip them. How: https://github.com/compoundingtech/fractal/issues/3621. This never fails a check or blocks a merge.\n",
+        "stderr": "",
+        "exit_code": 0,
+        "summary": "These jobs ran in full because no pre-signed note covered this head: typescript-client. Run `scripts/fractal-test --push origin` before marking the pull request ready, and CI can skip them. How: https://github.com/compoundingtech/fractal/issues/3621. This never fails a check or blocks a merge.\n\nevidence-presign-notice v1 pr=7 listed=typescript-client passed_over=-\n"
+      }
+    },
+    {
+      "id": "unreadable-lanes",
+      "environment": {
+        "LINES": "evidence-decision v1 check=typescript-client decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc",
+        "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "REPOSITORY": "org/repo",
+        "PR_NUMBER": "7"
+      },
+      "summary_initial": "",
+      "executables": {
+        "git": "#!/bin/sh\ncase \"$*\" in\n'ls-tree --full-tree -z bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -- .fractal/required-lanes.json') printf %s ''; printf %s '' >&2; exit 0;;\n'show bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:.st/required-lanes.json') printf %s '{\"version\": 1, \"lanes\": {\"genie-freshness\": {\"definition_paths\": [\".st\", \"flake.lock\", \"flake.nix\", \"scripts\"]}, \"typescript-client\": {\"definition_paths\": [\"package.json\", \"scripts/ci-typescript-client\"]}, \"stage-lane\": {\"definition_paths\": [\".st\", \"scripts\"]}}}'; printf %s 'fatal: path does not exist' >&2; exit 128;;\n*) exit 97;;\nesac\n",
+        "gh": "#!/bin/sh\ncase \"$*\" in\n'api --paginate repos/org/repo/pulls/7/files?per_page=100 --jq .[].filename') printf %s 'crates/a.rs\n'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n"
+      },
+      "expected": {
+        "stdout": "evidence-presign-notice: cannot read .st/required-lanes.json at bbbbbbbbbbbb; nothing to say\n",
+        "stderr": "",
+        "exit_code": 0,
+        "summary": ""
+      }
+    },
+    {
+      "id": "unreadable-files",
+      "environment": {
+        "LINES": "evidence-decision v1 check=typescript-client decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc",
+        "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "REPOSITORY": "org/repo",
+        "PR_NUMBER": "7"
+      },
+      "summary_initial": "",
+      "executables": {
+        "git": "#!/bin/sh\ncase \"$*\" in\n'ls-tree --full-tree -z bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -- .fractal/required-lanes.json') printf %s ''; printf %s '' >&2; exit 0;;\n'show bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:.st/required-lanes.json') printf %s '{\"version\": 1, \"lanes\": {\"genie-freshness\": {\"definition_paths\": [\".st\", \"flake.lock\", \"flake.nix\", \"scripts\"]}, \"typescript-client\": {\"definition_paths\": [\"package.json\", \"scripts/ci-typescript-client\"]}, \"stage-lane\": {\"definition_paths\": [\".st\", \"scripts\"]}}}'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n",
+        "gh": "#!/bin/sh\ncase \"$*\" in\n'api --paginate repos/org/repo/pulls/7/files?per_page=100 --jq .[].filename') printf %s 'crates/a.rs\n'; printf %s 'HTTP 502' >&2; exit 1;;\n*) exit 97;;\nesac\n"
+      },
+      "expected": {
+        "stdout": "evidence-presign-notice: could not read the pull request files: HTTP 502\nevidence-presign-notice v1 pr=7 listed=- passed_over=typescript-client:file_list_unreadable\n",
+        "stderr": "",
+        "exit_code": 0,
+        "summary": "evidence-presign-notice v1 pr=7 listed=- passed_over=typescript-client:file_list_unreadable\n"
+      }
+    },
+    {
+      "id": "noise-and-placeholder",
+      "environment": {
+        "LINES": "\nnoise\nevidence-decision v1 check=$CHECK decision=run outcome=unavailable",
+        "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "REPOSITORY": "org/repo",
+        "PR_NUMBER": "7"
+      },
+      "summary_initial": "",
+      "executables": {
+        "git": "#!/bin/sh\ncase \"$*\" in\n'ls-tree --full-tree -z bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -- .fractal/required-lanes.json') printf %s ''; printf %s '' >&2; exit 0;;\n'show bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:.st/required-lanes.json') printf %s '{\"version\": 1, \"lanes\": {\"genie-freshness\": {\"definition_paths\": [\".st\", \"flake.lock\", \"flake.nix\", \"scripts\"]}, \"typescript-client\": {\"definition_paths\": [\"package.json\", \"scripts/ci-typescript-client\"]}, \"stage-lane\": {\"definition_paths\": [\".st\", \"scripts\"]}}}'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n",
+        "gh": "#!/bin/sh\ncase \"$*\" in\n'api --paginate repos/org/repo/pulls/7/files?per_page=100 --jq .[].filename') printf %s ''; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n"
+      },
+      "expected": {
+        "stdout": "evidence-presign-notice v1 pr=7 listed=- passed_over=-\n",
+        "stderr": "",
+        "exit_code": 0,
+        "summary": "evidence-presign-notice v1 pr=7 listed=- passed_over=-\n"
+      }
+    },
+    {
+      "id": "missing-lines",
+      "environment": {
+        "LINES": "",
+        "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "REPOSITORY": "org/repo",
+        "PR_NUMBER": "7"
+      },
+      "summary_initial": "",
+      "executables": {
+        "git": "#!/bin/sh\ncase \"$*\" in\n'ls-tree --full-tree -z bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -- .fractal/required-lanes.json') printf %s ''; printf %s '' >&2; exit 0;;\n'show bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:.st/required-lanes.json') printf %s '{\"version\": 1, \"lanes\": {\"genie-freshness\": {\"definition_paths\": [\".st\", \"flake.lock\", \"flake.nix\", \"scripts\"]}, \"typescript-client\": {\"definition_paths\": [\"package.json\", \"scripts/ci-typescript-client\"]}, \"stage-lane\": {\"definition_paths\": [\".st\", \"scripts\"]}}}'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n",
+        "gh": "#!/bin/sh\ncase \"$*\" in\n'api --paginate repos/org/repo/pulls/7/files?per_page=100 --jq .[].filename') printf %s ''; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n"
+      },
+      "expected": {
+        "stdout": "evidence-presign-notice v1 pr=7 listed=- passed_over=-\n",
+        "stderr": "",
+        "exit_code": 0,
+        "summary": "evidence-presign-notice v1 pr=7 listed=- passed_over=-\n"
+      }
+    },
+    {
+      "id": "probe-failure",
+      "environment": {
+        "LINES": "evidence-decision v1 check=stage-lane decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc",
+        "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "REPOSITORY": "org/repo",
+        "PR_NUMBER": "7"
+      },
+      "summary_initial": "",
+      "executables": {
+        "git": "#!/bin/sh\ncase \"$*\" in\n'ls-tree --full-tree -z bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -- .fractal/required-lanes.json') printf %s ''; printf %s '' >&2; exit 128;;\n'show bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:.st/required-lanes.json') printf %s '{\"version\": 1, \"lanes\": {\"genie-freshness\": {\"definition_paths\": [\".st\", \"flake.lock\", \"flake.nix\", \"scripts\"]}, \"typescript-client\": {\"definition_paths\": [\"package.json\", \"scripts/ci-typescript-client\"]}, \"stage-lane\": {\"definition_paths\": [\".st\", \"scripts\"]}}}'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n",
+        "gh": "#!/bin/sh\ncase \"$*\" in\n'api --paginate repos/org/repo/pulls/7/files?per_page=100 --jq .[].filename') printf %s 'crates/a.rs\n'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n"
+      },
+      "expected": {
+        "stdout": "evidence-presign-notice: cannot inspect lane definition at bbbbbbbbbbbb; nothing to say\n",
+        "stderr": "",
+        "exit_code": 0,
+        "summary": ""
+      }
+    },
+    {
+      "id": "missing-base",
+      "environment": {
+        "LINES": "evidence-decision v1 check=stage-lane decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc",
+        "REPOSITORY": "org/repo",
+        "PR_NUMBER": "7"
+      },
+      "summary_initial": "",
+      "executables": {
+        "git": "#!/bin/sh\ncase \"$*\" in\n'ls-tree --full-tree -z bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -- .fractal/required-lanes.json') printf %s ''; printf %s '' >&2; exit 0;;\n'show bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:.st/required-lanes.json') printf %s '{\"version\": 1, \"lanes\": {\"genie-freshness\": {\"definition_paths\": [\".st\", \"flake.lock\", \"flake.nix\", \"scripts\"]}, \"typescript-client\": {\"definition_paths\": [\"package.json\", \"scripts/ci-typescript-client\"]}, \"stage-lane\": {\"definition_paths\": [\".st\", \"scripts\"]}}}'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n",
+        "gh": "#!/bin/sh\ncase \"$*\" in\n'api --paginate repos/org/repo/pulls/7/files?per_page=100 --jq .[].filename') printf %s 'crates/a.rs\n'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n"
+      },
+      "expected": {
+        "stdout": "evidence-presign-notice: 'BASE_SHA'; nothing to say\n",
+        "stderr": "",
+        "exit_code": 0,
+        "summary": ""
+      }
+    },
+    {
+      "id": "duplicate-lines",
+      "environment": {
+        "LINES": "evidence-decision v1 check=stage-lane decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc\nevidence-decision v1 check=stage-lane decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc",
+        "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "REPOSITORY": "org/repo",
+        "PR_NUMBER": "7"
+      },
+      "summary_initial": "",
+      "executables": {
+        "git": "#!/bin/sh\ncase \"$*\" in\n'ls-tree --full-tree -z bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -- .fractal/required-lanes.json') printf %s ''; printf %s '' >&2; exit 0;;\n'show bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:.st/required-lanes.json') printf %s '{\"version\": 1, \"lanes\": {\"genie-freshness\": {\"definition_paths\": [\".st\", \"flake.lock\", \"flake.nix\", \"scripts\"]}, \"typescript-client\": {\"definition_paths\": [\"package.json\", \"scripts/ci-typescript-client\"]}, \"stage-lane\": {\"definition_paths\": [\".st\", \"scripts\"]}}}'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n",
+        "gh": "#!/bin/sh\ncase \"$*\" in\n'api --paginate repos/org/repo/pulls/7/files?per_page=100 --jq .[].filename') printf %s 'crates/a.rs\n'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n"
+      },
+      "expected": {
+        "stdout": "evidence-presign-notice v1 pr=7 listed=stage-lane,stage-lane passed_over=-\n::notice title=Not pre-signed::These jobs ran in full because no pre-signed note covered this head: stage-lane, stage-lane. Run `scripts/fractal-test --push origin` before marking the pull request ready, and CI can skip them. How: https://github.com/compoundingtech/fractal/issues/3621. This never fails a check or blocks a merge.\n",
+        "stderr": "",
+        "exit_code": 0,
+        "summary": "These jobs ran in full because no pre-signed note covered this head: stage-lane, stage-lane. Run `scripts/fractal-test --push origin` before marking the pull request ready, and CI can skip them. How: https://github.com/compoundingtech/fractal/issues/3621. This never fails a check or blocks a merge.\n\nevidence-presign-notice v1 pr=7 listed=stage-lane,stage-lane passed_over=-\n"
+      }
+    },
+    {
+      "id": "summary-append",
+      "environment": {
+        "LINES": "evidence-decision v1 check=stage-lane decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc",
+        "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "REPOSITORY": "org/repo",
+        "PR_NUMBER": "7"
+      },
+      "summary_initial": "Existing summary\n",
+      "executables": {
+        "git": "#!/bin/sh\ncase \"$*\" in\n'ls-tree --full-tree -z bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -- .fractal/required-lanes.json') printf %s ''; printf %s '' >&2; exit 0;;\n'show bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:.st/required-lanes.json') printf %s '{\"version\": 1, \"lanes\": {\"genie-freshness\": {\"definition_paths\": [\".st\", \"flake.lock\", \"flake.nix\", \"scripts\"]}, \"typescript-client\": {\"definition_paths\": [\"package.json\", \"scripts/ci-typescript-client\"]}, \"stage-lane\": {\"definition_paths\": [\".st\", \"scripts\"]}}}'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n",
+        "gh": "#!/bin/sh\ncase \"$*\" in\n'api --paginate repos/org/repo/pulls/7/files?per_page=100 --jq .[].filename') printf %s 'crates/a.rs\n'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n"
+      },
+      "expected": {
+        "stdout": "evidence-presign-notice v1 pr=7 listed=stage-lane passed_over=-\n::notice title=Not pre-signed::These jobs ran in full because no pre-signed note covered this head: stage-lane. Run `scripts/fractal-test --push origin` before marking the pull request ready, and CI can skip them. How: https://github.com/compoundingtech/fractal/issues/3621. This never fails a check or blocks a merge.\n",
+        "stderr": "",
+        "exit_code": 0,
+        "summary": "Existing summary\nThese jobs ran in full because no pre-signed note covered this head: stage-lane. Run `scripts/fractal-test --push origin` before marking the pull request ready, and CI can skip them. How: https://github.com/compoundingtech/fractal/issues/3621. This never fails a check or blocks a merge.\n\nevidence-presign-notice v1 pr=7 listed=stage-lane passed_over=-\n"
+      }
+    },
+    {
+      "id": "preferred-layout",
+      "environment": {
+        "LINES": "evidence-decision v1 check=stage-lane decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc",
+        "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "REPOSITORY": "org/repo",
+        "PR_NUMBER": "7"
+      },
+      "summary_initial": "",
+      "executables": {
+        "git": "#!/bin/sh\ncase \"$*\" in\n'ls-tree --full-tree -z bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -- .fractal/required-lanes.json') printf %s '100644 blob fixture\t.fractal/required-lanes.json\u0000'; printf %s '' >&2; exit 0;;\n'show bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:.fractal/required-lanes.json') printf %s '{\"version\": 1, \"lanes\": {\"genie-freshness\": {\"definition_paths\": [\".st\", \"flake.lock\", \"flake.nix\", \"scripts\"]}, \"typescript-client\": {\"definition_paths\": [\"package.json\", \"scripts/ci-typescript-client\"]}, \"stage-lane\": {\"definition_paths\": [\".st\", \"scripts\"]}}}'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n",
+        "gh": "#!/bin/sh\ncase \"$*\" in\n'api --paginate repos/org/repo/pulls/7/files?per_page=100 --jq .[].filename') printf %s 'crates/a.rs\n'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n"
+      },
+      "expected": {
+        "stdout": "evidence-presign-notice v1 pr=7 listed=stage-lane passed_over=-\n::notice title=Not pre-signed::These jobs ran in full because no pre-signed note covered this head: stage-lane. Run `scripts/fractal-test --push origin` before marking the pull request ready, and CI can skip them. How: https://github.com/compoundingtech/fractal/issues/3621. This never fails a check or blocks a merge.\n",
+        "stderr": "",
+        "exit_code": 0,
+        "summary": "These jobs ran in full because no pre-signed note covered this head: stage-lane. Run `scripts/fractal-test --push origin` before marking the pull request ready, and CI can skip them. How: https://github.com/compoundingtech/fractal/issues/3621. This never fails a check or blocks a merge.\n\nevidence-presign-notice v1 pr=7 listed=stage-lane passed_over=-\n"
+      }
+    },
+    {
+      "id": "malformed-preferred-no-fallback",
+      "environment": {
+        "LINES": "evidence-decision v1 check=stage-lane decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc",
+        "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "REPOSITORY": "org/repo",
+        "PR_NUMBER": "7"
+      },
+      "summary_initial": "",
+      "executables": {
+        "git": "#!/bin/sh\ncase \"$*\" in\n'ls-tree --full-tree -z bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -- .fractal/required-lanes.json') printf %s '100644 blob fixture\t.fractal/required-lanes.json\u0000'; printf %s '' >&2; exit 0;;\n'show bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:.fractal/required-lanes.json') printf %s '{malformed'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n",
+        "gh": "#!/bin/sh\ncase \"$*\" in\n'api --paginate repos/org/repo/pulls/7/files?per_page=100 --jq .[].filename') printf %s 'crates/a.rs\n'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n"
+      },
+      "expected": {
+        "stdout": "evidence-presign-notice: Expecting property name enclosed in double quotes: line 1 column 2 (char 1); nothing to say\n",
+        "stderr": "",
+        "exit_code": 0,
+        "summary": ""
+      }
+    },
+    {
+      "id": "required-lanes-all-readable",
+      "environment": {
+        "LINES": "evidence-decision v1 check=fractal-web decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc\nevidence-decision v1 check=genie-freshness decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc\nevidence-decision v1 check=ci-script-tests decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc\nevidence-decision v1 check=linux-gate decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc\nevidence-decision v1 check=rust-tests decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc\nevidence-decision v1 check=typescript-client decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc\nevidence-decision v1 check=linux-clippy decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc\nevidence-decision v1 check=linux-fleet-compat decision=run outcome=no_note reason=no_record tree_of=head head_tree=used fork=false event=pull_request pr=7 gate_sha256=abc",
+        "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "REPOSITORY": "org/repo",
+        "PR_NUMBER": "7"
+      },
+      "summary_initial": "",
+      "executables": {
+        "git": "#!/bin/sh\ncase \"$*\" in\n'ls-tree --full-tree -z bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -- .fractal/required-lanes.json') printf %s ''; printf %s '' >&2; exit 0;;\n'show bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:.st/required-lanes.json') printf %s '{\"version\": 1, \"lanes\": {\"fractal-web\": {\"argv\": [\"nix\", \"develop\", \".#web\", \"-c\", \"bash\", \"scripts/ci-local-web\"], \"definition_paths\": [\".buckconfig\", \".buckroot\", \"BUCK\", \"apps/fractal-web/package.json\", \"apps/fractal-web/scripts/ci\", \"buck2/dependencies/licenses.json\", \"buck2/toolchains/BUCK\", \"clients/typescript/fractal-scenarios/package.json\", \"flake.lock\", \"flake.nix\", \"nix/web-shell-inputs.json\", \"nix/web-shell.nix\", \"package.json\", \"packages/fractal-sdk/package.json\", \"packages/fractal-ui/package.json\", \"packages/fractal-ui/scripts\", \"pnpm-lock.yaml\", \"pnpm-source-inputs.json\", \"pnpm-workspace.yaml\", \"scripts/check-public-repo\", \"scripts/ci-fractal-web\", \"scripts/ci-fractal-web-changes\", \"scripts/ci-fractal-web-kit-graph\", \"scripts/ci-fractal-web-licenses\", \"scripts/ci-local-web\", \"scripts/ci-web-shell\", \"scripts/ci-web-shell-inputs.jq\", \"scripts/ci-web-shell-test\", \"scripts/prepare-pnpm-source-inputs.py\"], \"tree_inputs\": [\".buckconfig\", \".buckconfig.genie.ts\", \".buckroot\", \".github/repo-settings.json\", \".github/repo-settings.json.genie.ts\", \".github/workflows/cache-audit.ts\", \".github/workflows/fleet.yml\", \".github/workflows/fleet.yml.genie.ts\", \".github/workflows/main-upkeep.yml\", \".github/workflows/main-upkeep.yml.genie.ts\", \".github/workflows/workspace-ci.ts\", \"BUCK\", \"BUCK.genie.ts\", \"apps/fractal-web\", \"apps/ios/package.json\", \"buck2\", \"clients/typescript/fractal-client\", \"clients/typescript/fractal-scenarios\", \"clients/typescript/fractal-views\", \"docs/st3/client-v0/fixtures\", \"docs/st3/client-v0/schemas\", \"fixtures\", \"flake.lock\", \"flake.nix\", \"megarepo.kdl\", \"megarepo.lock\", \"nix/fractal-web.nix\", \"nix/web-shell-inputs.json\", \"nix/web-shell.nix\", \"package.json\", \"package.json.genie.ts\", \"packages/fractal-sdk\", \"packages/fractal-ui\", \"pnpm-lock.yaml\", \"pnpm-source-inputs.json\", \"pnpm-source-inputs.json.genie.ts\", \"pnpm-workspace.yaml\", \"pnpm-workspace.yaml.genie.ts\", \"scripts/check-public-repo\", \"scripts/ci-fractal-web\", \"scripts/ci-fractal-web-changes\", \"scripts/ci-fractal-web-gate\", \"scripts/ci-fractal-web-kit-graph\", \"scripts/ci-fractal-web-licenses\", \"scripts/ci-fractal-web-licenses-test\", \"scripts/ci-fractal-web-test\", \"scripts/ci-typescript-client\", \"scripts/ci-web-shell\", \"scripts/ci-web-shell-inputs.jq\", \"scripts/ci-web-shell-test\", \"scripts/prepare-pnpm-source-inputs.py\"], \"ci_inputs\": [\".github/workflows/fleet.yml\", \".github/workflows/workspace-ci.ts\", \".st/evidence-skip-policy.json::checks.fractal-web\", \".st/required-lanes.json::lanes.fractal-web\"]}, \"genie-freshness\": {\"argv\": [\"nix\", \"develop\", \".#genie\", \"-c\", \"bash\", \"scripts/ci-genie-freshness\"], \"definition_paths\": [\".buckconfig\", \".buckroot\", \".cargo/config.toml\", \".config/nextest.toml\", \".st\", \"BUCK\", \"apps/fractal-web/package.json\", \"apps/ios/package.json\", \"buck2/toolchains/BUCK\", \"clients/typescript/fractal-client/package.json\", \"clients/typescript/fractal-declarations/package.json\", \"clients/typescript/fractal-scenarios/package.json\", \"clients/typescript/fractal-views/package.json\", \"flake.lock\", \"flake.nix\", \"package.json\", \"packages/fractal-sdk/package.json\", \"packages/fractal-ui/package.json\", \"pnpm-lock.yaml\", \"pnpm-workspace.yaml\", \"scripts\"], \"tree_inputs\": [\".\"]}, \"ci-script-tests\": {\"argv\": [\"nix\", \"develop\", \".#genie\", \"-c\", \"bash\", \"scripts/ci-script-tests\"], \"definition_paths\": [\".st\", \"apps/fractal-web/scripts/devnet\", \"apps/ios/scripts/release_delivery.py\", \"apps/ios/scripts/test_release_delivery.py\", \"flake.lock\", \"flake.nix\", \"package.json\", \"pnpm-lock.yaml\", \"pnpm-workspace.yaml\", \"scripts\"], \"tree_inputs\": [\".config/daily-only.filterset\", \".gitattributes\", \".github\", \".gitignore\", \".st\", \".fractal\", \"apps/fractal-web/.gitignore\", \"apps/fractal-web/scripts/devnet\", \"apps/fractal-web/src/changelog/seen.ts\", \"apps/ios/scripts/release_delivery.py\", \"apps/ios/scripts/test_release_delivery.py\", \"crates/fractal/tests/daemon_load.rs\", \"crates/fractal/tests/messaging_faults.rs\", \"docs/st3/gate-evidence.md\", \"flake.lock\", \"flake.nix\", \"megarepo.lock\", \"nix\", \"package.json\", \"packages/fractal-ui/.gitignore\", \"pnpm-lock.yaml\", \"pnpm-workspace.yaml\", \"scripts\"]}, \"linux-gate\": {\"argv\": [\"nix\", \"develop\", \"-c\", \"bash\", \"scripts/ci-local\", \"tests\", \"clippy\", \"fleet-compat\"], \"definition_paths\": [\".cargo/config.toml\", \".config/daily-only.filterset\", \".config/nextest.toml\", \".github/clippy-baseline.json\", \".github/clippy-splits.json\", \".github/fleet-compat-baseline.json\", \".github/messaging-compat-baseline.json\", \"flake.lock\", \"flake.nix\", \"nix/hm-module.nix\", \"scripts/build-stamp-watch-test\", \"scripts/check-fractal-boundary\", \"scripts/check-fractal-boundary-test\", \"scripts/check-sqlite-large-values\", \"scripts/ci-build-snapshot\", \"scripts/ci-build-snapshot-test\", \"scripts/ci-cargo-tools-env\", \"scripts/ci-cargo-tools-env-test\", \"scripts/ci-install-built-hooks\", \"scripts/ci-linux\", \"scripts/ci-local\", \"scripts/ci-local-isolation-vm\", \"scripts/ci-mail-redelivery-canaries\", \"scripts/ci-nextest\", \"scripts/ci-nextest-flaky\", \"scripts/ci-perf-cache\", \"scripts/ci-rustc-wrapper\", \"scripts/ci-rustc-wrapper-test\", \"scripts/ci-test-paths.rs\", \"scripts/ci-test-tmpdir\", \"scripts/clippy-ratchet-test\", \"scripts/clippy_ratchet.py\", \"scripts/compat-baseline\", \"scripts/crate-cut-test\", \"scripts/crate_cut.py\", \"scripts/dep-info-check\", \"scripts/fractal-boot-canaries-offers-test\", \"scripts/fractal-boot-canaries/admission-omp.mjs\", \"scripts/fractal-boot-canaries/codex-schemas\", \"scripts/fractal-boot-canaries/deny-socket-connect.py\", \"scripts/fractal-boot-canaries/run\", \"scripts/fractal-boot-canaries/stub-claude.py\", \"scripts/fractal-boot-canaries/stub-codex.py\", \"scripts/fractal-boot-canaries/stub-opencode.py\", \"scripts/fractal-boot-canaries/stub-pi-family.mjs\", \"scripts/fractal-boot-canaries/stubmodel.py\", \"scripts/fractal-env.mjs\", \"scripts/fractal-no-st2-eval/claude\", \"scripts/fractal-no-st2-eval/run\", \"scripts/fractal-subagents-eval/claude\", \"scripts/fractal-subagents-eval/run\", \"scripts/fractal_boundary.py\", \"scripts/install-git-hooks\", \"scripts/messaging-compat-binary\", \"scripts/module_layers.py\", \"scripts/rust_items.py\", \"scripts/sccache-evidence\", \"scripts/sccache-evidence-test\", \"scripts/sccache-read-cache-env\", \"scripts/script-test-supervisor\", \"scripts/script_process.py\", \"scripts/sqlite_large_values.py\"], \"tree_inputs\": [\".cargo\", \".config/nextest.toml\", \".github\", \"Cargo.lock\", \"Cargo.toml\", \"apps/fractal-web/src/terminal/assets/JetBrainsMonoNerdFontMono-Regular.ttf\", \"claude-channel\", \"clients\", \"components\", \"crates\", \"docs/st3\", \"docs/vrs\", \"evals\", \"examples\", \"fixtures\", \"flake.lock\", \"flake.nix\", \"nix\", \"plugins\", \"scripts\", \"slo\", \"templates\", \"vendor\", \"wit\"], \"ci_inputs\": [\".github/workflows/fleet.yml::jobs.linux-gate\", \".st/evidence-skip-policy.json::checks.linux-gate\", \".st/required-lanes.json::lanes.linux-gate\", \".github/workflows/fleet.yml::jobs.hm-module-eval\"]}, \"rust-tests\": {\"argv\": [\"python3\", \"scripts/ci-rust-test-result\"], \"definition_paths\": [\".cargo/config.toml\", \".config/daily-only.filterset\", \".config/nextest.toml\", \".github/messaging-compat-baseline.json\", \"flake.lock\", \"flake.nix\", \"scripts/build-stamp-watch-test\", \"scripts/check-fractal-boundary\", \"scripts/check-fractal-boundary-test\", \"scripts/check-sqlite-large-values\", \"scripts/ci-build-snapshot\", \"scripts/ci-build-snapshot-test\", \"scripts/ci-cargo-tools-env\", \"scripts/ci-cargo-tools-env-test\", \"scripts/ci-install-built-hooks\", \"scripts/ci-linux\", \"scripts/ci-local\", \"scripts/ci-local-isolation-vm\", \"scripts/ci-mail-redelivery-canaries\", \"scripts/ci-nextest\", \"scripts/ci-nextest-flaky\", \"scripts/ci-perf-cache\", \"scripts/ci-rust-test-result\", \"scripts/ci-rustc-wrapper\", \"scripts/ci-rustc-wrapper-test\", \"scripts/ci-test-paths.rs\", \"scripts/ci-test-tmpdir\", \"scripts/clippy-ratchet-test\", \"scripts/clippy_ratchet.py\", \"scripts/compat-baseline\", \"scripts/crate-cut-test\", \"scripts/crate_cut.py\", \"scripts/dep-info-check\", \"scripts/fractal-boot-canaries-offers-test\", \"scripts/fractal-boot-canaries/admission-omp.mjs\", \"scripts/fractal-boot-canaries/codex-schemas\", \"scripts/fractal-boot-canaries/deny-socket-connect.py\", \"scripts/fractal-boot-canaries/run\", \"scripts/fractal-boot-canaries/stub-claude.py\", \"scripts/fractal-boot-canaries/stub-codex.py\", \"scripts/fractal-boot-canaries/stub-opencode.py\", \"scripts/fractal-boot-canaries/stub-pi-family.mjs\", \"scripts/fractal-boot-canaries/stubmodel.py\", \"scripts/fractal-env.mjs\", \"scripts/fractal-no-st2-eval/claude\", \"scripts/fractal-no-st2-eval/run\", \"scripts/fractal-subagents-eval/claude\", \"scripts/fractal-subagents-eval/run\", \"scripts/fractal_boundary.py\", \"scripts/install-git-hooks\", \"scripts/messaging-compat-binary\", \"scripts/module_layers.py\", \"scripts/rust_items.py\", \"scripts/sccache-evidence\", \"scripts/sccache-evidence-test\", \"scripts/sccache-read-cache-env\", \"scripts/script-test-supervisor\", \"scripts/script_process.py\", \"scripts/sqlite_large_values.py\"], \"tree_inputs\": [\".cargo\", \".config/nextest.toml\", \".github\", \"Cargo.lock\", \"Cargo.toml\", \"apps/fractal-web/src/terminal/assets/JetBrainsMonoNerdFontMono-Regular.ttf\", \"claude-channel\", \"clients\", \"components\", \"crates\", \"docs/st3\", \"docs/vrs\", \"evals\", \"examples\", \"fixtures\", \"flake.lock\", \"flake.nix\", \"nix\", \"plugins\", \"scripts\", \"slo\", \"templates\", \"vendor\", \"wit\"], \"ci_inputs\": [\".github/workflows/fleet.yml::jobs.evidence-gate-rust-tests\", \".github/workflows/fleet.yml::jobs.evidence-note-rust-tests\", \".st/evidence-skip-policy.json::checks.rust-tests\", \".st/required-lanes.json::lanes.rust-tests\", \"scripts/ci-rust-test-result\", \"scripts/rust-test-keys\"]}, \"typescript-client\": {\"argv\": [\"nix\", \"develop\", \".#web\", \"-c\", \"bash\", \"-c\", \"pnpm install --frozen-lockfile && bash scripts/ci-typescript-client\"], \"definition_paths\": [\"apps/ios/package.json\", \"clients/typescript/fractal-client/package.json\", \"clients/typescript/fractal-declarations/package.json\", \"clients/typescript/fractal-views/package.json\", \"flake.lock\", \"flake.nix\", \"nix/typescript-client-deps.hash\", \"nix/typescript-client.nix\", \"nix/web-shell.nix\", \"package.json\", \"pnpm-lock.yaml\", \"pnpm-source-inputs.json\", \"pnpm-workspace.yaml\", \"scripts/ci-nix-fixed-outputs\", \"scripts/ci-typescript-client\", \"scripts/prepare-pnpm-source-inputs.py\"], \"tree_inputs\": [\"apps/fractal-web/package.json\", \"packages/fractal-sdk/package.json\", \"apps/fractal-web/src/folders/core.mts\", \"apps/ios\", \"clients/typescript\", \"crates/fractal-client-codegen/templates/declarations.ts.in\", \"crates/fractal-tui/tests/fixtures/quality-hour.json\", \"docs/st3/client-v0/fixtures\", \"fixtures/clients\", \"flake.lock\", \"flake.nix\", \"package.json\", \"packages/fractal-ui/package.json\", \"pnpm-lock.yaml\", \"pnpm-workspace.yaml\", \"scripts/ci-typescript-client\"], \"absent_paths\": [\".npmrc\", \".pnp.cjs\", \".pnpmfile.cjs\", \".pnpmfile.mjs\", \"apps/fractal-web/binding.gyp\", \"apps/fractal-web/package.json5\", \"apps/fractal-web/package.yaml\", \"packages/fractal-sdk/binding.gyp\", \"packages/fractal-sdk/package.json5\", \"packages/fractal-sdk/package.yaml\", \"packages/fractal-sdk/pnpm-workspace.yaml\", \"apps/fractal-web/pnpm-workspace.yaml\", \"apps/node_modules\", \"binding.gyp\", \"clients/node_modules\", \"clients/pnpm-workspace.yaml\", \"fixtures/node_modules\", \"fixtures/package.json\", \"package.json5\", \"package.yaml\", \"packages/fractal-ui/binding.gyp\", \"packages/fractal-ui/package.json5\", \"packages/fractal-ui/package.yaml\", \"packages/fractal-ui/pnpm-workspace.yaml\"], \"ci_inputs\": [\".github/workflows/fleet.yml::jobs.typescript-client\", \".st/evidence-skip-policy.json::checks.typescript-client\", \".st/required-lanes.json::lanes.typescript-client\"]}, \"linux-clippy\": {\"argv\": [\"python3\", \"scripts/ci-clippy-result\"], \"ci_inputs\": [\".github/workflows/fleet.yml::jobs.evidence-gate-linux-clippy\", \".github/workflows/fleet.yml::jobs.linux-clippy\", \".st/evidence-skip-policy.json\", \".st/required-lanes.json::lanes.linux-clippy\"], \"definition_paths\": [\".cargo/config.toml\", \".config/nextest.toml\", \".github/clippy-baseline.json\", \".github/clippy-splits.json\", \"flake.lock\", \"flake.nix\", \"scripts/build-stamp-watch-test\", \"scripts/check-fractal-boundary\", \"scripts/check-fractal-boundary-test\", \"scripts/check-sqlite-large-values\", \"scripts/ci-build-snapshot\", \"scripts/ci-build-snapshot-test\", \"scripts/ci-cargo-tools-env\", \"scripts/ci-cargo-tools-env-test\", \"scripts/ci-clippy-result\", \"scripts/ci-install-built-hooks\", \"scripts/ci-linux\", \"scripts/ci-local\", \"scripts/ci-local-isolation-vm\", \"scripts/ci-mail-redelivery-canaries\", \"scripts/ci-nextest\", \"scripts/ci-nextest-flaky\", \"scripts/ci-perf-cache\", \"scripts/ci-rustc-wrapper\", \"scripts/ci-rustc-wrapper-test\", \"scripts/ci-test-paths.rs\", \"scripts/ci-test-tmpdir\", \"scripts/clippy-ratchet-test\", \"scripts/clippy_ratchet.py\", \"scripts/compat-baseline\", \"scripts/crate-cut-test\", \"scripts/crate_cut.py\", \"scripts/dep-info-check\", \"scripts/fractal-boot-canaries-offers-test\", \"scripts/fractal-boot-canaries/admission-omp.mjs\", \"scripts/fractal-boot-canaries/codex-schemas\", \"scripts/fractal-boot-canaries/deny-socket-connect.py\", \"scripts/fractal-boot-canaries/run\", \"scripts/fractal-boot-canaries/stub-claude.py\", \"scripts/fractal-boot-canaries/stub-codex.py\", \"scripts/fractal-boot-canaries/stub-opencode.py\", \"scripts/fractal-boot-canaries/stub-pi-family.mjs\", \"scripts/fractal-boot-canaries/stubmodel.py\", \"scripts/fractal-env.mjs\", \"scripts/fractal-no-st2-eval/claude\", \"scripts/fractal-no-st2-eval/run\", \"scripts/fractal-subagents-eval/claude\", \"scripts/fractal-subagents-eval/run\", \"scripts/fractal_boundary.py\", \"scripts/install-git-hooks\", \"scripts/messaging-compat-binary\", \"scripts/module_layers.py\", \"scripts/rust_items.py\", \"scripts/sccache-evidence\", \"scripts/sccache-evidence-test\", \"scripts/sccache-read-cache-env\", \"scripts/script-test-supervisor\", \"scripts/script_process.py\", \"scripts/sqlite_large_values.py\"], \"tree_inputs\": [\".cargo\", \".cargo/config.toml\", \".clippy.toml\", \".config/nextest.toml\", \".github/clippy-baseline.json\", \".github/clippy-splits.json\", \"Cargo.lock\", \"Cargo.toml\", \"claude-channel/.claude-plugin/marketplace.json\", \"claude-channel/plugins/st2-channel/.claude-plugin/plugin.json\", \"claude-channel/plugins/st2-channel/.mcp.json\", \"clients/swift/FractalClient/Sources/FractalClient\", \"clients/typescript/fractal-client\", \"clients/typescript/fractal-declarations/fixtures\", \"clients/typescript/fractal-scenarios/recordings/fleet-mid-refactor-proof.script.json\", \"clients/typescript/fractal-scenarios/scripts/recording-script.schema.json\", \"clients/typescript/fractal-views/tests/fixtures\", \"clippy.toml\", \"components\", \"crates\", \"docs/st3/action-coverage.json\", \"docs/st3/client-v0\", \"docs/st3/invariants.md\", \"docs/st3/onboarding-guide.md\", \"docs/st3/operational-state/cli-commands.json\", \"docs/st3/schema.md\", \"examples/client-tui\", \"examples/fractal\", \"fixtures\", \"flake.lock\", \"flake.nix\", \"plugins/claude\", \"scripts/build-stamp-watch-test\", \"scripts/check-fractal-boundary\", \"scripts/check-fractal-boundary-test\", \"scripts/check-sqlite-large-values\", \"scripts/ci-build-snapshot\", \"scripts/ci-build-snapshot-test\", \"scripts/ci-cargo-tools-env\", \"scripts/ci-cargo-tools-env-test\", \"scripts/ci-clippy-result\", \"scripts/ci-install-built-hooks\", \"scripts/ci-linux\", \"scripts/ci-local\", \"scripts/ci-local-isolation-vm\", \"scripts/ci-mail-redelivery-canaries\", \"scripts/ci-nextest\", \"scripts/ci-nextest-flaky\", \"scripts/ci-perf-cache\", \"scripts/ci-rustc-wrapper\", \"scripts/ci-rustc-wrapper-test\", \"scripts/ci-test-paths.rs\", \"scripts/ci-test-tmpdir\", \"scripts/clippy-ratchet-test\", \"scripts/clippy_ratchet.py\", \"scripts/compat-baseline\", \"scripts/crate-cut-test\", \"scripts/crate_cut.py\", \"scripts/dep-info-check\", \"scripts/dep-info-check-test\", \"scripts/fractal-boot-canaries-offers-test\", \"scripts/fractal-boot-canaries/admission-omp.mjs\", \"scripts/fractal-boot-canaries/codex-schemas\", \"scripts/fractal-boot-canaries/deny-socket-connect.py\", \"scripts/fractal-boot-canaries/run\", \"scripts/fractal-boot-canaries/stub-claude.py\", \"scripts/fractal-boot-canaries/stub-codex.py\", \"scripts/fractal-boot-canaries/stub-opencode.py\", \"scripts/fractal-boot-canaries/stub-pi-family.mjs\", \"scripts/fractal-boot-canaries/stubmodel.py\", \"scripts/fractal-env.mjs\", \"scripts/fractal-no-st2-eval/claude\", \"scripts/fractal-no-st2-eval/run\", \"scripts/fractal-subagents-eval/claude\", \"scripts/fractal-subagents-eval/run\", \"scripts/fractal_boundary.py\", \"scripts/install-git-hooks\", \"scripts/messaging-compat-binary\", \"scripts/module_layers.py\", \"scripts/rust_items.py\", \"scripts/sccache-evidence\", \"scripts/sccache-evidence-test\", \"scripts/sccache-read-cache-env\", \"scripts/script-test-supervisor\", \"scripts/script_process.py\", \"scripts/sqlite_large_values.py\", \"slo/targets.toml\", \"vendor/libghostty-vt-sys\", \"wit\"]}, \"linux-fleet-compat\": {\"argv\": [\"python3\", \"scripts/ci-fleet-compat-result\"], \"ci_inputs\": [\".github/workflows/fleet.yml::jobs.evidence-gate-linux-fleet-compat\", \".github/workflows/fleet.yml::jobs.linux-fleet-compat\", \".st/evidence-skip-policy.json\", \".st/required-lanes.json::lanes.linux-fleet-compat\"], \"definition_paths\": [\".cargo/config.toml\", \".config/nextest.toml\", \".github/fleet-compat-baseline.json\", \"flake.lock\", \"flake.nix\", \"scripts/build-stamp-watch-test\", \"scripts/check-fractal-boundary\", \"scripts/check-fractal-boundary-test\", \"scripts/check-sqlite-large-values\", \"scripts/ci-build-snapshot\", \"scripts/ci-build-snapshot-test\", \"scripts/ci-cargo-tools-env\", \"scripts/ci-cargo-tools-env-test\", \"scripts/ci-fleet-compat-result\", \"scripts/ci-install-built-hooks\", \"scripts/ci-linux\", \"scripts/ci-local\", \"scripts/ci-local-isolation-vm\", \"scripts/ci-mail-redelivery-canaries\", \"scripts/ci-nextest\", \"scripts/ci-nextest-flaky\", \"scripts/ci-perf-cache\", \"scripts/ci-rustc-wrapper\", \"scripts/ci-rustc-wrapper-test\", \"scripts/ci-test-paths.rs\", \"scripts/ci-test-tmpdir\", \"scripts/clippy-ratchet-test\", \"scripts/clippy_ratchet.py\", \"scripts/compat-baseline\", \"scripts/crate-cut-test\", \"scripts/crate_cut.py\", \"scripts/dep-info-check\", \"scripts/fractal-boot-canaries-offers-test\", \"scripts/fractal-boot-canaries/admission-omp.mjs\", \"scripts/fractal-boot-canaries/codex-schemas\", \"scripts/fractal-boot-canaries/deny-socket-connect.py\", \"scripts/fractal-boot-canaries/run\", \"scripts/fractal-boot-canaries/stub-claude.py\", \"scripts/fractal-boot-canaries/stub-codex.py\", \"scripts/fractal-boot-canaries/stub-opencode.py\", \"scripts/fractal-boot-canaries/stub-pi-family.mjs\", \"scripts/fractal-boot-canaries/stubmodel.py\", \"scripts/fractal-env.mjs\", \"scripts/fractal-no-st2-eval/claude\", \"scripts/fractal-no-st2-eval/run\", \"scripts/fractal-subagents-eval/claude\", \"scripts/fractal-subagents-eval/run\", \"scripts/fractal_boundary.py\", \"scripts/install-git-hooks\", \"scripts/messaging-compat-binary\", \"scripts/module_layers.py\", \"scripts/rust_items.py\", \"scripts/sccache-evidence\", \"scripts/sccache-evidence-test\", \"scripts/sccache-read-cache-env\", \"scripts/script-test-supervisor\", \"scripts/script_process.py\", \"scripts/sqlite_large_values.py\"], \"tree_inputs\": [\".cargo\", \".config/nextest.toml\", \".github/fleet-compat-baseline.json\", \"Cargo.lock\", \"Cargo.toml\", \"claude-channel/.claude-plugin/marketplace.json\", \"claude-channel/plugins/st2-channel/.claude-plugin/plugin.json\", \"claude-channel/plugins/st2-channel/.mcp.json\", \"clients/typescript/fractal-declarations/fixtures\", \"clients/typescript/fractal-scenarios/recordings/fleet-mid-refactor-proof.script.json\", \"clients/typescript/fractal-scenarios/scripts/recording-script.schema.json\", \"components/github-issue/Cargo.toml\", \"components/github-pr/Cargo.toml\", \"components/pty-stats/Cargo.toml\", \"components/vista/Cargo.toml\", \"crates/agent-spec\", \"crates/demo-resolver-wasm/Cargo.toml\", \"crates/fractal\", \"crates/fractal-api-client-v0\", \"crates/fractal-api-core\", \"crates/fractal-api-mailbox\", \"crates/fractal-attention\", \"crates/fractal-build-stamp\", \"crates/fractal-chatgpt\", \"crates/fractal-client\", \"crates/fractal-client-codegen/Cargo.toml\", \"crates/fractal-conversation-ui\", \"crates/fractal-daemon\", \"crates/fractal-delivery\", \"crates/fractal-delivery-base\", \"crates/fractal-drivers\", \"crates/fractal-e2e/Cargo.toml\", \"crates/fractal-evidence\", \"crates/fractal-fabric-adapter/Cargo.toml\", \"crates/fractal-feed\", \"crates/fractal-github\", \"crates/fractal-github-base\", \"crates/fractal-kernel\", \"crates/fractal-migrate/Cargo.toml\", \"crates/fractal-mission-ui\", \"crates/fractal-missions\", \"crates/fractal-missions-base\", \"crates/fractal-peer\", \"crates/fractal-reconcile\", \"crates/fractal-resource-protocol\", \"crates/fractal-resource-providers\", \"crates/fractal-resource-wasip2\", \"crates/fractal-runtime\", \"crates/fractal-schema\", \"crates/fractal-seats\", \"crates/fractal-seats-base\", \"crates/fractal-secrets\", \"crates/fractal-sidebar\", \"crates/fractal-socket-discovery\", \"crates/fractal-storage-version\", \"crates/fractal-store\", \"crates/fractal-telemetry\", \"crates/fractal-terminal-direct\", \"crates/fractal-tiles-registry\", \"crates/fractal-tui\", \"crates/fractal-ui-model\", \"crates/fractal-wire\", \"crates/pty-launch-environment.rs\", \"crates/smallclaims\", \"docs/st3/action-coverage.json\", \"docs/st3/client-v0\", \"docs/st3/invariants.md\", \"docs/st3/onboarding-guide.md\", \"docs/st3/operational-state/cli-commands.json\", \"docs/st3/schema.md\", \"examples/client-tui\", \"examples/fractal\", \"fixtures\", \"flake.lock\", \"flake.nix\", \"plugins/claude\", \"scripts/build-stamp-watch-test\", \"scripts/check-fractal-boundary\", \"scripts/check-fractal-boundary-test\", \"scripts/check-sqlite-large-values\", \"scripts/ci-build-snapshot\", \"scripts/ci-build-snapshot-test\", \"scripts/ci-cargo-tools-env\", \"scripts/ci-cargo-tools-env-test\", \"scripts/ci-fleet-compat-result\", \"scripts/ci-install-built-hooks\", \"scripts/ci-linux\", \"scripts/ci-local\", \"scripts/ci-local-isolation-vm\", \"scripts/ci-mail-redelivery-canaries\", \"scripts/ci-nextest\", \"scripts/ci-nextest-flaky\", \"scripts/ci-perf-cache\", \"scripts/ci-rustc-wrapper\", \"scripts/ci-rustc-wrapper-test\", \"scripts/ci-test-paths.rs\", \"scripts/ci-test-tmpdir\", \"scripts/clippy-ratchet-test\", \"scripts/clippy_ratchet.py\", \"scripts/compat-baseline\", \"scripts/crate-cut-test\", \"scripts/crate_cut.py\", \"scripts/dep-info-check\", \"scripts/fractal-boot-canaries-offers-test\", \"scripts/fractal-boot-canaries/admission-omp.mjs\", \"scripts/fractal-boot-canaries/codex-schemas\", \"scripts/fractal-boot-canaries/deny-socket-connect.py\", \"scripts/fractal-boot-canaries/run\", \"scripts/fractal-boot-canaries/stub-claude.py\", \"scripts/fractal-boot-canaries/stub-codex.py\", \"scripts/fractal-boot-canaries/stub-opencode.py\", \"scripts/fractal-boot-canaries/stub-pi-family.mjs\", \"scripts/fractal-boot-canaries/stubmodel.py\", \"scripts/fractal-env.mjs\", \"scripts/fractal-no-st2-eval/claude\", \"scripts/fractal-no-st2-eval/run\", \"scripts/fractal-subagents-eval/claude\", \"scripts/fractal-subagents-eval/run\", \"scripts/fractal_boundary.py\", \"scripts/install-git-hooks\", \"scripts/messaging-compat-binary\", \"scripts/module_layers.py\", \"scripts/rust_items.py\", \"scripts/sccache-evidence\", \"scripts/sccache-evidence-test\", \"scripts/sccache-read-cache-env\", \"scripts/script-test-supervisor\", \"scripts/script_process.py\", \"scripts/sqlite_large_values.py\", \"slo/targets.toml\", \"vendor/libghostty-vt-sys\", \"wit\"]}}}'; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n",
+        "gh": "#!/bin/sh\ncase \"$*\" in\n'api --paginate repos/org/repo/pulls/7/files?per_page=100 --jq .[].filename') printf %s ''; printf %s '' >&2; exit 0;;\n*) exit 97;;\nesac\n"
+      },
+      "expected": {
+        "stdout": "evidence-presign-notice v1 pr=7 listed=ci-script-tests,fractal-web,genie-freshness,linux-clippy,linux-fleet-compat,linux-gate,rust-tests,typescript-client passed_over=-\n::notice title=Not pre-signed::These jobs ran in full because no pre-signed note covered this head: ci-script-tests, fractal-web, genie-freshness, linux-clippy, linux-fleet-compat, linux-gate, rust-tests, typescript-client. Run `scripts/fractal-test --push origin` before marking the pull request ready, and CI can skip them. How: https://github.com/compoundingtech/fractal/issues/3621. This never fails a check or blocks a merge.\n",
+        "stderr": "",
+        "exit_code": 0,
+        "summary": "These jobs ran in full because no pre-signed note covered this head: ci-script-tests, fractal-web, genie-freshness, linux-clippy, linux-fleet-compat, linux-gate, rust-tests, typescript-client. Run `scripts/fractal-test --push origin` before marking the pull request ready, and CI can skip them. How: https://github.com/compoundingtech/fractal/issues/3621. This never fails a check or blocks a merge.\n\nevidence-presign-notice v1 pr=7 listed=ci-script-tests,fractal-web,genie-freshness,linux-clippy,linux-fleet-compat,linux-gate,rust-tests,typescript-client passed_over=-\n"
+      }
+    }
+  ]
+}
