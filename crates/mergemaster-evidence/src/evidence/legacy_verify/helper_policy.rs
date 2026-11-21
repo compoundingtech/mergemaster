@@ -7,7 +7,7 @@ use crate::evidence::{
         kind_rules::KindRule,
         level_rules::{LaneBinding, LevelRule},
         normalized_text::NormalizedText,
-        value_rules::ShardInputs,
+        value_rules::{ShardField, ShardInputs},
     },
 };
 use std::fmt;
@@ -191,16 +191,28 @@ fn shard_inputs<'s>(
     shards: &ShardInputs,
 ) -> Result<Written<'s>, fmt::Error> {
     writer.object(|object| {
-        object.field_text("count", |writer| text(writer, &shards.count))?;
-        object.field_text("results", |writer| text(writer, &shards.results))?;
-        if let Some(count) = shards.pull_request_count {
-            object.field_text("pull_request_count", |writer| match count {
-                Some(count) => writer.integer(i128::from(count)),
-                None => writer.null(),
-            })?;
-        }
-        if let Some(index) = &shards.index {
-            object.field_text("index", |writer| text(writer, index))?;
+        for field in shards.field_order.iter().flatten() {
+            match field {
+                ShardField::Count => {
+                    object.field_text("count", |writer| text(writer, &shards.count))?
+                }
+                ShardField::Results => {
+                    object.field_text("results", |writer| text(writer, &shards.results))?
+                }
+                ShardField::PullRequestCount => {
+                    object.field_text("pull_request_count", |writer| {
+                        match shards.pull_request_count.flatten() {
+                            Some(count) => writer.integer(i128::from(count)),
+                            None => writer.null(),
+                        }
+                    })?;
+                }
+                ShardField::Index => {
+                    if let Some(index) = &shards.index {
+                        object.field_text("index", |writer| text(writer, index))?;
+                    }
+                }
+            }
         }
         Ok(())
     })

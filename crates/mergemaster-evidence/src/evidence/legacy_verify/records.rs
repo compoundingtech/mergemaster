@@ -37,12 +37,12 @@ pub fn read_statement(
     commit: &str,
     tree: Option<&str>,
 ) -> Result<Option<Document>, PolicyError> {
-    read_with(Transport::Native, repo, commit, tree)
+    read_with(Transport::Native, repo, OsStr::new(commit), tree)
 }
 /// Oracle inherited transport and early-aborting capture, not native Git.
 pub fn read_statement_cli(
     repo: &Path,
-    commit: &str,
+    commit: &OsStr,
     tree: Option<&str>,
 ) -> Result<Option<Document>, PolicyError> {
     read_with(Transport::Cli, repo, commit, tree)
@@ -50,17 +50,22 @@ pub fn read_statement_cli(
 fn read_with(
     transport: Transport,
     repo: &Path,
-    commit: &str,
+    commit: &OsStr,
     tree: Option<&str>,
 ) -> Result<Option<Document>, PolicyError> {
+    let commit_text = commit.to_str().unwrap_or("");
     if transport == Transport::Native {
-        oid(commit).map_err(error)?;
+        oid(commit_text).map_err(error)?;
     }
-    let listing = transport.read(
-        repo,
-        &["ls-tree", "-r", "-z", "--end-of-options", commit],
-        MAX_STATEMENT_BYTES,
-    )?;
+    let listing = if transport == Transport::Cli {
+        Transport::read_record(repo, &["ls-tree", "-r", "-z"], commit, MAX_STATEMENT_BYTES)?
+    } else {
+        transport.read(
+            repo,
+            &["ls-tree", "-r", "-z", "--end-of-options", commit_text],
+            MAX_STATEMENT_BYTES,
+        )?
+    };
     let mut rows = listing.split(|b| *b == 0).filter(|v| !v.is_empty());
     let Some(row) = rows.next() else {
         return Ok(None);
@@ -112,11 +117,15 @@ fn read_with(
         return Ok(None);
     };
     let subject = validated_subject(&doc)?;
-    let raw = transport.read(
-        repo,
-        &["cat-file", "commit", "--end-of-options", commit],
-        MAX_STATEMENT_BYTES,
-    )?;
+    let raw = if transport == Transport::Cli {
+        Transport::read_record(repo, &["cat-file", "commit"], commit, MAX_STATEMENT_BYTES)?
+    } else {
+        transport.read(
+            repo,
+            &["cat-file", "commit", "--end-of-options", commit_text],
+            MAX_STATEMENT_BYTES,
+        )?
+    };
     let end = raw
         .windows(2)
         .position(|p| p == b"\n\n")
@@ -242,7 +251,7 @@ impl RecordCache {
         // Refuse an exhausted invocation/entry limit before reading another record.
         self.charge(0, true)?;
         // Failed reads are not inserted, matching assignment only after Python returns.
-        let parsed = read_with(self.transport, repo, commit, tree)?;
+        let parsed = read_with(self.transport, repo, OsStr::new(commit), tree)?;
         let identity = Key {
             repo: key.repo,
             commit,

@@ -56,6 +56,20 @@ for label,shards in [
  ('no count',{'count':'n','results':'r'}),('index only',{'count':'n','results':'r','index':'i'})]:
  entry=copy.deepcopy(simple);entry['kinds']['wrapper']['shard_inputs']=shards
  add('shards '+label,entry)
+for label,change in [
+ ('shards minimal',{'shard_inputs':{'results':'r','count':'n'}}),
+ ('shards all',{'shard_inputs':{'index':'i','pull_request_count':None,'results':'r','count':'n'}}),
+ ('bind inputs',{'bind_inputs':{'z':'last','a':'first'}}),
+ ('base inputs',{'base_inputs':{'z':'Cargo.lock','a':'src'}}),
+ ('input order',{'input_order':{'z':['strong','weak'],'a':['large','small']}}),
+ ('by level',{'by_level':{'host':{'events':['pull_request'],'command':['host']},
+                           'agent':{'lane':True,'events':['merge_group'],'command':['agent']}}}),
+ ('level bind inputs',{'by_level':{'agent':{'events':['pull_request'],'command':['run'],
+                                          'bind_inputs':{'z':'last','a':'first'}}}})]:
+ entry=copy.deepcopy(simple);entry['trust_levels']=['agent','host']
+ entry['kinds']['wrapper'].update(change);add('source order '+label,entry)
+entry=copy.deepcopy(simple);entry['inputs']=['z','a','z']
+add('source order inputs list',entry)
 entry=copy.deepcopy(simple)
 entry.update(max_age_s=None,inputs=None,events=None,require='shadow',sample_one_in=1)
 add('explicit null header fields',entry)
@@ -99,8 +113,8 @@ print(json.dumps(rows))
         String::from_utf8_lossy(&output.stderr)
     );
     let cases: Vec<Case> = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(cases.len(), 25);
-    assert_eq!(cases.iter().filter(|case| case.success).count(), 8);
+    assert_eq!(cases.len(), 33);
+    assert_eq!(cases.iter().filter(|case| case.success).count(), 16);
     for case in cases {
         let mut actual = String::new();
         let result = write(
