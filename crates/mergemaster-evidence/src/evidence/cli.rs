@@ -18,6 +18,12 @@ pub enum EvidenceCommand {
     FlipReady(super::flip_ready::Args),
     /// Count pull-request skips and explain checks that ran.
     SkipReport(super::skip_report::Args),
+    /// Report read-only evidence-gate SLO counters from GitHub Actions.
+    #[command(disable_help_flag = true)]
+    Slo {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        argv: Vec<String>,
+    },
     /// Run a BASE-declared lane once, sign its observation, and publish its note.
     Wrap(super::generic::WrapArgs),
     /// Sign a wrapper request using explicit account-local configuration.
@@ -92,6 +98,13 @@ pub fn run(args: EvidenceArgs) -> Result<()> {
             let code = super::skip_report::run(args)?;
             if code != 0 {
                 std::process::exit(code);
+        EvidenceCommand::Slo { argv } => {
+            use std::io::Write;
+            let exit = super::slo::run(&argv);
+            std::io::stdout().lock().write_all(exit.stdout.as_bytes())?;
+            std::io::stderr().lock().write_all(exit.stderr.as_bytes())?;
+            if exit.code != 0 {
+                std::process::exit(i32::from(exit.code));
             }
             return Ok(());
         }
