@@ -180,7 +180,8 @@ fn log_watch_frozen_transition_recordings_are_pure() {
             case["detail"].as_str().unwrap(),
             case["max_age"].as_i64().unwrap(),
             case["repeat"].as_i64().unwrap(),
-        );
+        )
+        .unwrap();
         assert_eq!(before, &unchanged, "{}", case["id"]);
         let mut expected = case["expected"].clone();
         // JSON time numbers are compared numerically, not by integer/float spelling.
@@ -541,5 +542,33 @@ fn log_watch_frozen_subject_recordings_differential() {
                 "{case}"
             );
         }
+    }
+}
+
+#[test]
+fn log_watch_invalid_recovery_timestamp_fails_without_notification_or_state_write() {
+    let watch = Watch::new();
+    watch.publish(T0);
+    let before = json!({"stalled_since": 1e20, "told_at": T0 - 4000});
+    let notify = watch.notify();
+    for oracle in [false, true] {
+        let state = watch.root.path().join(if oracle {
+            "oracle-invalid-state"
+        } else {
+            "native-invalid-state"
+        });
+        fs::create_dir_all(&state).unwrap();
+        let path = state.join("watch.json");
+        let bytes = serde_json::to_vec(&before).unwrap();
+        fs::write(&path, &bytes).unwrap();
+        let done = watch
+            .command(T0, &notify, &watch.remote, &state, oracle)
+            .output()
+            .unwrap();
+        assert_eq!(done.status.code(), Some(1));
+        assert!(done.stdout.is_empty());
+        assert!(!done.stderr.is_empty());
+        assert_eq!(fs::read(path).unwrap(), bytes);
+        assert!(watch.lines().is_empty());
     }
 }

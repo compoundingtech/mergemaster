@@ -111,6 +111,9 @@ remain 0 current, 1 stalled, 2 usage, 3 notification failure. The source-only
 `evidence-log-watch.service` now invokes `%h/.local/bin/mergemaster`; operators
 installing that unit must install the native binary there. No deployment in this
 repository installs these units. The timer and notification configuration are unchanged.
+Invalid timestamps fail the run instead of generating an empty notification date.
+Repository initialization has no deadline; fetches and notifications retain their
+120-second deadlines.
 Frozen transition recordings and native/independent pinned Python differential
 coverage run with `cargo test -p mergemaster-evidence --lib --test log_watch log_watch`.
 

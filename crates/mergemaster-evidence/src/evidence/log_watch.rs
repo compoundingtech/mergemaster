@@ -1,6 +1,6 @@
 //! Watch the independently published log head; retain Python-compatible transition state.
 use crate::gate::git::deadline::GitChild;
-use anyhow::Result;
+use anyhow::{Context, Result, ensure};
 use chrono::{DateTime, Utc};
 use clap::Args;
 use serde_json::{Map, Value, json};
@@ -90,7 +90,10 @@ fn published(
     timeout: Duration,
 ) -> Result<(Option<f64>, String)> {
     if !repo.join("objects").is_dir()
-        && !capture(Command::new("git").args(["init", "-q", "--bare"]).arg(repo))?
+        && !Command::new("git")
+            .args(["init", "-q", "--bare"])
+            .arg(repo)
+            .output()?
             .status
             .success()
     {
@@ -199,10 +202,14 @@ fn published(
         },
     ))
 }
-fn iso(unix: f64) -> String {
-    DateTime::<Utc>::from_timestamp(unix.floor() as i64, 0)
-        .map(|time| time.format("%Y-%m-%dT%H:%M:%SZ").to_string())
-        .unwrap_or_default()
+fn iso(unix: f64) -> Result<String> {
+    ensure!(
+        unix.is_finite() && (-62_135_596_800.0..253_402_300_800.0).contains(&unix),
+        "timestamp out of range for datetime"
+    );
+    let time = DateTime::<Utc>::from_timestamp(unix.floor() as i64, 0)
+        .context("timestamp out of range for datetime")?;
+    Ok(time.format("%Y-%m-%dT%H:%M:%SZ").to_string())
 }
 fn number(state: &Map<String, Value>, key: &str) -> f64 {
     state.get(key).and_then(Value::as_f64).unwrap_or(0.0)
@@ -214,7 +221,7 @@ pub fn step(
     detail: &str,
     max_age: i64,
     repeat: i64,
-) -> (Map<String, Value>, Option<String>, bool) {
+) -> Result<(Map<String, Value>, Option<String>, bool)> {
     let mut state = before.clone();
     let (age, why) = if let Some(time) = as_of {
         state.insert("last_as_of".into(), json!(time));
@@ -227,7 +234,7 @@ pub fn step(
                 "the published evidence log head {} is {:.0}s old (as_of {}; at most {max_age}s expected)",
                 &detail[..detail.len().min(12)],
                 age.round_ties_even() + 0.0,
-                iso(time)
+                iso(time)?
             ),
         )
     } else {
@@ -255,7 +262,7 @@ pub fn step(
         } else if now - number(&state, "told_at") >= repeat as f64 {
             line = Some(format!(
                 "evidence log still stalled since {}: {why}.",
-                iso(number(&state, "stalled_since"))
+                iso(number(&state, "stalled_since"))?
             ));
         }
         if line.is_some() {
@@ -265,13 +272,13 @@ pub fn step(
         let since = number(&state, "stalled_since");
         line = Some(format!(
             "evidence log moving again: {why}; it was stalled from {} ({:.0}s).",
-            iso(since),
+            iso(since)?,
             (now - since).round_ties_even() + 0.0
         ));
         state.remove("stalled_since");
         state.remove("told_at");
     }
-    (state, line, stalled)
+    Ok((state, line, stalled))
 }
 fn save(path: &Path, state: &Map<String, Value>) -> Result<()> {
     let temporary = path.with_extension(format!("json.{}", std::process::id()));
@@ -289,7 +296,7 @@ fn save(path: &Path, state: &Map<String, Value>) -> Result<()> {
 }
 fn summary(stalled: bool, as_of: Option<f64>, detail: &str, notified: bool) -> Result<String> {
     let mut out = format!("{{\"stalled\": {stalled}");
-    let stamp = as_of.map(iso);
+    let stamp = as_of.map(iso).transpose()?;
     for (key, value) in [
         ("as_of", stamp.as_deref()),
         ("head", as_of.map(|_| detail)),
@@ -336,7 +343,7 @@ pub fn run(args: LogWatchArgs) -> Result<()> {
         .and_then(|data| serde_json::from_slice::<Value>(&data).ok())
         .and_then(|v| v.as_object().cloned())
         .unwrap_or_default();
-    let (mut state, line, stalled) = step(&before, now, as_of, &detail, args.max_age, args.repeat);
+    let (mut state, line, stalled) = step(&before, now, as_of, &detail, args.max_age, args.repeat)?;
     let mut code = i32::from(stalled);
     if let Some(line) = &line {
         crate::cli_println!("{line}");
@@ -385,5 +392,22 @@ mod tests {
                 .to_string_lossy()
                 .starts_with("head.git.broken-")
         }));
+    }
+
+    #[test]
+    fn log_watch_iso_rejects_non_finite_and_out_of_range_timestamps() {
+        for unix in [
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            -62_135_596_801.0,
+            253_402_300_800.0,
+            1e20,
+        ] {
+            assert!(iso(unix).is_err(), "{unix}");
+        }
+        for unix in [-62_135_596_800.0, 253_402_300_799.0] {
+            assert!(iso(unix).is_ok(), "{unix}");
+        }
     }
 }
