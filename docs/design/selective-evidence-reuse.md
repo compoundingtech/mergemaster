@@ -164,7 +164,6 @@ qualify.
   is to revoke the rebinding key as well, or to lower the lane's
   `max_age_seconds`.
 
-
 ## 6. Prerequisite
 
 Reuse depends on the producer digest binding (`wrapper_sha256` against the
