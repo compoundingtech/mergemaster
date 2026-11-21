@@ -2,6 +2,8 @@
 name = "mergemaster-evidence"
 version = "0.13.0"
 edition = "2024"
+# Explicit for the shared Buck projector; Cargo already infers this membership.
+workspace = "../.."
 description = "Portable signed gate observations in immutable Git notes"
 license = "MIT"
 

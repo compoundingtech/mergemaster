@@ -2,6 +2,8 @@
 name = "mergemaster-reconciler"
 version = "0.1.0"
 edition = "2024"
+# Explicit for the shared Buck projector; Cargo already infers this membership.
+workspace = "../.."
 
 [dependencies]
 anyhow = "1"
