@@ -106,6 +106,33 @@ unavailable releases and older releases without this command retain the advisory
 fallback. Rust tests own the former self-test assertions; frozen independent
 Python recordings are replayed by `tests/oracle_corpus.py`.
 
+## Evidence gate SLO counters
+
+```sh
+mergemaster evidence slo --repository OWNER/NAME --hours 24 --json
+```
+
+This native, read-only command reports completed `Workspace CI` evidence-gate
+decisions by check and event, including skipped/shadow satisfaction, producer
+splits and produced-but-not-verified reasons (target zero). `--since` and `--until`
+accept ISO timestamps; `--max-logs` bounds log downloads (default 300). It requires
+authenticated `gh`, not Python, and never starts runs or writes to GitHub.
+
+`scripts/ci-evidence-slo` and its self-test are removed. Every former self-test
+assertion now lives in `crates/mergemaster-evidence/tests/slo.rs`. The focused check
+is `nix develop -c cargo test -p mergemaster-evidence --test slo`. Frozen CLI
+recordings in `tests/fixtures/oracle/slo.json` are compared byte-for-byte against
+the immutable `MERGEMASTER_PYTHON_ORACLE` source with pinned CPython 3.14.7 and the
+native command, both in that integration test and `tests/oracle_corpus.py`.
+
+Timestamp parsing follows pinned Python `datetime.fromisoformat`, including
+basic/week dates, reduced-precision clocks and naive intervals. Mixing naive
+and timezone-aware bounds exits 1 with the Python `TypeError` message; intentionally,
+Rust omits the Python crash traceback. Only that frozen case compares the message
+substring instead of exact stderr. A nonzero `gh` log-download exit remains
+tolerated, but deadline, spawn and read errors fail the command rather than
+silently counting an unknown producer.
+
 ## Copied evidence scripts
 
 The evidence scripts and their self-tests originate from
