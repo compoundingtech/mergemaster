@@ -91,6 +91,27 @@ in `tests/fixtures/oracle/keygen.json`; `tests/oracle_corpus.py` replays them
 independently. Retained copied self-tests are discovered from this checkout so
 removed leaves cannot silently return from the oracle fixture.
 
+## Local runner timing reports
+
+`mergemaster evidence runner-report [RUNS.jsonl ...] --markdown` replaces
+`scripts/fractal-test-report`. With no file it reads `ST_TEST_RUNS`, or
+`${XDG_STATE_HOME:-~/.local/state}/st-test/runs.jsonl` (the state directory must
+be absolute). `--hours` (default 24) or `--since` selects the window ending now.
+Only completed full warm runs count toward the nearest-rank p90 objective
+(`--slo-s 720`) and single-run maximum (`--max-s 900`). Candidates stay separate;
+wait statistics include excluded runs. Omit `--markdown` for JSON.
+An unreadable file exits 1; invalid arguments exit 2. A timing breach is data,
+not a failed command. The native command neither writes records nor runs checks.
+Frozen recordings replay every former self-test scenario against the independent
+pinned Python implementation; native assertions live in `tests/runner_report.rs`
+inside the evidence crate.
+Edge-case recordings also pin ISO timestamp parsing, exact-binary decimal
+rounding, first-seen stage/check ties, Unicode JSON escaping and argument errors.
+The native `--slo-s` and `--max-s` intentionally use signed 64-bit integers.
+Values outside that range exit 2 with an invalid-int error, instead of accepting
+Python's unbounded integers. A pinned recording preserves Python's successful
+`--slo-s 9223372036854775808` result; a separate native assertion pins the refusal.
+
 ### Advisory pre-signing notice
 
 `mergemaster evidence presign-notice` replaces the Python notice adapter and its
