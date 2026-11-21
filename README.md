@@ -42,7 +42,8 @@ cargo run -- evidence --help
 ### Buck2 workspace lane
 
 The Buck2 lane consumes Fractal's `mkConsumerBuckRoot` layout and effect-utils
-`9c4ee91cbcecf75b9842dcf6f5607975c45629c6` rules, capabilities and Cargo projector.
+published product `c80f2fe59a0954890d9021589b327e754e465006` rules, capabilities
+and Cargo projector (source `b452abc050c020edb60497625ac226615d2ec0e6`).
 It generates unit and integration harnesses for every Cargo workspace member,
 including newly discovered integration tests, rather than maintaining a test list.
 Native Rust compilation uses the production flake's compiler; the provider's
@@ -56,9 +57,11 @@ nix develop .#buck2-evidence -c bun scripts/buck2-parity.ts tmp/buck2-evidence
 nix develop .#buck2-evidence -c bash scripts/buck2-timing tmp/buck2-evidence
 ```
 
-**Not yet a passing adoption:** the pinned projector rejects Cargo resolver 3
-and lacks repository-layout resource staging. Existing tests read repository-level
-fixtures/scripts, and the reconciler includes `iac/consumers.json` in production.
+**Not yet a passing adoption:** the pinned projector requires inherited workspace
+versions/editions and lacks repository-layout resource staging. Package-local
+versions remain independent; existing tests read repository-level fixtures/scripts,
+and the reconciler includes `iac/consumers.json` in production. Manifest lint
+projection also needs support to preserve the reconciler's unsafe-code prohibition.
 The lane fails rather than omitting targets or declaring partial parity.
 Vendored AWS-LC builds through the shared native toolchain; unresolved fixup errors stay enabled.
 Doctests are not supported by the shared projector; the inventory comparison
