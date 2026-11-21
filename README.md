@@ -1867,9 +1867,19 @@ the summary records `verified=false` and a successful run still exits 0 unless
   local filesystem destinations are also allowed when passed explicitly to `--push`.
   An explicit local `--push` destination runs that repository's hooks and config
   as the caller; a checkout-configured local remote is refused.
-- Publication imports only the signed pack and requested refs into a fresh
-  bare repository, with an empty template and no shared object directory or
-  alternates. System/global Git config and caller `GIT_*` overrides are disabled;
+- Publication imports the signed pack and requested refs into a fresh bare
+  repository with an empty template, using the checkout object store as a
+  read-only alternate only. Its absolute common object directory must exist;
+  alternate object stores referenced by that store are followed too. Only
+  content-addressed objects are shared, never checkout config or hooks.
+  Strict pack validation is retained without a separate full-history walk.
+  The checkout's shallow boundaries are copied only after validating every line
+  as a 40- or 64-hex object ID. From a shallow checkout, the destination must
+  already contain the boundary commit.
+  Push discovers unavailable objects; recognized missing-history and shallow
+  refusals become typed publication-object errors retaining redacted Git detail.
+  No automatic fetch is attempted for partial/promisor clones.
+  System/global Git config and caller `GIT_*` overrides are disabled;
   checkout hooks, includes, credentials, HTTP settings and URL rewrites cannot
   affect that repository. The token is injected only through environment config
   as `http.<validated-url>.extraheader`, never an argv or unscoped header.
