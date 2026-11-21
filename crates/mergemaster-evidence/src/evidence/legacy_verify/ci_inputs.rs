@@ -20,7 +20,8 @@ pub fn unresolved_ci_inputs<'a>(
             continue;
         }
         let found = if item.split_once("::").is_some() {
-            super::selection::selected(repo, tree, item)?.is_some_and(|part| !part.is_empty())
+            super::helper_selection::selected(repo, tree, item)?
+                .is_some_and(|part| !part.is_empty())
         } else {
             let encoded = encode(item, 0, true)?;
             let listing = read_git_source(

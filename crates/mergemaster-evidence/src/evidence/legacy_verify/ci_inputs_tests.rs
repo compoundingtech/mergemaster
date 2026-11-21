@@ -34,6 +34,16 @@ for fmt in ['sha1','sha256']:
   for revisions in [[],[base],[base,other],[base,changed],[base,'missing'],['missing',base]]:
    argv=['ci-inputs','--repo',str(repo),*sum((['--input',i] for i in ci),[]),*sum((['--revision',r] for r in revisions),[])]
    row(argv,'',lambda ci=ci,revisions=revisions:dict(unchanged=v['ci_inputs_unchanged'](str(repo),ci,revisions)))
+ for expression in ['HEAD','HEAD~1',base,'missing']:
+  for ci in [['source'],['input.json::key'],['.st/input.json::key'],['ci/job.yml::jobs.test']]:
+   row(['unresolved-ci-inputs','--repo',str(repo),'--tree',expression,*sum((['--input',i] for i in ci),[])],'',lambda ci=ci,expression=expression:v['unresolved_ci_inputs'](str(repo),expression,ci))
+ for revisions in [['HEAD'],['HEAD~1',other],['HEAD',base],['HEAD','bad^{']]:
+  for ci in [['source'],['input.json::key'],['.st/input.json::key'],['ci/job.yml::jobs.test']]:
+   row(['ci-inputs','--repo',str(repo),*sum((['--input',i] for i in ci),[]),*sum((['--revision',r] for r in revisions),[])],'',lambda ci=ci,revisions=revisions:dict(unchanged=v['ci_inputs_unchanged'](str(repo),ci,revisions)))
+ row(['select-part','--path','x.json','--selector','key'],'{"key":1e400}',lambda:list(v['select_part']('{"key":1e400}','x.json','key')))
+ for value in [1.5,float('nan'),float('inf'),-float('inf'),-0.0,10**120,{'z':[1.5,{'b':2,'a':1}],'a':0},'\ud800',{'z':1,'\ud800':2}]:
+  content=json.dumps({'key':value})
+  row(['select-part','--path','x.json','--selector','key'],content,lambda content=content:list(v['select_part'](content,'x.json','key')))
  for path,selector,content in [('x.json','key','{"key":{"z":2,"a":1}}'),('x.json','missing','{}'),('x.json','key','not JSON'),('x.json','null','{"null":null}'),('x.json','key','{"key":"caf\u00e9"}'),('ci.yml','jobs.test',(repo/'ci/job.yml').read_text()),('ci.yml','jobs.absent',(repo/'ci/job.yml').read_text())]:
   def select(content=content,path=path,selector=selector):
    selected=v['select_part'](content,path,selector)
@@ -60,7 +70,7 @@ print(json.dumps(rows))
         String::from_utf8_lossy(&output.stderr)
     );
     let rows: Vec<Row> = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(rows.len(), 276);
+    assert_eq!(rows.len(), 360);
     for (argv, stdin, stdout, code) in rows {
         let actual =
             super::super::cli_helper::run(argv.iter().map(OsString::from), &mut stdin.as_bytes())

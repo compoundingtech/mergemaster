@@ -60,22 +60,14 @@ enum Operation {
         check: OsString,
     },
 }
-fn text(value: &std::ffi::OsStr) -> NormalizedText {
-    NormalizedText::from_points(&decode(value.as_bytes()))
-}
 fn texts(values: &[OsString]) -> Vec<NormalizedText> {
-    values.iter().map(|value| text(value)).collect()
+    values.iter().map(|value| decode(value)).collect()
 }
 fn stdin_text(input: &mut impl Read) -> Result<String, PolicyError> {
-    const LIMIT: u64 = 16 * 1024 * 1024;
     let mut bytes = Vec::new();
     input
-        .take(LIMIT + 1)
         .read_to_end(&mut bytes)
         .map_err(|error| super::crate_inputs::failure(error.to_string()))?;
-    if bytes.len() as u64 > LIMIT {
-        return Err(super::crate_inputs::failure("helper stdin exceeds 16 MiB"));
-    }
     String::from_utf8(bytes).map_err(|_| super::crate_inputs::failure("helper stdin is not UTF-8"))
 }
 fn evaluate(
@@ -109,13 +101,13 @@ fn evaluate(
         }
         Operation::SelectPart { path, selector } => {
             let content = stdin_text(input)?;
-            let path = text(&path);
-            let selector = text(&selector);
-            let selected = if let Some(job) = selector.borrowed().strip_prefix("jobs.") {
-                super::workflow::workflow_job(&content, job)?
-            } else {
-                super::selection_json::select_json(&content, path.borrowed(), selector.borrowed())?
-            };
+            let path = decode(&path);
+            let selector = decode(&selector);
+            let selected = super::helper_selection::select_part(
+                &content,
+                path.borrowed(),
+                selector.borrowed(),
+            )?;
             legacy_output::write(output, |w| match selected {
                 None => w.null(),
                 Some(bytes) => w.array(|a| {
@@ -128,7 +120,7 @@ fn evaluate(
         }
         Operation::LaneRules { check } => {
             let content = stdin_text(input)?;
-            let check = text(&check);
+            let check = decode(&check);
             let rules = super::cli_lanes::LaneRules::parse(&content, check.borrowed())?;
             legacy_output::write(output, |w| {
                 w.object(|o| {
@@ -173,12 +165,12 @@ fn evaluate(
             check,
         } => {
             let content = stdin_text(input)?;
-            let check = text(&check);
+            let check = decode(&check);
             let rules = super::cli_lanes::LaneRules::parse(&content, check.borrowed())?;
             let definition = super::cli_lane_definition::lane_definition(
                 &repo,
-                text(&base_tree).borrowed(),
-                text(&tree).borrowed(),
+                decode(&base_tree).borrowed(),
+                decode(&tree).borrowed(),
                 &rules,
             )?;
             legacy_output::write(output, |w| {
@@ -187,7 +179,8 @@ fn evaluate(
                     o.field_text("changed", |w| {
                         w.array(|a| {
                             for path in &definition.changed {
-                                a.item(|w| w.codepoints(decode(path)))?;
+                                let path = decode(std::ffi::OsStr::from_bytes(path));
+                                a.item(|w| w.codepoints(path.borrowed().points()))?;
                             }
                             Ok(())
                         })

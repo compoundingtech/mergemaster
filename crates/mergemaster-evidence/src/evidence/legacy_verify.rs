@@ -45,6 +45,7 @@ pub(crate) mod divergence_witnesses;
 pub mod events;
 pub mod facts;
 pub mod failure_json;
+pub mod helper_selection;
 pub mod inputs;
 pub mod json_bytes;
 pub mod judgment;
