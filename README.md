@@ -1754,7 +1754,7 @@ authorized workflow's implementation. Reviewers must inspect such changes.
 `mergemaster evidence legacy-sign` is the separate cooperative **v1** signer.
 It reads the same single JSON request from stdin and
 `$HOME/.config/st/evidence-sign.json` (`signer`, `ssh_key`, `scratch_repo`,
-optional `path` and test-only `test_clock`) as `scripts/evidence-sign`.
+optional `path` and test-only `test_clock`) as the retired Python signer.
 It returns `record`, `tier`, `tree`, `commit` and `object_pack_base64`;
 it does not publish refs or accept the v2 `--config` option.
 Intentional `legacy-sign` divergences from the pinned Python oracle:
@@ -1767,7 +1767,7 @@ Intentional `legacy-sign` divergences from the pinned Python oracle:
   has no completeness preflight: an absent commit first fails at `git cat-file -t`.
   Recorded valid requests with synthetic absent commits therefore produce
   `git rev-list failed:` natively versus `git cat-file failed:` in the oracle.
-  This preflight matches the in-tree resynced `scripts/evidence-sign`
+  This preflight matches the retired in-tree resynced signer
   (`require_complete_commit`), not the pinned oracle.
 - Missing configuration errors name the configuration path without Python's
   `[Errno ...]` text. Malformed configuration types produce normalized
@@ -1843,7 +1843,18 @@ the summary records `verified=false` and a successful run still exits 0 unless
 - Usage and help use a fixed 80-column layout, regardless of `COLUMNS` or
   terminal width; Python's argparse derives its wrapping from that width.
 
-Existing callers and Python scripts remain unchanged until the separate cutover.
+Rust port wave 3 removes `scripts/evidence-sign`, `scripts/evidence-sign-hardening-test`,
+`scripts/evidence-wrap` and `scripts/evidence-wrap-test`. Local runners, CI adapters
+and retained note-producing tests now invoke these native v1 commands using the
+same binary selection as the wave-2 verifier (`MERGEMASTER_BIN`, otherwise
+`mergemaster` on PATH; CI provisions the accepted BASE `.mergemaster/tool-pin.json`).
+There is no Python fallback, even when an older accepted BASE still contains
+the scripts. BASE policy, keys, lane definitions and configuration remain inputs;
+an older pin must name a native release providing these subcommands.
+Independent pinned-Python oracle tests preserve the retired suites' assertions;
+`scripts/evidence_test_support.py` remains for retained suites until wave 9.
+Fractal's separately vendored copies and deployed sekrets grants are not changed
+by this repository's cutover.
 
 `mergemaster evidence wrap` runs the exact BASE-declared command once, measures
 its inputs before and after execution, signs successes and failures, imports the

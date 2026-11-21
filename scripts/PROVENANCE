@@ -33,6 +33,16 @@
 # All scripts (including shell/service helpers) and fixtures have explicit rows;
 # residual scaffolding/native Python is assigned wave 9, not silently exempted.
 # scripts/evidence_test_support.py and both oracle guard Python files stay to wave 9.
+# Wave 3 signer/wrapper removal: scripts/evidence-sign,
+# scripts/evidence-sign-hardening-test, scripts/evidence-wrap and
+# scripts/evidence-wrap-test are tombstoned in tests/python-removals.json.
+# Native commands: mergemaster evidence legacy-sign / legacy-wrap.
+# Assertions and independent pinned-oracle parity: tests/legacy_sign.rs,
+# tests/legacy_wrap.rs and the legacy signer/wrapper module unit tests.
+# producer_sha256 and wrapper_sha256 now identify the measured native executable.
+# Retained callers use the wave-2 binary boundary, without a Python fallback.
+# Historical resync witnesses below remain as tombstones; removed paths are never
+# loaded from this tree, and the guard checks their independent oracle presence.
 # ci.yml also runs the base revision's tests/oracle_scripts.py; the wave-9 PR removes that step.
 # Oracle execution is test-only: flake.nix pins CPython 3.14.7 from the locked
 # nixpkgs and an independent hash-pinned Fractal source for rust-test-keys.
@@ -112,11 +122,11 @@
 # scripts/ci-evidence-shadow: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/ci-evidence-shadow 6870054380ea2777b624f66d26e2adc933b137c0 d575e96b908703e6de4ac8c71f92b01c9841b7e1
 # scripts/ci-evidence-shadow-test: wave-2 cutover: verifier and crate keys via mergemaster binary
-# local-patch scripts/ci-evidence-shadow-test d7bdd51372b5d7aef04ece64cc918430d88d0e6a ce2afe3e9cad2a5221b93515a7bb7bf45f9d130f
+# local-patch scripts/ci-evidence-shadow-test d7bdd51372b5d7aef04ece64cc918430d88d0e6a 0fc6e0e4170fb646ff5d9c08d07c6a96e3d385be
 # scripts/ci-evidence-signing: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/ci-evidence-signing b57b9d0d9badd16e3d7edf45b3bccd0632361e02 5490f6f3d5c24d44398f6ca315419e123f016d4d
 # scripts/ci-evidence-signing-test: wave-2 cutover: verifier and crate keys via mergemaster binary
-# local-patch scripts/ci-evidence-signing-test cd72694762e05984446ce19ad167df112bbbc441 975250bb0bebe4d2aa98c9b18b08cc23b06f31c1
+# local-patch scripts/ci-evidence-signing-test cd72694762e05984446ce19ad167df112bbbc441 d53a784727e9a0c99c8b2b15f76b2d5919130ab3
 # scripts/ci-signed-tree: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/ci-signed-tree 77a560621f8182d2ca19f622782ff24c95e7d514 d18c3452dfb2a3c79089fa739c135090ab734245
 # scripts/ci-signed-tree-test: wave-2 cutover: verifier and crate keys via mergemaster binary
@@ -138,21 +148,17 @@
 # scripts/evidence-log-timer: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/evidence-log-timer 85ffab484040914c4ae14f72b86cc70c97b7e358 77c4661b073547dd6362e7dd0704a2499bf0b4e9
 # scripts/evidence-publish-test: wave-2 cutover: verifier and crate keys via mergemaster binary
-# local-patch scripts/evidence-publish-test 37f7aa321d295bb0ba5ca73f4b8c5a8f3ee2902f 39bcb680b89b766fe55d0b0bb9a1b743ac3d1e69
-# scripts/evidence-wrap: wave-2 cutover: verifier and crate keys via mergemaster binary
-# local-patch scripts/evidence-wrap b31f1737e55f187471cd15b8d0b938dd982c72a0 4c98cbaa72d99867877b663fa9e4fbe86626b898
-# scripts/evidence-wrap-test: wave-2 cutover: verifier and crate keys via mergemaster binary
-# local-patch scripts/evidence-wrap-test 603ae3a411bfcd31e70160f7fba05854ec38df36 c8ce5fc4ae38e2ab0fcc84758e8008ec10707dcc
+# local-patch scripts/evidence-publish-test 37f7aa321d295bb0ba5ca73f4b8c5a8f3ee2902f 7132c879f151437851e386fd483e8e9bd17c9706
 # scripts/evidence_test_support.py: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/evidence_test_support.py 3590f507364ac813bed170e490149c25561fa2d5 9f60e5e6b4b07959045f402c45231f3770788652
 # scripts/fractal-test-test: wave-2 cutover: verifier and crate keys via mergemaster binary
-# local-patch scripts/fractal-test-test decb42b9d442807c9601b473c190b3743b24c4c0 139ae035ccba3a460d43991427fc6c062903a9a5
+# local-patch scripts/fractal-test-test decb42b9d442807c9601b473c190b3743b24c4c0 191b6cf8090a825a410adf0be6a8c8401b9d182c
 # scripts/lane-definition-closure: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/lane-definition-closure 492b3741b117092395855d9790dc96e6ce3612e6 df4cd022958b56316698ea7ca05225686329c69f
 # scripts/lane-definition-closure-test: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/lane-definition-closure-test 635945d2a01f18e9c4716c50a2eb9803896cbb08 c1c8dca332d47fe5b6bc7d75c3d773f650d4f9d8
 # scripts/st-test: wave-2 cutover: verifier and crate keys via mergemaster binary
-# local-patch scripts/st-test 087ae7d9f3d1106a38eedc1e911caeeaf46a96ae 984e0b36b63ff9b84362c9212b23fef6510a0721
+# local-patch scripts/st-test 087ae7d9f3d1106a38eedc1e911caeeaf46a96ae b7bb9af2218171134cebc815c451d63b15183a5a
 # resync-blob scripts/evidence-sign ea0ab64b5efc631c624cc974208bf05234839433
 # resync-blob scripts/evidence-sign-hardening-test 7da656fdc8f2b4b499fa099c93efa34884434004
 # Intentional local divergence for external Fractal consumers (see mergemaster#141):
@@ -564,12 +570,8 @@ scripts/evidence-queue-sign.timer	8a88a2e59bf3cb486dad993b243d64abbc70e48f	8a88a
 scripts/evidence-queue-signer	d6c73063e8921af6856a9e54d27bdabefa59b2ea	d6c73063e8921af6856a9e54d27bdabefa59b2ea
 scripts/evidence-queue-signer-test	7cfa75c893987215d9a37fa4a682d7c5cc82cbdb	7cfa75c893987215d9a37fa4a682d7c5cc82cbdb
 scripts/evidence-queue-timer	94a172a62c24c00f368d673166475da2291596c4	94a172a62c24c00f368d673166475da2291596c4
-scripts/evidence-sign	288b9c2ca9ba7e4f909dd4656df52ae30c9a8914	288b9c2ca9ba7e4f909dd4656df52ae30c9a8914
-scripts/evidence-sign-hardening-test	6889e6c38273dc85ede41668e622af5b7f8b541f	6889e6c38273dc85ede41668e622af5b7f8b541f
 scripts/evidence-skip-report	c7d43b6b813b79b283c0b77f8689ecffc0b1e9a5	c7d43b6b813b79b283c0b77f8689ecffc0b1e9a5
 scripts/evidence-skip-report-test	49c58386ec3312a18b623b29936b1f7ea80d9f88	49c58386ec3312a18b623b29936b1f7ea80d9f88
-scripts/evidence-wrap	9b0735473bc8f319093092b26421aed9c3df98cf	9b0735473bc8f319093092b26421aed9c3df98cf
-scripts/evidence-wrap-test	4c871cd463a6a57357277b94cb1f5d9ef0af838b	4c871cd463a6a57357277b94cb1f5d9ef0af838b
 scripts/evidence_test_support.py	3590f507364ac813bed170e490149c25561fa2d5	3590f507364ac813bed170e490149c25561fa2d5
 scripts/fractal-test	08a31a9ab85b195c71387a8021cc85d383de75e8	08a31a9ab85b195c71387a8021cc85d383de75e8
 scripts/fractal-test-report	5bc77bf53ec47d0e580d5e4c26e20cb24a0b3f16	5bc77bf53ec47d0e580d5e4c26e20cb24a0b3f16

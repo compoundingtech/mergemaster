@@ -711,4 +711,42 @@ mod tests {
         );
         Ok(())
     }
+
+    #[test]
+    fn directory_targets_default_roots_and_store_lookalikes_remain_untrusted() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let writable = directory.path().join("writable");
+        fs::create_dir(&writable)?;
+        let link = directory.path().join("link");
+        symlink(&writable, &link)?;
+        let context = DirectoryContext::load()?;
+        for path in [&writable, &link] {
+            assert!(
+                unsafe_directory(
+                    path.to_str().context("fixture path is not UTF-8")?,
+                    &context
+                )?
+                .is_some(),
+                "{path:?}"
+            );
+        }
+        assert!(context.roots.contains(&PathBuf::from("/tmp")));
+        assert!(context.roots.contains(&PathBuf::from("/var/tmp")));
+        for path in ["/nix/store-evil/bin", "/does/not/exist"] {
+            assert!(unsafe_directory(path, &context)?.is_some(), "{path}");
+        }
+        assert_eq!(
+            unsafe_directory(
+                directory
+                    .path()
+                    .join("owned-by-the-test-user")
+                    .to_str()
+                    .context("fixture path is not UTF-8")?,
+                &context,
+            )?
+            .as_deref(),
+            Some("is not a directory")
+        );
+        Ok(())
+    }
 }

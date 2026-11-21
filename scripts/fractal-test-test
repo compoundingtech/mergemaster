@@ -114,7 +114,7 @@ class ConfigBridgeTest(unittest.TestCase):
     """Real Git objects and individually copied readers, without sibling resolver imports."""
 
     def test_extracted_readers_select_only_the_pinned_layout(self):
-        names = ('st-test', 'evidence-wrap', 'evidence-prepush', 'evidence-log', 'ci-evidence-observe')
+        names = ('st-test', 'evidence-prepush', 'evidence-log', 'ci-evidence-observe')
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)
             repo = root / 'repo'
@@ -1132,8 +1132,6 @@ class StTest(unittest.TestCase):
         git(self.work, 'config', 'user.name', 't')  # st-test drops the GIT_* identity variables: a merge it makes takes the checkout's
         git(self.work, 'config', 'user.email', 't@example.invalid')
         (self.work / 'scripts').mkdir()
-        for name in st_test.BASE_SCRIPTS:
-            shutil.copy(ROOT / 'scripts' / name, self.work / 'scripts' / name)
         (self.work / '.st').mkdir()
         (self.work / '.st/evidence-keys').write_text(f'host/box-1 namespaces="git" {pub[0]} {pub[1]}\n')
         (self.work / '.st/evidence-skip-policy.json').write_text(json.dumps(POLICY))
@@ -1488,20 +1486,17 @@ class StTest(unittest.TestCase):
         self.assertEqual(code, 0, out + err)
         self.assertRegex(out, r'demo +covered ')
 
-    def test_against_a_base_whose_wrapper_refuses_lane_edits_the_check_is_left_to_ci(self):
-        wrap = self.work / 'scripts/evidence-wrap'
-        wrap.write_text(wrap.read_text().replace('\nSIGNS_LANE_EDITS = True\n', '\n'))  # the base's wrapper from before 2026-10-26
+    def test_a_base_without_python_wrappers_signs_lane_edits_with_the_native_wrapper(self):
         self.lane_file()
         self.commit('scripts/lane.sh', 'lane, but fewer tests\n')
         code, out, err = self.run_st_test('--check', 'demo')
-        # Not a failure: nothing failed, the check is not signed and CI runs it (exit 4).
-        self.assertEqual(code, 4, err)
-        self.assertEqual(self.statements(), [])
-        self.assertRegex(out, r'demo +not signed +0s +this tree edits its lane \(scripts/lane\.sh\); CI runs it')
-        self.assertNotIn('FAILED', out)
+        self.assertEqual(code, 0, out + err)
+        statement, = self.statements()
+        self.assertEqual(statement['predicate']['observed']['inputs']['lane_definition_sha256'],
+                         lane_definition(self.work, 'origin/main', 'demo')['tree_sha256'])
         code, out, err = self.run_st_test('--check', 'demo', '--status')
-        self.assertEqual(code, 0, out + err)  # fractal-test still reports it so; the pre-push hook refuses it (evidence-prepush)
-        self.assertRegex(out, r'demo +lane edit: CI runs it +this tree edits its lane \(scripts/lane\.sh\)')
+        self.assertEqual(code, 0, out + err)
+        self.assertRegex(out, r'demo +covered ')
 
     def main_moves(self, name, content):
         """main gains a commit the feature branch does not have."""
@@ -4064,13 +4059,61 @@ finally:
         self.assertIn('no local command for nope', str(code))
         self.assertEqual(self.statements(), [])
 
-    def test_the_scripts_that_run_come_from_the_base_not_from_the_branch(self):
-        (self.work / 'scripts/evidence-sign').write_text('#!/bin/sh\necho tampered >&2\nexit 9\n')
+    def test_native_signing_ignores_branch_local_legacy_scripts_and_records_binary_identity(self):
+        for name in ('evidence-sign', 'evidence-wrap'):
+            (self.work / 'scripts' / name).write_text('#!/bin/sh\necho tampered >&2\nexit 9\n')
         git(self.work, 'add', '.')
-        git(self.work, 'commit', '-q', '-m', 'tamper with the signer on the branch')
+        git(self.work, 'commit', '-q', '-m', 'add obsolete scripts on the branch')
         code, out, err = self.run_st_test('--check', 'demo')
         self.assertEqual(code, 0, err)
-        self.assertEqual(len(self.statements()), 1)
+        statement, = self.statements()
+        identity = json.loads(tool_pin(self.work))['release']['sha256']
+        self.assertEqual(statement['predicate']['observed']['inputs']['wrapper_sha256'], identity)
+        self.assertEqual(statement['predicate']['producer_sha256'], identity)
+        argv_line, = (line for line in err.splitlines() if 'evidence-wrap argv:' in line)
+        argv = shlex.split(argv_line.split('evidence-wrap argv: ', 1)[1])
+        self.assertEqual(argv[:4], [st_test.VERIFIER_BINARY, 'evidence', 'legacy-wrap', '--check'])
+        self.assertEqual(json.loads(argv[argv.index('--signer') + 1]),
+                         [st_test.VERIFIER_BINARY, 'evidence', 'legacy-sign'])
+        self.assertEqual(argv[argv.index('--verifier') + 1], st_test.VERIFIER_BINARY)
+
+    def test_an_explicit_signer_transport_override_is_preserved(self):
+        transport = Path(self.tmp.name) / 'signer-transport'
+        marker = Path(self.tmp.name) / 'signer-called'
+        transport.write_text('#!/bin/sh\n' + f'touch {shlex.quote(str(marker))}\nexec "$@"\n')
+        transport.chmod(0o700)
+        signer = json.dumps([str(transport), st_test.VERIFIER_BINARY, 'evidence', 'legacy-sign'])
+        self.commit('b.txt', 'two')
+        code, out, err = self.run_st_test('--check', 'demo', extra_env={'EVIDENCE_SIGNER': signer})
+        self.assertEqual(code, 0, out + err)
+        self.assertTrue(marker.exists())
+        argv_line, = (line for line in err.splitlines() if 'evidence-wrap argv:' in line)
+        argv = shlex.split(argv_line.split('evidence-wrap argv: ', 1)[1])
+        self.assertEqual(argv[argv.index('--signer') + 1], signer)
+
+    def test_the_runner_hydrates_historical_partial_clone_blobs_before_native_signing(self):
+        self.commit('historical.txt', 'only in history\n')
+        git(self.work, 'rm', 'historical.txt')
+        git(self.work, 'commit', '-q', '-m', 'remove historical blob')
+        git(self.work, 'push', '-q', 'origin', 'HEAD:main')
+        origin = Path(self.tmp.name) / 'origin.git'
+        git(origin, 'config', 'uploadpack.allowFilter', 'true')
+        partial = Path(self.tmp.name) / 'partial'
+        git(Path(self.tmp.name), 'clone', '-q', '--filter=blob:none', origin.as_uri(), str(partial))
+        self.assertEqual(git(partial, 'config', '--get', 'remote.origin.promisor'), 'true')
+        def missing():
+            done = subprocess.run(['git', '-C', str(partial), 'rev-list', '--objects', '--missing=print', 'HEAD'],
+                                  capture_output=True, text=True, check=True,
+                                  env=dict(GIT_ENV, GIT_NO_LAZY_FETCH='1'))
+            return [line for line in done.stdout.splitlines() if line.startswith('?')]
+        self.assertTrue(missing(), 'fixture must omit historical blobs')
+        self.work = partial
+        code, out, err = self.run_st_test('--check', 'demo')
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(missing(), [])
+        statement, = self.statements()
+        self.assertEqual(statement['predicate']['producer_sha256'],
+                         json.loads(tool_pin(self.work))['release']['sha256'])
 
     def test_the_real_table_lists_only_checks_with_a_command_and_prints_them(self):
         # REEXEC: the tree's own table, not the base's copy run_base_copy would run (as under a signing run, which sets it).
@@ -4170,7 +4213,7 @@ finally:
             # The scope alone: no stage ticket, whose holder the test guardian's cargo commands would queue behind (they detach).
             only, = calls.read_text().splitlines()
             self.assertTrue(only.startswith('systemd-run --user --scope --quiet --collect --slice=builds.slice -- '), only)
-            self.assertIn('evidence-wrap --check demo', only)
+            self.assertIn('evidence legacy-wrap --check demo', only)
             statement, = self.statements()
             self.assertEqual(statement['predicate']['observed']['checks']['demo']['command'], ['sh', '-c', 'echo ran'])  # what is signed is unchanged
             calls.unlink()
@@ -4282,9 +4325,9 @@ finally:
                    'output_sha256': '0' * 64, 'change_id': 'local:web-inputs',
                    'inputs': dict(st_test.WEB_INPUTS, flake_lock_sha256=hashlib.sha256((self.work / 'flake.lock').read_bytes()).hexdigest(),
                                   toolchain_sha256='1' * 64, wrapper_sha256='2' * 64, system='x86_64-linux', attempt='1')}
-        # As in the other signer fixtures, scrub loader inputs before starting Python.
+        # Native signing still rejects loader-injected environments.
         signer_env = {k: v for k, v in GIT_ENV.items() if k not in LOADER_VARIABLES}
-        signed = subprocess.run([sys.executable, str(ROOT / 'scripts/evidence-sign')], cwd=self.work,
+        signed = subprocess.run([st_test.VERIFIER_BINARY, 'evidence', 'legacy-sign'], cwd=self.work,
                                 input=json.dumps(request), capture_output=True, text=True,
                                 env=dict(signer_env, HOME=str(self.home), EVIDENCE_SIGN_NOW=DATE))
         self.assertEqual(signed.returncode, 0, signed.stderr)
@@ -5581,8 +5624,23 @@ class PerCrate(StTest):
         with mock.patch.dict(st_test.POOL_SETTINGS, clear=True):
             self.assertEqual(st_test.sign_jobs(), 8)
 
-    def test_the_shared_toolchain_digest_is_none_when_it_cannot_be_named_so_each_wrap_reports_for_itself(self):
-        self.assertIsNone(st_test.shared_toolchain('/nonexistent/evidence-wrap'))
+    def test_the_shared_toolchain_digest_matches_the_native_derivation_identity(self):
+        with mock.patch.object(st_test.subprocess, 'run', side_effect=[
+                subprocess.CompletedProcess([], 0, 'x86_64-linux\n'),
+                subprocess.CompletedProcess([], 0, '/nix/store/example.drv\n')]) as run:
+            self.assertEqual(st_test.shared_toolchain(), hashlib.sha256(b'/nix/store/example.drv').hexdigest())
+        self.assertEqual(run.call_args_list, [
+            mock.call(['nix', 'eval', '--impure', '--raw', '--expr', 'builtins.currentSystem'],
+                      capture_output=True, text=True, check=True),
+            mock.call(['nix', 'eval', '--raw', '--no-update-lock-file', '.#devShells.x86_64-linux.default.drvPath'],
+                      capture_output=True, text=True, check=True)])
+
+    def test_the_shared_toolchain_digest_defers_failures_to_the_native_wrapper(self):
+        for error in (FileNotFoundError('nix'), subprocess.CalledProcessError(1, ['nix'])):
+            with self.subTest(error=error), mock.patch.object(st_test.subprocess, 'run', side_effect=error):
+                self.assertIsNone(st_test.shared_toolchain())
+        with mock.patch.object(st_test.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, 'not-a-store-path')):
+            self.assertIsNone(st_test.shared_toolchain())
 
     def test_every_crate_is_signed_when_the_signatures_run_side_by_side(self):
         for jobs in ('1', '8'):

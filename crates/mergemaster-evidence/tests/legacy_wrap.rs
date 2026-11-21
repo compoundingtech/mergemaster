@@ -57,7 +57,7 @@ parity! {
 }
 
 const DRIVER: &str = r#"
-import base64, hashlib, importlib.machinery, importlib.util, json, os, pathlib, shlex, shutil, signal, subprocess, sys, tempfile
+import base64, hashlib, importlib.machinery, importlib.util, json, os, pathlib, re, shlex, shutil, signal, subprocess, sys, tempfile
 
 group, binary, oracle, manifest = sys.argv[1], pathlib.Path(sys.argv[2]).resolve(), pathlib.Path(sys.argv[3]).resolve(), pathlib.Path(sys.argv[4])
 assert str(oracle).startswith('/nix/store/'), oracle
@@ -413,7 +413,8 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
         for flag, undo in (('--assume-unchanged', '--no-assume-unchanged'), ('--skip-worktree', '--no-skip-worktree')):
             (repo / 'a').write_text('hidden change\n')
             git(repo, 'update-index', flag, 'a')
-            refused(flags=['--aggregate', str(stage)], contains=b'hide changes')
+            refused(flags=['--aggregate', str(stage), '--out', str(root / 'hidden-out')], contains=b'hide changes')
+            assert not (root / 'hidden-out').exists()
             git(repo, 'update-index', undo, 'a')
             git(repo, 'checkout', '--', 'a')
         (repo / 'untracked-build-output').unlink()
@@ -438,6 +439,8 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
                 assert value['pushed'] is True and b'secret-token-xyz' not in done.stderr and header.encode() not in done.stderr
                 for ref in (value['ref'], value['tag']):
                     assert text(sink, 'rev-parse', ref) == value['record']
+            expected = {value[name] + ' ' + value['record'] for _, value, _, _ in values for name in ('ref', 'tag')}
+            assert set(text(sink, 'for-each-ref', '--format=%(refname) %(objectname)').splitlines()) == expected
             executable(shim / 'git', '#!/bin/sh\ncase " $* " in *" push "*) printf "%s" "$EVIDENCE_PUSH_TOKEN" >&2; exit 1;; esac\nexec ' + shlex.quote(real_git) + ' "$@"\n')
             for native in (False, True):
                 done = invoke(native, ['sh', '-c', 'exit 3'], ['--push', 'sink'], dict(EVIDENCE_PUSH_TOKEN='secret-token-xyz', PATH=str(shim)+':'+env['PATH']))
@@ -477,15 +480,24 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
                     if failures == 2:
                         assert done.returncode == 3 and result(done)['pushed']
                         assert b'answered 2 ref(s) with a bare (failed); pushing them again (2 of 3)' in done.stderr
+                        value = result(done)
+                        assert text(sink, 'rev-parse', value['ref']) == value['record']
+                        assert text(sink, 'rev-parse', value['tag']) == value['record']
                     else:
                         assert done.returncode == 1 and b'push failed (try 3 of 3):' in done.stderr
                         assert done.stderr.count(b'[remote rejected] (failed)') == 2
+                        pattern = r'push failed \(try 3 of 3\): refs/tags/evidence/{0}/(\w+) \[remote rejected\] \(failed\); refs/notes/evidence/{0}/\1 \[remote rejected\] \(failed\)'
+                        assert re.search(pattern.format(tree), done.stderr.decode()), done.stderr
                 executable(sink / 'hooks/pre-receive', '#!/bin/sh\nexit 1\n')
                 log.unlink()
                 # A fresh attempt avoids an already-published deterministic ref.
+                before_decline = refs(sink)
                 done = invoke(native, ['sh', '-c', 'exit 3'], ['--push', 'sink', '--attempt', '9'], dict(PATH=str(shim)+':'+env['PATH'], FAILS='0'))
                 assert done.returncode == 1 and len(log.read_text().splitlines()) == 1
                 assert b'pre-receive hook declined' in done.stderr and b'pushing them again' not in done.stderr
+                pattern = r'push failed \(try 1 of 3\): refs/tags/evidence/{0}/(\w+) \[remote rejected\] \(pre-receive hook declined\); refs/notes/evidence/{0}/\1 \[remote rejected\] \(pre-receive hook declined\)'
+                assert re.search(pattern.format(tree), done.stderr.decode()), done.stderr
+                assert refs(sink) == before_decline
                 (sink / 'hooks/pre-receive').unlink()
             # A partial porcelain refusal retries just the named ref, not the
             # complete publication set, even when source-input indexes exist.
@@ -569,6 +581,7 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
         for name in ('git', 'ssh-keygen'):
             (writable / name).symlink_to(shutil.which(name, path=tool_path))
         values = ['bin', tool_path.split(':')[0] + '/../' + pathlib.Path(tool_path.split(':')[0]).name,
+                  tool_path.split(':')[0].replace('/', '//', 1),
                   tool_path + '::', str(writable), str(home), str(writable) + ':' + tool_path, '/nix/store-evil/bin', '/does/not/exist']
         for value in values:
             config.write_text(json.dumps(dict(signer_config, path=value)))
@@ -590,6 +603,17 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
         pair(['true'])
         assert sign_module.unsafe_directory('/does/not/exist') == 'is not a directory'
         assert sign_module.checked_path('/does/not/exist:' + tool_path, strict=False) == tool_path
+        shm = pathlib.Path('/dev/shm')
+        if shm.is_dir() and os.access(shm, os.W_OK):
+            with tempfile.TemporaryDirectory(prefix='evidence-tools-', dir=shm) as directory:
+                for name in ('git', 'ssh-keygen'):
+                    (pathlib.Path(directory) / name).symlink_to(shutil.which(name, path=tool_path))
+                config.write_text(json.dumps(dict(signer_config, path=directory)))
+                for native in (False, True):
+                    done = invoke(native, ['true'])
+                    assert done.returncode == 1, done.stderr
+                    assert b'not owned by root' in done.stderr or b'writable by group' in done.stderr, done.stderr
+            config.write_text(json.dumps(signer_config))
     elif group == 'validation':
         facts = dict(command=['true'], exit_code=0, output=1)
         path = root / 'invalid.json'
@@ -625,15 +649,23 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
             helper = run([binary, 'legacy-evidence-verify-helper', 'lane-definition', '--repo', repo, '--base-tree', base_tree, '--tree', tree, '--check', 'linux-gate'], data=raw_rules.encode())
             assert json.loads(good(helper)) == definition
             values = pair(command, ['--lanes-from', base])
+            if definition['changed']:
+                assert all(b'edits lane linux-gate (scripts/lane.sh)' in done.stderr for done, _, _, _ in values)
             assert observed(values)['inputs']['lane_definition_sha256'] == definition['tree_sha256']
             return definition
         (repo / 'a').write_text('unrelated\n')
         git(repo, 'commit', '-qam', 'unrelated')
         refresh()
         expected_lane(base, lane_argv)
-        refused(['true'], ['--lanes-from', base], b'not the argv')
-        refused(lane_argv, ['--lanes-from', base], check='other-check')
-        refused(lane_argv, ['--lanes-from', commit + '~2'])
+        for command, flags, check in (
+            (['true'], ['--lanes-from', base], 'linux-gate'),
+            (lane_argv, ['--lanes-from', base], 'other-check'),
+            (lane_argv, ['--lanes-from', commit + '~2'], 'linux-gate'),
+        ):
+            scratch = pathlib.Path(signer_config['scratch_repo'])
+            before = git(scratch, 'for-each-ref', 'refs')
+            refused(command, flags, check=check)
+            assert git(scratch, 'for-each-ref', 'refs') == before, 'lane refusal signed a record'
         lane_path.write_text('edited lane\n')
         git(repo, 'commit', '-qam', 'edit lane')
         refresh()
@@ -659,7 +691,8 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
         refused(lane_argv, ['--lanes-from', commit])
     elif group == 'percrate':
         flags = ['--keys', str(allowed), '--input', 'source_inputs=' + tree]
-        pair(['sh', '-c', 'exit 1'], [*flags, '--input', 'crate=alpha'], code=1, check='rust-tests')
+        failed = pair(['sh', '-c', 'exit 1'], [*flags, '--input', 'crate=alpha'], code=1, check='rust-tests')
+        assert all(value['verified'] is False for _, value, _, _ in failed)
         pair(['true'], [*flags, '--input', 'crate=beta'], check='rust-tests')
         wrong = root / 'wrong-keys'
         wrong.write_text('')
@@ -686,6 +719,7 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
                 git(root, 'clone', '-q', '--filter=blob:none', origin.as_uri(), str(checkout))
                 git(checkout, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
                 assert '?' in text(checkout, 'rev-list', '--objects', '--missing=print', 'HEAD')
+                assert text(checkout, 'config', '--get', 'remote.origin.promisor') == 'true'
                 if hydrate:
                     objects = text(checkout, 'rev-list', '--objects', '--missing=print', 'HEAD').splitlines()
                     missing = [line[1:] for line in objects if line.startswith('?')]
@@ -700,6 +734,8 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
                     git(checkout, 'config', 'core.sshCommand', 'touch ' + shlex.quote(str(marker)))
                     done = invoke(native, ['true'], cwd=checkout)
                     assert done.returncode == 1 and not marker.exists(), (done.returncode, done.stderr)
+                    if native:
+                        assert b'missing objects before signing; hydrate the source repository in the caller first' in done.stderr, done.stderr
                     assert refs(checkout) == b''
     elif group == 'golden':
         fixture = oracle / 'scripts/testdata/evidence/wrapper-note'
@@ -712,6 +748,7 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
         for verifier in ([sys.executable, '-I', '-B', verify_script, '--repo', imported, '--tree', tree, '--check', expected['check'], '--keys', fixture / 'allowed-signers'],
                          [binary, 'evidence', 'verify', '--repo', imported, '--record', record, '--trusted-signers', fixture / 'allowed-signers']):
             assert json.loads(good(run(verifier)))['record'] == record
+        git(imported, '-c', 'gpg.format=ssh', '-c', 'gpg.ssh.allowedSignersFile=' + str(fixture / 'allowed-signers'), 'verify-commit', record)
         statement = json.loads(body(record, imported))
         assert statement['predicate']['signer'] == expected['signer']
     else:
