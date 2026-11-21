@@ -23,6 +23,7 @@ pub mod legacy_request;
 pub mod legacy_verify;
 mod nix;
 pub mod observers;
+pub mod presign_notice;
 pub mod producer_proof;
 pub mod signer_input;
 pub mod signing;
