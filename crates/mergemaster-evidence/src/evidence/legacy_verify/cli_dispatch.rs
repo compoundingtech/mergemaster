@@ -278,7 +278,7 @@ pub fn run(argv: impl IntoIterator<Item = OsString>) -> anyhow::Result<Exit> {
 
 #[cfg(test)]
 #[path = "cli_dispatch_tests.rs"]
-mod tests;
+pub(crate) mod tests;
 
 #[cfg(test)]
 #[path = "cli_ordinary_tests.rs"]

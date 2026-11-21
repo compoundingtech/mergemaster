@@ -15,6 +15,7 @@ use crate::evidence::{
 };
 use std::{ffi::OsStr, os::unix::ffi::OsStrExt, path::Path};
 
+/// The iterative reader/serializer has no depth limit and succeeds beyond CPython's platform-dependent json.loads RecursionError threshold (about 100000 on 3.14).
 pub fn select_part(
     text: &str,
     path: TextRef<'_>,
@@ -178,6 +179,14 @@ pub fn selected(
     } else {
         path
     };
+    selected_content(repo, tree, path, selector)
+}
+pub(super) fn selected_content(
+    repo: &Path,
+    tree: &str,
+    path: TextRef<'_>,
+    selector: TextRef<'_>,
+) -> Result<Option<Vec<u8>>, PolicyError> {
     let encoded = encode(path, 0, true)?;
     let listing = read(
         repo,

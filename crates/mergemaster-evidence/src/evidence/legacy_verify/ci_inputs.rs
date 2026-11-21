@@ -81,11 +81,11 @@ pub fn ci_inputs_unchanged(
     let Some((first, rest)) = trees.split_first() else {
         return Ok(false);
     };
-    let first = super::projection::project(repo, first, inputs)?;
+    let first = super::projection::project_for_helper(repo, first, inputs)?;
     let mut equal = true;
     for tree in rest {
         // Do not short-circuit: Python projects every revision before comparing.
-        equal &= super::projection::project(repo, tree, inputs)? == first;
+        equal &= super::projection::project_for_helper(repo, tree, inputs)? == first;
     }
     Ok(equal)
 }

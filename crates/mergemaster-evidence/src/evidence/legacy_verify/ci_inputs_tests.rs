@@ -56,6 +56,13 @@ for fmt in ['sha1','sha256']:
   row(['lane-definition','--repo',str(repo),'--base-tree',base_tree,'--tree',tree,'--check','x'],content,lambda content=content:v['lane_definition'](str(repo),base_tree,tree,v['lane_rules'](content,'x')))
  row(['lane-rules','--check','missing'],content,lambda:v['lane_rules'](content,'missing'))
  row(['lane-rules','--check','x'],'not JSON',lambda:v['lane_rules']('not JSON','x'))
+ for name,initial,updated in [('float',1.5,2.5),('nan',float('nan'),float('inf')),('surrogate','\ud800','\udfff')]:
+  (repo/'extension.json').write_text(json.dumps({'key':initial}));git('add','.');git('commit','-m',name+' initial');start=git('rev-parse','HEAD')
+  (repo/'unrelated').write_text(name);git('add','.');git('commit','-m',name+' unrelated');same=git('rev-parse','HEAD')
+  (repo/'extension.json').write_text(json.dumps({'key':updated}));git('add','.');git('commit','-m',name+' changed');end=git('rev-parse','HEAD')
+  for revisions in [[start],[start,same],[start,end]]:
+   row(['ci-inputs','--repo',str(repo),'--input','extension.json::key',*sum((['--revision',r] for r in revisions),[])],'',lambda revisions=revisions:dict(unchanged=v['ci_inputs_unchanged'](str(repo),['extension.json::key'],revisions)))
+ git('update-ref','HEAD',changed)
 print(json.dumps(rows))
 "#;
     let root = tempfile::tempdir().unwrap();
@@ -70,7 +77,7 @@ print(json.dumps(rows))
         String::from_utf8_lossy(&output.stderr)
     );
     let rows: Vec<Row> = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(rows.len(), 360);
+    assert_eq!(rows.len(), 378);
     for (argv, stdin, stdout, code) in rows {
         let actual =
             super::super::cli_helper::run(argv.iter().map(OsString::from), &mut stdin.as_bytes())
