@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Native v2 `evidence wrap` reports temporary execution interruption, signer unavailability and origin publication failure as exit 75 with stable `infra_unavailable` class tokens, allowing consumers to retry/park rather than fail checks. External termination is never signed; crashes and explicit signer refusals retain their existing behavior. Legacy wrappers are unchanged.
+- Opt the `mergemaster` and `mergemaster-reconciler` packages out of the nixpkgs `cargoUseSystemLibs` hook so vendored native crates (aws-lc-sys) build unchanged under consumer nixpkgs; consumers can drop their `dontCargoUseSystemLibs` overrides.
 - Bind report-only single-member queue landing trees with one generated projection commit when BASE opts in through byte-exact `queue.generated_paths` prefixes or `PREFIX/*SUFFIX` patterns; refuse folded overlap with protected/bootstrap paths, unmatched edits, executable/symlink/submodule changes and stacked projections, record optional v1 projection metadata, and preserve merge-only and explicit-member binding.
 
 ## [0.12.0] - 2026-11-21
