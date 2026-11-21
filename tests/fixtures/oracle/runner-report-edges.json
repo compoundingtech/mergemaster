@@ -1,0 +1,918 @@
+{
+  "version": 1,
+  "now": "2026-10-24T12:00:00Z",
+  "oracle": {
+    "environment": "MERGEMASTER_PYTHON_ORACLE",
+    "path": "scripts/fractal-test-report",
+    "git_blob": "52ebcb098a323b013eba5b136457393ef88e2951"
+  },
+  "cases": [
+    {
+      "id": "edge_rounding_share_one_of_eighty",
+      "files": {
+        "runs.jsonl": "{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 800, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 80,\n  \"p50_s\": 800,\n  \"p90_s\": 800,\n  \"max_s\": 800,\n  \"within_slo\": 0.013,\n  \"breach\": true,\n  \"breach_reasons\": [\n    \"p90 800s is over the 720s objective\"\n  ],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 80,\n      \"p50_s\": 800,\n      \"p90_s\": 800,\n      \"max_s\": 800\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 800,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_rounding_mean_binary_point_fifteen",
+      "files": {
+        "runs.jsonl": "{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0, \"rows\": [{\"name\": \"fraction\", \"seconds\": 0.15}]}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 1,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 1,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [\n    {\n      \"name\": \"fraction\",\n      \"kind\": \"check\",\n      \"count\": 1,\n      \"mean_s\": 0.1,\n      \"p90_s\": 0.15\n    }\n  ],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_rounding_negative_mean",
+      "files": {
+        "runs.jsonl": "{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0, \"rows\": [{\"name\": \"fraction\", \"seconds\": -0.15}]}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl",
+        "--markdown"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "**fractal-test full warm runs**, 2026-10-23T12:00:00Z .. 2026-10-24T12:00:00Z: 1 counted (left out: none)\n\nObjective: p90 at most 720s, no run over 900s; 100% of runs within 720s.\n\n| runs | count | p50 | p90 | max |\n|---|---:|---:|---:|---:|\n| all | 1 | 600s | 600s | 600s |\n| box-a | 1 | 600s | 600s | 600s |\n\n| slowest stage or check | mean | p90 |\n|---|---:|---:|\n| fraction (check) | -0.1s | -0.15s |\n\n**Within the objective.**\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_order_first_seen_stage_before_check",
+      "files": {
+        "runs.jsonl": "{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0, \"stages\": [{\"name\": \"same\", \"seconds\": 100}]}\n{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0, \"rows\": [{\"name\": \"same\", \"seconds\": 100}]}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 2,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 2,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [\n    {\n      \"name\": \"same\",\n      \"kind\": \"stage\",\n      \"count\": 1,\n      \"mean_s\": 100.0,\n      \"p90_s\": 100\n    },\n    {\n      \"name\": \"same\",\n      \"kind\": \"check\",\n      \"count\": 1,\n      \"mean_s\": 100.0,\n      \"p90_s\": 100\n    }\n  ],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_non_ascii_json",
+      "files": {
+        "runs.jsonl": "{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 600, \"host\": \"b\\u00fcro\\ud83d\\ude00\", \"tree\": \"\\u6811\", \"full\": true, \"warm\": true, \"exit\": 0, \"rows\": [{\"name\": \"\\u00e9tape\\ud83d\\ude00\", \"seconds\": 1}]}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 1,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"b\\u00fcro\\ud83d\\ude00\": {\n      \"count\": 1,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [\n    {\n      \"name\": \"\\u00e9tape\\ud83d\\ude00\",\n      \"kind\": \"check\",\n      \"count\": 1,\n      \"mean_s\": 1.0,\n      \"p90_s\": 1\n    }\n  ],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"b\\u00fcro\\ud83d\\ude00\",\n      \"total_s\": 600,\n      \"tree\": \"\\u6811\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_non_ascii_markdown",
+      "files": {
+        "runs.jsonl": "{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 600, \"host\": \"b\\u00fcro\\ud83d\\ude00\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0, \"rows\": [{\"name\": \"\\u00e9tape\\ud83d\\ude00\", \"seconds\": 1}]}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl",
+        "--markdown"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "**fractal-test full warm runs**, 2026-10-23T12:00:00Z .. 2026-10-24T12:00:00Z: 1 counted (left out: none)\n\nObjective: p90 at most 720s, no run over 900s; 100% of runs within 720s.\n\n| runs | count | p50 | p90 | max |\n|---|---:|---:|---:|---:|\n| all | 1 | 600s | 600s | 600s |\n| b\u00fcro\ud83d\ude00 | 1 | 600s | 600s | 600s |\n\n| slowest stage or check | mean | p90 |\n|---|---:|---:|\n| \u00e9tape\ud83d\ude00 (check) | 1.0s | 1s |\n\n**Within the objective.**\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_iso_shapes",
+      "files": {
+        "runs.jsonl": "{\"v\": 1, \"ended\": \"2026-10-24T11:30Z\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24 11:30\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"20261024T1130+0000\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-W43-6T11:30:00,125+00:00\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11:30:00+00:00:30\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n{\"v\": 1, \"ended\": \"2026-10-24T11\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 7,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 7,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:30:00+00:00:30\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:30Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24 11:30\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"20261024T1130+0000\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-W43-6T11:30:00,125+00:00\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_since_minute_precision",
+      "files": {
+        "runs.jsonl": "{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl",
+        "--since",
+        "2026-10-24T10:30"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-24T10:30:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 1,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 1,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_since_week_date",
+      "files": {
+        "runs.jsonl": "{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl",
+        "--since",
+        "2026-W43-6"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-24T00:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 1,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 1,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_arguments_markdown_value",
+      "files": {
+        "runs.jsonl": "{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl",
+        "--markdown=false"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: argument --markdown: ignored explicit argument 'false'\n"
+    },
+    {
+      "id": "edge_arguments_markdown_abbreviation_value",
+      "files": {
+        "runs.jsonl": "{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl",
+        "--mark=false"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: argument --markdown: ignored explicit argument 'false'\n"
+    },
+    {
+      "id": "edge_arguments_ambiguous_s",
+      "files": {
+        "runs.jsonl": "{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl",
+        "--s",
+        "900"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: ambiguous option: --s could match --since, --slo-s\n"
+    },
+    {
+      "id": "edge_arguments_ambiguous_m",
+      "files": {
+        "runs.jsonl": "{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl",
+        "--m"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: ambiguous option: --m could match --max-s, --markdown\n"
+    },
+    {
+      "id": "edge_arguments_help_value",
+      "files": {
+        "runs.jsonl": "{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl",
+        "--help=x"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: argument -h/--help: ignored explicit argument 'x'\n"
+    },
+    {
+      "id": "edge_arguments_short_help_value",
+      "files": {
+        "runs.jsonl": "{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl",
+        "-h=x"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: argument -h/--help: ignored explicit argument 'x'\n"
+    },
+    {
+      "id": "edge_arguments_missing_value",
+      "files": {
+        "runs.jsonl": "{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl",
+        "--since",
+        "--markdown"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: argument --since: expected one argument\n"
+    },
+    {
+      "id": "edge_arguments_unknown",
+      "files": {
+        "runs.jsonl": "{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl",
+        "--unknown"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: unrecognized arguments: --unknown\n"
+    },
+    {
+      "id": "edge_arguments_invalid_float",
+      "files": {
+        "runs.jsonl": "{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl",
+        "--hours=x"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: argument --hours: invalid float value: 'x'\n"
+    },
+    {
+      "id": "edge_arguments_invalid_int",
+      "files": {
+        "runs.jsonl": "{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl",
+        "--slo-s=1.5"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: argument --slo-s: invalid int value: '1.5'\n"
+    },
+    {
+      "id": "edge_arguments_repeated",
+      "files": {
+        "runs.jsonl": "{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl",
+        "--slo=500",
+        "--slo-s=900",
+        "--markdown",
+        "--markdown"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "**fractal-test full warm runs**, 2026-10-23T12:00:00Z .. 2026-10-24T12:00:00Z: 1 counted (left out: none)\n\nObjective: p90 at most 900s, no run over 900s; 100% of runs within 900s.\n\n| runs | count | p50 | p90 | max |\n|---|---:|---:|---:|---:|\n| all | 1 | 600s | 600s | 600s |\n| box-a | 1 | 600s | 600s | 600s |\n\n**Within the objective.**\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_arguments_abbreviated",
+      "files": {
+        "runs.jsonl": "{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl",
+        "--ho=48",
+        "--sl=900",
+        "--ma=1000"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: ambiguous option: --ma=1000 could match --max-s, --markdown\n"
+    },
+    {
+      "id": "edge_arguments_ambiguous_h",
+      "files": {
+        "runs.jsonl": "{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl",
+        "--h"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: ambiguous option: --h could match --help, --hours\n"
+    },
+    {
+      "id": "edge_arguments_interspersed",
+      "files": {
+        "runs.jsonl": "{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl",
+        "--markdown",
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: unrecognized arguments: ${scratch}/runs.jsonl\n"
+    },
+    {
+      "id": "edge_arguments_negative_integer",
+      "files": {
+        "runs.jsonl": "{\"v\": 1, \"ended\": \"2026-10-24T11:00:00Z\", \"total_s\": 600, \"host\": \"box-a\", \"tree\": \"tree\", \"full\": true, \"warm\": true, \"exit\": 0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl",
+        "--slo-s",
+        "-1"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "--hours, --slo-s and --max-s must be positive\n"
+    },
+    {
+      "id": "edge_arguments_action_order_help_unknown_tail",
+      "files": {},
+      "argv": [
+        "-hx"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\n\nHow long the per-PR suite takes on a dev box: scripts/fractal-test's own run\nrecords against the time objective.\n\npositional arguments:\n  RUNS.jsonl     default: the file scripts/fractal-test writes\n\noptions:\n  -h, --help     show this help message and exit\n  --hours HOURS  the window, ending now (default 24)\n  --since SINCE  the window starts here instead (ISO 8601, UTC)\n  --slo-s SLO_S  the p90 objective in seconds (default 720)\n  --max-s MAX_S  no single full warm run may take longer (default 900)\n  --markdown     a short table instead of JSON\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_arguments_action_order_help_unknown_tail_repeated",
+      "files": {},
+      "argv": [
+        "-hhx"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\n\nHow long the per-PR suite takes on a dev box: scripts/fractal-test's own run\nrecords against the time objective.\n\npositional arguments:\n  RUNS.jsonl     default: the file scripts/fractal-test writes\n\noptions:\n  -h, --help     show this help message and exit\n  --hours HOURS  the window, ending now (default 24)\n  --since SINCE  the window starts here instead (ISO 8601, UTC)\n  --slo-s SLO_S  the p90 objective in seconds (default 720)\n  --max-s MAX_S  no single full warm run may take longer (default 900)\n  --markdown     a short table instead of JSON\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_arguments_action_order_help_unknown_word_tail",
+      "files": {},
+      "argv": [
+        "-hbad"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\n\nHow long the per-PR suite takes on a dev box: scripts/fractal-test's own run\nrecords against the time objective.\n\npositional arguments:\n  RUNS.jsonl     default: the file scripts/fractal-test writes\n\noptions:\n  -h, --help     show this help message and exit\n  --hours HOURS  the window, ending now (default 24)\n  --since SINCE  the window starts here instead (ISO 8601, UTC)\n  --slo-s SLO_S  the p90 objective in seconds (default 720)\n  --max-s MAX_S  no single full warm run may take longer (default 900)\n  --markdown     a short table instead of JSON\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_arguments_action_order_unknown_before_help",
+      "files": {},
+      "argv": [
+        "-xh"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: unrecognized arguments: -xh\n"
+    },
+    {
+      "id": "edge_arguments_action_order_help_after_invalid_float",
+      "files": {},
+      "argv": [
+        "--hours",
+        "bad",
+        "--help"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: argument --hours: invalid float value: 'bad'\n"
+    },
+    {
+      "id": "edge_arguments_action_order_help_after_missing_float",
+      "files": {},
+      "argv": [
+        "--hours",
+        "-h"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: argument --hours: expected one argument\n"
+    },
+    {
+      "id": "edge_arguments_action_order_help_after_invalid_int",
+      "files": {},
+      "argv": [
+        "--slo-s",
+        "bad",
+        "--help"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: argument --slo-s: invalid int value: 'bad'\n"
+    },
+    {
+      "id": "edge_arguments_action_order_help_after_missing_int",
+      "files": {},
+      "argv": [
+        "--slo-s",
+        "-h"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: argument --slo-s: expected one argument\n"
+    },
+    {
+      "id": "edge_arguments_action_order_help_cluster_explicit_value",
+      "files": {},
+      "argv": [
+        "-hh=bad"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: argument -h/--help: ignored explicit argument 'bad'\n"
+    },
+    {
+      "id": "edge_compensated_stage_and_check_mean",
+      "files": {
+        "runs.jsonl": "{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0,\"stages\":[{\"name\":\"shared\",\"seconds\":0.1},{\"name\":\"shared\",\"seconds\":0.1},{\"name\":\"shared\",\"seconds\":0.1},{\"name\":\"shared\",\"seconds\":0.3}]}\n{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0,\"rows\":[{\"name\":\"shared\",\"seconds\":0.1},{\"name\":\"shared\",\"seconds\":0.1},{\"name\":\"shared\",\"seconds\":0.1},{\"name\":\"shared\",\"seconds\":0.3}]}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 2,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 2,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [\n    {\n      \"name\": \"shared\",\n      \"kind\": \"stage\",\n      \"count\": 4,\n      \"mean_s\": 0.1,\n      \"p90_s\": 0.3\n    },\n    {\n      \"name\": \"shared\",\n      \"kind\": \"check\",\n      \"count\": 4,\n      \"mean_s\": 0.1,\n      \"p90_s\": 0.3\n    }\n  ],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_mixed_sum_integer_float_cancellation",
+      "files": {
+        "runs.jsonl": "{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0,\"stages\":[{\"name\":\"mixed\",\"seconds\":10000000000000000},{\"name\":\"mixed\",\"seconds\":1.0},{\"name\":\"mixed\",\"seconds\":-10000000000000000}]}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 1,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 1,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [\n    {\n      \"name\": \"mixed\",\n      \"kind\": \"stage\",\n      \"count\": 3,\n      \"mean_s\": 0.0,\n      \"p90_s\": 10000000000000000\n    }\n  ],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_mixed_sum_float_integer_cancellation",
+      "files": {
+        "runs.jsonl": "{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0,\"stages\":[{\"name\":\"mixed\",\"seconds\":1.0},{\"name\":\"mixed\",\"seconds\":10000000000000000},{\"name\":\"mixed\",\"seconds\":-10000000000000000}]}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 1,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 1,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [\n    {\n      \"name\": \"mixed\",\n      \"kind\": \"stage\",\n      \"count\": 3,\n      \"mean_s\": 0.3,\n      \"p90_s\": 10000000000000000\n    }\n  ],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_mixed_sum_exact_integer_prefix",
+      "files": {
+        "runs.jsonl": "{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0,\"stages\":[{\"name\":\"mixed\",\"seconds\":10000000000000001},{\"name\":\"mixed\",\"seconds\":-10000000000000000},{\"name\":\"mixed\",\"seconds\":0.0}]}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 1,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 1,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [\n    {\n      \"name\": \"mixed\",\n      \"kind\": \"stage\",\n      \"count\": 3,\n      \"mean_s\": 0.3,\n      \"p90_s\": 10000000000000001\n    }\n  ],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_large_integer_objective_and_max",
+      "files": {
+        "runs.jsonl": "{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":9007199254740993,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl",
+        "--slo-s",
+        "9007199254740992",
+        "--max-s",
+        "9007199254740992"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 9007199254740992,\n  \"max_allowed_s\": 9007199254740992,\n  \"count\": 1,\n  \"p50_s\": 9007199254740993,\n  \"p90_s\": 9007199254740993,\n  \"max_s\": 9007199254740993,\n  \"within_slo\": 0.0,\n  \"breach\": true,\n  \"breach_reasons\": [\n    \"p90 9007199254740993s is over the 9007199254740992s objective\",\n    \"1 full warm run(s) over 9007199254740992s (slowest 9007199254740993s)\"\n  ],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 1,\n      \"p50_s\": 9007199254740993,\n      \"p90_s\": 9007199254740993,\n      \"max_s\": 9007199254740993\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 9007199254740993,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_adjacent_large_integer_percentiles",
+      "files": {
+        "runs.jsonl": "{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":9007199254740993,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\n{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":9007199254740992,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 2,\n  \"p50_s\": 9007199254740992,\n  \"p90_s\": 9007199254740993,\n  \"max_s\": 9007199254740993,\n  \"within_slo\": 0.0,\n  \"breach\": true,\n  \"breach_reasons\": [\n    \"p90 9007199254740993s is over the 720s objective\",\n    \"2 full warm run(s) over 900s (slowest 9007199254740993s)\"\n  ],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 2,\n      \"p50_s\": 9007199254740992,\n      \"p90_s\": 9007199254740993,\n      \"max_s\": 9007199254740993\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 9007199254740993,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 9007199254740992,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_mixed_integer_float_wait_stage_sorting",
+      "files": {
+        "runs.jsonl": "{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0,\"tree_wait_s\":9007199254740993,\"stages\":[{\"name\":\"mixed\",\"seconds\":9007199254740993}]}\n{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0,\"tree_wait_s\":9007199254740992.0,\"stages\":[{\"name\":\"mixed\",\"seconds\":9007199254740992.0}]}\n{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0,\"tree_wait_s\":9007199254740994,\"stages\":[{\"name\":\"mixed\",\"seconds\":9007199254740994}]}\n{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0,\"tree_wait_s\":9007199254740992,\"stages\":[{\"name\":\"mixed\",\"seconds\":9007199254740992}]}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 4,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 4,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {\n    \"pool tree\": {\n      \"count\": 4,\n      \"p50_s\": 9007199254740992,\n      \"p90_s\": 9007199254740994,\n      \"max_s\": 9007199254740994\n    }\n  },\n  \"slowest\": [\n    {\n      \"name\": \"mixed\",\n      \"kind\": \"stage\",\n      \"count\": 4,\n      \"mean_s\": 9007199254740992.0,\n      \"p90_s\": 9007199254740994\n    }\n  ],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_mixed_float_integer_wait_stage_tie_order",
+      "files": {
+        "runs.jsonl": "{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0,\"tree_slot_wait_s\":1.0,\"rows\":[{\"name\":\"mixed\",\"seconds\":1.0}]}\n{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0,\"tree_slot_wait_s\":1,\"rows\":[{\"name\":\"mixed\",\"seconds\":1}]}\n{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0,\"tree_slot_wait_s\":0,\"rows\":[{\"name\":\"mixed\",\"seconds\":0}]}\n{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0,\"tree_slot_wait_s\":0.0,\"rows\":[{\"name\":\"mixed\",\"seconds\":0.0}]}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 4,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 4,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {\n    \"build slot, tree free\": {\n      \"count\": 4,\n      \"p50_s\": 0.0,\n      \"p90_s\": 1,\n      \"max_s\": 1.0\n    }\n  },\n  \"slowest\": [\n    {\n      \"name\": \"mixed\",\n      \"kind\": \"check\",\n      \"count\": 4,\n      \"mean_s\": 0.5,\n      \"p90_s\": 1\n    }\n  ],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_unused_nonfinite_and_surrogate_raw",
+      "files": {
+        "runs.jsonl": "{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0,\"unused_nan\":NaN,\"unused_positive\":Infinity,\"unused_negative\":-Infinity,\"unused_overflow\":1e400,\"unused_surrogate\":\"\\ud800\"}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 1,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 1,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_nonfinite_wait_and_stage_nan",
+      "files": {
+        "runs.jsonl": "{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0,\"tree_wait_s\":NaN,\"tree_slot_wait_s\":NaN,\"burst_wait_s\":NaN,\"stages\":[{\"name\":\"nonfinite\",\"seconds\":NaN}]}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 1,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 1,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {\n    \"pool tree\": {\n      \"count\": 1,\n      \"p50_s\": NaN,\n      \"p90_s\": NaN,\n      \"max_s\": NaN\n    },\n    \"build slot, tree free\": {\n      \"count\": 1,\n      \"p50_s\": NaN,\n      \"p90_s\": NaN,\n      \"max_s\": NaN\n    },\n    \"lane burst\": {\n      \"count\": 1,\n      \"p50_s\": NaN,\n      \"p90_s\": NaN,\n      \"max_s\": NaN\n    }\n  },\n  \"slowest\": [\n    {\n      \"name\": \"nonfinite\",\n      \"kind\": \"stage\",\n      \"count\": 1,\n      \"mean_s\": NaN,\n      \"p90_s\": NaN\n    }\n  ],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_nonfinite_wait_and_stage_infinity",
+      "files": {
+        "runs.jsonl": "{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0,\"tree_wait_s\":Infinity,\"tree_slot_wait_s\":Infinity,\"burst_wait_s\":Infinity,\"stages\":[{\"name\":\"nonfinite\",\"seconds\":Infinity}]}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 1,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 1,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {\n    \"pool tree\": {\n      \"count\": 1,\n      \"p50_s\": Infinity,\n      \"p90_s\": Infinity,\n      \"max_s\": Infinity\n    },\n    \"build slot, tree free\": {\n      \"count\": 1,\n      \"p50_s\": Infinity,\n      \"p90_s\": Infinity,\n      \"max_s\": Infinity\n    },\n    \"lane burst\": {\n      \"count\": 1,\n      \"p50_s\": Infinity,\n      \"p90_s\": Infinity,\n      \"max_s\": Infinity\n    }\n  },\n  \"slowest\": [\n    {\n      \"name\": \"nonfinite\",\n      \"kind\": \"stage\",\n      \"count\": 1,\n      \"mean_s\": Infinity,\n      \"p90_s\": Infinity\n    }\n  ],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_nonfinite_wait_and_stage_negative_infinity",
+      "files": {
+        "runs.jsonl": "{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0,\"tree_wait_s\":-Infinity,\"tree_slot_wait_s\":-Infinity,\"burst_wait_s\":-Infinity,\"stages\":[{\"name\":\"nonfinite\",\"seconds\":-Infinity}]}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 1,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 1,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {\n    \"pool tree\": {\n      \"count\": 1,\n      \"p50_s\": -Infinity,\n      \"p90_s\": -Infinity,\n      \"max_s\": -Infinity\n    },\n    \"build slot, tree free\": {\n      \"count\": 1,\n      \"p50_s\": -Infinity,\n      \"p90_s\": -Infinity,\n      \"max_s\": -Infinity\n    },\n    \"lane burst\": {\n      \"count\": 1,\n      \"p50_s\": -Infinity,\n      \"p90_s\": -Infinity,\n      \"max_s\": -Infinity\n    }\n  },\n  \"slowest\": [\n    {\n      \"name\": \"nonfinite\",\n      \"kind\": \"stage\",\n      \"count\": 1,\n      \"mean_s\": -Infinity,\n      \"p90_s\": -Infinity\n    }\n  ],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_nonfinite_wait_and_stage_exponent_overflow",
+      "files": {
+        "runs.jsonl": "{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0,\"tree_wait_s\":1e400,\"tree_slot_wait_s\":1e400,\"burst_wait_s\":1e400,\"stages\":[{\"name\":\"nonfinite\",\"seconds\":1e400}]}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 1,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 1,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {\n    \"pool tree\": {\n      \"count\": 1,\n      \"p50_s\": Infinity,\n      \"p90_s\": Infinity,\n      \"max_s\": Infinity\n    },\n    \"build slot, tree free\": {\n      \"count\": 1,\n      \"p50_s\": Infinity,\n      \"p90_s\": Infinity,\n      \"max_s\": Infinity\n    },\n    \"lane burst\": {\n      \"count\": 1,\n      \"p50_s\": Infinity,\n      \"p90_s\": Infinity,\n      \"max_s\": Infinity\n    }\n  },\n  \"slowest\": [\n    {\n      \"name\": \"nonfinite\",\n      \"kind\": \"stage\",\n      \"count\": 1,\n      \"mean_s\": Infinity,\n      \"p90_s\": Infinity\n    }\n  ],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_lone_surrogate_host",
+      "files": {
+        "runs.jsonl": "{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"\\ud800\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 1,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"\\ud800\": {\n      \"count\": 1,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"\\ud800\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_lone_surrogate_tree",
+      "files": {
+        "runs.jsonl": "{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"\\ud800\",\"full\":true,\"warm\":true,\"exit\":0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 1,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 1,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"\\ud800\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_lone_surrogate_candidate",
+      "files": {
+        "runs.jsonl": "{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0,\"candidate\":\"\\ud800\"}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 0,\n  \"p50_s\": null,\n  \"p90_s\": null,\n  \"max_s\": null,\n  \"within_slo\": null,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 1\n  },\n  \"unreadable\": 0,\n  \"by_host\": {},\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [\n    {\n      \"head\": \"\\ud800\",\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"total_s\": 600,\n      \"exit\": 0\n    }\n  ],\n  \"runs\": []\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_lone_surrogate_ended",
+      "files": {
+        "runs.jsonl": "{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\\ud800\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\n{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 1,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 1,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 1,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_lone_surrogate_stage_name",
+      "files": {
+        "runs.jsonl": "{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0,\"stages\":[{\"name\":\"\\ud800\",\"seconds\":1}]}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 1,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 1,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [\n    {\n      \"name\": \"\\ud800\",\n      \"kind\": \"stage\",\n      \"count\": 1,\n      \"mean_s\": 1.0,\n      \"p90_s\": 1\n    }\n  ],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_markdown_exponent_mean_and_wait",
+      "files": {
+        "runs.jsonl": "{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0,\"tree_wait_s\":1e-7,\"stages\":[{\"name\":\"large\",\"seconds\":10000000000000000},{\"name\":\"small\",\"seconds\":1e-7}]}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl",
+        "--markdown"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "**fractal-test full warm runs**, 2026-10-23T12:00:00Z .. 2026-10-24T12:00:00Z: 1 counted (left out: none)\n\nObjective: p90 at most 720s, no run over 900s; 100% of runs within 720s.\n\n| runs | count | p50 | p90 | max |\n|---|---:|---:|---:|---:|\n| all | 1 | 600s | 600s | 600s |\n| box-a | 1 | 600s | 600s | 600s |\n\n| waited for (every run in the window) | runs | p50 | p90 | max |\n|---|---:|---:|---:|---:|\n| pool tree | 1 | 1e-07s | 1e-07s | 1e-07s |\n\n| slowest stage or check | mean | p90 |\n|---|---:|---:|\n| large (stage) | 1e+16s | 10000000000000000s |\n| small (stage) | 0.0s | 1e-07s |\n\n**Within the objective.**\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_splitlines_lf",
+      "files": {
+        "runs.jsonl": "\n{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\n{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 2,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 2,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_splitlines_cr",
+      "files": {
+        "runs.jsonl": "\r{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\r{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\r"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 2,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 2,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_splitlines_crlf",
+      "files": {
+        "runs.jsonl": "\r\n{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\r\n{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\r\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 2,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 2,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_splitlines_vt",
+      "files": {
+        "runs.jsonl": "\u000b{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u000b{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u000b"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 2,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 2,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_splitlines_ff",
+      "files": {
+        "runs.jsonl": "\f{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\f{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\f"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 2,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 2,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_splitlines_fs",
+      "files": {
+        "runs.jsonl": "\u001c{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u001c{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u001c"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 2,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 2,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_splitlines_gs",
+      "files": {
+        "runs.jsonl": "\u001d{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u001d{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u001d"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 2,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 2,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_splitlines_rs",
+      "files": {
+        "runs.jsonl": "\u001e{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u001e{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u001e"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 2,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 2,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_splitlines_nel",
+      "files": {
+        "runs.jsonl": "\u0085{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u0085{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u0085"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 2,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 2,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_splitlines_line_separator",
+      "files": {
+        "runs.jsonl": "\u2028{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u2028{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u2028"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 2,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 2,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_splitlines_paragraph_separator",
+      "files": {
+        "runs.jsonl": "\u2029{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u2029{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\u2029"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 2,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 2,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    },\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_python_whitespace_only_lines",
+      "files": {
+        "runs.jsonl": "\t\t\n\n\n\n\u000b\u000b\n\f\f\n\r\r\n\u001c\u001c\n\u001d\u001d\n\u001e\u001e\n\u001f\u001f\n  \n\u0085\u0085\n\u00a0\u00a0\n\u1680\u1680\n\u2000\u2000\n\u2001\u2001\n\u2002\u2002\n\u2003\u2003\n\u2004\u2004\n\u2005\u2005\n\u2006\u2006\n\u2007\u2007\n\u2008\u2008\n\u2009\u2009\n\u200a\u200a\n\u2028\u2028\n\u2029\u2029\n\u202f\u202f\n\u205f\u205f\n\u3000\u3000\n{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 1,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 1,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_non_whitespace_controls",
+      "files": {
+        "runs.jsonl": "\u0000\n\u001b\n\u200b\n\ufeff\n{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 1,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 4,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 1,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24T11:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_text_raw_line_separator_inside_json_string",
+      "files": {
+        "runs.jsonl": "{\"v\":1,\"ended\":\"2026-10-24T11:00:00Z\",\"total_s\":600,\"host\":\"left\u2028right\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 0,\n  \"p50_s\": null,\n  \"p90_s\": null,\n  \"max_s\": null,\n  \"within_slo\": null,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 2,\n  \"by_host\": {},\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": []\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_time_lone_surrogate_separator_zoned",
+      "files": {
+        "runs.jsonl": "{\"v\":1,\"ended\":\"2026-10-24\\ud80011:00:00Z\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 1,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 1,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24\\ud80011:00:00Z\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_time_lone_surrogate_separator_naive",
+      "files": {
+        "runs.jsonl": "{\"v\":1,\"ended\":\"2026-10-24\\ud80011:00\",\"total_s\":600,\"host\":\"box-a\",\"tree\":\"tree\",\"full\":true,\"warm\":true,\"exit\":0}\n"
+      },
+      "argv": [
+        "${scratch}/runs.jsonl"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "{\n  \"window\": {\n    \"since\": \"2026-10-23T12:00:00Z\",\n    \"until\": \"2026-10-24T12:00:00Z\"\n  },\n  \"slo_s\": 720,\n  \"max_allowed_s\": 900,\n  \"count\": 1,\n  \"p50_s\": 600,\n  \"p90_s\": 600,\n  \"max_s\": 600,\n  \"within_slo\": 1.0,\n  \"breach\": false,\n  \"breach_reasons\": [],\n  \"excluded\": {\n    \"not_full\": 0,\n    \"cold\": 0,\n    \"partial\": 0,\n    \"failed\": 0,\n    \"candidate\": 0\n  },\n  \"unreadable\": 0,\n  \"by_host\": {\n    \"box-a\": {\n      \"count\": 1,\n      \"p50_s\": 600,\n      \"p90_s\": 600,\n      \"max_s\": 600\n    }\n  },\n  \"waits\": {},\n  \"slowest\": [],\n  \"candidates\": [],\n  \"runs\": [\n    {\n      \"ended\": \"2026-10-24\\ud80011:00\",\n      \"host\": \"box-a\",\n      \"total_s\": 600,\n      \"tree\": \"tree\"\n    }\n  ]\n}\n",
+      "stderr": ""
+    }
+  ]
+}
