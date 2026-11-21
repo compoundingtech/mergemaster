@@ -101,6 +101,15 @@
 # Assertions: crates/mergemaster-evidence/tests/runner_report.rs. Frozen fixed-clock
 # inputs and Python streams: tests/fixtures/oracle/runner-report.json; independently
 # replayed by replay_runner_report in tests/oracle_corpus.py.
+# runner-report-edges.json adds exact-binary rounding, ISO timestamp variants,
+# first-seen stage/check ties, ASCII-escaped JSON and argparse-error recordings.
+# pyfloat unit tests compare exact output bits with pinned Python across finite
+# exponent boundaries, decimal ties, random doubles and all supported precisions.
+# Intended divergence: native runner-report --slo-s/--max-s use signed i64.
+# Outside i64, native returns an argparse-style invalid-int error (exit 2),
+# instead of Python's unbounded-integer result. runner-report-integer-divergence.json
+# records Python accepting --slo-s 9223372036854775808; a separate native CLI
+# assertion pins the refusal rather than treating the streams as equivalent.
 # Keygen caller adoption (LOCAL_PATCHES in tests/oracle_scripts.py lists only these two):
 # evidence-prepush remediation text names the native command; its self-test
 # asserts the new instruction. Runtime signing and suppression remain unchanged.

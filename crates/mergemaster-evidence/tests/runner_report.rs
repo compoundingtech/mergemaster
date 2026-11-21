@@ -7,10 +7,19 @@ use serde_json::{Value, json};
 use std::{fs, path::Path, process::Command};
 
 fn fixture() -> Value {
-    serde_json::from_str(include_str!(
+    let mut fixture: Value = serde_json::from_str(include_str!(
         "../../../tests/fixtures/oracle/runner-report.json"
     ))
-    .unwrap()
+    .unwrap();
+    let edges: Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/oracle/runner-report-edges.json"
+    ))
+    .unwrap();
+    fixture["cases"]
+        .as_array_mut()
+        .unwrap()
+        .extend(edges["cases"].as_array().unwrap().iter().cloned());
+    fixture
 }
 fn now() -> DateTime<Utc> {
     "2026-10-24T12:00:00Z".parse().unwrap()
@@ -59,6 +68,27 @@ fn run_case(case: &Value) -> (i32, String, String) {
     } else {
         run_at(&argv, now())
     };
+    if case["id"]
+        .as_str()
+        .is_some_and(|id| id.starts_with("edge_arguments_"))
+        && case["exit"] == 2
+    {
+        let cli = Command::new(env!("CARGO_BIN_EXE_mergemaster"))
+            .args(["evidence", "runner-report"])
+            .args(&argv)
+            .output()
+            .unwrap();
+        assert_eq!(
+            (
+                cli.status.code().unwrap(),
+                String::from_utf8(cli.stdout).unwrap(),
+                String::from_utf8(cli.stderr).unwrap()
+            ),
+            observed,
+            "native CLI argument boundary: {}",
+            case["id"]
+        );
+    }
     assert_eq!(
         observed,
         (
@@ -71,6 +101,46 @@ fn run_case(case: &Value) -> (i32, String, String) {
     );
     observed
 }
+#[test]
+fn integer_threshold_domain_is_an_intended_divergence() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/oracle/runner-report-integer-divergence.json"
+    ))
+    .unwrap();
+    let case = &fixture["cases"][0];
+    assert_eq!(case["exit"], 0);
+    let python_report: Value = serde_json::from_str(case["stdout"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        python_report["slo_s"].as_u64(),
+        Some(9_223_372_036_854_775_808)
+    );
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("runs.jsonl");
+    fs::write(&path, "").unwrap();
+    let native = Command::new(env!("CARGO_BIN_EXE_mergemaster"))
+        .args([
+            "evidence",
+            "runner-report",
+            "--slo-s",
+            "9223372036854775808",
+        ])
+        .arg(path)
+        .output()
+        .unwrap();
+    assert_eq!(
+        native.status.code(),
+        Some(case["native"]["exit"].as_i64().unwrap() as i32)
+    );
+    assert_eq!(
+        String::from_utf8(native.stdout).unwrap(),
+        case["native"]["stdout"].as_str().unwrap()
+    );
+    assert_eq!(
+        String::from_utf8(native.stderr).unwrap(),
+        case["native"]["stderr"].as_str().unwrap()
+    );
+}
+
 fn case(prefix: &str, index: usize) -> Value {
     let id = format!("{prefix}_{index}");
     fixture()["cases"]
@@ -302,12 +372,12 @@ fn each_wait_is_its_own_line_over_every_run_in_the_window() {
 fn a_record_st_test_writes_is_one_the_report_reads() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("written/runs.jsonl");
-    let oracle = std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap();
+    let repository = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let output=pinned_python::command().args(["-B","-c",r#"import importlib.machinery, importlib.util, sys
 loader=importlib.machinery.SourceFileLoader('runner',sys.argv[1]); module=importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name,loader)); loader.exec_module(module)
 module.POOL_SETTINGS['ST_TEST_RUNS']=sys.argv[2]
 module.record_run({'v':1,'ended':'2026-10-24T11:00:00Z','total_s':610,'full':True,'warm':True,'exit':0})
-"#]).arg(Path::new(&oracle).join("scripts/st-test")).arg(&path).output().unwrap();
+"#]).arg(repository.join("scripts/st-test")).arg(&path).output().unwrap();
     assert!(
         output.status.success(),
         "{}",

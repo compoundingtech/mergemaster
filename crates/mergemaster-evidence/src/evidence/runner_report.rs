@@ -1,10 +1,12 @@
 //! Read-only summaries of the local runner's version-one JSONL records.
 use anyhow::Context;
-use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
+use indexmap::IndexMap;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, fmt::Write, path::PathBuf};
 
 #[derive(clap::Args)]
+#[command(disable_help_flag = true)]
 pub struct RunnerReportArgs {
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     argv: Vec<String>,
@@ -25,20 +27,19 @@ pub fn run(args: RunnerReportArgs) -> anyhow::Result<()> {
 }
 
 fn time(text: &str) -> Option<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(text)
-        .map(|v| v.with_timezone(&Utc))
-        .ok()
-        .or_else(|| {
-            NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f")
-                .ok()
-                .map(|v| v.and_utc())
-        })
-        .or_else(|| {
-            NaiveDate::parse_from_str(text, "%Y-%m-%d")
-                .ok()
-                .and_then(|v| v.and_hms_opt(0, 0, 0))
-                .map(|v| v.and_utc())
-        })
+    use super::legacy_verify::statement::zoned_time_micros;
+    let mut points: Vec<_> = text.chars().map(u32::from).collect();
+    if let Some(micros) = zoned_time_micros(&points) {
+        return DateTime::from_timestamp_micros(micros);
+    }
+    let length = points.len();
+    points.extend("+00:00".chars().map(u32::from));
+    if let Some(micros) = zoned_time_micros(&points) {
+        return DateTime::from_timestamp_micros(micros);
+    }
+    points.truncate(length);
+    points.extend("T00:00:00+00:00".chars().map(u32::from));
+    DateTime::from_timestamp_micros(zoned_time_micros(&points)?)
 }
 fn iso(value: DateTime<Utc>) -> String {
     value.format("%Y-%m-%dT%H:%M:%SZ").to_string()
@@ -107,30 +108,17 @@ const WAITS: [(&str, &str); 3] = [
 
 /// Explicit clock boundary keeps frozen observations independent of wall-clock time.
 pub fn run_at(argv: &[String], until: DateTime<Utc>) -> (i32, String, String) {
-    let mut hours = 24.0f64;
-    let mut slo = 720i64;
-    let mut max = 900i64;
-    let mut since = None;
-    let mut markdown = false;
-    let mut files = Vec::new();
-    let mut args = argv.iter();
-    while let Some(arg) = args.next() {
-        let (key, inline) = arg
-            .split_once('=')
-            .map_or((arg.as_str(), None), |(a, b)| (a, Some(b)));
-        match key {
-            "--markdown"=>markdown=true,
-            "--hours"|"--slo-s"|"--max-s"|"--since"=>{
-                let Some(value)=inline.or_else(||args.next().map(String::as_str)) else { return (2,String::new(),format!("{key} requires a value\n")); };
-                let ok=match key {"--hours"=>value.parse().map(|v|hours=v).is_ok(), "--slo-s"=>value.parse().map(|v|slo=v).is_ok(), "--max-s"=>value.parse().map(|v|max=v).is_ok(), _=>{since=Some(value.to_owned());true}};
-                if !ok {return (2,String::new(),format!("invalid {key}\n"));}
-            }
-            "--"=>{files.extend(args.map(PathBuf::from));break;}
-            "-h"|"--help"=>return (0,"Report full warm local runner records.\nUsage: mergemaster evidence runner-report [RUNS.jsonl ...] [--hours 24] [--since ISO8601] [--slo-s 720] [--max-s 900] [--markdown]\n".into(),String::new()),
-            _ if arg.starts_with('-')=>return (2,String::new(),format!("unrecognized argument: {arg}\n")),
-            _=>files.push(PathBuf::from(arg)),
-        }
-    }
+    let super::runner_report_args::Options {
+        hours,
+        slo,
+        max,
+        since,
+        markdown,
+        mut files,
+    } = match super::runner_report_args::parse(argv) {
+        Ok(options) => options,
+        Err(exit) => return exit,
+    };
     if !hours.is_finite() || hours <= 0.0 || slo <= 0 || max <= 0 {
         return (
             2,
@@ -272,14 +260,17 @@ pub fn run_at(argv: &[String], until: DateTime<Utc>) -> (i32, String, String) {
     result["within_slo"] = if totals.is_empty() {
         Value::Null
     } else {
-        json!(((within as f64 / totals.len() as f64) * 1000.0).round_ties_even() / 1000.0)
+        json!(super::pyfloat::python_round(
+            within as f64 / totals.len() as f64,
+            3
+        ))
     };
     result["breach"] = json!(!reasons.is_empty());
     result["breach_reasons"] = json!(reasons);
     result["excluded"] = excluded;
     result["unreadable"] = json!(unreadable);
     let mut hosts: BTreeMap<String, Vec<Value>> = BTreeMap::new();
-    let mut spent: BTreeMap<(String, String), Vec<Value>> = BTreeMap::new();
+    let mut spent: IndexMap<(String, String), Vec<Value>> = IndexMap::new();
     for (_, record) in &counted {
         hosts
             .entry(pystr(&record["host"]))
@@ -319,7 +310,7 @@ pub fn run_at(argv: &[String], until: DateTime<Utc>) -> (i32, String, String) {
         };
         slowest.push(json!({
             "name": name, "kind": kind, "count": values.len(),
-            "mean_s": ((total / values.len() as f64) * 10.0).round_ties_even() / 10.0,
+            "mean_s": super::pyfloat::python_round(total / values.len() as f64, 1),
             "p90_s": percentile(&values, 0.9)
         }));
     }
@@ -334,13 +325,58 @@ pub fn run_at(argv: &[String], until: DateTime<Utc>) -> (i32, String, String) {
     let output = if markdown {
         render_markdown(&result)
     } else {
-        serde_json::to_string_pretty(&result).map_err(anyhow::Error::from)
+        let mut out = String::new();
+        pretty(&result, 0, &mut out)
+            .map(|()| out)
+            .map_err(anyhow::Error::from)
     };
     match output {
         Ok(output) => (0, format!("{output}\n"), String::new()),
         Err(error) => report_error(error),
     }
 }
+fn pretty(value: &Value, depth: usize, out: &mut String) -> std::fmt::Result {
+    match value {
+        Value::String(text) => super::legacy_json::string(text, out)?,
+        Value::Array(items) => {
+            out.push('[');
+            for (index, item) in items.iter().enumerate() {
+                if index != 0 {
+                    out.push(',');
+                }
+                out.push('\n');
+                out.extend(std::iter::repeat_n(' ', (depth + 1) * 2));
+                pretty(item, depth + 1, out)?;
+            }
+            if !items.is_empty() {
+                out.push('\n');
+                out.extend(std::iter::repeat_n(' ', depth * 2));
+            }
+            out.push(']');
+        }
+        Value::Object(items) => {
+            out.push('{');
+            for (index, (key, item)) in items.iter().enumerate() {
+                if index != 0 {
+                    out.push(',');
+                }
+                out.push('\n');
+                out.extend(std::iter::repeat_n(' ', (depth + 1) * 2));
+                super::legacy_json::string(key, out)?;
+                out.push_str(": ");
+                pretty(item, depth + 1, out)?;
+            }
+            if !items.is_empty() {
+                out.push('\n');
+                out.extend(std::iter::repeat_n(' ', depth * 2));
+            }
+            out.push('}');
+        }
+        _ => write!(out, "{value}")?,
+    }
+    Ok(())
+}
+
 fn seconds(v: &Value) -> String {
     if v.is_null() {
         "-".into()

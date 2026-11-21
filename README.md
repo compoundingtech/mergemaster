@@ -105,6 +105,12 @@ not a failed command. The native command neither writes records nor runs checks.
 Frozen recordings replay every former self-test scenario against the independent
 pinned Python implementation; native assertions live in `tests/runner_report.rs`
 inside the evidence crate.
+Edge-case recordings also pin ISO timestamp parsing, exact-binary decimal
+rounding, first-seen stage/check ties, Unicode JSON escaping and argument errors.
+The native `--slo-s` and `--max-s` intentionally use signed 64-bit integers.
+Values outside that range exit 2 with an invalid-int error, instead of accepting
+Python's unbounded integers. A pinned recording preserves Python's successful
+`--slo-s 9223372036854775808` result; a separate native assertion pins the refusal.
 
 ## Copied evidence scripts
 

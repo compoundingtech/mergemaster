@@ -71,7 +71,11 @@ def replay_matrices(interpreter):
 
 def replay_runner_report(interpreter):
     """Replay fixed-clock reports using the independent pinned Python source."""
-    fixture_path = CORPUS.parent / "runner-report.json"
+    for name in ("runner-report.json", "runner-report-edges.json", "runner-report-integer-divergence.json"):
+        replay_runner_report_fixture(interpreter, CORPUS.parent / name)
+
+
+def replay_runner_report_fixture(interpreter, fixture_path):
     fixture = json.loads(fixture_path.read_text())
     pin = fixture["oracle"]
     source = Path(os.environ[pin["environment"]]) / pin["path"]
@@ -82,6 +86,7 @@ loader = importlib.machinery.SourceFileLoader('runner_report_oracle', sys.argv[1
 module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
 loader.exec_module(module)
 now = datetime.datetime.fromisoformat(sys.argv[2].replace('Z', '+00:00'))
+sys.argv[0] = 'fractal-test-report'
 sys.exit(module.main(sys.argv[3:], now=now))
 """
     for case in fixture["cases"]:
