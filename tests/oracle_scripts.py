@@ -15,7 +15,8 @@ TARGET = "787e8ed592dff34d2bdc2a2b0b584482da567e7f"
 LOCAL_PATCHES = {"scripts/ci-signed-tree", "scripts/ci-signed-tree-test",
                  "scripts/ci-evidence-gate", "scripts/ci-evidence-gate-test",
                  "scripts/evidence-prepush", "scripts/evidence-prepush-test",
-                 "scripts/evidence-log-watch.service", "scripts/fractal-test-test"}
+                 "scripts/evidence-log-watch.service", "scripts/fractal-test-test",
+                 "scripts/st-test"}
 MANIFEST = "tests/python-removals.json"
 WAVES = {
     "wave-1-leaves", "wave-2-verifier-crate-keys", "wave-3-sign-wrap",

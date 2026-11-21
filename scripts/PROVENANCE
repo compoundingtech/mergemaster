@@ -105,7 +105,6 @@
 # resync-blob scripts/evidence-verify-test 6b9d6c5f403fae4fcb1a516562e06f8d5cfc0cc7
 # resync-blob scripts/evidence-wrap-test 711847812a5d703fa9f2056468970f89a0f57c53
 # resync-blob scripts/lane-definition-closure 5a844628e821bb51e6ab3fc2b38088a37c3c47c4
-# resync-blob scripts/st-test feb0d16374a2dfb78af20357166f56225df46774
 # Intentional local divergence for external Fractal consumers (see mergemaster#141):
 # ci-signed-tree resolves evidence-verify beside its own real file, retaining the
 # consumer cwd, verifier argv, policy/key/lane inputs and shadow-job behavior.
@@ -176,6 +175,9 @@
 # Its local patch remains necessary to relocate those assertions out of the
 # copied Python suite; the other readers' real-Git assertions remain unchanged.
 # local-patch scripts/fractal-test-test decb42b9d442807c9601b473c190b3743b24c4c0 6e09f301916a9bd0eb93a429bfd69adb9caee136
+# st-test retains its approved fixture resync, with help/comment references now
+# naming the native runner-report command. No executable behavior changes.
+# local-patch scripts/st-test 087ae7d9f3d1106a38eedc1e911caeeaf46a96ae 269c5e2b964453819da131af61e7696c2c0d4ac5
 # local-patch scripts/ci-signed-tree 77a560621f8182d2ca19f622782ff24c95e7d514 2bdd0922a31a6dad544bf6826666efeec68a3466
 # local-patch scripts/ci-signed-tree-test 91612975e7ae383ca5c55b94a19af20b0b1c7df2 9b1877c7407fe1128620fb94e376b66a7fcca8d2
 # Intentional local gate adoption: verification and project subprocesses use the

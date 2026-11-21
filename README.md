@@ -93,8 +93,8 @@ removed leaves cannot silently return from the oracle fixture.
 
 ## Local runner timing reports
 
-`mergemaster evidence runner-report [RUNS.jsonl ...] --markdown` replaces
-`scripts/fractal-test-report`. With no file it reads `ST_TEST_RUNS`, or
+`mergemaster evidence runner-report [RUNS.jsonl ...] --markdown` reads local
+runner timing records. With no file it reads `ST_TEST_RUNS`, or
 `${XDG_STATE_HOME:-~/.local/state}/st-test/runs.jsonl` (the state directory must
 be absolute). `--hours` (default 24) or `--since` selects the window ending now.
 Only completed full warm runs count toward the nearest-rank p90 objective
@@ -1051,9 +1051,9 @@ selected revision. They replace the removed Python flip-ready/skip-report leaves
 and self-tests; frozen independent-Python recordings live in
 `tests/fixtures/oracle/{flip-ready,skip-report}.json`.
 Zoned timestamps retain Python-compatible ISO forms and microsecond precision.
-For byte parity, flip readiness inherits Python's display quirk: window-start
-strings preserve the input offset's wall clock but append `Z`; arithmetic and
-window comparisons still use the correct UTC instants.
+All displayed timestamps ending in `Z`, including flip readiness window starts,
+are UTC. This deliberately corrects the removed Python tool's offset-wall-clock
+mislabel; duration arithmetic and window comparisons retain their UTC semantics.
 Completed nonzero probes may establish absence; capture timeouts, spawn failures
 and read failures instead abort. Published-log OS errors retain the observed-time
 fallback and their original diagnostics, but published-log timeouts do not.
