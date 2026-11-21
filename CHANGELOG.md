@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Native v2 `evidence wrap` reports temporary execution interruption, signer unavailability and origin publication failure as exit 75 with stable `infra_unavailable` class tokens, allowing consumers to retry/park rather than fail checks. External termination is never signed; crashes and explicit signer refusals retain their existing behavior. Legacy wrappers are unchanged.
+
 ## [0.12.0] - 2026-11-21
 
 - Add a BASE-only `.mergemaster/producers.json` manifest, the report-only `producer_digest` decision field (`listed` / `unlisted` / `no_manifest` / `not_applicable`), `mergemaster producers measure`, and the reusable `producers.yml` workflow. (#416, #417)
