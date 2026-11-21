@@ -98,6 +98,9 @@ pub fn run(args: EvidenceArgs) -> Result<()> {
             let code = super::skip_report::run(args)?;
             if code != 0 {
                 std::process::exit(code);
+            }
+            return Ok(());
+        }
         EvidenceCommand::Slo { argv } => {
             use std::io::Write;
             let exit = super::slo::run(&argv);
