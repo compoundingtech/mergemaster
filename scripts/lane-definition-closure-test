@@ -327,6 +327,11 @@ class CommandLine(Fixture):
         with self.assertRaises(OSError):
             ldc.unresolved_ci(ldc.Repo(self.root), [item])
 
+    def test_selector_helper_refusal_keeps_the_original_detail(self):
+        item = 'policy.json::checks.demo'
+        self.tree({'policy.json': '{'})
+        self.assertEqual(ldc.unresolved_ci(ldc.Repo(self.root), [item]), [(item, 'policy.json is not JSON')])
+
     def test_real_gate_protects_preferred_layout_inputs_but_excludes_base_only_counterparts(self):
         # arn:lmig:smalltalk:2026-10-27-dot-fractal-config — consume the same literal lists as the production gate.
         path = '.fractal/evidence-skip-policy.json'

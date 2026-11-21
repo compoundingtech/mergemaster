@@ -97,11 +97,11 @@ fn zoned_time(points: &[u32]) -> bool {
 /// UTC epoch microseconds for the zoned statement-time subset of Python parse_time.
 /// Unlike parse_time itself, rejects naive dates/times; preserves surrogate separators.
 /// Years 1..9999 plus sub-day signed offsets fit comfortably in i64.
-pub(super) fn zoned_time_micros(points: &[u32]) -> Option<i64> {
+pub(crate) fn zoned_time_micros(points: &[u32]) -> Option<i64> {
     zoned_time_components(points).map(|(utc, _)| utc)
 }
 /// UTC and naive-local epoch microseconds; the latter preserves datetime arithmetic bounds.
-pub(super) fn zoned_time_components(points: &[u32]) -> Option<(i64, i64)> {
+pub(crate) fn zoned_time_components(points: &[u32]) -> Option<(i64, i64)> {
     // Python replaces every Z before fromisoformat, including a separator Z.
     let expanded;
     let s = if points.contains(&90) {

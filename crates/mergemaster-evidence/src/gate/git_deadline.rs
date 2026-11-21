@@ -65,13 +65,27 @@ impl GitChild {
     ) -> io::Result<std::process::Output> {
         Self::capture_with_sink(command, input, timeout, RawCapture::default())
     }
+    /// Match Python Popen.communicate swallowing BrokenPipeError while sending stdin.
+    pub(crate) fn capture_communicate(
+        command: &mut Command,
+        input: &[u8],
+        timeout: Duration,
+    ) -> io::Result<std::process::Output> {
+        Self::capture_optional_timeout(
+            command,
+            Some(input),
+            Some(timeout),
+            RawCapture::default(),
+            true,
+        )
+    }
     pub(crate) fn capture_with_sink<S: CaptureSink>(
         command: &mut Command,
         input: Option<&[u8]>,
         timeout: Duration,
         sink: S,
     ) -> Result<S::Output, S::Error> {
-        Self::capture_optional_timeout(command, input, Some(timeout), sink)
+        Self::capture_optional_timeout(command, input, Some(timeout), sink, false)
     }
     /// The same cancellable nonblocking collector, without an operation deadline.
     pub(crate) fn capture_without_timeout<S: CaptureSink>(
@@ -79,13 +93,14 @@ impl GitChild {
         input: Option<&[u8]>,
         sink: S,
     ) -> Result<S::Output, S::Error> {
-        Self::capture_optional_timeout(command, input, None, sink)
+        Self::capture_optional_timeout(command, input, None, sink, false)
     }
     fn capture_optional_timeout<S: CaptureSink>(
         command: &mut Command,
         input: Option<&[u8]>,
         timeout: Option<Duration>,
         mut sink: S,
+        ignore_broken_pipe: bool,
     ) -> Result<S::Output, S::Error> {
         let mut child =
             Self::with_optional_timeout(command, timeout, Stdio::piped(), Stdio::piped())?;
@@ -171,6 +186,9 @@ impl GitChild {
                         }
                         Ok(n) => bytes = &bytes[n..],
                         Err(e) if retry_io(&e) => {}
+                        Err(e) if ignore_broken_pipe && e.kind() == io::ErrorKind::BrokenPipe => {
+                            stdin.take();
+                        }
                         Err(e) => return Err(e.into()),
                     }
                 }

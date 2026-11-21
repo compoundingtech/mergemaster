@@ -4,8 +4,7 @@ use super::*;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Serialize)]
 pub struct SourceReceipt {
     pub version: u32,
     pub repository: String,
@@ -16,18 +15,49 @@ pub struct SourceReceipt {
     pub tree: String,
     pub object_format: String,
     pub change_id: String,
-    pub producer_sha256: String,
+    pub tool: super::source::ToolIdentity,
     pub pack_sha256: String,
     pub pack_bytes: u64,
 }
 
-/// Operator-owned binding. Its recipe digest and check list never come from the target tree.
+impl<'de> Deserialize<'de> for SourceReceipt {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        let value = Value::deserialize(deserializer)?;
+        if value["version"].as_u64() != Some(2) {
+            return Err(serde::de::Error::custom(format!(
+                "unsupported source receipt version: {}",
+                value["version"]
+            )));
+        }
+        #[derive(Deserialize)]
+        #[serde(remote = "SourceReceipt", deny_unknown_fields)]
+        struct Receipt {
+            version: u32,
+            repository: String,
+            event: String,
+            run_id: String,
+            run_attempt: String,
+            source: String,
+            tree: String,
+            object_format: String,
+            change_id: String,
+            tool: super::source::ToolIdentity,
+            pack_sha256: String,
+            pack_bytes: u64,
+        }
+        Receipt::deserialize(value).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Operator-owned binding. Its tool-pin digest and check list never come from the target tree.
 #[derive(Clone)]
 pub struct CiBinding {
     pub repository: String,
     pub run: u64,
     pub attempt: u64,
-    pub recipe_sha256: String,
+    pub tool_pin_sha256: String,
     pub accepted_base: String,
     pub workflow_sha256: String,
     pub required_checks: BTreeSet<String>,
@@ -250,7 +280,7 @@ impl CiBinding {
             self.run > 0 && self.attempt > 0,
             "invalid run/attempt selector"
         );
-        sha256(&self.recipe_sha256)?;
+        sha256(&self.tool_pin_sha256)?;
         oid(&self.accepted_base)?;
         sha256(&self.workflow_sha256)?;
         ensure!(
@@ -265,7 +295,7 @@ impl CiBinding {
     }
 
     /// An artifact from a PR workflow cannot prove its effective tested source.
-    /// Full trust additionally pins both executed workflow and producer recipe to
+    /// Full trust additionally pins both executed workflow and tool pin to
     /// an operator-selected accepted commit, never the tree supplied by the artifact.
     pub fn full_eligible(&self, repo: &Path, receipt: &SourceReceipt, run: &Value) -> Result<bool> {
         receipt.validate(repo, self, run)?;
@@ -273,9 +303,9 @@ impl CiBinding {
             return Ok(false);
         }
         let base = commit(repo, &self.accepted_base)?;
-        let base_recipe = git(
+        let base_pin = git(
             repo,
-            &["show", &format!("{base}:scripts/ci-evidence-source")],
+            &["show", &format!("{base}:.mergemaster/tool-pin.json")],
             None,
         )?;
         let base_workflow = git(
@@ -284,15 +314,15 @@ impl CiBinding {
             None,
         )?;
         ensure!(
-            hex::encode(Sha256::digest(&base_recipe)) == self.recipe_sha256
+            hex::encode(Sha256::digest(&base_pin)) == self.tool_pin_sha256
                 && hex::encode(Sha256::digest(&base_workflow)) == self.workflow_sha256,
-            "accepted base does not match operator recipe/workflow pins"
+            "accepted base does not match operator tool-pin/workflow pins"
         );
-        let source_recipe = git(
+        let source_pin = git(
             repo,
             &[
                 "show",
-                &format!("{}:scripts/ci-evidence-source", receipt.source),
+                &format!("{}:.mergemaster/tool-pin.json", receipt.source),
             ],
             None,
         )?;
@@ -304,7 +334,7 @@ impl CiBinding {
             ],
             None,
         )?;
-        Ok(source_recipe == base_recipe && source_workflow == base_workflow)
+        Ok(source_pin == base_pin && source_workflow == base_workflow)
     }
 
     pub fn validate_run(&self, run: &Value) -> Result<()> {
@@ -410,17 +440,19 @@ impl CiBinding {
 
 impl SourceReceipt {
     pub fn validate(&self, repo: &Path, binding: &CiBinding, run: &Value) -> Result<()> {
+        ensure!(
+            self.version == 2,
+            "unsupported source receipt version: {}",
+            self.version
+        );
         binding.validate_run(run)?;
         oid(&self.source)?;
         oid(&self.tree)?;
-        sha256(&self.producer_sha256)?;
         sha256(&self.pack_sha256)?;
         ensure!(
-            self.version == 1
-                && self.repository == binding.repository
+            self.repository == binding.repository
                 && self.run_id == binding.run.to_string()
                 && self.run_attempt == binding.attempt.to_string()
-                && self.producer_sha256 == binding.recipe_sha256
                 && Some(self.event.as_str()) == run["event"].as_str()
                 && self.pack_bytes > 0
                 && self.pack_bytes <= 128 * 1024 * 1024,
@@ -441,17 +473,21 @@ impl SourceReceipt {
             tree(repo, &self.source)? == self.tree,
             "retained source/tree mismatch"
         );
-        let recipe = git(
+        let pin = git(
             repo,
             &[
                 "show",
-                &format!("{}:scripts/ci-evidence-source", self.source),
+                &format!("{}:.mergemaster/tool-pin.json", self.source),
             ],
             None,
         )?;
         ensure!(
-            hex::encode(Sha256::digest(recipe)) == binding.recipe_sha256,
-            "retained source producer differs from the operator's pinned recipe"
+            hex::encode(Sha256::digest(&pin)) == binding.tool_pin_sha256,
+            "retained source tool pin differs from the operator's pinned tool pin"
+        );
+        ensure!(
+            super::source::parse_tool_pin(&pin)? == self.tool,
+            "source receipt tool identity differs from retained source tool pin"
         );
         let prefix = format!("github:{}#", binding.repository);
         match self.event.as_str() {

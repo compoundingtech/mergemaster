@@ -12,9 +12,9 @@ module=ast.parse(Path(sys.argv[1]).read_text()); names={'git','config_path','con
 selected=[n for n in module.body if isinstance(n,ast.FunctionDef) and n.name in names]
 for node in selected:
  if node.name=='crate_keys':
-  # Observe real selection after verifier.write_bytes, before subprocess.run.
+  # Observe accepted input selection before invoking the pinned binary.
   stop=next(i for i,n in enumerate(node.body) if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='done' for t in n.targets))
-  node.body=node.body[:stop]+ast.parse("return {'tool':list(tool.read_bytes()),'verifier':list(verifier.read_bytes()),'inputs_from':inputs_at}").body
+  node.body=node.body[:stop]+ast.parse("return {'inputs_from':inputs_at}").body
 exec(compile(ast.fix_missing_locations(ast.Module(body=selected,type_ignores=[])),'oracle','exec'))
 RUST_TEST_KEYS='scripts/rust-test-keys'; RUST_TEST_INPUTS='rust-test-inputs.json'
 def run(*args): return subprocess.check_output(['git',*args],stderr=subprocess.PIPE).decode().strip()
@@ -72,16 +72,12 @@ print(json.dumps(cases))
             base: case["base"].as_str().unwrap(),
         };
         let mut calls = 0;
-        let actual = match source.resolve(
-            Path::new(case["candidate"].as_str().unwrap()),
-            "candidate-tree",
-            || {
-                calls += 1;
-                Ok(case["judged"].as_bool().unwrap())
-            },
-        ) {
+        let actual = match source.resolve("candidate-tree", || {
+            calls += 1;
+            Ok(case["judged"].as_bool().unwrap())
+        }) {
             Ok(selected) => {
-                json!({"ok":{"tool":selected.tool,"verifier":selected.verifier,"inputs_from":selected.inputs_from}})
+                json!({"ok":{"inputs_from":selected.inputs_from}})
             }
             Err(error) => {
                 let class = match error.origin {
@@ -127,7 +123,7 @@ assert sys.version_info[:3]==(3,14,7)
 assert sys.flags.isolated and sys.flags.optimize==0
 cases=[]
 for path in sys.argv[1:]:
- try: subprocess.run(['git','ls-tree','--full-tree','-z','base','--','scripts/rust-test-keys'],cwd=path,capture_output=True)
+ try: subprocess.run(['git','ls-tree','--full-tree','-z','base','--','.fractal/rust-test-inputs.json'],cwd=path,capture_output=True)
  except OSError as error: cases.append({'class':type(error).__name__,'detail':str(error)})
  else: raise AssertionError('invalid cwd accepted')
 print(json.dumps(cases))
@@ -147,7 +143,7 @@ print(json.dumps(cases))
     for (repo, expected) in [&missing, &file].into_iter().zip(cases) {
         let source = AcceptedSource { repo, base: "base" };
         let error = source
-            .resolve(root.path(), "candidate", || panic!("cwd must fail first"))
+            .resolve("candidate", || panic!("cwd must fail first"))
             .err()
             .unwrap();
         let crate::evidence::legacy_policy::ErrorOrigin::Exception { class } = error.origin else {

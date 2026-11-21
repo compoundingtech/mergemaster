@@ -78,14 +78,83 @@ configuration under `~/.config/st`. It prints only the allowed-signers enrollmen
 line on stdout; diagnostics go to stderr. Submit that line to `.st/evidence-keys`
 by pull request. Repeating the same invocation preserves the key and configuration;
 conflicting configuration, unsafe ownership/modes and symlink targets are refused.
-The native command requires Git and OpenSSH, not Python. `scripts/evidence-keygen`
-remains unchanged for existing script consumers and as an independent parity oracle;
-it does not require an installed native binary.
+The native command requires Git and OpenSSH, not Python. The legacy keygen
+entrypoints have been removed. Rust integration tests own every former keygen
+self-test and native-parity assertion, running the same cases against the
+independent pinned Python oracle (never a working-tree Python implementation).
+They also check cross-implementation reuse without changing bytes, modes or
+timestamps. Run `nix develop -c cargo test -p mergemaster-evidence --test keygen`
+(non-root).
 
-The focused parity check loads `scripts/evidence-keygen` and every assertion in
-`scripts/evidence-keygen-test` from `MERGEMASTER_PYTHON_ORACLE`, not the working tree,
-and tests both implementations plus cross-implementation reuse and refusal cases:
-`nix develop -c cargo test -p mergemaster-evidence --test keygen` (non-root).
+Frozen host/agent provisioning and reuse recordings use a public test-only key
+in `tests/fixtures/oracle/keygen.json`; `tests/oracle_corpus.py` replays them
+independently. Retained copied self-tests are discovered from this checkout so
+removed leaves cannot silently return from the oracle fixture.
+
+## Local runner timing reports
+
+`mergemaster evidence runner-report [RUNS.jsonl ...] --markdown` reads local
+runner timing records. With no file it reads `ST_TEST_RUNS`, or
+`${XDG_STATE_HOME:-~/.local/state}/st-test/runs.jsonl` (the state directory must
+be absolute). `--hours` (default 24) or `--since` selects the window ending now.
+Only completed full warm runs count toward the nearest-rank p90 objective
+(`--slo-s 720`) and single-run maximum (`--max-s 900`). Candidates stay separate;
+wait statistics include excluded runs. Omit `--markdown` for JSON.
+An unreadable file exits 1; invalid arguments exit 2. A timing breach is data,
+not a failed command. The native command neither writes records nor runs checks.
+Frozen recordings replay every former self-test scenario against the independent
+pinned Python implementation; native assertions live in `tests/runner_report.rs`
+inside the evidence crate.
+Edge-case recordings also pin ISO timestamp parsing, exact-binary decimal
+rounding, first-seen stage/check ties, Unicode JSON escaping and argument errors.
+The native `--slo-s` and `--max-s` intentionally use signed 64-bit integers.
+Values outside that range exit 2 with an invalid-int error, instead of accepting
+Python's unbounded integers. A pinned recording preserves Python's successful
+`--slo-s 9223372036854775808` result; a separate native assertion pins the refusal.
+
+### Advisory pre-signing notice
+
+`mergemaster evidence presign-notice` replaces the Python notice adapter and its
+self-test. It reads `LINES`, `BASE_SHA`, `REPOSITORY`, `PR_NUMBER`, `GH_TOKEN`
+and `GITHUB_STEP_SUMMARY`, retaining the decision record, annotation and appended
+summary bytes. Unreadable evidence produces no unsupported notice; the command
+always succeeds and never controls a gate. Git reads the accepted base's lane
+definitions and `gh api` reads the pull request's changed paths.
+
+Consumer adapters provision the accepted base's pinned, SHA-256-checked release
+and verify its GitHub attestation before running the native command. Missing pins,
+unavailable releases and older releases without this command retain the advisory
+fallback. Provisioning explicitly errors on runners other than x86_64 instead of
+silently substituting that fallback for an incompatible release asset.
+Rust tests own the former self-test assertions; frozen independent Python
+recordings are replayed by `tests/oracle_corpus.py`.
+
+## Evidence gate SLO counters
+
+```sh
+mergemaster evidence slo --repository OWNER/NAME --hours 24 --json
+```
+
+This native, read-only command reports completed `Workspace CI` evidence-gate
+decisions by check and event, including skipped/shadow satisfaction, producer
+splits and produced-but-not-verified reasons (target zero). `--since` and `--until`
+accept ISO timestamps; `--max-logs` bounds log downloads (default 300). It requires
+authenticated `gh`, not Python, and never starts runs or writes to GitHub.
+
+`scripts/ci-evidence-slo` and its self-test are removed. Every former self-test
+assertion now lives in `crates/mergemaster-evidence/tests/slo.rs`. The focused check
+is `nix develop -c cargo test -p mergemaster-evidence --test slo`. Frozen CLI
+recordings in `tests/fixtures/oracle/slo.json` are compared byte-for-byte against
+the immutable `MERGEMASTER_PYTHON_ORACLE` source with pinned CPython 3.14.7 and the
+native command, both in that integration test and `tests/oracle_corpus.py`.
+
+Timestamp parsing follows pinned Python `datetime.fromisoformat`, including
+basic/week dates, reduced-precision clocks and naive intervals. Mixing naive
+and timezone-aware bounds exits 1 with the Python `TypeError` message; intentionally,
+Rust omits the Python crash traceback. Only that frozen case compares the message
+substring instead of exact stderr. A nonzero `gh` log-download exit remains
+tolerated, but deadline, spawn and read errors fail the command rather than
+silently counting an unknown producer.
 
 ## Copied evidence scripts
 
@@ -99,6 +168,30 @@ kernel-verified gate-slot memory caps without moving the check out of its
 admitted scope; build and seat-lane caps still require memory and CPU limits.
 The accompanying systemd service and timer files are shipped as source only:
 the flake does not install, enable or run them.
+
+`mergemaster evidence log-watch` replaces the Python watcher. It fetches the
+published `refs/evidence-log/main`, persists `watch.json` compatibly, and invokes
+the JSON `--notify` argv on stalls, hourly reminders and recovery. Exit codes
+remain 0 current, 1 stalled, 2 usage, 3 notification failure. The source-only
+`evidence-log-watch.service` now invokes `%h/.local/bin/mergemaster`; operators
+installing that unit must install the native binary there. No deployment in this
+repository installs these units. The timer and notification configuration are unchanged.
+Invalid timestamps fail the run instead of generating an empty notification date.
+Persisted state uses Python JSON semantics, including non-finite numbers and
+arbitrary-width integers. Unknown fields, insertion order and lone surrogates
+survive write-back; numeric errors leave the original state untouched. Timestamp
+formatting rounds half-even to microseconds before choosing the displayed second.
+`tests/fixtures/oracle/log-watch-state.json` freezes numeric-edge and write-back
+observations against pinned Python, including negative-time rounding boundaries.
+State files are decoded as UTF-8 text without UTF-16/32 byte sniffing; a UTF-8 BOM
+is invalid JSON and resets the state, matching pinned Python's text-mode load.
+Bounded divergence: native state loading allows at most 256 container levels
+(including the root object). Deeper input exits 1 without notification or saving,
+rather than depending on Python's platform-dependent recursion/stack ceiling.
+Repository initialization has no deadline; fetches and notifications retain their
+120-second deadlines.
+Frozen transition recordings and native/independent pinned Python differential
+coverage run with `cargo test -p mergemaster-evidence --lib --test log_watch log_watch`.
 
 The pool runner preserves Fractal's two-hour queue aging and free-tree waiter
 liveness rules. Kept cargo targets are tagged on creation and emptied above
@@ -128,11 +221,11 @@ nix develop -c bash scripts/test-scripts
 bash scripts/test-scripts
 ```
 
-`scripts/test-scripts` discovers every copied `scripts/*-test` self-test from
-`MERGEMASTER_PYTHON_ORACLE`, including `evidence-verify-test`; `st-test` and
-`fractal-test` are production entrypoints, not self-tests. Fixture-only tests are
-not added to the suite. The oracle variable is required; there is no working-tree
-script fallback.
+`scripts/test-scripts` discovers retained working-tree `scripts/*-test` self-tests;
+removed tests, including `evidence-verify-test`, do not re-enter from the oracle.
+`st-test` and `fractal-test` are production entrypoints, not self-tests.
+Fixture-only tests are not added to the suite. Pinned oracle variables remain
+required for differential comparisons; repository copies are never oracles.
 The runner creates a temporary Git repository using the immutable non-flake
 `fractal-fixture` input, then overlays the small intentional fixtures under
 `tests/fixtures/fractal/` and the immutable oracle scripts. The input supplies
@@ -219,7 +312,6 @@ release tag in a source comment.
 
 ```ts
 import { evidenceGateJobs, evidenceSourceJob } from './repos/mergemaster/genie/evidence.ts'
-import { readFileSync } from 'node:fs'
 
 const actions = {
   checkout: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1', // v7.0.1
@@ -228,19 +320,58 @@ const actions = {
 }
 const jobs = {
   ...evidenceGateJobs({ checks: ['linux-gate'], actions }),
-  'evidence-source': evidenceSourceJob(
-    readFileSync(new URL('./repos/mergemaster/scripts/ci-evidence-source', import.meta.url), 'utf8'),
-    actions,
-  ),
+  'evidence-source': evidenceSourceJob(actions),
 }
 ```
 
-Source retention embeds the real `scripts/ci-evidence-source` producer when
-generating YAML, never a separately maintained copy. Signing fragments take
-the consumer's full-history checkout steps, signing environment, check names,
-and lane-specific web-note environment. `configDir` and `legacyConfigDir`
-default to `.fractal` and `.st`; the accepted base decides which key file exists.
-Script command names and record formats remain unchanged.
+Source retention fetches the accepted BASE and provisions its
+`.mergemaster/tool-pin.json` release, verifies the binary digest and GitHub
+release attestation, then runs `"$MERGEMASTER" evidence source`. It never embeds
+or executes a Python producer, builds a candidate tool, or silently falls back.
+For pull requests, BASE follows the gate's checked-out merge first parent when
+its second parent matches the event's PR head; otherwise it uses the event base.
+Merge groups use `merge_group.base_sha`; main-branch manual dispatches use
+`github.sha`. Unsupported events fail without provisioning. The producer reads
+this exported `BASE_SHA` and hashes its running executable through `/proc/self/exe`.
+The informational job retains its existing names, `continue-on-error`, and
+`ci-evidence-source-${{ github.run_attempt }}` upload containing exactly
+`source.pack` and `receipt.json` under `${{ runner.temp }}/ci-evidence-source/`.
+
+The event file follows the pinned Python `json.loads(bytes)` boundary, including
+UTF-8 BOM and UTF-16/32 detection, non-finite numbers, and lone-surrogate escapes.
+Unused event text is not copied into receipts; event-derived identities contain
+only validated ASCII queue digits or arbitrary-precision positive PR integers.
+
+The source receipt is version 2. Its `tool` identity is
+`{repository, revision, release_version, binary_sha256}`, matching BASE's pin;
+the executable hash must equal the pinned release digest. The pin is version 1,
+for `compoundingtech/mergemaster`, with a lowercase 40-hex revision, `vN.N.N`
+release version and lowercase 64-hex release SHA-256; additional pin fields are
+tolerated. Operator-owned CI binding configuration uses `tool_pin_sha256`, the
+SHA-256 of the **raw pin bytes**, instead of `recipe_sha256`. Whitespace changes
+therefore change the binding. Version-1 source receipts are unsupported, not
+converted or accepted through a legacy arm. Source retention is provenance,
+not proof that checks passed or authorization for full trust.
+
+`binary_sha256` is measured from `/proc/self/exe` inside the accepted workflow.
+It is only as trustworthy as that workflow and its runner: matching tool
+identity is not proof that the tool executed.
+
+#### Source-receipt operator rollout and rotation
+
+Roll out these four values together: the new `.mergemaster/tool-pin.json`,
+the operator's raw-byte `tool_pin_sha256`, the operator's `accepted_base`,
+and the fleet workflow's operator `workflow_sha256`. Nothing updates these
+values together automatically. Every mismatch fails closed: full eligibility
+is lost (and receipt validation can fail before eligibility is considered).
+Publishing a new release does not revoke the old pin; only changing the
+operator configuration revokes its acceptance.
+
+Signing fragments take the consumer's full-history checkout steps, signing
+environment, check names, and lane-specific web-note environment. `configDir`
+and `legacyConfigDir` default to `.fractal` and `.st`; the accepted base decides
+which key file exists. Signing script command names and record formats remain
+unchanged.
 
 The gate fetches its executable from the accepted BASE revision, including
 the original pull-request merge-parent selection. Signers archive BASE's
@@ -263,10 +394,14 @@ inputs.mergemaster.inputs.nixpkgs.follows = "nixpkgs";
 Run `nix develop -c python3 tests/test-workflow-adapters.py` for the strict
 TypeScript check and golden test. It renders both the unmodified pinned
 `fractal-fixture` generators and the public fragments with Fractal's original
-settings through the same real pinned effect-utils generator, requiring
-byte-identical output. It also compares every fleet evidence job and the
+settings through the same real pinned effect-utils generator. The native notice
+and source cutovers have explicit migration assertions; all other output must
+remain byte-identical. It also compares every fleet evidence job and the
 complete observer and signed-tree workflows against the committed fixture
-YAML. The shell supplies `oxfmt`, which genie invokes after serialization;
+YAML, allowing only those asserted cutovers. Provisioning cases cover malformed
+pins, transport/attestation/digest failures, executable dispatch and accepted-base
+selection; source failures remain failures, while notices retain their fallback.
+The shell supplies `oxfmt`, which genie invokes after serialization;
 without it genie silently emits unformatted YAML. The test retains the
 consumer's queue/cache/sandbox wrappers. Original fixture action tags are
 used only to prove unchanged output; this repository's hosted workflow uses
@@ -527,6 +662,154 @@ use lowercase booleans and an empty `record` for JSON null. This native protocol
 is not the legacy `evidence-verify` document consumed by Fractal's
 `ci-evidence-gate` (`satisfied`, `tier`, policy/trust/matching fields).
 
+**Producer digest binding to a BASE manifest (phase 1, report-only).**
+The native gate optionally reads `.mergemaster/producers.json` from
+accepted BASE, never HEAD or the checkout. It is separate from `tool-pin.json`,
+which identifies the verifier release. For example:
+
+```json
+{
+  "version": 1,
+  "producers": [{
+    "system": "x86_64-linux",
+    "flavor": "nix",
+    "executable_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "provenance": {
+      "mergemaster_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "package": "packages.x86_64-linux.default",
+      "nix_output_path": "/nix/store/00000000000000000000000000000000-mergemaster"
+    }
+  }]
+}
+```
+
+Version must be 1; producers must be nonempty. Systems are `x86_64-linux`,
+`aarch64-linux`, `x86_64-darwin`, or `aarch64-darwin`; flavor is `nix` or `release`.
+Executable digests require 64 lowercase hex characters; revisions require 40
+hex characters; package names must be nonempty. `nix_output_path` is optional
+and, when present, names a top-level Nix store output. Unknown fields and
+duplicate `(system, flavor, executable_sha256)` entries are errors.
+Provenance is informational for reviewers reproducing an entry. Matching only
+compares `executable_sha256` to the signed `wrapper_sha256`, plus the signed
+`system` when present; it does not evaluate Nix or compare build flavor.
+
+For a selected note, native decision JSON reports `producer_digest` as `listed`,
+`unlisted`, `no_manifest` (no BASE manifest), or `not_applicable` (the fact kind
+is not subject to wrapper digest binding); it is null when no note was selected.
+This phase changes neither note selection nor satisfaction, refusal, or signing
+authorization: unlisted digests and absent manifests are report-only. Malformed
+BASE manifests fail closed in the gate and in the wrap and sign paths, which
+share configuration loading, just like malformed tool pins. The gate returns a
+nonzero error with no decision or GitHub outputs. A bad manifest on main stops
+evidence production until it is fixed. A HEAD-only manifest is ignored as
+authority; existing protected-edit rules still apply to adding or changing it.
+
+### Measuring producer manifests
+
+`mergemaster producers measure` writes a version-one manifest, not a status
+wrapper. Build the package separately, then measure its executable without
+executing it or invoking Nix:
+
+```sh
+mergemaster producers measure --nix-package "$out" --system x86_64-linux \
+  --mergemaster-revision "$revision" \
+  --package inputs.mergemaster.packages.x86_64-linux.default > nix-entry.json
+mergemaster producers measure --release-asset ./mergemaster-linux \
+  --sha256sums ./SHA256SUMS --asset-name mergemaster-linux \
+  --system x86_64-linux --mergemaster-revision "$revision" > release-entry.json
+mergemaster producers measure --merge nix-entry.json release-entry.json \
+  --check .mergemaster/producers.json
+```
+
+The workflow derives the full revision from the resolved input and verifies
+release attestations (`gh attestation verify`) before measurement; this command
+only checks release checksums. SHA256SUMS requires lowercase hex digests and
+GNU separators (two spaces, or space plus `*`); malformed or duplicate lines,
+missing assets, and mismatches refuse. Asset names match case-sensitively.
+Nix outputs must be top-level `/nix/store` paths; the output root, `bin`
+directory, and regular `bin/mergemaster` file must not be symlinks.
+Release assets must also be regular files, not symlinks.
+Output is compact UTF-8 JSON with lexicographic object keys, lowercase hex,
+producers sorted by `(system, flavor, executable_sha256)`, omitted absent
+optional fields, and one trailing LF. Duplicate entries refuse. `--check`
+requires byte equality, including the final LF; drift exits nonzero.
+`--merge` builds the manifest only from the supplied inputs; it never reads
+entries from the committed manifest. Replacing `producers.json` with that output
+drops entries not supplied, and `--check` refuses the resulting drift.
+
+#### Reusable producer workflow
+
+Call `compoundingtech/mergemaster/.github/workflows/producers.yml` at a reviewed
+full commit SHA. Its required string inputs are `repository` (`owner/name`),
+`commit` (the exact 40-character lowercase consumer SHA), `flavor` (`nix` or
+`release`), and `mode` (`propose` or `check`). No secrets are accepted.
+For a same-repository PR, pass `github.event.pull_request.head.sha`; for forks,
+pass its head repository as well. The consumer must be publicly readable.
+
+The calling job grants `contents: read` and `id-token: write`; release callers
+also grant `attestations: read`. Only the identity job requests OIDC, solely to
+read GitHub's `job_workflow_sha` claim: `github.workflow_sha` identifies the
+caller, not this reusable workflow. Every measuring/merging job checks out
+`compoundingtech/mergemaster` at that claim's exact SHA and builds its tool
+before evaluating consumer code. No consumer-supplied executable is run.
+All actions are full-SHA pinned, checkout credentials are not persisted, and
+the consumer is never checked out in the OIDC-enabled job.
+
+For `nix`, four separate fresh hosted jobs build the exact consumer expression
+`(builtins.getFlake "git+file://<checkout>?rev=<commit>").inputs.mergemaster.packages.<system>.default`:
+two `ubuntu-24.04` runners for `x86_64-linux`, and two
+`ubuntu-24.04-arm` runners for `aarch64-linux`. The revision is evaluated from
+the resolved input's `.rev`, preserving consumer input overrides.
+Evaluation is pure, refuses lock updates and import-from-derivation, and ignores
+consumer flake configuration; builds require sandboxing and disable remote
+builders. Dependencies may be substituted.
+
+Each job first realizes the target (possibly from cache), verifies the output
+exists, then requires a successful local `nix build --rebuild` of the same
+expression. The [Nix manual](https://nix.dev/manual/nix/2.28/command-ref/new-cli/nix3-build.html#opt-rebuild)
+defines this as rebuilding an already built package and comparing against its
+existing store paths. `--rebuild` re-executes only the top-level derivation;
+dependencies may be substituted. This proves top-level build reproducibility,
+not reproducibility of the full dependency closure. The prerequisite for
+`--rebuild` is explicit: retrieving a cached target alone cannot pass, and a
+rebuild or comparison failure stops measurement. This is deliberately stricter
+than comparing only the executable: differences elsewhere in the output also fail.
+The final `producers/reproducible` job requires byte-identical canonical entries
+and derivation/output provenance between the two runners for each system,
+then merges one entry per system. Per-run build identity remains in the
+`producer-nix-<system>-<replica>` artifacts, not in the manifest.
+
+For `release`, the workflow reads the exact consumer commit's
+`.mergemaster/tool-pin.json`, downloads both Linux musl executables and
+`SHA256SUMS`, and verifies all three with `gh attestation verify` against
+`compoundingtech/mergemaster/.github/workflows/release.yml`, the pin's full
+source/signer revision, and its release tag. It also checks the pinned x86_64
+digest and strictly verifies each asset against the authenticated checksums
+before measurement. Release verification authenticates published bytes; it
+does **not** prove independent source-build reproducibility.
+
+Both modes upload the canonical `producers.json` as the `producer-manifest`
+artifact. `check` additionally requires byte equality with the manifest stored
+at the specified consumer commit; missing manifests and drift fail.
+The final gate fails if any required measurement job fails or is skipped.
+Neither mode publishes commits, opens PRs, nor changes consumer authority.
+
+The consumer's drift check should call this workflow in `check` mode only when
+a change touches the mergemaster flake input, `flake.lock`,
+`.mergemaster/tool-pin.json`, or `.mergemaster/producers.json`; otherwise it
+reports **not applicable**. The double build happens only on that path.
+Detecting an input edit in the root `flake.nix` may conservatively trigger on
+the whole file. Proposal generation is a separate consumer-owned invocation.
+
+This repository's hosted workflows are authored YAML: `genie/` exports
+consumer fragments, and the only `.genie.ts` workflow source is a test fixture,
+not a renderer for `.github/workflows/`. Accordingly `producers.yml` is authored
+alongside the existing workflows, not added to an unrelated consumer generator.
+Hosted execution is required to establish real runner reproducibility and
+release-attestation availability. Consumers using import-from-derivation are
+unsupported; Darwin/other producer coverage and explicit exception policy
+remain outside this two-Linux-system workflow.
+
 The library's `evidence::legacy_policy` schema helpers are separate from native
 lane authorization. Command/input helpers preserve raw commands and bindings;
 base-input helpers validate declarations without reading files. They do not
@@ -578,22 +861,34 @@ metadata divergence, original expression identity and owned 60-second deadline.
 these complete paths, preserving stdout/stderr, exit status and final JSON LF.
 It never calls `AcceptedSource` or `json_bytes::parse`; their outstanding #280
 resource/security prerequisites remain open but unreachable, not silently satisfied.
-The unported `ci_inputs_unchanged`/`unresolved_ci_inputs` helpers have no callable
-CLI route; helper-name options and positional requests fail closed as unknown arguments.
+`mergemaster legacy-evidence-verify-helper` exposes the verifier's gate, policy,
+lane, statement and signature operations without loading Python modules.
 
-The local `scripts/ci-evidence-gate` invokes this binary entry for ordinary
-verification and both input/member projections. Its trusted workflow/runner must
-provision a pinned `mergemaster` on PATH or set `MERGEMASTER_BIN` to its absolute
-path, outside the candidate checkout. Missing binaries fail toward running;
-there is no Python fallback. BASE still supplies policy, keys, lanes and the
-legacy capability markers/helper-presence guards. The decision line's
-`verifier_sha256` remains the BASE Python capability-source digest, not a binary
-attestation; the runner owns the binary pin.
+The local `scripts/ci-evidence-gate` uses the provisioned `mergemaster` binary
+for verification, helpers and crate keys; BASE still supplies policy, keys,
+lanes and inputs. Only the measured binary digest binds binary identity to BASE
+`.mergemaster/tool-pin.json` (repository and compiled release version must also
+match); the pin's revision is provenance and is not checked against the binary.
+The generated workflow's `provisionEvidenceTool` (`genie/evidence.ts`) checks
+the release binary against BASE's pinned SHA-256 and runs `gh attestation verify`
+before setting `MERGEMASTER_BIN`.
+The gate and binary inherit the workflow's Git environment (`GIT_DIR` and similar),
+like every other gate Git call; this is trusted workflow configuration, not
+candidate input. The decision line's `verifier_sha256` is the validated binary
+digest, and `tool_pin_sha256` hashes the raw BASE pin.
 
-Python is not yet removable: the gate's `ci_inputs_kept` still imports the BASE
-verifier for the unported `ci_inputs_unchanged` helper. Other copied consumers and
-the pinned differential oracle also still use Python. This local gate patch is
-not a claim that Fractal's deployed workflow has switched binaries.
+An accepted base without `.mergemaster/tool-pin.json`, or whose pin does not
+match the running binary, makes this local gate report `unavailable`: CI runs
+in full. The base's `scripts/evidence-verify` no longer stands in for the pin;
+there is no Python fallback.
+`scripts/evidence-verify`, its self-test and the committed `rust-test-keys`
+fixture are removed; differential tests use only independent pinned oracles.
+This caller cutover does not claim that Fractal's deployed workflow has switched.
+
+Documented wave-2 divergences: `legacy-rust-test-keys --verifier` is refused;
+Python traceback frames are omitted, and evidence-log reports a refusal instead
+of a traceback. GC always computes crate keys when accepted inputs exist, and
+helper JSON nesting is limited to 256 containers.
 
 The Linux O_PATH permission regression is explicitly ignored in the default
 libtest suite because root cannot exercise it. As a non-root account, run
@@ -899,8 +1194,44 @@ No process group or signal forwarding is added; terminal SIGINT stays inherited.
 A grandchild can outlive timeout and hold pipes, but cleanup does not wait for EOF.
 Intentional no-deadline exceptions preserve Python parity: parity-drift's reporter
 Git calls (pinned scripts/parity-drift:33-37), its native default-root lookup for
-tool consistency, and keygen's scratch Git init (scripts/evidence-keygen:55-56,135).
+tool consistency, and keygen's scratch Git init (independent pinned oracle
+`scripts/evidence-keygen:55-56,135`, not a working-tree executable).
 A deadline for those paths would need a separately approved divergence.
+
+`mergemaster evidence flip-ready [--repo OWNER/NAME] [--cache DIR]`
+evaluates the 24-hour skip trigger using finished Workspace CI decision lines.
+`--propose` retains the explicit write path (temporary worktree, policy/doc/test-list
+edits, release note, branch push and pull request); `--propose --dry-run` prints only
+the staged diff. Without `--propose`, GitHub access is read-only.
+`mergemaster evidence skip-report [--hours 24] [--actor LOGIN]... [--receipts FILE]...
+[--markdown]` explains skipped and executed checks, unsigned push attribution and
+release-surface job minutes. Both commands share retry, run paging and immutable
+job-log caching; `.fractal` configuration takes precedence over `.st` at the
+selected revision. They replace the removed Python flip-ready/skip-report leaves
+and self-tests; frozen independent-Python recordings live in
+`tests/fixtures/oracle/{flip-ready,skip-report}.json`.
+Zoned timestamps retain Python-compatible ISO forms and microsecond precision.
+All displayed timestamps ending in `Z`, including flip readiness window starts,
+are UTC. This deliberately corrects the removed Python tool's offset-wall-clock
+mislabel; duration arithmetic and window comparisons retain their UTC semantics.
+Completed nonzero probes may establish absence; capture timeouts, spawn failures
+and read failures instead abort. Published-log OS errors retain the observed-time
+fallback and their original diagnostics, but published-log timeouts do not.
+Operator-owned policy/configuration and receipt JSON use the lossless Python
+document reader, including arbitrary-size integers, nonfinite floats, escaped
+surrogates and insertion order. GitHub API JSON is instead schema-bound: GitHub
+emits RFC 8259 JSON without NaN/Infinity, UTF-8 strings without lone surrogates,
+and IDs/counts within the exact 53-bit integer range. Both commands validate
+consumed fields by endpoint and object kind before use; wrong types and
+out-of-range integers fail clearly rather than being narrowed or dropped.
+Unconsumed response metadata is not interpreted: PR labels may be objects,
+whereas release-job labels consumed for runner accounting must be strings.
+Long options retain argparse's unique-prefix resolution and ambiguity errors.
+Their shared parser preserves Python default types: the omitted `--hours` is
+integer `24`, while explicit `--hours 24` is float `24.0`; only string defaults
+undergo type conversion. Hours enter duration arithmetic, not report formatting,
+so these two invocations produce identical report windows and output.
+
 The protected CI fetch instead retains its existing external `timeout` wrapper:
 30 seconds with a 2-second kill-after, not a GitChild deadline. Direct Git fixture
 setup under tests is outside this production deadline inventory.
@@ -1162,7 +1493,7 @@ The native partition deliberately refuses newly representable non-UTF-8 signer
 paths as Failure/error `allowed signer path is not UTF-8`; this approved
 native-only fail-closed divergence preserves the native signature API.
 Member/explicit allowance and member-project policy-base carriers retain original
-`TextRef` codepoints through bare rust-test-keys reads and inherited verifier
+`TextRef` codepoints through native crate-key reads and inherited verifier
 reads, preserving surrogateescape argv, original source identities and exception
 offsets. Repository NUL validation precedes later revision conversion.
 Lane discovery uses the gate's sanitized Git command and rejects malformed or
@@ -1238,14 +1569,14 @@ discarded while strict decoding continues. Python splitlines boundaries and
 Git-failure-before-decode precedence are preserved. Only distinct matching IDs
 are accumulated; a 64 MiB + 1 malformed record is accepted/ignored like Python.
 The shared nonblocking collector also has an explicit no-timeout entry for
-rust-test-keys source reads. Source overflow cancels/reaps the direct child
+`legacy-rust-test-keys` source reads. Source overflow cancels/reaps the direct child
 without waiting for EOF from descendants holding inherited pipe descriptors.
 `TreeSource::git` bounds workspace/configuration metadata stdout to 1 MiB,
 and configuration stderr to 1 MiB; overflow kills and reaps the child and
 returns Failure/error `{exact revision argument} exceeds 1048576 bytes`.
 This approved RawBlob resource divergence also applies to nonzero configuration
 stderr, never emitting a truncated diagnostic. Wildcard member stderr is ignored.
-These rust-test-keys reads retain inherited Git settings and no timeout.
+These native crate-key reads retain inherited Git settings and no timeout.
 CLI configuration lookup and standalone no-test allowance reads also use the
 approved 1 MiB RawBlob capture: exact revision for lookup metadata, exact
 `base:path` for allowance bytes, with their existing verifier Git transport.
@@ -1285,6 +1616,59 @@ and the JSON field writer, including lone-surrogate ISO date/time separators.
 Log readers preserve lossless check names through comparisons and filesystem
 surrogateescape argv encoding; invalid surrogates and NUL retain exact Python
 exception class, text and evaluation order.
+
+### Report-only queue binding
+
+`gate --event queue --base BASE --head LANDING_HEAD` reports evidence for the
+final landing tree; it never authorizes a live queue or protected-target write.
+The BASE lane must allow `"queue"` in `events`. Without `--member`, the head
+must be a two-parent merge with BASE as either parent; the other parent is the
+admitted member. Ordered repeatable `--member SHA` arguments instead bind an
+exact first-parent chain of two-parent merges back to BASE, each second parent
+equal to its declared member.
+
+A dotfiles-merge SERIAL round may regenerate projections after merging BASE
+into the admitted PR head. To allow **one** single-parent projection commit on
+top of that merge, opt in in BASE's `.mergemaster/lanes.json`:
+
+```json
+"queue": {"generated_paths": ["generated/projections/", "nix/buck2-products/product-revs/*.json"]}
+```
+
+This is **authority-bearing BASE policy**, not a candidate declaration. The
+nonempty list accepts two repository-relative forms: a literal complete
+path-component prefix with no `*`, or `PREFIX/*SUFFIX`. For the latter, PREFIX
+must be a valid literal prefix and SUFFIX must be nonempty and contain no `*`
+or `/`. The `*` matches one or more characters, **including `/`**, so nested
+product JSON files match `nix/buck2-products/product-revs/*.json`. Other `*`
+placements, `**`, `?` and `[` are refused at config load. Paths otherwise use
+the same validation as `protected_paths` and `bootstrap_paths`.
+
+Allowlist matching is case-sensitive and byte-exact. Configuration refuses
+overlap in either direction with implicit protected roots, `protected_paths`
+or `bootstrap_paths`, using NFKC/lowercase folding for this denylist comparison.
+For `PREFIX/*SUFFIX`, overlap checks conservatively use PREFIX. Every path
+changed between the merge and projection trees must match a declared entry;
+renames check both old and new paths, and deletes and mode
+changes count. Both sides of each change must be regular non-executable files
+(mode `100644`), or absent for additions/deletions (`000000`); executable-bit,
+symlink and submodule changes are refused, as are replacements of an allowed
+prefix's ancestor. The field does not bypass protected-path or evidence checks and
+does not prove that a producer actually generated the content.
+
+The projection parent must itself satisfy the no-member merge rule. More than
+one projection commit, an unbound parent, or a non-generated edit yields
+`source_unbound` with a diagnostic. Omission keeps merge-only binding; explicit
+`--member` batches remain merge-only even with this policy.
+
+Successful binding adds v1 `queue_binding: {base, members, tree}`. With a
+projection it additionally contains `projection: {commit, parent, paths}`,
+where `tree` is the **final landing head's tree**, `members` still names the
+admitted PR head, and `paths` lists the changed Git paths. Without a projection,
+that field is omitted and existing decision JSON bytes are unchanged.
+The report remains `report_only: true` and `decision: "refuse"`, even when
+evidence is satisfied. The caller must fence BASE before landing; when BASE
+has not moved, GitHub's final merge tree equals this bound landing tree.
 
 ### Main-push tree-equality evidence
 
@@ -1367,6 +1751,124 @@ authorized workflow's implementation. Reviewers must inspect such changes.
 
 ## Generic lane execution and signing
 
+`mergemaster evidence legacy-sign` is the separate cooperative **v1** signer.
+It reads the same single JSON request from stdin and
+`$HOME/.config/st/evidence-sign.json` (`signer`, `ssh_key`, `scratch_repo`,
+optional `path` and test-only `test_clock`) as `scripts/evidence-sign`.
+It returns `record`, `tier`, `tree`, `commit` and `object_pack_base64`;
+it does not publish refs or accept the v2 `--config` option.
+Intentional `legacy-sign` divergences from the pinned Python oracle:
+
+- The signed `producer_sha256` identifies the resolved running native executable,
+  not `scripts/evidence-sign`. All other statement encoding and pack/object
+  conventions remain v1.
+- Native signing first checks object completeness with `git rev-list --objects
+  --missing=print`, refusing missing objects before signing. The pinned Python
+  has no completeness preflight: an absent commit first fails at `git cat-file -t`.
+  Recorded requests naming an absent 40-character object therefore produce
+  `1 missing objects before signing; hydrate the source repository in the caller
+  first` natively versus `git cat-file failed:` in the oracle. Request spellings
+  that Git rejects as revisions instead produce `git rev-list failed:` natively.
+  This preflight matches the in-tree resynced `scripts/evidence-sign`
+  (`require_complete_commit`), not the pinned oracle.
+- Native signing reproduces Python's lone-surrogate escapes byte for byte, but
+  the native typed v1 verifier (`evidence verify`) refuses such statements
+  (fail-closed), whereas the removed Python `evidence-verify` accepted them.
+  Verifier parity for these statements remains a tracked follow-up (#425).
+- Missing configuration errors name the configuration path without Python's
+  `[Errno ...]` text. Malformed configuration types produce normalized
+  refusals instead of Python crash tracebacks.
+- Scratch `git init` has a 300-second deadline (Python has no init deadline).
+  A nonzero exit is reported as `git init failed: <status>` rather than Python's
+  `CalledProcessError` message; deadline failures use the native child-process
+  timeout diagnostic.
+- Request and configuration JSON have no nesting-depth limit. Python's decoder
+  raises `RecursionError` near the interpreter recursion limit; native decoding
+  can accept deeper values, including an over-nested earlier duplicate field
+  that a later shallow field overrides.
+- Request stdin must be strict UTF-8. Python's surrogateescape stdin can admit
+  raw non-UTF-8 bytes inside strings as lone `\udcXX` surrogates; native decoding
+  refuses those bytes. Escaped lone surrogates in valid UTF-8 remain supported.
+- If the account has no passwd entry, native emits the normalized refusal
+  `evidence-sign refused: Could not determine home directory.` instead of
+  Python's uncaught `RuntimeError` traceback; the message itself matches Python.
+- `ssh_key`, `scratch_repo` and a truthy configuration `path` must be plain
+  strings: Python accepts escaped lone surrogates `\udc80`–`\udcff` as raw
+  filesystem bytes via `os.fsencode` surrogateescape; native signing refuses them.
+
+The configuration, signing key and `scratch_repo` are trusted launcher state.
+Neither implementation checks the key's mode, owner or file type, or rejects
+scratch-repository symlinks. Scratch initialization runs Git without the `-c`
+hardening flags used for subsequent plumbing commands, just like the oracle.
+Empty `HOME` resolves to `/`; unset `HOME` uses the account database.
+Request and configuration JSON retain Python's non-finite numbers and lone-surrogate
+escapes, including `NaN`/`Infinity` check-key spelling, and its 4300-digit integer limit.
+
+`mergemaster evidence legacy-wrap` implements the cooperative v1 wrapper,
+separately from the v2 `evidence wrap` below. It accepts the legacy command,
+aggregate, input/input-file, lane, verification, artifact and publication flags.
+Commands stream their combined stdout/stderr unchanged; passing and failing runs
+produce legacy signed packs. `--out` writes the pack and summary without importing
+or publishing refs; otherwise note/tag and optional source-input indexes are
+created locally, with publication only when `--push REMOTE` is given.
+
+Without `--signer` or a nonempty `EVIDENCE_SIGNER`, the default argv is
+`["st","sekrets","--","mergemaster","evidence","legacy-sign"]`.
+This preserves the secret-manager boundary: the installed sekrets grant must name
+`mergemaster evidence legacy-sign`. That grant belongs to its external owner and
+is not provisioned here. Until it exists, the default fails closed as
+`evidence-wrap: the signer refused: <last 500 characters of sekrets stderr>`
+with exit 1; if `st` is absent, the exact refusal is
+`evidence-wrap: the signer 'st' is not on PATH`.
+Explicit `--signer` and `EVIDENCE_SIGNER` remain JSON argv overrides.
+
+Legacy failure semantics intentionally do **not** use v2's exit-75 infrastructure
+classes. Invalid CLI arguments exit 2. Missing/unavailable signers and explicit
+signer refusals exit 1 without publishing a new note. A completed command's own
+nonzero exit is signed and returned; if that child dies from signal N, its signed
+exit code is `-N` and the POSIX shell observes `256-N`, matching Python.
+An external signal terminating the wrapper itself stops it before signing any
+incomplete run (SIGINT shell status 130); native termination omits Python's
+`KeyboardInterrupt` traceback. A command that actually exits 75 still returns 75,
+but no `infra_unavailable` classification is added in legacy mode.
+
+Intentional `legacy-wrap` divergences from the pinned Python wrapper:
+`wrapper_sha256` measures the running native executable instead of the script,
+as `producer_sha256` does for the native signer. `--verifier` names the trusted
+native `mergemaster` binary (`MERGEMASTER_BIN`, otherwise PATH), using its legacy
+verification and lane-helper subcommands rather than importing Python.
+The native signer's completeness preflight described above also applies.
+Local verification is skipped when the literal verifier path does not exist:
+the summary records `verified=false` and a successful run still exits 0 unless
+`--push` was requested. Supply an existing absolute verifier path to enable it.
+- Each native lane-helper evaluation has a 300-second deadline; the pinned
+  Python imports and evaluates the lane without an overall helper deadline.
+- Aggregate JSON parsing and output encoding have no nesting-depth limit and
+  use iterative traversal. Python raises `RecursionError` at roughly 1,000
+  nested containers instead of accepting these deeper aggregate outputs.
+- Usage and help use a fixed 80-column layout, regardless of `COLUMNS` or
+  terminal width; Python's argparse derives its wrapping from that width.
+- Security divergence: `EVIDENCE_PUSH_TOKEN` and `EVIDENCE_SIGNER` are removed
+  from both the lane command and signer environments. Python forwards them.
+- Security divergence: every wrapper diagnostic redacts both the raw push token
+  and its base64 `x-access-token:TOKEN` form, including signer, verifier,
+  measurement and publication errors. Python only redacts the raw token in
+  final push failures.
+- Security divergence: BASE-derived verifier keys use an exclusively created
+  mode-0600 tempfile, removed after verification on success and every error path.
+  Python writes a predictable PID-based path and leaves it behind.
+
+**Legacy-wrap trust model:** apart from the two credential variables above, the
+caller's environment reaches the lane command. The signer also inherits caller
+state, except for the loader/Python-variable scrub, fixed PATH and those two
+credential removals; it is not an environment-isolated boundary. For publication
+parity, checkout/global Git transport configuration remains active, including
+`pushurl`, `insteadOf`, `includeIf`, `credential.helper`, `sshCommand` and
+`http.*`. A hostile checkout configuration can therefore redirect the authenticated
+push. This inherited transport trust boundary is tracked in #426.
+
+Existing callers and Python scripts remain unchanged until the separate cutover.
+
 `mergemaster evidence wrap` runs the exact BASE-declared command once, measures
 its inputs before and after execution, signs successes and failures, imports the
 immutable signed note and explicitly pushes its note ref to `origin`:
@@ -1378,6 +1880,34 @@ CONFIG="$HOME/.config/mergemaster/evidence-sign.json"
   --signer "[\"$MM\",\"evidence\",\"sign\",\"--config\",\"$CONFIG\"]" \
   -- tools/graph check --full
 ```
+
+The native v2 wrapper's exit-code contract is:
+
+- `0`: signed, published passing record.
+- The lane's own nonzero exit code: signed, published failing record (including
+  crash signals as `128 + signal`), except lane exit `75` maps to wrap exit `1`
+  while retaining `exit_code: 75` in the signed record.
+- `75`: temporary infrastructure unavailability. The first stderr line is
+  `mergemaster: infra_unavailable class=<token>`, followed by details.
+  Classes are `interrupted` (lane or Nix preparation received SIGHUP, SIGINT,
+  SIGKILL or SIGTERM), `signer_unavailable` (signer spawn, signal termination or
+  broken pipe), and `publish_failed` (origin push failure or timeout).
+- `1`: other errors or an explicit signer policy refusal. A lane's own exit `1`
+  still produces a signed failing record as above.
+
+Interrupted runs create neither output refs nor signed notes. SIGPIPE and crash
+signals remain lane failures: a broken pipeline can be a real defect, not
+external cancellation. Signer unavailability creates no usable signed note;
+publication failure occurs **after signing** and can leave an immutable local
+note ref (the remote may also have accepted a push before a timeout). Every retry
+runs the lane and signer again, with no partial-result reuse; a local ref left
+by publication is harmless and is updated if the same record recurs.
+
+Consumers should map `75` to their existing temporary not-run path, not to a
+failed check. Queues own bounded retries and parking/pausing; Mergemaster does
+neither. Wrap exit `75` always means infrastructure unavailability, never a
+completed lane's own exit status. This contract does not change the legacy
+wrapper.
 
 ### Signed repository identity
 
@@ -1707,6 +2237,10 @@ missing path in its summary. Candidate config never fills the gap. Invalid JSON,
 symlinks, directories and Git/object failures remain errors without a decision,
 not `config_missing`. A missing tool pin also prevents the workflow bootstrap
 from acquiring a verifier; that bootstrap failure is reported as incomplete.
+This native generic gate's `config_missing` contract is distinct from the local
+`scripts/ci-evidence-gate` adapter: a missing BASE tool pin or a pin that does
+not match its running binary makes that adapter report `unavailable` and run
+CI in full, never fall back to BASE `scripts/evidence-verify`.
 Required configuration is validated before expanding lane paths. Each load
 lists the BASE tree once for all lanes; candidate manifests batch blob reads and
 reuse content digests for overlapping inputs. An exact-tree record miss still

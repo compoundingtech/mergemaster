@@ -100,8 +100,8 @@ print(json.dumps(dict(records=cases,cache=cached)))
         let actual = read_with(
             transport,
             Path::new(case["repo"].as_str().unwrap()),
-            case["commit"].as_str().unwrap(),
-            tree,
+            OsStr::new(case["commit"].as_str().unwrap()),
+            tree.map(OsStr::new),
         );
         if matches!(transport, Transport::Native) {
             let name = case["name"].as_str().unwrap();

@@ -111,7 +111,7 @@ print(json.dumps(cases))
 }
 
 #[test]
-fn signed_tree_local_patch_uses_the_adjacent_python_verifier() {
+fn signed_tree_local_patch_preserves_binary_transport_bytes() {
     let scratch = tempfile::tempdir().unwrap();
     let local = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -119,29 +119,74 @@ fn signed_tree_local_patch_uses_the_adjacent_python_verifier() {
         .parent()
         .unwrap();
     let output = crate::pinned_python::command().args(["-c", r#"
-import json,os,pathlib,runpy,sys
+import json,os,pathlib,runpy,subprocess,sys
 consumer=pathlib.Path(sys.argv[1]);(consumer/'scripts').mkdir()
 (consumer/'scripts/evidence-verify').write_text("print('consumer-verifier-decoy')\n")
 os.chdir(consumer)
+binary=sys.argv[4]
+if not binary:
+ # Unit targets use the same real Rust adapter subprocess driver as cli_dispatch_tests.
+ driver=consumer/'adapter'
+ driver.write_text('#!'+sys.executable+'\n'+'''
+import json,os,pathlib,subprocess,sys,tempfile
+assert sys.argv.pop(1)=='legacy-evidence-verify'
+with tempfile.TemporaryDirectory() as directory:
+ root=pathlib.Path(directory)
+ (root/'argv').write_text(json.dumps([list(os.fsencode(arg)) for arg in sys.argv[1:]]))
+ done=subprocess.run([sys.argv[0]+'.test','--exact','evidence::legacy_verify::cli_adapter::tests::subprocess_driver','--nocapture'],
+                     env=dict(os.environ,MM_ADAPTER_DRIVER=directory),stdout=subprocess.DEVNULL)
+ sys.stdout.buffer.write((root/'stdout').read_bytes())
+ sys.stderr.buffer.write((root/'stderr').read_bytes())
+ sys.exit(done.returncode)
+''')
+ driver.chmod(0o700)
+ (consumer/'adapter.test').symlink_to(sys.argv[3])
+ binary=str(driver)
+os.environ['MERGEMASTER_BIN']=binary
+os.environ['NO_COLOR']='1'
+os.environ['COLUMNS']='80'
+module=runpy.run_path(str(pathlib.Path(sys.argv[2])/'scripts/ci-signed-tree'))
+assert module['VERIFIER']==binary
 observations=[]
-for label,root in [('upstream-python',os.environ['MERGEMASTER_PYTHON_ORACLE']),('local-python-patch',sys.argv[2])]:
- module=runpy.run_path(str(pathlib.Path(root)/'scripts/ci-signed-tree'))
- verifier=module['VERIFIER']
- result=module['run'](sys.executable,verifier,'--help')
- observations.append(dict(implementation=label,verifier=verifier,api_result=[list(v) if isinstance(v,bytes) else v for v in result]))
-print(json.dumps(observations))
-"#]).arg(scratch.path()).arg(local).output().unwrap();
+for argv in [['--help'],[os.fsdecode(b'--unknown-\xff')]]:
+ command=[binary,'legacy-evidence-verify',*argv]
+ direct=subprocess.run(command,capture_output=True)
+ launched=[]
+ original_run=subprocess.run
+ def record_launch(actual,*args,**kwargs):
+  launched.append([os.fsencode(arg) for arg in actual])
+  return original_run(actual,*args,**kwargs)
+ subprocess.run=record_launch
+ try:
+  transported=module['run_err'](*command)
+ finally:
+  subprocess.run=original_run
+ assert launched==[[os.fsencode(arg) for arg in command]],(command,launched)
+ assert transported==(direct.returncode,direct.stdout,direct.stderr),(argv,transported,direct)
+ assert direct.returncode==(0 if argv==['--help'] else 2),direct
+ observations.append(dict(argv=[list(os.fsencode(arg)) for arg in argv],
+                          launched_argv=[[list(arg) for arg in actual] for actual in launched],
+                          exit=transported[0],stdout=list(transported[1]),stderr=list(transported[2])))
+upstream=runpy.run_path(str(pathlib.Path(os.environ['MERGEMASTER_PYTHON_ORACLE'])/'scripts/ci-signed-tree'))
+previous=upstream['run_err'](sys.executable,upstream['VERIFIER'],'--help')
+assert previous[0]==0,previous
+print(json.dumps(dict(upstream=dict(exit=previous[0],stdout=list(previous[1]),stderr=list(previous[2])),
+                      binary=observations)))
+"#]).arg(scratch.path()).arg(local).arg(std::env::current_exe().unwrap())
+        .arg(option_env!("CARGO_BIN_EXE_mergemaster").unwrap_or("")).output().unwrap();
     assert!(
         output.status.success(),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let observations: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(observations[1]["api_result"][0], 0);
+    let observations: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(observations["binary"].as_array().unwrap().len(), 2);
+    assert_eq!(observations["binary"][0]["exit"], 0);
+    assert_eq!(observations["binary"][1]["exit"], 2);
     super::divergence_witnesses::capture_python_patch(
         "ci-signed-tree-sibling-verifier",
-        json!({"consumer_verifier":"print('consumer-verifier-decoy')","invocation":["python","VERIFIER","--help"],"boundary":"ci-signed-tree VERIFIER selection and run API"}),
-        observations[0].clone(),
-        observations[1].clone(),
+        json!({"consumer_verifier":"print('consumer-verifier-decoy')","invocation":["VERIFIER","legacy-evidence-verify"],"boundary":"ci-signed-tree run_err preserves binary exit/stdout/stderr bytes"}),
+        observations["upstream"].clone(),
+        observations["binary"].clone(),
     );
 }

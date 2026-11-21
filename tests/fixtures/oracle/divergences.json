@@ -25,7 +25,7 @@
         "case": "Intentional local divergence for external Fractal consumers (see mergemaster#141):"
       },
       "classification": "divergence",
-      "reason": "An intentional legacy local patch, comparing upstream Python with production Python; no equivalent Rust CI adapter entry exists yet.",
+      "reason": "The local Python adapter now selects the provisioned native verifier rather than upstream's adjacent Python verifier; its witness preserves actual argv and result-stream byte checks.",
       "cases": [
         "ci-signed-tree-sibling-verifier"
       ]
@@ -547,10 +547,10 @@
   "cases": [
     {
       "id": "ci-signed-tree-sibling-verifier",
-      "capture_test": "evidence::legacy_verify::transport_witness_tests::signed_tree_local_patch_uses_the_adjacent_python_verifier",
+      "capture_test": "evidence::legacy_verify::transport_witness_tests::signed_tree_local_patch_preserves_binary_transport_bytes",
       "capture_source": "crates/mergemaster-evidence/src/evidence/legacy_verify/transport_witness_tests.rs",
-      "contract_reference": "scripts/PROVENANCE:18@60c7af351fd1359c741978f6fb6a47b545767b1e",
-      "contract_text": "# Intentional local divergence for external Fractal consumers (see mergemaster#141):",
+      "contract_reference": "scripts/PROVENANCE:158@a7110439c2e6432b87958cf684d02cc1c3b7c0c9",
+      "contract_text": "# ci-signed-tree now uses the provisioned mergemaster binary while retaining the",
       "review_evidence": {
         "introducing_commit": "edfe89e28743cd38371028af9655dc3b5155be00",
         "mainline_landing_commit": "619d10238823a52e377aaecd7e8548d892ccb2a7",
@@ -559,8 +559,8 @@
         "pull_request": 161,
         "review_url": "https://github.com/compoundingtech/mergemaster/pull/161"
       },
-      "review_status": "accepted-main",
-      "review_request": null,
+      "review_status": "review-requested",
+      "review_request": "PR #414 changes the historical adjacent-Python selection contract to provisioned native-binary transport; the retained #161 review evidence covers only the historical patch.",
       "execution_status": "pending",
       "input": null,
       "python": null,

@@ -19,4 +19,5 @@ pub(crate) mod oracle_digest;
 pub mod parity_drift;
 #[cfg(test)]
 pub(crate) mod pinned_python;
+pub mod producers;
 mod product_dirs;

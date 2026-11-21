@@ -4,7 +4,7 @@
 Runs in the `Evidence observe` workflow on the signing runners, never on a pull request's
 code. It does not run any check: it asks the protected observer (`st3 evidence observe-ci`,
 behind a sekrets grant) to record what the run already did, imports the returned object
-pack into a scratch repository, verifies every full-trust record with scripts/evidence-verify
+pack into a scratch repository, verifies every full-trust record with the pinned Rust verifier
 against the accepted key list, and only then creates and pushes refs/tags/evidence/<tree>/<id> and, while gates on
 older bases read only notes, refs/notes/evidence/<tree>/<id> naming the same record.
 
@@ -114,7 +114,7 @@ def import_pack(repo, encoded):
 
 
 def verify_full(verifier, repo, tree, check, keys):
-    command = [sys.executable, verifier, '--repo', str(repo), '--tree', tree, '--check', check, *keys]
+    command = [verifier, 'legacy-evidence-verify', '--repo', str(repo), '--tree', tree, '--check', check, *keys]
     done = subprocess.run(command, capture_output=True, timeout=120)
     try:
         answer = json.loads(done.stdout)
@@ -391,7 +391,7 @@ def main(argv):
     parser.add_argument('--checkout', default='.', help='a checkout of the default branch holding .st/evidence-keys')
     parser.add_argument('--keys', help='allowed-signers file (default: --keys-from in --checkout)')
     parser.add_argument('--keys-from', default='HEAD', help='commit in --checkout holding .st/evidence-keys')
-    parser.add_argument('--verifier', default=str(Path(__file__).resolve().parent / 'evidence-verify'))
+    parser.add_argument('--verifier', default=os.environ.get('MERGEMASTER_BIN', 'mergemaster'), help='pinned mergemaster binary')
     parser.add_argument('--state-dir', default=os.environ.get('EVIDENCE_OBSERVE_STATE')
                         or str(Path(os.environ.get('XDG_STATE_HOME') or Path.home() / '.local/state') / 'evidence-observe'),
                         help='scratch repository and the list of runs already observed')

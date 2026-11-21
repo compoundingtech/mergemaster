@@ -163,6 +163,29 @@ pub(super) fn project_with_fetch(
     paths: &[NormalizedText],
     no_lazy_fetch: bool,
 ) -> Result<Option<String>, PolicyError> {
+    project_with_selection(repo, tree, paths, no_lazy_fetch, Selection::Verifier)
+}
+/// Import helpers use Python's canonical selected bytes, not verifier-only
+/// conservative JSON refusals. Index construction and Git hashing stay shared.
+pub(super) fn project_for_helper(
+    repo: &Path,
+    tree: &str,
+    paths: &[NormalizedText],
+) -> Result<Option<String>, PolicyError> {
+    project_with_selection(repo, tree, paths, false, Selection::Helper)
+}
+#[derive(Clone, Copy)]
+enum Selection {
+    Verifier,
+    Helper,
+}
+fn project_with_selection(
+    repo: &Path,
+    tree: &str,
+    paths: &[NormalizedText],
+    no_lazy_fetch: bool,
+    selection: Selection,
+) -> Result<Option<String>, PolicyError> {
     let read = |args: &[&OsStr], limit| {
         input_git_with_fetch(
             repo,
@@ -251,7 +274,19 @@ pub(super) fn project_with_fetch(
         index_bytes.push(0);
     }
     for item in chosen {
-        if let Some(bytes) = selected_content_with(repo, tree, &item, 16 * 1024 * 1024, read)? {
+        let bytes = match selection {
+            Selection::Verifier => {
+                selected_content_with(repo, tree, &item, 16 * 1024 * 1024, read)?
+            }
+            Selection::Helper => {
+                let (path, selector) = item
+                    .borrowed()
+                    .split_once("::")
+                    .unwrap_or((item.borrowed(), super::value_inputs::TextRef::Str("")));
+                super::helper_selection::selected_content(repo, OsStr::new(tree), path, selector)?
+            }
+        };
+        if let Some(bytes) = bytes {
             let blob = String::from_utf8(input_git_with_fetch(
                 repo,
                 &["hash-object", "--stdin"],

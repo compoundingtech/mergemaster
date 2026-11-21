@@ -15,7 +15,7 @@ GLIBC_TUNABLES, GCONV_PATH, NLSPATH) and with a fixed PATH.
 
 The note is imported as refs/tags/evidence/<tree>/<record> in this checkout and, while gates on older bases
 read only notes, as refs/notes/evidence/<tree>/<record> naming the same record. With --push REMOTE both are
-also pushed, after scripts/evidence-verify accepts it. CI finds a note by its tree, so it only helps when the commit you push has the tree CI will test (a branch current with main).
+also pushed, after mergemaster legacy-evidence-verify accepts it. CI finds a note by its tree, so it only helps when the commit you push has the tree CI will test (a branch current with main).
 A ref the remote answers with a bare `(failed)` is pushed again, up to 3 times; a refusal that gives a reason fails at once.
 
 With --aggregate FILE nothing is run: FILE is JSON {"command": [...], "exit_code": N, "output": ANY,
@@ -47,8 +47,6 @@ Take this script from the accepted base (main), not from the change under test.
 import argparse
 import base64
 import hashlib
-import importlib.machinery
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -193,17 +191,21 @@ SIGNS_LANE_EDITS = True
 
 
 def lane_inputs(verifier_path, base, check, tree, command):
-    """The digest of `check`'s lane as `tree` defines it, after refusing a command that is not the lane's argv."""
-    loader = importlib.machinery.SourceFileLoader('evidence_verify_for_wrap', verifier_path)
-    verifier = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
-    loader.exec_module(verifier)
-    try:
-        shown = git('show', f'{base}:{config_path(base, "required-lanes.json")}')
-        rules = verifier.lane_rules(shown.stdout.decode(), check)
-        base_tree = git('rev-parse', '--verify', '--end-of-options', base + '^{tree}').stdout.decode().strip()
-        definition = verifier.lane_definition('.', base_tree, tree, rules)
-    except verifier.Failure as failure:
-        raise Failure(f'lane {check}: {failure.reason}: {failure.detail}; nothing was signed')
+    """The pinned Rust tool reads the accepted base's lane, never Python code from BASE."""
+    def helper(operation, *args):
+        done = subprocess.run([verifier_path, 'legacy-evidence-verify-helper', operation, *args],
+                              input=shown.stdout, capture_output=True)
+        if done.returncode == 3:
+            failure = json.loads(done.stdout)
+            raise Failure(f'lane {check}: {failure["reason"]}: {failure["detail"]}; nothing was signed')
+        if done.returncode:
+            raise Failure(f'lane {check}: helper exit {done.returncode}; nothing was signed')
+        return json.loads(done.stdout)
+
+    shown = git('show', f'{base}:{config_path(base, "required-lanes.json")}')
+    rules = helper('lane-rules', '--check', check)
+    base_tree = git('rev-parse', '--verify', '--end-of-options', base + '^{tree}').stdout.decode().strip()
+    definition = helper('lane-definition', '--repo', '.', '--base-tree', base_tree, '--tree', tree, '--check', check)
     if command != rules['argv']:
         raise Failure(f'the command is not the argv of lane {check} at {base}; nothing was signed')
     if definition['changed']:
@@ -222,7 +224,8 @@ def main(argv):
     parser.add_argument('--toolchain-sha256', help='skip the nix evaluation and record this digest')
     parser.add_argument('--keys', help='allowed-signers file for the local verification (default: .st/evidence-keys on --keys-from)')
     parser.add_argument('--keys-from', default='origin/main')
-    parser.add_argument('--verifier', default=str(HERE / 'evidence-verify'))
+    parser.add_argument('--verifier', default=os.environ.get('MERGEMASTER_BIN', 'mergemaster'),
+                        help='trusted mergemaster binary (default: $MERGEMASTER_BIN, else PATH)')
     parser.add_argument('--push', metavar='REMOTE')
     parser.add_argument('--lanes-from', metavar='COMMIT',
                         help='hold the check to its lane in .st/required-lanes.json at this accepted base and record the lane definition digest')
@@ -333,7 +336,7 @@ def main(argv):
                 git('update-ref', name, record, '0' * len(record))
         result = {'record': record, 'ref': ref, 'tag': tag, 'tree': tree, 'check': args.check, 'exit_code': exit_code,
                   'verified': False, 'pushed': False}
-        if exit_code == 0 and Path(args.verifier).exists():
+        if exit_code == 0:
             keys = ['--keys', args.keys] if args.keys else None
             if keys is None:
                 shown = git('show', f'{args.keys_from}:{config_path(args.keys_from, "evidence-keys")}')
@@ -345,7 +348,7 @@ def main(argv):
                 # another crate's, and once one crate's failed record is on the tree it answered "not verified" for every crate signed after.
                 crate = inputs.get('crate', '')
                 per_crate = ['--crate-key', f'{crate}={key}'] if key is not None and re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9._-]*', crate) else []
-                checked = subprocess.run([sys.executable, args.verifier, '--repo', '.', '--tree', tree,
+                checked = subprocess.run([args.verifier, 'legacy-evidence-verify', '--repo', '.', '--tree', tree,
                                           '--check', args.check, *keys, *per_crate], capture_output=True)
                 result['verified'] = checked.returncode == 0
                 if checked.returncode != 0:

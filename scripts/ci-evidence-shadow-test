@@ -128,9 +128,11 @@ with tempfile.TemporaryDirectory() as directory:
     # A stand-in verifier shows exactly which refs the scratch repository holds.
     stub = tmp / 'stub-verifier'
     stub.write_text('#!/usr/bin/env python3\nimport subprocess, sys\n'
+                    'assert sys.argv.pop(1) == "legacy-evidence-verify"\n'
                     'repo = sys.argv[sys.argv.index("--repo") + 1]\n'
                     f'out = subprocess.run(["git", "-C", repo, "for-each-ref", "--format=%(refname)"], capture_output=True, text=True).stdout.split()\n'
                     f'ok = {moved!r} in out\nimport json; print(json.dumps({{"satisfied": ok, "reason": "refs_" + "_".join(out).replace("/", "")}}))\nsys.exit(0 if ok else 1)\n')
+    stub.chmod(0o755)
     done = shadow('--verifier', str(stub), checks='linux-tests')
     assert 'check=linux-tests' in done.stdout and 'reason=verifier_exit_1' not in done.stdout and 'ok=1 ' in done.stdout, done.stdout
     # The same record as a tag (the protected layout) is fetched by that name, before the note the entry also names.

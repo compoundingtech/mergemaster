@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """scripts/fractal-test against real repositories: the tree it signs (the head), the lag, failures, refusals."""
 import atexit
+import base64
 import calendar
 import contextlib
 import errno
 import fcntl
+import functools
 import hashlib
 import importlib.machinery
 import importlib.util
@@ -39,7 +41,7 @@ PRIVATE_GIT_CONFIG.write_text('[gc]\n\tauto = 0\n[maintenance]\n\tauto = false\n
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from evidence_test_support import tool_path  # noqa: E402
+from evidence_test_support import LOADER_VARIABLES, tool_path  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 loader = importlib.machinery.SourceFileLoader('st_test', str(ROOT / 'scripts/st-test'))
@@ -81,6 +83,25 @@ def checkout_config(name):
     return path
 
 
+def lane_definition(repo, base, check):
+    done = subprocess.run([st_test.VERIFIER_BINARY, 'legacy-evidence-verify-helper', 'lane-definition',
+                           '--repo', str(repo), '--base-tree', git(repo, 'rev-parse', f'{base}^{{tree}}'),
+                           '--tree', git(repo, 'rev-parse', 'HEAD^{tree}'), '--check', check],
+                          input=git(repo, 'show', f'{base}:.st/required-lanes.json'),
+                          capture_output=True, text=True, env=GIT_ENV)
+    assert done.returncode == 0, (done.stdout, done.stderr)
+    return json.loads(done.stdout)
+
+
+@functools.cache
+def tool_pin(repo):
+    done = subprocess.run([st_test.VERIFIER_BINARY, 'legacy-evidence-verify-helper', 'tool-identity'],
+                          capture_output=True, check=True)
+    identity = json.loads(done.stdout)
+    return json.dumps({'version': 1, 'repository': identity['repository'], 'revision': git(repo, 'rev-parse', 'HEAD'),
+                       'release': {'version': identity['version'], 'sha256': identity['binary_sha256']}})
+
+
 def apparent_gb(path):
     """Pool-cap policy fixtures count file lengths, independently of filesystem allocation and compression."""
     return sum(file.stat().st_size for file in path.rglob('*') if file.is_file()) / 1e9
@@ -93,8 +114,7 @@ class ConfigBridgeTest(unittest.TestCase):
     """Real Git objects and individually copied readers, without sibling resolver imports."""
 
     def test_extracted_readers_select_only_the_pinned_layout(self):
-        names = ('st-test', 'evidence-wrap', 'evidence-prepush', 'evidence-log', 'ci-evidence-observe',
-                 'ci-evidence-presign-notice')
+        names = ('st-test', 'evidence-wrap', 'evidence-prepush', 'evidence-log', 'ci-evidence-observe')
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)
             repo = root / 'repo'
@@ -120,9 +140,7 @@ class ConfigBridgeTest(unittest.TestCase):
                 def assert_layout(revision, expected):
                     for name, module in modules.items():
                         with self.subTest(reader=name, layout=expected):
-                            if name == 'ci-evidence-presign-notice':
-                                self.assertEqual(set(module.lanes_at(revision)), {expected})
-                            elif name in ('evidence-log', 'ci-evidence-observe'):
+                            if name in ('evidence-log', 'ci-evidence-observe'):
                                 self.assertEqual(module.config_path(repo, revision, 'required-lanes.json'),
                                                  f'{".st" if expected == "old" else ".fractal"}/required-lanes.json')
                             else:
@@ -160,9 +178,8 @@ class ConfigBridgeTest(unittest.TestCase):
                 (repo / '.fractal/rust-test-inputs.json').write_text('{malformed')
                 git(repo, 'add', '.')
                 git(repo, 'commit', '-qm', 'malformed selected config')
-                for module in (modules['st-test'], modules['ci-evidence-presign-notice']):
-                    with self.assertRaises(ValueError):
-                        (module.lane_names if hasattr(module, 'lane_names') else module.lanes_at)('HEAD')
+                with self.assertRaises(ValueError):
+                    modules['st-test'].lane_names('HEAD')
                 with self.assertRaises(ValueError):
                     modules['st-test'].branch_point(old_revision, 'HEAD')
                 with self.assertRaises(ValueError):
@@ -175,13 +192,9 @@ class ConfigBridgeTest(unittest.TestCase):
                     modules['st-test'].config_blob('HEAD', 'required-lanes.json')
                 with self.assertRaises(modules['st-test'].Failure):
                     modules['st-test'].branch_point(old_revision, 'HEAD')
-                with self.assertRaises(RuntimeError):
-                    modules['ci-evidence-presign-notice'].lanes_at('HEAD')
                 for name, module in modules.items():
                     with self.subTest(reader=name, missing_revision=True), self.assertRaises(Exception):
-                        if name == 'ci-evidence-presign-notice':
-                            module.lanes_at('missing-revision')
-                        elif name in ('evidence-log', 'ci-evidence-observe'):
+                        if name in ('evidence-log', 'ci-evidence-observe'):
                             module.config_path(repo, 'missing-revision', 'required-lanes.json')
                         else:
                             module.config_path('missing-revision', 'required-lanes.json')
@@ -227,17 +240,26 @@ class ConfigBridgeTest(unittest.TestCase):
                 git(repo, 'init', '-q')
                 (repo / layout).mkdir()
                 (repo / layout / 'evidence-skip-policy.json').write_text('{"checks":{"rust-tests":{}}}')
-                (repo / layout / 'rust-test-inputs.json').write_text('{"version":1,"no_tests":["accepted"]}')
+                (repo / layout / 'rust-test-inputs.json').write_text(json.dumps({
+                    'version': 1, 'no_tests': ['accepted'], 'global': ['Cargo.toml'], 'crates': {'accepted': {'extra': []}}}))
                 (repo / layout / 'required-lanes.json').write_text('{"lanes":{"rust-tests":{}}}')
+                (repo / 'Cargo.toml').write_text('[package]\nname = "accepted"\nversion = "0.1.0"\n')
+                (repo / 'src').mkdir()
+                (repo / 'src/lib.rs').write_text('')
                 (repo / 'scripts').mkdir()
-                (repo / 'scripts/rust-test-keys').write_text('print(\'{"accepted":"base"}\')\n')
-                (repo / 'scripts/evidence-verify').write_text('# accepted verifier\n')
                 git(repo, 'add', '.')
                 git(repo, 'commit', '-qm', 'accepted rust policy and tools')
                 base = git(repo, 'rev-parse', 'HEAD')
+                expected = subprocess.run([st_test.VERIFIER_BINARY, 'legacy-rust-test-keys', '--repo', str(repo),
+                                           '--tree', base, '--inputs-from', base, '--json'],
+                                          capture_output=True, text=True, env=GIT_ENV)
+                self.assertEqual(expected.returncode, 0, expected.stderr)
+                expected_keys = json.loads(expected.stdout)
+                self.assertEqual(set(expected_keys), {'accepted'})
                 marker = root / 'candidate-ran'
                 (repo / 'scripts/rust-test-keys').write_text(
                     f'from pathlib import Path\nPath({str(marker)!r}).touch()\nprint(\'{{"malicious":"candidate"}}\')\n')
+                (repo / layout / 'rust-test-inputs.json').write_text('{"global":["."],"crates":{}}')
                 git(repo, 'add', '.')
                 git(repo, 'commit', '-qm', 'candidate malicious key producer')
                 tree = git(repo, 'rev-parse', 'HEAD')
@@ -251,7 +273,7 @@ class ConfigBridgeTest(unittest.TestCase):
                     self.assertTrue(st_test.judged_by_policy(base))
                     self.assertEqual(st_test.lane_names(base), {'rust-tests'})
                     self.assertEqual(st_test.listed_no_tests(base), ['accepted'])
-                    self.assertEqual(st_test.crate_keys(base, repo, tree, outputs), ({'accepted': 'base'}, None))
+                    self.assertEqual(st_test.crate_keys(base, repo, tree, outputs), (expected_keys, None))
                 executed = subprocess.run(
                     [sys.executable, '-I', '-c',
                      'import json,runpy,sys; m=runpy.run_path(sys.argv[1]); '
@@ -259,7 +281,7 @@ class ConfigBridgeTest(unittest.TestCase):
                      str(copied), base, str(repo), tree, str(outputs)],
                     cwd=nested, env=GIT_ENV, capture_output=True, text=True)
                 self.assertEqual(executed.returncode, 0, executed.stderr)
-                self.assertEqual(json.loads(executed.stdout), [{'accepted': 'base'}, None])
+                self.assertEqual(json.loads(executed.stdout), [expected_keys, None])
                 self.assertFalse(marker.exists(), 'candidate producer must never execute under accepted rust-tests policy')
 
 
@@ -1117,6 +1139,9 @@ class StTest(unittest.TestCase):
         (self.work / '.st/evidence-skip-policy.json').write_text(json.dumps(POLICY))
         (self.work / 'flake.lock').write_text('{"nodes":{}}\n')
         (self.work / 'a.txt').write_text('one\n')
+        (self.work / '.mergemaster').mkdir()
+        git(self.work, 'commit', '-q', '--allow-empty', '-m', 'fixture tool revision')
+        (self.work / '.mergemaster/tool-pin.json').write_text(tool_pin(self.work))
         git(self.work, 'add', '.')
         git(self.work, 'commit', '-q', '-m', 'base')
         git(self.work, 'push', '-q', 'origin', 'main')
@@ -1447,13 +1472,7 @@ class StTest(unittest.TestCase):
         self.assertEqual(code, 0, err)
         statement, = self.statements()
         digest = statement['predicate']['observed']['inputs']['lane_definition_sha256']
-        loader = importlib.machinery.SourceFileLoader('ev', str(ROOT / 'scripts/evidence-verify'))
-        spec = importlib.util.spec_from_file_location(loader.name, loader.path, loader=loader)
-        verifier = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(verifier)
-        rules = verifier.lane_rules(git(self.work, 'show', 'origin/main:.st/required-lanes.json'), 'demo')
-        base_tree = git(self.work, 'rev-parse', 'origin/main^{tree}')
-        self.assertEqual(digest, verifier.lane_definition(str(self.work), base_tree, git(self.work, 'rev-parse', 'HEAD^{tree}'), rules)['sha256'])
+        self.assertEqual(digest, lane_definition(self.work, 'origin/main', 'demo')['sha256'])
 
     def test_a_tree_that_edits_its_own_lane_is_signed_with_the_edited_definition_and_covered(self):
         self.lane_file()
@@ -1462,13 +1481,7 @@ class StTest(unittest.TestCase):
         self.assertEqual(code, 0, out + err)
         self.assertNotIn('not signed', out)
         statement, = self.statements()
-        loader = importlib.machinery.SourceFileLoader('ev', str(ROOT / 'scripts/evidence-verify'))
-        spec = importlib.util.spec_from_file_location(loader.name, loader.path, loader=loader)
-        verifier = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(verifier)
-        rules = verifier.lane_rules(git(self.work, 'show', 'origin/main:.st/required-lanes.json'), 'demo')
-        definition = verifier.lane_definition(str(self.work), git(self.work, 'rev-parse', 'origin/main^{tree}'),
-                                              git(self.work, 'rev-parse', 'HEAD^{tree}'), rules)
+        definition = lane_definition(self.work, 'origin/main', 'demo')
         self.assertEqual(definition['changed'], ['scripts/lane.sh'])
         self.assertEqual(statement['predicate']['observed']['inputs']['lane_definition_sha256'], definition['tree_sha256'])
         code, out, err = self.run_st_test('--check', 'demo', '--status')
@@ -1511,13 +1524,7 @@ class StTest(unittest.TestCase):
         self.assertEqual(code, 0, out + err)
         self.assertIn('covered by wrapper', out)
         statement, = self.statements()
-        loader = importlib.machinery.SourceFileLoader('ev', str(ROOT / 'scripts/evidence-verify'))
-        spec = importlib.util.spec_from_file_location(loader.name, loader.path, loader=loader)
-        verifier = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(verifier)
-        rules = verifier.lane_rules(git(self.work, 'show', f'{point}:.st/required-lanes.json'), 'demo')
-        at_point = verifier.lane_definition(str(self.work), git(self.work, 'rev-parse', f'{point}^{{tree}}'),
-                                            git(self.work, 'rev-parse', 'HEAD^{tree}'), rules)['sha256']
+        at_point = lane_definition(self.work, point, 'demo')['sha256']
         self.assertEqual(statement['predicate']['observed']['inputs']['lane_definition_sha256'], at_point)
         code, out, err = self.run_st_test('--check', 'demo', '--status')
         self.assertEqual(code, 0, out + err)
@@ -4259,17 +4266,38 @@ finally:
             os.chdir(cwd)
 
     def test_the_web_inputs_a_local_run_records_pass_the_committed_policy_s_value_rules(self):
-        loader = importlib.machinery.SourceFileLoader('evidence_verify_for_web', str(ROOT / 'scripts/evidence-verify'))
-        verify = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
-        loader.exec_module(verify)
-        rules = verify.policy_rules(checkout_config('evidence-skip-policy.json').read_text(), 'fractal-web', 'org/repo')
-        wrapper = rules['kinds']['wrapper']
-        for detected in ('true', 'false'):  # covers a run whatever its own change detection said about the kit
-            verify.value_checks(wrapper, st_test.WEB_INPUTS, {'kit_inputs': detected}, None)
+        wrapper = json.loads(checkout_config('evidence-skip-policy.json').read_text())['checks']['fractal-web']['kinds']['wrapper']
         host = wrapper['by_level']['host']
-        self.assertEqual(list(host['command']), LOCAL['fractal-web'])
+        self.assertEqual(host['command'], LOCAL['fractal-web'])
         standard = {'flake_lock_sha256', 'toolchain_sha256', 'wrapper_sha256', 'system', 'attempt'}  # evidence-wrap's own
         self.assertEqual(set(host['required_inputs']), standard | set(st_test.WEB_INPUTS))
+        # Exercise the value rules through a signed note, rather than importing the Python verifier.
+        # Lane closure is tested separately; this fixture isolates the wrapper's input-value contract.
+        host.pop('lane', None)
+        policy = {'version': 1, 'checks': {'fractal-web': {'trust_levels': ['host'], 'kinds': {'wrapper': wrapper}}}}
+        self.commit('.st/evidence-skip-policy.json', json.dumps(policy))
+        commit = git(self.work, 'rev-parse', 'HEAD')
+        tree = git(self.work, 'rev-parse', 'HEAD^{tree}')
+        request = {'commit': commit, 'check': 'fractal-web', 'command': LOCAL['fractal-web'], 'exit_code': 0,
+                   'output_sha256': '0' * 64, 'change_id': 'local:web-inputs',
+                   'inputs': dict(st_test.WEB_INPUTS, flake_lock_sha256=hashlib.sha256((self.work / 'flake.lock').read_bytes()).hexdigest(),
+                                  toolchain_sha256='1' * 64, wrapper_sha256='2' * 64, system='x86_64-linux', attempt='1')}
+        # As in the other signer fixtures, scrub loader inputs before starting Python.
+        signer_env = {k: v for k, v in GIT_ENV.items() if k not in LOADER_VARIABLES}
+        signed = subprocess.run([sys.executable, str(ROOT / 'scripts/evidence-sign')], cwd=self.work,
+                                input=json.dumps(request), capture_output=True, text=True,
+                                env=dict(signer_env, HOME=str(self.home), EVIDENCE_SIGN_NOW=DATE))
+        self.assertEqual(signed.returncode, 0, signed.stderr)
+        answer = json.loads(signed.stdout)
+        subprocess.run(['git', '-C', str(self.work), 'index-pack', '--stdin'],
+                       input=base64.b64decode(answer['object_pack_base64']), capture_output=True, check=True, env=GIT_ENV)
+        git(self.work, 'update-ref', f'refs/tags/evidence/{tree}/{answer["record"]}', answer['record'])
+        for detected in ('true', 'false'):  # covers a run whatever its own change detection said about the kit
+            verified = subprocess.run([st_test.VERIFIER_BINARY, 'legacy-evidence-verify', '--repo', str(self.work),
+                                       '--tree', tree, '--check', 'fractal-web', '--keys-from', commit, '--policy-from', commit,
+                                       '--repository', 'org/repo', '--run-input', f'kit_inputs={detected}'],
+                                      capture_output=True, text=True, env=GIT_ENV)
+            self.assertEqual(verified.returncode, 0, verified.stdout + verified.stderr)
 
     def test_every_check_of_the_per_pr_suite_runs_by_default_and_all_means_the_same(self):
         # No subset for signing: with no flag fractal-test runs the whole per-PR suite; --all is an accepted alias; --check selects.
@@ -5377,8 +5405,7 @@ class PerCrate(StTest):
             (self.work / f'crates/{name}/src/lib.rs').write_text(f'// {name}\n')
         (self.work / '.st/rust-test-inputs.json').write_text(json.dumps({'global': ['Cargo.toml', 'Cargo.lock'],
                                                                          'crates': {'base': {'extra': []}, 'top': {'extra': []}}}))
-        for script in ('rust-test-keys', 'ci-rust-test-result'):
-            shutil.copy(ROOT / 'scripts' / script, self.work / 'scripts' / script)
+        shutil.copy(ROOT / 'scripts/ci-rust-test-result', self.work / 'scripts/ci-rust-test-result')
         # The real rust-tests policy entry and a lane for it: the verifier then judges every note by the repository's rules.
         policy = json.loads(json.dumps(POLICY))
         policy['checks']['rust-tests'] = json.loads(checkout_config('evidence-skip-policy.json').read_text())['checks']['rust-tests']
@@ -5590,22 +5617,16 @@ class PerCrate(StTest):
         self.assertIn('push of 8 of 8 refs failed after 3 tries', out)
 
     def members(self, *extra):
-        verifier = ROOT / 'scripts/evidence-verify'
-        # The gate copies the accepted base's verifier and scripts/rust-test-keys side by side; so does this.
-        side = Path(self.tmp.name) / 'side'
-        side.mkdir(exist_ok=True)
-        for name in ('evidence-verify', 'rust-test-keys'):
-            shutil.copy(ROOT / 'scripts' / name, side / name)
         keys = Path(self.tmp.name) / 'keys'
         keys.write_text(git(self.work, 'show', 'origin/main:.st/evidence-keys') + '\n')
-        done = subprocess.run([sys.executable, str(side / 'evidence-verify'), '--repo', str(self.work), '--revision', 'HEAD', '--check', 'rust-tests',
+        done = subprocess.run([st_test.VERIFIER_BINARY, 'legacy-evidence-verify', '--repo', str(self.work), '--revision', 'HEAD', '--check', 'rust-tests',
                                '--members', '--policy-from', 'origin/main', '--repository', 'org/repo', '--keys', str(keys), *extra],
                               capture_output=True, text=True, env=GIT_ENV)
         return done.returncode, json.loads(done.stdout)
 
     def gate(self, event='merge_group'):
-        """scripts/ci-evidence-gate for rust-tests as a CI job runs it: a depth-1 clone of the feature head, the base's own verifier
-        and scripts/rust-test-keys, the notes on the remote."""
+        """scripts/ci-evidence-gate for rust-tests as a CI job runs it: a depth-1 clone of the feature head, the pinned binary
+        with accepted-base configuration, and the notes on the remote."""
         tmp = Path(self.tmp.name)
         git(self.work, 'push', '-q', '--force', 'origin', 'feature')
         clone = tmp / 'gate-clone'
@@ -5701,12 +5722,12 @@ class PerCrate(StTest):
         code, result = self.members('--lane-base', branch_point)
         self.assertEqual((code, result['reason']), (1, 'error'), result)
 
-    def test_a_base_that_judges_rust_tests_without_the_key_tool_is_an_error_never_a_fallback_to_the_trees_own(self):
-        self.on_main('drop the tool', lambda: git(self.work, 'rm', '-q', 'scripts/rust-test-keys'))
+    def test_a_base_that_judges_rust_tests_without_inputs_is_an_error_never_a_fallback_to_the_trees_own(self):
+        self.on_main('drop accepted inputs', lambda: git(self.work, 'rm', '-q', '.st/rust-test-inputs.json'))
         git(self.work, 'fetch', '-q', 'origin')
         code, out, err = self.run_crates()
         self.assertEqual(code, 1, out + err)
-        self.assertIn('only the base\'s tool and inputs may key a note', out)
+        self.assertIn('only the base\'s inputs may key a note', out)
         self.assertEqual(self.crate_records(), [])
         self.assertEqual(self.ran(), [], 'nothing was tested or signed')
 

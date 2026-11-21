@@ -69,6 +69,302 @@ def replay_matrices(interpreter):
     print(f"Replayed {len(registry['manifests'])} frozen source matrices")
 
 
+def replay_log_watch(interpreter):
+    fixture = CORPUS.parent / "log-watch.json"
+    manifest = json.loads(fixture.read_text())
+    pin = manifest["oracle"]
+    source = Path(os.environ[pin["environment"]]) / pin["path"]
+    assert git_blob(source.read_bytes()) == pin["git_blob"]
+    code = """
+import importlib.machinery, importlib.util, json, sys
+loader = importlib.machinery.SourceFileLoader('watch', sys.argv[1])
+watch = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+loader.exec_module(watch)
+for case in json.load(open(sys.argv[2]))['cases']:
+    before = case['before'].copy()
+    state, line, stalled = watch.step(case['before'], case['now'], case['as_of'],
+                                    case['detail'], case['max_age'], case['repeat'])
+    assert case['before'] == before, case['id']
+    assert dict(state=state, line=line, stalled=stalled) == case['expected'], case['id']
+import os, subprocess, tempfile
+manifest = json.load(open(sys.argv[2]))
+env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+env.update(GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_NOSYSTEM='1',
+           GIT_AUTHOR_NAME='l', GIT_AUTHOR_EMAIL='l@x', GIT_COMMITTER_NAME='l',
+           GIT_COMMITTER_EMAIL='l@x', GIT_AUTHOR_DATE='1800000000 +0000',
+           GIT_COMMITTER_DATE='1800000000 +0000')
+with tempfile.TemporaryDirectory() as temporary:
+    remote, state = temporary + '/remote.git', temporary + '/state'
+    subprocess.run(['git', 'init', '-q', '--bare', remote], check=True)
+    def git(*args):
+        return subprocess.check_output(['git', '-C', remote, '-c', 'core.hooksPath=/dev/null',
+            '-c', 'maintenance.auto=false', '-c', 'gc.auto=0', *args], env=env, input=b'').decode().strip()
+    tree, parent = git('hash-object', '-w', '-t', 'tree', '--stdin'), None
+    for case in manifest['subjects']:
+        parent = git('commit-tree', tree, '-m', case['subject'], *(['-p', parent] if parent else []))
+        git('update-ref', watch.LOG, parent)
+        done = subprocess.run([sys.executable, '-I', '-B', sys.argv[1], '--remote', remote,
+            '--state', state, '--now', str(case['now']), '--notify',
+            json.dumps([sys.executable, '-c', 'pass'])], capture_output=True, text=True)
+        assert (done.returncode, done.stdout, done.stderr) == (
+            case['exit_code'], case['stdout'], case['stderr']), case['subject']
+"""
+    subprocess.run([interpreter, "-I", "-B", "-c", code, source, fixture], check=True)
+    replay_log_watch_state(interpreter)
+
+
+def replay_log_watch_state(interpreter):
+    fixture = CORPUS.parent / "log-watch-state.json"
+    manifest = json.loads(fixture.read_text())
+    pin = manifest["oracle"]
+    source = Path(os.environ[pin["environment"]]) / pin["path"]
+    assert git_blob(source.read_bytes()) == pin["git_blob"]
+    code = """
+import base64, importlib.machinery, importlib.util, json, os, pathlib, subprocess, sys, tempfile
+loader = importlib.machinery.SourceFileLoader('watch', sys.argv[1])
+watch = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+loader.exec_module(watch)
+manifest = json.load(open(sys.argv[2]))
+for case in manifest['dates']:
+    assert watch.iso(case['unix']) == case['iso'], case
+env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+env.update(GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_NOSYSTEM='1',
+           GIT_AUTHOR_NAME='l', GIT_AUTHOR_EMAIL='l@x', GIT_COMMITTER_NAME='l',
+           GIT_COMMITTER_EMAIL='l@x', GIT_AUTHOR_DATE='1800000000 +0000',
+           GIT_COMMITTER_DATE='1800000000 +0000')
+for case in manifest['cases'] + manifest['encodings']:
+    with tempfile.TemporaryDirectory() as temporary:
+        remote, state = pathlib.Path(temporary) / 'remote.git', pathlib.Path(temporary) / 'state'
+        state.mkdir()
+        path = state / 'watch.json'
+        if 'state_before_base64' in case:
+            path.write_bytes(base64.b64decode(case['state_before_base64']))
+            try:
+                with path.open() as handle:
+                    json.load(handle)
+            except Exception as error:
+                assert dict(exception=type(error).__name__, message=str(error)) == case['load_error'], case['id']
+            else:
+                raise AssertionError(case['id'])
+        else:
+            path.write_text(case['state_before'])
+        subprocess.run(['git', 'init', '-q', '--bare', str(remote)], check=True)
+        def git(*args):
+            return subprocess.check_output(['git', '-C', str(remote), '-c', 'core.hooksPath=/dev/null',
+                '-c', 'maintenance.auto=false', '-c', 'gc.auto=0', *args], env=env, input=b'').decode().strip()
+        subject = ('no time' if case['mode'] == 'unreadable' else
+                   'evidence-log v1 as_of=2027-01-15T08:00:00+00:00 added=0 gc=0 missing=0')
+        tree = git('hash-object', '-w', '-t', 'tree', '--stdin')
+        head = git('commit-tree', tree, '-m', subject)
+        git('update-ref', watch.LOG, head)
+        done = subprocess.run([sys.executable, '-I', '-B', sys.argv[1], '--remote', str(remote),
+            '--state', str(state), '--now', str(case['now']), '--notify',
+            json.dumps([sys.executable, '-c', 'pass'])], capture_output=True, text=True)
+        expected = case['expected']
+        assert (done.returncode, done.stdout, bool(done.stderr), path.read_text()) == (
+            expected['exit_code'], expected['stdout'], expected['stderr_nonempty'],
+            expected['state_after']), case['id']
+"""
+    subprocess.run([interpreter, "-I", "-B", "-c", code, source, fixture], check=True)
+
+
+def replay_runner_report(interpreter):
+    """Replay fixed-clock reports using the independent pinned Python source."""
+    for name in ("runner-report.json", "runner-report-edges.json", "runner-report-integer-divergence.json"):
+        replay_runner_report_fixture(interpreter, CORPUS.parent / name)
+
+
+def replay_runner_report_fixture(interpreter, fixture_path):
+    fixture = json.loads(fixture_path.read_text())
+    pin = fixture["oracle"]
+    source = Path(os.environ[pin["environment"]]) / pin["path"]
+    assert git_blob(source.read_bytes()) == pin["git_blob"], "runner-report: oracle source drift"
+    driver = """import datetime, importlib.machinery, importlib.util, sys
+assert sys.implementation.name == 'cpython' and sys.version_info[:3] == (3, 14, 7)
+loader = importlib.machinery.SourceFileLoader('runner_report_oracle', sys.argv[1])
+module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+loader.exec_module(module)
+now = datetime.datetime.fromisoformat(sys.argv[2].replace('Z', '+00:00'))
+sys.argv[0] = 'fractal-test-report'
+sys.exit(module.main(sys.argv[3:], now=now))
+"""
+    for case in fixture["cases"]:
+        with tempfile.TemporaryDirectory(prefix="runner-report-oracle-") as temporary:
+            root = Path(temporary)
+            for name, content in case["files"].items():
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content)
+            replace = lambda value: value.replace("${scratch}", temporary)
+            environment = dict(os.environ)
+            environment.update({key: replace(value) for key, value in case["environment"].items()})
+            done = subprocess.run([interpreter, "-I", "-B", "-c", driver, str(source), fixture["now"],
+                                   *[replace(value) for value in case["argv"]]],
+                                  env=environment, capture_output=True)
+            assert (done.returncode, done.stdout, done.stderr) == (
+                case["exit"], replace(case["stdout"]).encode(), replace(case["stderr"]).encode()), case["id"]
+    print(f"Replayed {len(fixture['cases'])} frozen runner-report cases")
+
+
+def replay_slo(interpreter):
+    """Replay native SLO CLI bytes and its read-only API calls against frozen Python."""
+    fixture = json.loads((CORPUS.parent / "slo.json").read_text())
+    pin = fixture["oracle"]
+    source = Path(os.environ[pin["environment"]]) / pin["path"]
+    assert git_blob(source.read_bytes()) == pin["git_blob"], "slo: oracle source drift"
+    assert subprocess.check_output([interpreter, "-I", "-c",
+        "import sys; print('.'.join(map(str,sys.version_info[:3])))"]) == b"3.14.7\n"
+    with tempfile.TemporaryDirectory(prefix="mergemaster-slo-") as temporary:
+        root = Path(temporary)
+        gh = root / "gh"
+        gh.write_text(f"#!{interpreter}\n" + fixture["gh_shim"])
+        gh.chmod(0o700)
+        environment = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
+                           SLO_API=str(root / "api.json"), SLO_CALLS=str(root / "calls"))
+        for case in fixture["cases"]:
+            (root / "api.json").write_text(json.dumps(case["api"]))
+            for command in ([str(interpreter), "-I", "-B", str(source)],
+                            [os.environ["MERGEMASTER_BIN"], "evidence", "slo"]):
+                (root / "calls").write_text("")
+                done = subprocess.run([*command, *case["argv"]], cwd=ROOT,
+                                      env=environment, capture_output=True)
+                assert done.returncode == case["exit_code"], (case["id"], command, done.stderr)
+                assert done.stdout == case["stdout"].encode(), (case["id"], command, "stdout")
+                if "stderr_contains" in case:
+                    assert case["stderr_contains"].encode() in done.stderr, (case["id"], command, "stderr")
+                else:
+                    assert done.stderr == case["stderr"].encode(), (case["id"], command, "stderr")
+                calls = [int(line) for line in (root / "calls").read_text().splitlines()]
+                assert calls == case["logs"], (case["id"], command, calls)
+    print(f"Replayed {len(fixture['cases'])} frozen SLO cases against Python and Rust")
+
+
+def replay_keygen(interpreter):
+    """Public fixed-key recordings retain raw streams, expanding only the home path."""
+    manifest = json.loads((CORPUS.parent / "keygen.json").read_text())
+    source = Path(os.environ[manifest["oracle"]["environment"]]) / manifest["oracle"]["path"]
+    assert git_blob(source.read_bytes()) == manifest["oracle"]["git_blob"]
+    with tempfile.TemporaryDirectory(prefix="mergemaster-keygen-corpus-") as temporary:
+        home = Path(temporary)
+        directory = home / ".config/st"
+        directory.mkdir(parents=True, mode=0o700)
+        key = directory / "evidence-sign-key"
+        key.write_bytes(base64.b64decode(manifest["public_test_private_key_base64"]))
+        key.chmod(0o600)
+        for case in manifest["cases"]:
+            if case["id"] == "agent-0":
+                (directory / "evidence-sign.json").unlink()
+            expand = lambda value: value.replace("${home}", temporary)
+            done = subprocess.run([interpreter, "-I", str(source), *map(expand, case["argv"])],
+                                  cwd=ROOT, stdin=subprocess.DEVNULL, capture_output=True)
+            assert (done.stdout, done.stderr, done.returncode) == (
+                expand(case["stdout"]).encode(), expand(case["stderr"]).encode(), case["exit_code"]), case["id"]
+            assert directory.stat().st_mode & 0o777 == 0o700
+            assert key.stat().st_mode & 0o777 == 0o600
+            assert (directory / "evidence-sign.json").stat().st_mode & 0o777 == 0o600
+    print(f"Replayed {len(manifest['cases'])} frozen keygen cases")
+
+
+def operational_calls(path):
+    """Keep endpoint identities and counts; concurrent downloads need no ordering."""
+    calls = []
+    for line in path.read_text().splitlines():
+        executable, *args = json.loads(line)
+        if executable == "gh":
+            calls.append(["gh", next(arg for arg in args if arg.startswith("repos/"))])
+        elif args[0] in ("show", "ls-tree"):
+            calls.append(["git", args[0], args[-1]])
+        else:
+            calls.append(["git", args[0]])
+    return sorted(calls)
+
+
+def replay_flip_skip(interpreter, binary=None, commands=("flip-ready", "skip-report")):
+    """Replay fixed-clock operational recordings, including repeated-cache invocations."""
+    binary = binary or os.environ["MERGEMASTER_BIN"]
+    for command in commands:
+        fixture = json.loads((CORPUS.parent / f"{command}.json").read_text())
+        pin = fixture["oracle"]
+        source = Path(os.environ[pin["environment"]]) / pin["path"]
+        assert git_blob(source.read_bytes()) == pin["git_blob"], (command, "source drift")
+        # skip-report imports this exact sibling implementation.
+        if command == "skip-report":
+            sibling = json.loads((CORPUS.parent / "flip-ready.json").read_text())["oracle"]
+            assert git_blob(source.with_name("evidence-flip-ready").read_bytes()) == sibling["git_blob"]
+        for case in fixture["cases"]:
+            for implementation in ("python", "native"):
+                with tempfile.TemporaryDirectory(prefix="mergemaster-flip-skip-") as temporary:
+                    root = Path(temporary)
+                    for executable in ("gh", "git"):
+                        shim = root / executable
+                        shim.write_text(f"#!{interpreter}\n" + fixture["shim"])
+                        shim.chmod(0o700)
+                    (root / "api.json").write_text(json.dumps(case["api"]))
+                    for name, content in case.get("files", {}).items():
+                        (root / name).write_text(content)
+                    environment = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
+                                       FLIP_SKIP_API=str(root / "api.json"), FLIP_SKIP_CALLS=str(root / "calls"))
+                    arguments = ["--repo", "org/repo", "--cache", str(root / "cache"),
+                                 *[arg.replace("${root}", str(root)) for arg in case["argv"]]]
+                    if implementation == "python":
+                        invocation = [str(interpreter), "-I", "-B", "-c", fixture["launcher"],
+                                      str(source), fixture["now"], str(root), *arguments]
+                    else:
+                        invocation = [str(binary), "evidence", command, "--now", fixture["now"], *arguments]
+                    for index, expected in enumerate(case["observations"]):
+                        (root / "calls").write_text("")
+                        done = subprocess.run(invocation, cwd=root, env=environment, capture_output=True)
+                        label = (command, case["id"], implementation, index)
+                        assert done.returncode == expected["exit_code"], (label, done.stderr)
+                        assert done.stdout == expected["stdout"].replace("${root}", str(root)).encode(), (label, "stdout", done.stdout)
+                        assert done.stderr == expected["stderr"].replace("${root}", str(root)).encode(), (label, "stderr", done.stderr)
+                        calls = operational_calls(root / "calls")
+                        assert calls == expected["calls"], (label, "calls", calls)
+                        if index:
+                            assert not any(call[0] == "gh" and call[1].endswith("/logs") for call in calls), label
+        print(f"Replayed {len(fixture['cases'])} frozen {command} cases against Python and Rust")
+
+
+def replay_presign_notice(interpreter):
+    """Compare both entrypoints to independent frozen stdout and summary bytes."""
+    manifest = json.loads((CORPUS.parent / "presign-notice.json").read_text())
+    assert manifest["version"] == 1
+    assert manifest["runtime"] == {"implementation": "CPython", "version": "3.14.7"}
+    pin = manifest["oracle"]
+    source = Path(os.environ[pin["environment"]])
+    assert git_blob((source / pin["path"]).read_bytes()) == pin["git_blob"]
+    lock = json.loads((ROOT / "flake.lock").read_text())
+    locked = lock["nodes"][lock["nodes"]["root"]["inputs"]["python-oracle"]]["locked"]
+    assert (pin["rev"], pin["nar_hash"]) == (locked["rev"], locked["narHash"])
+    required = manifest["required_lanes"]
+    data = (source / required["path"]).read_bytes()
+    assert git_blob(data) == required["git_blob"]
+    lanes = json.loads(data)["lanes"]
+    assert list(lanes) == required["names"]
+    assert all(lane.get("definition_paths") for lane in lanes.values())
+    native = Path(os.environ.get("MERGEMASTER_BIN", ROOT / "target/debug/mergemaster")).resolve()
+    for case in manifest["cases"]:
+        with tempfile.TemporaryDirectory(prefix="mergemaster-notice-corpus-") as temporary:
+            root = Path(temporary)
+            for name, script in case["executables"].items():
+                target = root / name
+                target.write_text(script)
+                target.chmod(0o755)
+            summary = root / "summary"
+            environment = dict(case["environment"], PATH=temporary, LC_ALL="C",
+                               GITHUB_STEP_SUMMARY=str(summary))
+            for implementation, command in (
+                ("python", [interpreter, "-I", "-B", source / pin["path"]]),
+                ("rust", [native, "evidence", "presign-notice"]),
+            ):
+                summary.write_bytes(case["summary_initial"].encode())
+                done = subprocess.run(command, cwd=root, env=environment, capture_output=True)
+                observed = {"stdout": done.stdout.decode(), "stderr": done.stderr.decode(),
+                            "exit_code": done.returncode, "summary": summary.read_bytes().decode()}
+                assert observed == case["expected"], (case["id"], implementation, observed)
+    print(f"Replayed {len(manifest['cases'])} frozen presign-notice cases against Python and Rust")
+
+
 def replay(record=False):
     manifest = json.loads((CORPUS / "manifest.json").read_text())
     interpreter = Path(os.environ["MERGEMASTER_ORACLE_PYTHON"])
@@ -135,7 +431,13 @@ def replay(record=False):
         expected = json.loads((CORPUS / "recordings.json").read_text())
         assert expected == {"version": 1, "cases": observations}, "frozen oracle observations changed"
         print(f"Replayed {len(observations)} frozen oracle cases")
+        replay_slo(interpreter)
+        replay_keygen(interpreter)
         replay_matrices(interpreter)
+        replay_flip_skip(interpreter)
+        replay_log_watch(interpreter)
+        replay_runner_report(interpreter)
+        replay_presign_notice(interpreter)
 
 
 if __name__ == "__main__":

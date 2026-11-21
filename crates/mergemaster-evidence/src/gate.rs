@@ -75,6 +75,7 @@ pub struct Decision {
     pub reason: &'static str,
     pub record: Option<String>,
     pub report_only: bool,
+    pub producer_digest: Option<config::ProducerDigest>,
     pub signer: Option<String>,
     pub observed_at: Option<String>,
     pub age_seconds: Option<i64>,
@@ -92,6 +93,15 @@ pub struct QueueBinding {
     pub base: String,
     pub members: Vec<String>,
     pub tree: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub projection: Option<QueueProjection>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct QueueProjection {
+    pub commit: String,
+    pub parent: String,
+    pub paths: Vec<String>,
 }
 
 impl Decision {
@@ -457,7 +467,13 @@ pub fn decide(
 
 // Explicit batches mirror the train's commit-tree tree -p prefix -p admitted.
 // The legacy single-PR form also accepts BASE as the second parent.
-fn bind_queue(repo: &Path, base: &str, head: &str, members: &[String]) -> Result<Vec<String>> {
+fn bind_queue(
+    repo: &Path,
+    base: &str,
+    head: &str,
+    members: &[String],
+    policy: Option<&config::QueuePolicy>,
+) -> Result<(Vec<String>, Option<QueueProjection>)> {
     let parents = |head: &str| -> Result<Vec<String>> {
         Ok(
             git::text(repo, &["rev-list", "--parents", "-n", "1", head])?
@@ -468,15 +484,43 @@ fn bind_queue(repo: &Path, base: &str, head: &str, members: &[String]) -> Result
         )
     };
     if members.is_empty() {
-        let parents = parents(head)?;
-        ensure!(
-            parents.len() == 2 && parents.iter().any(|parent| parent == base),
-            "queue head {head} must be a two-parent merge with base {base} as a parent; declare ordered --member SHAs for a batch"
-        );
-        return Ok(parents
-            .into_iter()
-            .filter(|parent| parent != base)
-            .collect());
+        let head_parents = parents(head)?;
+        let (merge_parents, projection) = if head_parents.len() == 1 {
+            let policy =
+                policy.context("queue projection requires BASE queue.generated_paths policy")?;
+            let parent = &head_parents[0];
+            let merge_parents = parents(parent)?;
+            ensure!(
+                merge_parents.len() != 1,
+                "queue head {head} has more than one projection commit"
+            );
+            ensure!(
+                merge_parents.len() == 2 && merge_parents.iter().any(|p| p == base),
+                "queue projection parent {parent} must be a two-parent merge with base {base} as a parent"
+            );
+            let paths = projection_paths(repo, parent, head, &policy.generated_paths)?;
+            (
+                merge_parents,
+                Some(QueueProjection {
+                    commit: head.into(),
+                    parent: parent.clone(),
+                    paths,
+                }),
+            )
+        } else {
+            ensure!(
+                head_parents.len() == 2 && head_parents.iter().any(|parent| parent == base),
+                "queue head {head} must be a two-parent merge with base {base} as a parent; declare ordered --member SHAs for a batch"
+            );
+            (head_parents, None)
+        };
+        return Ok((
+            merge_parents
+                .into_iter()
+                .filter(|parent| parent != base)
+                .collect(),
+            projection,
+        ));
     }
     let mut current = head.to_owned();
     for (index, member) in members.iter().enumerate().rev() {
@@ -506,7 +550,52 @@ fn bind_queue(repo: &Path, base: &str, head: &str, members: &[String]) -> Result
         "queue first-parent chain after {} members ends at {current}, expected base {base}",
         members.len()
     );
-    Ok(members.to_vec())
+    Ok((members.to_vec(), None))
+}
+
+fn projection_paths(
+    repo: &Path,
+    parent: &str,
+    head: &str,
+    generated: &[String],
+) -> Result<Vec<String>> {
+    // Disabling renames exposes both sides of moves. Raw tree modes include
+    // deletes and executable-bit changes, without following checkout symlinks.
+    let diff = git::git(
+        repo,
+        &[
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-renames",
+            "--ignore-submodules=none",
+            "--raw",
+            "-z",
+            parent,
+            head,
+            "--",
+        ],
+    )?;
+    let mut fields = diff.split(|byte| *byte == 0);
+    let mut paths = Vec::new();
+    while let Some(header) = fields.next().filter(|field| !field.is_empty()) {
+        let path = fields.next().context("queue projection diff has no path")?;
+        let path = std::str::from_utf8(path).context("non-UTF8 queue projection path")?;
+        ensure!(
+            generated
+                .iter()
+                .any(|pattern| generated_matches(path, pattern)),
+            "queue projection touches non-generated path {path}"
+        );
+        let header = std::str::from_utf8(header).context("invalid queue projection diff")?;
+        let mut modes = header.trim_start_matches(':').split_whitespace().take(2);
+        ensure!(
+            modes.all(|mode| matches!(mode, "000000" | "100644")),
+            "queue projection path {path} must be a regular non-executable file"
+        );
+        paths.push(path.to_owned());
+    }
+    Ok(paths)
 }
 
 fn compute(
@@ -538,6 +627,7 @@ fn compute(
             protected_paths: Vec::new(),
             summary: "queue base and head must be existing full lowercase commit SHAs".into(),
             report_only: true,
+            producer_digest: None,
             signer: None,
             observed_at: None,
             age_seconds: None,
@@ -568,6 +658,7 @@ fn compute(
                 protected_paths: Vec::new(),
                 summary: error.to_string(),
                 report_only: queue,
+                producer_digest: None,
                 signer: None,
                 observed_at: None,
                 age_seconds: None,
@@ -599,6 +690,7 @@ fn compute(
         protected_paths: Vec::new(),
         summary: String::new(),
         report_only: queue,
+        producer_digest: None,
         signer: None,
         observed_at: None,
         age_seconds: None,
@@ -615,12 +707,13 @@ fn compute(
             ));
             return Ok(decision);
         }
-        match bind_queue(repo, base, head, members) {
-            Ok(members) => {
+        match bind_queue(repo, base, head, members, config.policy.queue.as_ref()) {
+            Ok((members, projection)) => {
                 decision.queue_binding = Some(QueueBinding {
                     base: base.into(),
                     members,
                     tree: decision.tree.clone(),
+                    projection,
                 });
             }
             Err(error) => {
@@ -878,10 +971,18 @@ fn compute(
         if let Fact::Tests { inputs, .. } = &statement.predicate.fact
             && !execution_claims_valid(lane, &config.environment, inputs)
         {
-            return "wrong_input";
+            return (
+                "wrong_input",
+                config::producer_digest(config.producers.as_ref(), inputs),
+            );
         }
-        let reason = satisfy(
-            (statement, at, config.policy.repository.as_deref()),
+        let (reason, producer_digest) = satisfy(
+            (
+                statement,
+                at,
+                config.policy.repository.as_deref(),
+                config.producers.as_ref(),
+            ),
             check,
             head,
             &decision.tree,
@@ -895,7 +996,12 @@ fn compute(
             && inputs.get("lane_definition_sha256") != expected.get("lane_definition_sha256")
             && matches!(
                 satisfy(
-                    (statement, at, config.policy.repository.as_deref()),
+                    (
+                        statement,
+                        at,
+                        config.policy.repository.as_deref(),
+                        config.producers.as_ref(),
+                    ),
                     check,
                     head,
                     &decision.tree,
@@ -904,13 +1010,14 @@ fn compute(
                         .iter()
                         .filter(|(key, _)| key.as_str() != "lane_definition_sha256"),
                     queue
-                ),
+                )
+                .0,
                 "satisfied" | "execution_reused"
             )
         {
-            "wrong_definition"
+            ("wrong_definition", producer_digest)
         } else {
-            reason
+            (reason, producer_digest)
         }
     };
     let selected = if push {
@@ -929,17 +1036,18 @@ fn compute(
                                 .as_deref()
                                 .and_then(|s| s.split('/').next())
                     })
-                    && judge(statement, *at) != "wrong_definition"
+                    && judge(statement, *at).0 != "wrong_definition"
             })
             .max_by(|(_, a), (_, b)| a.2.cmp(&b.2).then_with(|| (b.3, &b.0).cmp(&(a.3, &a.0))))
             .map(|(index, _)| {
                 let reason = judge(&candidates[index].1, candidates[index].2);
-                if matches!(reason, "satisfied" | "execution_reused")
+                if matches!(reason.0, "satisfied" | "execution_reused")
                     && let Some(failure) = candidates.iter().rposition(|c| {
                         failed(&c.1, check) && c.2 >= candidates[index].2 - Duration::seconds(120)
                     })
                 {
-                    (failure, "check_failed")
+                    let (_, producer_digest) = judge(&candidates[failure].1, candidates[failure].2);
+                    (failure, ("check_failed", producer_digest))
                 } else {
                     (index, reason)
                 }
@@ -969,7 +1077,10 @@ fn compute(
     if let Fact::Tests { inputs, .. } = &statement.predicate.fact {
         decision.lane_definition_sha256 = inputs.get("lane_definition_sha256").cloned();
     }
-    decision.reason = selected.map_or_else(|| judge(&statement, chosen.2), |(_, reason)| reason);
+    let (reason, producer_digest) =
+        selected.map_or_else(|| judge(&statement, chosen.2), |(_, result)| result);
+    decision.reason = reason;
+    decision.producer_digest = Some(producer_digest);
     if matches!(decision.reason, "satisfied" | "execution_reused") {
         decision.decision = "skip";
         decision.outcome = "satisfied";
@@ -984,22 +1095,39 @@ fn compute(
     Ok(decision)
 }
 
-fn matches_path(path: &str, prefix: &str) -> bool {
+fn normalized_path(path: &str) -> String {
     // NFKC closes compatibility-spelling aliases (including fullwidth dots and
     // separators); lowercase also covers case-insensitive checkout filesystems.
-    let path = path.nfkc().flat_map(char::to_lowercase).collect::<String>();
-    let prefix = prefix
-        .nfkc()
-        .flat_map(char::to_lowercase)
-        .collect::<String>();
-    let prefix = prefix.trim_end_matches('/');
+    path.nfkc().flat_map(char::to_lowercase).collect()
+}
+
+fn path_within(path: &str, prefix: &str) -> bool {
+    component_within(path, prefix.trim_end_matches('/'))
+}
+
+fn generated_matches(path: &str, pattern: &str) -> bool {
+    if let Some((prefix, suffix)) = pattern.split_once("/*") {
+        path.strip_prefix(prefix)
+            .and_then(|rest| rest.strip_prefix('/'))
+            .and_then(|rest| rest.strip_suffix(suffix))
+            .is_some_and(|matched| !matched.is_empty())
+    } else {
+        path_within(path, pattern)
+    }
+}
+
+fn component_within(path: &str, prefix: &str) -> bool {
     path == prefix
         || path
             .strip_prefix(prefix)
             .is_some_and(|rest| rest.starts_with('/'))
-        || prefix
-            .strip_prefix(path.as_str())
-            .is_some_and(|rest| rest.starts_with('/'))
+}
+
+fn matches_path(path: &str, prefix: &str) -> bool {
+    let path = normalized_path(path);
+    let prefix = normalized_path(prefix);
+    let prefix = prefix.trim_end_matches('/');
+    component_within(&path, prefix) || component_within(prefix, &path)
 }
 
 fn failed(statement: &Statement, check: &str) -> bool {
@@ -1057,26 +1185,36 @@ fn repository_refusal(repository: Option<&str>, signed: Option<&str>) -> Option<
 }
 
 fn satisfy<'a>(
-    (statement, at, repository): (&Statement, DateTime<chrono::FixedOffset>, Option<&str>),
+    (statement, at, repository, producers): (
+        &Statement,
+        DateTime<chrono::FixedOffset>,
+        Option<&str>,
+        Option<&config::ProducerManifest>,
+    ),
     check: &str,
     head: &str,
     tree: &str,
     lane: &Lane,
     mut expected: impl Iterator<Item = (&'a String, &'a String)>,
     push: bool,
-) -> &'static str {
+) -> (&'static str, config::ProducerDigest) {
+    let producer_digest = match &statement.predicate.fact {
+        Fact::Tests { inputs, .. } => config::producer_digest(producers, inputs),
+        _ => config::ProducerDigest::NotApplicable,
+    };
+    let result = |reason| (reason, producer_digest);
     if let Some(reason) = repository_refusal(repository, statement.repository.as_deref()) {
-        return reason;
+        return result(reason);
     }
     let predicate = &statement.predicate;
     if predicate.tier == TrustTier::Degraded {
-        return "degraded";
+        return result("degraded");
     }
     if predicate.tier != TrustTier::Full {
-        return "untrusted_tier";
+        return result("untrusted_tier");
     }
     if (!push && statement.subject[0].name != head) || (push && !oid(&statement.subject[0].name)) {
-        return "wrong_commit";
+        return result("wrong_commit");
     }
     if statement.subject[0]
         .digest
@@ -1084,7 +1222,7 @@ fn satisfy<'a>(
         .map(String::as_str)
         != Some(tree)
     {
-        return "stale_tree";
+        return result("stale_tree");
     }
     let principal = predicate.signer.as_deref().unwrap_or("");
     if !lane
@@ -1092,17 +1230,17 @@ fn satisfy<'a>(
         .iter()
         .any(|level| level == principal.split('/').next().unwrap_or(""))
     {
-        return "untrusted_level";
+        return result("untrusted_level");
     }
     let now = Utc::now();
     if at > now + Duration::seconds(120) {
-        return "future_dated";
+        return result("future_dated");
     }
     if lane
         .max_age_seconds
         .is_some_and(|seconds| age_exceeds_limit(now - at.with_timezone(&Utc), seconds))
     {
-        return "too_old";
+        return result("too_old");
     }
     let Fact::Tests {
         runner,
@@ -1110,22 +1248,22 @@ fn satisfy<'a>(
         inputs,
     } = &predicate.fact
     else {
-        return "wrong_check";
+        return result("wrong_check");
     };
     // Match the pinned verifier's producer kinds, without narrowing the record format.
     if !matches!(runner.as_str(), "nix" | "wrapper" | "sekrets") && !runner.starts_with("github:") {
-        return "unsupported_kind";
+        return result("unsupported_kind");
     }
-    let result = &checks[check];
-    if result.exit_code != 0 {
-        return "check_failed";
+    let observed = &checks[check];
+    if observed.exit_code != 0 {
+        return result("check_failed");
     }
     if lane.nix_check.is_some() {
         let Some(drv) = inputs.get("nix_derivation") else {
-            return "wrong_input";
+            return result("wrong_input");
         };
         let Some(execution) = inputs.get("nix_execution") else {
-            return "wrong_input";
+            return result("wrong_input");
         };
         if inputs.get("nix_command_mode") != Some(execution)
             || evidence::derivation::settings_digest().ok().as_ref()
@@ -1136,13 +1274,13 @@ fn satisfy<'a>(
                         && inputs.get("nix_daemon_trusted").map(String::as_str) == Some("true"))
             })
         {
-            return "wrong_input";
+            return result("wrong_input");
         }
         let Ok(argv) = evidence::derivation::argv(&lane.argv[0], drv, execution) else {
-            return "wrong_input";
+            return result("wrong_input");
         };
-        if result.command != argv {
-            return "wrong_command";
+        if observed.command != argv {
+            return result("wrong_command");
         }
         if evidence::derivation::command_digest(&argv).ok().as_ref()
             != inputs.get("nix_command_sha256")
@@ -1150,10 +1288,10 @@ fn satisfy<'a>(
                 .get("nix_outputs_sha256")
                 .is_some_and(|hash| hash.len() == 64 && hash.bytes().all(|c| c.is_ascii_hexdigit()))
         {
-            return "wrong_input";
+            return result("wrong_input");
         }
-    } else if result.command != lane.argv {
-        return "wrong_command";
+    } else if observed.command != lane.argv {
+        return result("wrong_command");
     }
     if !inputs.get("wrapper_sha256").is_some_and(|value| {
         value.len() == 64
@@ -1164,26 +1302,26 @@ fn satisfy<'a>(
         .get("attempt")
         .is_some_and(|value| value.parse::<u64>().is_ok_and(|n| n > 0))
     {
-        return "wrong_input";
+        return result("wrong_input");
     }
     if inputs.get("workspace_clean").map(String::as_str) != Some("true")
         || inputs.get("untracked_files").map(String::as_str) != Some("false")
     {
-        return "workspace_dirty";
+        return result("workspace_dirty");
     }
     if expected.any(|(key, value)| inputs.get(key) != Some(value)) {
-        return "wrong_input";
+        return result("wrong_input");
     }
     if let Some(check) = &lane.nix_check
         && inputs.get("nix_execution").map(String::as_str) == Some("reused")
     {
-        return if check.required == "any" {
+        return result(if check.required == "any" {
             "execution_reused"
         } else {
             "fresh_execution_required"
-        };
+        });
     }
-    "satisfied"
+    result("satisfied")
 }
 
 fn age_exceeds_limit(elapsed: Duration, seconds: u64) -> bool {

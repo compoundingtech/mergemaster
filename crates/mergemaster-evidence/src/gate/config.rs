@@ -4,7 +4,10 @@ use anyhow::{Context, Result, ensure};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
 /// The signing or verifying host's platform, matching the keys of
 /// `Environment::systems`.
@@ -37,17 +40,126 @@ struct ReleasePin {
     sha256: String,
 }
 
+// Declaration order is the canonical lexicographic JSON key order.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProducerManifest {
+    pub(crate) producers: Vec<Producer>,
+    pub(crate) version: u32,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Producer {
+    pub(crate) executable_sha256: String,
+    pub(crate) flavor: ProducerFlavor,
+    pub(crate) provenance: ProducerProvenance,
+    pub(crate) system: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ProducerFlavor {
+    Nix,
+    Release,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ProducerProvenance {
+    pub(crate) mergemaster_revision: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) nix_output_path: Option<String>,
+    pub(crate) package: String,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProducerDigest {
+    Listed,
+    Unlisted,
+    NoManifest,
+    NotApplicable,
+}
+
+impl ProducerManifest {
+    pub(crate) fn validate(&self) -> Result<()> {
+        ensure!(
+            self.version == 1 && !self.producers.is_empty(),
+            "unsupported or empty producer manifest"
+        );
+        let mut entries = BTreeSet::new();
+        for producer in &self.producers {
+            ensure!(
+                matches!(
+                    producer.system.as_str(),
+                    "x86_64-linux" | "aarch64-linux" | "x86_64-darwin" | "aarch64-darwin"
+                ) && producer.executable_sha256.len() == 64
+                    && producer
+                        .executable_sha256
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                    && full_commit(&producer.provenance.mergemaster_revision)
+                    && nonempty(&producer.provenance.package)
+                    && producer
+                        .provenance
+                        .nix_output_path
+                        .as_deref()
+                        .is_none_or(nix_store_path),
+                "invalid producer manifest entry"
+            );
+            ensure!(
+                entries.insert((
+                    &producer.system,
+                    &producer.flavor,
+                    &producer.executable_sha256
+                )),
+                "duplicate producer manifest entry"
+            );
+        }
+        Ok(())
+    }
+}
+
+/// Report producer digest binding to a BASE manifest, without authorizing it.
+pub fn producer_digest(
+    manifest: Option<&ProducerManifest>,
+    inputs: &BTreeMap<String, String>,
+) -> ProducerDigest {
+    let Some(manifest) = manifest else {
+        return ProducerDigest::NoManifest;
+    };
+    if manifest.producers.iter().any(|producer| {
+        inputs.get("wrapper_sha256") == Some(&producer.executable_sha256)
+            && inputs
+                .get("system")
+                .is_none_or(|system| system == &producer.system)
+    }) {
+        ProducerDigest::Listed
+    } else {
+        ProducerDigest::Unlisted
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Policy {
     pub version: u32,
     #[serde(default)]
     pub repository: Option<String>,
+    #[serde(default)]
+    pub queue: Option<QueuePolicy>,
     pub pull_request: PullRequestPolicy,
     pub protected_paths: Vec<String>,
     #[serde(default)]
     pub bootstrap_paths: Vec<String>,
     pub lanes: BTreeMap<String, Lane>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QueuePolicy {
+    pub generated_paths: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -191,6 +303,7 @@ pub struct Config {
     pub environment: Environment,
     pub environment_bytes: Vec<u8>,
     pub keys: Vec<u8>,
+    pub producers: Option<ProducerManifest>,
 }
 
 pub fn full_commit(value: &str) -> bool {
@@ -229,6 +342,30 @@ pub fn validate_path(path: &str) -> Result<()> {
         "invalid repository path"
     );
     Ok(())
+}
+
+/// Generated entries permit only a literal prefix or PREFIX/*SUFFIX. Return
+/// the conservative directory prefix used for protected-path overlap checks.
+fn generated_prefix(pattern: &str) -> Result<&str> {
+    validate_path(pattern)?;
+    ensure!(
+        !pattern.contains(['?', '[']),
+        "invalid queue generated path pattern {pattern}"
+    );
+    if let Some((prefix, suffix)) = pattern.split_once("/*") {
+        validate_path(prefix)?;
+        ensure!(
+            !prefix.contains('*') && !suffix.is_empty() && !suffix.contains(['*', '/']),
+            "invalid queue generated path pattern {pattern}"
+        );
+        Ok(prefix)
+    } else {
+        ensure!(
+            !pattern.contains('*'),
+            "invalid queue generated path pattern {pattern}"
+        );
+        Ok(pattern)
+    }
 }
 
 /// Explicit direct execution is limited to a single tracked Bun script.
@@ -425,6 +562,15 @@ pub fn load(repo: &Path, base: &str) -> Result<Config> {
             "invalid release pin"
         );
     }
+    let producers = match config_blob(repo, base, ".mergemaster/producers.json") {
+        Ok(bytes) => {
+            let manifest: ProducerManifest = decode(&bytes, "producer manifest")?;
+            manifest.validate()?;
+            Some(manifest)
+        }
+        Err(error) if error.is::<MissingConfig>() => None,
+        Err(error) => return Err(error),
+    };
     let mut policy: Policy = decode(
         &config_blob(repo, base, ".mergemaster/lanes.json")?,
         "lanes policy",
@@ -469,6 +615,30 @@ pub fn load(repo: &Path, base: &str) -> Result<Config> {
     }
     for path in policy.protected_paths.iter().chain(&policy.bootstrap_paths) {
         validate_path(path)?;
+    }
+    if let Some(queue) = &policy.queue {
+        ensure!(
+            !queue.generated_paths.is_empty(),
+            "queue generated_paths must not be empty"
+        );
+        for path in &queue.generated_paths {
+            let prefix = generated_prefix(path)?;
+            let folded_prefix = super::normalized_path(prefix);
+            let folded_prefix = folded_prefix.trim_end_matches('/');
+            for protected in [".mergemaster/", ".github/workflows/", ".github/actions/"]
+                .into_iter()
+                .chain(policy.protected_paths.iter().map(String::as_str))
+                .chain(policy.bootstrap_paths.iter().map(String::as_str))
+            {
+                let folded_protected = super::normalized_path(protected);
+                let folded_protected = folded_protected.trim_end_matches('/');
+                ensure!(
+                    !super::component_within(folded_prefix, folded_protected)
+                        && !super::component_within(folded_protected, folded_prefix),
+                    "queue generated path {path} overlaps protected path {protected}"
+                );
+            }
+        }
     }
     let tree = read_tree(repo, base)?;
     for path in &policy.bootstrap_paths {
@@ -586,6 +756,7 @@ pub fn load(repo: &Path, base: &str) -> Result<Config> {
         environment,
         environment_bytes,
         keys,
+        producers,
     })
 }
 

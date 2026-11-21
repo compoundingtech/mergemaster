@@ -4,6 +4,9 @@ use crate::cli_println as println;
 use super::*;
 use clap::{Args, Subcommand};
 
+#[path = "flip_skip_args.rs"]
+mod flip_skip_args;
+
 #[derive(Args)]
 pub struct EvidenceArgs {
     #[command(subcommand)]
@@ -14,10 +17,42 @@ pub struct EvidenceArgs {
 pub enum EvidenceCommand {
     /// Provision this account's signing key and print its public enrollment line.
     Keygen(super::keygen::KeygenArgs),
+    /// Evaluate the 24-hour evidence skip trigger; optionally propose ready flips.
+    #[command(disable_help_flag = true)]
+    FlipReady {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        argv: Vec<String>,
+    },
+    /// Count pull-request skips and explain checks that ran.
+    #[command(disable_help_flag = true)]
+    SkipReport {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        argv: Vec<String>,
+    },
+    LogWatch(super::log_watch::LogWatchArgs),
+    RunnerReport(super::runner_report::RunnerReportArgs),
+    /// Explain which signable gates ran without a pre-signed note; never fails.
+    PresignNotice,
+    /// Report read-only evidence-gate SLO counters from GitHub Actions.
+    #[command(disable_help_flag = true)]
+    Slo {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        argv: Vec<String>,
+    },
+    /// Retain the effective tested checkout for a later protected observer; never sign.
+    Source,
     /// Run a BASE-declared lane once, sign its observation, and publish its note.
     Wrap(super::generic::WrapArgs),
     /// Sign a wrapper request using explicit account-local configuration.
     Sign(super::signing::SignArgs),
+    /// Sign the legacy cooperative v1 request using HOME/.config/st/evidence-sign.json.
+    LegacySign,
+    /// Run or aggregate a cooperative v1 check and retain its signed legacy pack.
+    #[command(disable_help_flag = true)]
+    LegacyWrap {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        argv: Vec<String>,
+    },
     #[command(hide = true)]
     SignWorker(super::signing::SignArgs),
     /// Installed observer for a protected profile; accepts authenticated CI selectors only.
@@ -77,6 +112,47 @@ pub enum EvidenceCommand {
 pub fn run(args: EvidenceArgs) -> Result<()> {
     let value = match args.command {
         EvidenceCommand::Keygen(args) => return super::keygen::run_keygen(args),
+        EvidenceCommand::FlipReady { argv } => {
+            let argv = flip_skip_args::process_argv("flip-ready", argv);
+            let args = match flip_skip_args::flip(&argv) {
+                Ok(args) => args,
+                Err(exit) => return flip_skip_args::finish(exit),
+            };
+            let code = super::flip_ready::run(args)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+            return Ok(());
+        }
+        EvidenceCommand::SkipReport { argv } => {
+            let argv = flip_skip_args::process_argv("skip-report", argv);
+            let args = match flip_skip_args::skip(&argv) {
+                Ok(args) => args,
+                Err(exit) => return flip_skip_args::finish(exit),
+            };
+            let code = super::skip_report::run(args)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+            return Ok(());
+        }
+        EvidenceCommand::LogWatch(args) => return super::log_watch::run(args),
+        EvidenceCommand::RunnerReport(args) => return super::runner_report::run(args),
+        EvidenceCommand::PresignNotice => {
+            super::presign_notice::run();
+            return Ok(());
+        }
+        EvidenceCommand::Slo { argv } => {
+            use std::io::Write;
+            let exit = super::slo::run(&argv);
+            std::io::stdout().lock().write_all(exit.stdout.as_bytes())?;
+            std::io::stderr().lock().write_all(exit.stderr.as_bytes())?;
+            if exit.code != 0 {
+                std::process::exit(i32::from(exit.code));
+            }
+            return Ok(());
+        }
+        EvidenceCommand::Source => return super::source::run(),
         EvidenceCommand::Wrap(args) => {
             let code = super::generic::run_wrap(&args)?;
             if code != 0 {
@@ -85,6 +161,8 @@ pub fn run(args: EvidenceArgs) -> Result<()> {
             return Ok(());
         }
         EvidenceCommand::Sign(args) => return super::signing::run_sign(args),
+        EvidenceCommand::LegacySign => return super::legacy_sign::run(),
+        EvidenceCommand::LegacyWrap { argv } => return super::legacy_wrap::run(&argv),
         EvidenceCommand::SignWorker(args) => return super::signing::run_worker(args),
         EvidenceCommand::ObserveCi {
             run,

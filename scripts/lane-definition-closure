@@ -54,21 +54,18 @@ Exit 2 for a usage error. Needs Python and git.
 """
 import argparse
 import ast
-import importlib.machinery
 import json
 import os
 import posixpath
 import re
 import subprocess
 import sys
-import types
 
 sys.dont_write_bytecode = True
 
 LANES = '.st/required-lanes.json'
 SKIP_POLICY = '.st/evidence-skip-policy.json'
 GATE = 'scripts/ci-evidence-gate'
-VERIFY_NAME = 'evidence-verify'  # beside this script: the selector the gate reads ci_inputs with
 
 # Lanes whose tests run in a copy of the tree that holds only their skip-policy inputs (scripts/ci-sparse-tree): a file outside the
 # copy cannot run in the lane, so the walk does not reach it.
@@ -873,11 +870,8 @@ def undeclared_ci(closure, verdict, ci_inputs, protected):
 
 def unresolved_ci(repo, ci_inputs):
     """The ci_inputs entries that name nothing in the tree, each with why: a path it lacks, or a job or JSON entry its file does not
-    have (read with scripts/evidence-verify's own selector, so the two cannot disagree). The gate treats such an entry as changed, so
+    have (read with the pinned verifier's selector, so the two cannot disagree). The gate treats such an entry as changed, so
     the lane would always fall back: a renamed job or a typo, which this makes a --check failure rather than a silent one."""
-    loader = importlib.machinery.SourceFileLoader('evidence_verify', os.path.join(os.path.dirname(os.path.abspath(__file__)), VERIFY_NAME))
-    verify = types.ModuleType(loader.name)
-    loader.exec_module(verify)
     found = []
     for item in ci_inputs:
         path, selector = item.partition('::')[::2]
@@ -893,8 +887,16 @@ def unresolved_ci(repo, ci_inputs):
         if not selector:
             continue
         try:
-            part = verify.select_part(repo.read(path).decode(), path, selector)
-        except (verify.Failure, UnicodeDecodeError) as error:
+            done = subprocess.run([os.environ.get('MERGEMASTER_BIN', 'mergemaster'), 'legacy-evidence-verify-helper',
+                                   'select-part', '--path', path, '--selector', selector],
+                                  input=repo.read(path).decode(), capture_output=True, text=True)
+            if done.returncode == 3:
+                found.append((item, json.loads(done.stdout)['detail']))
+                continue
+            if done.returncode:
+                raise RuntimeError(done.stderr.strip() or 'select-part helper failed')
+            part = json.loads(done.stdout)
+        except UnicodeDecodeError as error:
             found.append((item, str(error)))
             continue
         if part is None:

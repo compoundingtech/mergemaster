@@ -33,7 +33,7 @@ fn sha<'a>(line: &'a str, prefix: &str) -> Option<&'a str> {
     .then_some(value)
 }
 // Python str.splitlines(): https://docs.python.org/3/library/stdtypes.html#str.splitlines
-fn splitlines(mut text: &str) -> impl Iterator<Item = &str> {
+pub(crate) fn splitlines(mut text: &str) -> impl Iterator<Item = &str> {
     std::iter::from_fn(move || {
         if text.is_empty() {
             return None;

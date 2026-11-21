@@ -111,7 +111,7 @@ with tempfile.TemporaryDirectory() as directory:
         subprocess.run(['git', 'init', '-q', '--bare', str(reader)], check=True, env=ENV)
         git(reader, 'fetch', '-q', '--no-tags', str(remote), f'+refs/{space}/evidence/*:refs/{space}/evidence/*')
         assert all(line.startswith(f'refs/{space}/evidence/') for line in git(reader, 'for-each-ref', '--format=%(refname)').splitlines())
-        verified = subprocess.run([sys.executable, str(ROOT / 'scripts/evidence-verify'), '--repo', str(reader), '--tree', tree,
+        verified = subprocess.run([os.environ.get('MERGEMASTER_BIN', 'mergemaster'), 'legacy-evidence-verify', '--repo', str(reader), '--tree', tree,
                                    '--check', 'linux-tests', '--keys', str(keys)], capture_output=True, text=True, env=ENV)
         assert verified.returncode == 0 and json.loads(verified.stdout)['record'] == passing, (space, verified.stdout, verified.stderr)
     print('passed: the record verifies from the tags alone and from the notes alone')
