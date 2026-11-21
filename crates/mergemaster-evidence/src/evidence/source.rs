@@ -239,7 +239,14 @@ pub fn run() -> Result<()> {
     // Value::sort_all_objects recursively sorts despite serde_json preserve_order.
     let mut value = serde_json::to_value(&receipt)?;
     value.sort_all_objects();
-    let serialized = serde_json::to_string(&value)?;
+    // All receipt strings are constrained to ASCII by the producer/pin schema.
+    // Match json.dumps(sort_keys=True): no indent; ", " between items and ": " after keys.
+    let mut bytes = Vec::new();
+    value.serialize(&mut serde_json::Serializer::with_formatter(
+        &mut bytes,
+        ReceiptFormatter,
+    ))?;
+    let serialized = String::from_utf8(bytes)?;
     fs::write(destination.join("receipt.json"), format!("{serialized}\n"))?;
     crate::cli_println!("{serialized}");
     let mut summary = OpenOptions::new()
@@ -252,6 +259,36 @@ pub fn run() -> Result<()> {
         receipt.source, receipt.tree
     )?;
     Ok(())
+}
+
+struct ReceiptFormatter;
+
+impl serde_json::ser::Formatter for ReceiptFormatter {
+    fn begin_object_key<W: Write + ?Sized>(
+        &mut self,
+        writer: &mut W,
+        first: bool,
+    ) -> std::io::Result<()> {
+        if !first {
+            writer.write_all(b", ")?;
+        }
+        Ok(())
+    }
+
+    fn begin_object_value<W: Write + ?Sized>(&mut self, writer: &mut W) -> std::io::Result<()> {
+        writer.write_all(b": ")
+    }
+
+    fn begin_array_value<W: Write + ?Sized>(
+        &mut self,
+        writer: &mut W,
+        first: bool,
+    ) -> std::io::Result<()> {
+        if !first {
+            writer.write_all(b", ")?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

@@ -934,6 +934,88 @@ fn source_receipt_hashes_raw_pin_before_parsing_and_full_trust_pins_base_bytes()
 }
 
 #[test]
+fn source_receipt_rejects_each_missing_required_field() {
+    let f = Fixture::new();
+    let (_, _, receipt, _) = ci_observation(&f);
+    let complete = serde_json::to_value(receipt).unwrap();
+    for field in complete.as_object().unwrap().keys() {
+        let mut value = complete.clone();
+        value.as_object_mut().unwrap().remove(field);
+        let error = serde_json::from_value::<observers::SourceReceipt>(value)
+            .unwrap_err()
+            .to_string();
+        let expected = if field == "version" {
+            "unsupported source receipt version: null".to_owned()
+        } else {
+            format!("missing field `{field}`")
+        };
+        assert_eq!(error, expected, "missing top-level {field}");
+    }
+    for field in ["repository", "revision", "release_version", "binary_sha256"] {
+        let mut value = complete.clone();
+        value["tool"].as_object_mut().unwrap().remove(field);
+        let error = serde_json::from_value::<observers::SourceReceipt>(value)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            format!("missing field `{field}`"),
+            "missing tool.{field}"
+        );
+    }
+}
+
+#[test]
+fn source_receipt_missing_source_or_base_pin_fails_closed_through_git() {
+    let f = Fixture::new();
+    let (mut binding, mut run, mut receipt, _) = ci_observation(&f);
+    let entries = git_text(f.repo(), &["ls-tree", &receipt.tree], None).unwrap();
+    let rows = entries
+        .lines()
+        .filter(|row| !row.ends_with("\t.mergemaster"))
+        .collect::<Vec<_>>();
+    let missing_tree = git_text(
+        f.repo(),
+        &["mktree"],
+        Some(format!("{}\n", rows.join("\n")).as_bytes()),
+    )
+    .unwrap();
+    let missing_commit = f.commit_tree(&missing_tree, Some(&f.head));
+    let expected = format!(
+        "git show: fatal: path '.mergemaster/tool-pin.json' does not exist in '{missing_commit}'"
+    );
+    // Valid source receipt, but operator accepted base lacks its required pin.
+    binding.accepted_base = missing_commit.clone();
+    receipt.validate(f.repo(), &binding, &run).unwrap();
+    assert_eq!(
+        binding
+            .full_eligible(f.repo(), &receipt, &run)
+            .unwrap_err()
+            .to_string(),
+        expected
+    );
+    // Source lacking the pin cannot be accepted or become fully eligible either.
+    binding.accepted_base = f.base.clone();
+    receipt.source = missing_commit.clone();
+    receipt.tree = missing_tree;
+    run["head_sha"] = missing_commit.into();
+    assert_eq!(
+        receipt
+            .validate(f.repo(), &binding, &run)
+            .unwrap_err()
+            .to_string(),
+        expected
+    );
+    assert_eq!(
+        binding
+            .full_eligible(f.repo(), &receipt, &run)
+            .unwrap_err()
+            .to_string(),
+        expected
+    );
+}
+
+#[test]
 fn ci_observer_signs_retained_merge_tree_and_reports_observed_job() {
     let f = Fixture::new();
     let (binding, run, receipt, jobs) = ci_observation(&f);

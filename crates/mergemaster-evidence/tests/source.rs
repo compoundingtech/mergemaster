@@ -238,7 +238,7 @@ fn source_shallow_pack_oracle_and_version_two_contract() {
             .get_envs()
             .map(|(k, v)| (k.to_owned(), v.unwrap().to_owned()))
             .collect();
-        let out = Command::new(python)
+        let out = Command::new(&python)
             .args([
                 "-B",
                 "-c",
@@ -268,6 +268,29 @@ fn source_shallow_pack_oracle_and_version_two_contract() {
         old["version"] = json!(2);
         old["tool"] = native["tool"].clone();
         assert_eq!(old, native);
+        // The pinned producer uses json.dumps(sort_keys=True), no indent,
+        // default ", " / ": " separators, and exactly one trailing newline.
+        // Serialize the same v2 fields (including tool) with that Python call.
+        let receipt_path = temp.join("ci-evidence-source/receipt.json");
+        let expected = Command::new(&python)
+            .args([
+                "-B",
+                "-c",
+                "import json,pathlib,sys; sys.stdout.write(json.dumps(json.loads(pathlib.Path(sys.argv[1]).read_bytes()), sort_keys=True) + '\\n')",
+            ])
+            .arg(&receipt_path)
+            .output()
+            .unwrap();
+        assert!(
+            expected.status.success(),
+            "{}",
+            String::from_utf8_lossy(&expected.stderr)
+        );
+        assert_eq!(
+            fs::read(receipt_path).unwrap(),
+            expected.stdout,
+            "{kind}: exact Python receipt bytes"
+        );
         assert_eq!(
             objects(&oracle.join("source.pack"), &temp.join("oracle-import")),
             native_objects
