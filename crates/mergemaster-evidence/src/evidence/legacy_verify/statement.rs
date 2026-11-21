@@ -101,7 +101,7 @@ pub(crate) fn zoned_time_micros(points: &[u32]) -> Option<i64> {
     zoned_time_components(points).map(|(utc, _)| utc)
 }
 /// UTC and naive-local epoch microseconds; the latter preserves datetime arithmetic bounds.
-pub(super) fn zoned_time_components(points: &[u32]) -> Option<(i64, i64)> {
+pub(crate) fn zoned_time_components(points: &[u32]) -> Option<(i64, i64)> {
     // Python replaces every Z before fromisoformat, including a separator Z.
     let expanded;
     let s = if points.contains(&90) {

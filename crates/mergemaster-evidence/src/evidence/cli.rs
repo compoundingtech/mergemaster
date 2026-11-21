@@ -15,6 +15,12 @@ pub enum EvidenceCommand {
     /// Provision this account's signing key and print its public enrollment line.
     Keygen(super::keygen::KeygenArgs),
     LogWatch(super::log_watch::LogWatchArgs),
+    /// Report read-only evidence-gate SLO counters from GitHub Actions.
+    #[command(disable_help_flag = true)]
+    Slo {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        argv: Vec<String>,
+    },
     /// Run a BASE-declared lane once, sign its observation, and publish its note.
     Wrap(super::generic::WrapArgs),
     /// Sign a wrapper request using explicit account-local configuration.
@@ -79,6 +85,16 @@ pub fn run(args: EvidenceArgs) -> Result<()> {
     let value = match args.command {
         EvidenceCommand::Keygen(args) => return super::keygen::run_keygen(args),
         EvidenceCommand::LogWatch(args) => return super::log_watch::run(args),
+        EvidenceCommand::Slo { argv } => {
+            use std::io::Write;
+            let exit = super::slo::run(&argv);
+            std::io::stdout().lock().write_all(exit.stdout.as_bytes())?;
+            std::io::stderr().lock().write_all(exit.stderr.as_bytes())?;
+            if exit.code != 0 {
+                std::process::exit(i32::from(exit.code));
+            }
+            return Ok(());
+        }
         EvidenceCommand::Wrap(args) => {
             let code = super::generic::run_wrap(&args)?;
             if code != 0 {
