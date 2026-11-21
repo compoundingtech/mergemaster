@@ -947,6 +947,9 @@ selected revision. They replace the removed Python flip-ready/skip-report leaves
 and self-tests; frozen independent-Python recordings live in
 `tests/fixtures/oracle/{flip-ready,skip-report}.json`.
 Zoned timestamps retain Python-compatible ISO forms and microsecond precision.
+For byte parity, flip readiness inherits Python's display quirk: window-start
+strings preserve the input offset's wall clock but append `Z`; arithmetic and
+window comparisons still use the correct UTC instants.
 Completed nonzero probes may establish absence; capture timeouts, spawn failures
 and read failures instead abort. Published-log OS errors retain the observed-time
 fallback and their original diagnostics, but published-log timeouts do not.

@@ -26,7 +26,7 @@ def api_at(stamp):
     return api
 
 
-def compare(label, api, accepted=True, expected_minutes=None):
+def compare(label, api, accepted=True, expected_minutes=None, expected_window_start=None):
     with tempfile.TemporaryDirectory(prefix='mergemaster-time-') as temporary:
         root = pathlib.Path(temporary)
         for tool in ('git', 'gh'):
@@ -54,6 +54,12 @@ def compare(label, api, accepted=True, expected_minutes=None):
             assert done.returncode == 0, (context, done.returncode, done.stdout, done.stderr)
             assert done.stderr == b'', (context, done.stderr)
             report = json.loads(done.stdout)
+            if expected_window_start is not None:
+                check = report['checks']['lint']
+                assert check['log_window_start'] == expected_window_start, (context, check)
+                assert check['why_not'] == [
+                    'log window started ' + expected_window_start + ', less than 24 h ago'
+                ], (context, check)
             calls = [json.loads(line) for line in (root / 'calls').read_text().splitlines()]
             paths = [call[-1] for call in calls if call[:2] == ['gh', 'api']]
             assert any('/runs/1/jobs?' in path for path in paths) == accepted, (context, paths)
@@ -104,6 +110,15 @@ elif suite == 'boundaries':
         ('upper-offset-fractions-cancel', '2026-11-20T13:30:15.1234569+01:30:15.1234561', True),
     ]:
         compare(label, api_at(stamp), accepted)
+elif suite == 'display':
+    # Inherited Python mislabel: format the original offset wall clock and append
+    # literal Z. Acceptance and comparisons must nevertheless use the UTC instant.
+    for label, stamp, expected in [
+        ('positive-offset', '2026-11-20T11+01', '2026-11-20T11:00:00Z'),
+        ('negative-offset-crosses-date', '2026-11-19T23:30:00-10:30', '2026-11-19T23:30:00Z'),
+        ('fractional-offset-upper-bound', '2026-11-20T13:30:15.1234569+01:30:15.1234561', '2026-11-20T13:30:15Z'),
+    ]:
+        compare(label, api_at(stamp), expected_window_start=expected)
 elif suite == 'durations':
     for label, start, end, expected in [
         ('basic', '20261120T100000Z', '20261120T100130Z', 1.5),
@@ -164,6 +179,11 @@ fn flip_ready_window_boundaries_truncate_to_microseconds() {
 #[test]
 fn skip_report_window_boundaries_truncate_to_microseconds() {
     differential("skip-report", "boundaries");
+}
+
+#[test]
+fn flip_ready_inherits_offset_wall_clock_display_but_compares_utc() {
+    differential("flip-ready", "display");
 }
 
 #[test]
