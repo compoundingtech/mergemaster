@@ -37,13 +37,18 @@ pub fn read_statement(
     commit: &str,
     tree: Option<&str>,
 ) -> Result<Option<Document>, PolicyError> {
-    read_with(Transport::Native, repo, OsStr::new(commit), tree)
+    read_with(
+        Transport::Native,
+        repo,
+        OsStr::new(commit),
+        tree.map(OsStr::new),
+    )
 }
 /// Oracle inherited transport and early-aborting capture, not native Git.
 pub fn read_statement_cli(
     repo: &Path,
     commit: &OsStr,
-    tree: Option<&str>,
+    tree: Option<&OsStr>,
 ) -> Result<Option<Document>, PolicyError> {
     read_with(Transport::Cli, repo, commit, tree)
 }
@@ -51,7 +56,7 @@ fn read_with(
     transport: Transport,
     repo: &Path,
     commit: &OsStr,
-    tree: Option<&str>,
+    tree: Option<&OsStr>,
 ) -> Result<Option<Document>, PolicyError> {
     let commit_text = commit.to_str().unwrap_or("");
     if transport == Transport::Native {
@@ -88,7 +93,7 @@ fn read_with(
     else {
         return Ok(None);
     };
-    if oid(blob_id).is_err() || oid(path).is_err() || tree.is_some_and(|t| t != path) {
+    if oid(blob_id).is_err() || oid(path).is_err() || tree.is_some_and(|t| t != OsStr::new(path)) {
         return Ok(None);
     }
     if transport == Transport::Native {
@@ -251,7 +256,12 @@ impl RecordCache {
         // Refuse an exhausted invocation/entry limit before reading another record.
         self.charge(0, true)?;
         // Failed reads are not inserted, matching assignment only after Python returns.
-        let parsed = read_with(self.transport, repo, OsStr::new(commit), tree)?;
+        let parsed = read_with(
+            self.transport,
+            repo,
+            OsStr::new(commit),
+            tree.map(OsStr::new),
+        )?;
         let identity = Key {
             repo: key.repo,
             commit,

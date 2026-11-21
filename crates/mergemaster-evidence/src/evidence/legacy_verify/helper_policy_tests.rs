@@ -70,6 +70,7 @@ for label,change in [
  entry['kinds']['wrapper'].update(change);add('source order '+label,entry)
 entry=copy.deepcopy(simple);entry['inputs']=['z','a','z']
 add('source order inputs list',entry)
+add('duplicate shard key retains first position and last value',text='{"version":1,"checks":{"check":{"trust_levels":["agent"],"kinds":{"wrapper":{"command":["run"],"shard_inputs":{"results":"old","count":"n","results":"r"}}}}}}')
 entry=copy.deepcopy(simple)
 entry.update(max_age_s=None,inputs=None,events=None,require='shadow',sample_one_in=1)
 add('explicit null header fields',entry)
@@ -113,8 +114,8 @@ print(json.dumps(rows))
         String::from_utf8_lossy(&output.stderr)
     );
     let cases: Vec<Case> = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(cases.len(), 33);
-    assert_eq!(cases.iter().filter(|case| case.success).count(), 16);
+    assert_eq!(cases.len(), 34);
+    assert_eq!(cases.iter().filter(|case| case.success).count(), 17);
     for case in cases {
         let mut actual = String::new();
         let result = write(

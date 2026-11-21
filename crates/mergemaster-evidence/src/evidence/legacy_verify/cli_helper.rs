@@ -33,7 +33,7 @@ enum Operation {
         #[arg(long, default_value = ".")]
         repo: PathBuf,
         #[arg(long)]
-        tree: String,
+        tree: OsString,
         #[arg(long)]
         input: Vec<OsString>,
     },
@@ -78,7 +78,7 @@ enum Operation {
         #[arg(long)]
         record: OsString,
         #[arg(long)]
-        tree: Option<String>,
+        tree: Option<OsString>,
     },
     Signature {
         #[arg(long)]
