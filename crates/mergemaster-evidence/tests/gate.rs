@@ -1360,6 +1360,21 @@ fn producer_digest_binding_to_base_manifest_is_report_only() {
 }
 
 #[test]
+fn producer_digest_not_applicable_has_a_distinct_wire_value() {
+    use mergemaster_evidence::gate::config::ProducerDigest;
+
+    assert_eq!(
+        serde_json::to_value(ProducerDigest::NotApplicable).unwrap(),
+        json!("not_applicable")
+    );
+    assert_eq!(
+        serde_json::from_value::<ProducerDigest>(json!("not_applicable")).unwrap(),
+        ProducerDigest::NotApplicable
+    );
+    assert_ne!(ProducerDigest::NotApplicable, ProducerDigest::NoManifest);
+}
+
+#[test]
 fn producer_manifest_matches_digest_and_optional_signed_system_only() {
     let mut f = Fixture::new();
     let mut manifest = producer_manifest();

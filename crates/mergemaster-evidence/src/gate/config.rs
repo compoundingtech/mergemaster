@@ -40,35 +40,37 @@ struct ReleasePin {
     sha256: String,
 }
 
-#[derive(Debug, Deserialize)]
+// Declaration order is the canonical lexicographic JSON key order.
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProducerManifest {
-    version: u32,
-    producers: Vec<Producer>,
+    pub(crate) producers: Vec<Producer>,
+    pub(crate) version: u32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct Producer {
-    system: String,
-    flavor: ProducerFlavor,
-    executable_sha256: String,
-    provenance: ProducerProvenance,
+pub(crate) struct Producer {
+    pub(crate) executable_sha256: String,
+    pub(crate) flavor: ProducerFlavor,
+    pub(crate) provenance: ProducerProvenance,
+    pub(crate) system: String,
 }
 
-#[derive(Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
-enum ProducerFlavor {
+pub(crate) enum ProducerFlavor {
     Nix,
     Release,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct ProducerProvenance {
-    mergemaster_revision: String,
-    package: String,
-    nix_output_path: Option<String>,
+pub(crate) struct ProducerProvenance {
+    pub(crate) mergemaster_revision: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) nix_output_path: Option<String>,
+    pub(crate) package: String,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -77,10 +79,11 @@ pub enum ProducerDigest {
     Listed,
     Unlisted,
     NoManifest,
+    NotApplicable,
 }
 
 impl ProducerManifest {
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         ensure!(
             self.version == 1 && !self.producers.is_empty(),
             "unsupported or empty producer manifest"

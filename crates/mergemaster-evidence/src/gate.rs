@@ -1094,7 +1094,7 @@ fn satisfy<'a>(
 ) -> (&'static str, config::ProducerDigest) {
     let producer_digest = match &statement.predicate.fact {
         Fact::Tests { inputs, .. } => config::producer_digest(producers, inputs),
-        _ => config::ProducerDigest::NoManifest,
+        _ => config::ProducerDigest::NotApplicable,
     };
     let result = |reason| (reason, producer_digest);
     if let Some(reason) = repository_refusal(repository, statement.repository.as_deref()) {

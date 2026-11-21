@@ -694,12 +694,114 @@ compares `executable_sha256` to the signed `wrapper_sha256`, plus the signed
 `system` when present; it does not evaluate Nix or compare build flavor.
 
 For a selected note, native decision JSON reports `producer_digest` as `listed`,
-`unlisted`, or `no_manifest`; it is null when no note was selected. This phase changes neither
-note selection nor satisfaction, refusal, or signing authorization: unlisted
-digests and absent manifests are report-only. Malformed BASE manifests are
-nonzero errors with no decision or GitHub outputs, just like malformed tool
-pins. A HEAD-only manifest is ignored as authority; existing protected-edit
-rules still apply to adding or changing it.
+`unlisted`, `no_manifest` (no BASE manifest), or `not_applicable` (the fact kind
+is not subject to wrapper digest binding); it is null when no note was selected.
+This phase changes neither note selection nor satisfaction, refusal, or signing
+authorization: unlisted digests and absent manifests are report-only. Malformed
+BASE manifests fail closed in the gate and in the wrap and sign paths, which
+share configuration loading, just like malformed tool pins. The gate returns a
+nonzero error with no decision or GitHub outputs. A bad manifest on main stops
+evidence production until it is fixed. A HEAD-only manifest is ignored as
+authority; existing protected-edit rules still apply to adding or changing it.
+
+### Measuring producer manifests
+
+`mergemaster producers measure` writes a version-one manifest, not a status
+wrapper. Build the package separately, then measure its executable without
+executing it or invoking Nix:
+
+```sh
+mergemaster producers measure --nix-package "$out" --system x86_64-linux \
+  --mergemaster-revision "$revision" \
+  --package inputs.mergemaster.packages.x86_64-linux.default > nix-entry.json
+mergemaster producers measure --release-asset ./mergemaster-linux \
+  --sha256sums ./SHA256SUMS --asset-name mergemaster-linux \
+  --system x86_64-linux --mergemaster-revision "$revision" > release-entry.json
+mergemaster producers measure --merge nix-entry.json release-entry.json \
+  --check .mergemaster/producers.json
+```
+
+The workflow derives the full revision from the resolved input and verifies
+release attestations (`gh attestation verify`) before measurement; this command
+only checks release checksums. SHA256SUMS requires lowercase hex digests and
+GNU separators (two spaces, or space plus `*`); malformed or duplicate lines,
+missing assets, and mismatches refuse. Nix outputs must be top-level `/nix/store`
+paths and `bin/mergemaster` must be a regular file, not a symlink.
+Output is compact UTF-8 JSON with lexicographic object keys, lowercase hex,
+producers sorted by `(system, flavor, executable_sha256)`, omitted absent
+optional fields, and one trailing LF. Duplicate entries refuse. `--check`
+requires byte equality, including the final LF; drift exits nonzero.
+
+#### Reusable producer workflow
+
+Call `compoundingtech/mergemaster/.github/workflows/producers.yml` at a reviewed
+full commit SHA. Its required string inputs are `repository` (`owner/name`),
+`commit` (the exact 40-character lowercase consumer SHA), `flavor` (`nix` or
+`release`), and `mode` (`propose` or `check`). No secrets are accepted.
+For a same-repository PR, pass `github.event.pull_request.head.sha`; for forks,
+pass its head repository as well. The consumer must be publicly readable.
+
+The calling job grants `contents: read` and `id-token: write`; release callers
+also grant `attestations: read`. Only the identity job requests OIDC, solely to
+read GitHub's `job_workflow_sha` claim: `github.workflow_sha` identifies the
+caller, not this reusable workflow. Every measuring/merging job checks out
+`compoundingtech/mergemaster` at that claim's exact SHA and builds its tool
+before evaluating consumer code. No consumer-supplied executable is run.
+All actions are full-SHA pinned, checkout credentials are not persisted, and
+the consumer is never checked out in the OIDC-enabled job.
+
+For `nix`, four separate fresh hosted jobs build the exact consumer expression
+`(builtins.getFlake "git+file://<checkout>?rev=<commit>").inputs.mergemaster.packages.<system>.default`:
+two `ubuntu-24.04` runners for `x86_64-linux`, and two
+`ubuntu-24.04-arm` runners for `aarch64-linux`. The revision is evaluated from
+the resolved input's `.rev`, preserving consumer input overrides.
+Evaluation is pure, refuses lock updates and import-from-derivation, and ignores
+consumer flake configuration; builds require sandboxing and disable remote
+builders. Dependencies may be substituted.
+
+Each job first realizes the target (possibly from cache), verifies the output
+exists, then requires a successful local `nix build --rebuild` of the same
+expression. The [Nix manual](https://nix.dev/manual/nix/2.28/command-ref/new-cli/nix3-build.html#opt-rebuild)
+defines this as rebuilding an already built package and comparing against its
+existing store paths. Thus the prerequisite for `--rebuild` is explicit:
+retrieving a cached target alone cannot pass, and a rebuild or comparison
+failure stops measurement. This is deliberately stricter than comparing only
+the executable: differences elsewhere in the output also fail.
+The final `producers/reproducible` job requires byte-identical canonical entries
+and derivation/output provenance between the two runners for each system,
+then merges one entry per system. Per-run build identity remains in the
+`producer-nix-<system>-<replica>` artifacts, not in the manifest.
+
+For `release`, the workflow reads the exact consumer commit's
+`.mergemaster/tool-pin.json`, downloads both Linux musl executables and
+`SHA256SUMS`, and verifies all three with `gh attestation verify` against
+`compoundingtech/mergemaster/.github/workflows/release.yml`, the pin's full
+source/signer revision, and its release tag. It also checks the pinned x86_64
+digest and strictly verifies each asset against the authenticated checksums
+before measurement. Release verification authenticates published bytes; it
+does **not** prove independent source-build reproducibility.
+
+Both modes upload the canonical `producers.json` as the `producer-manifest`
+artifact. `check` additionally requires byte equality with the manifest stored
+at the specified consumer commit; missing manifests and drift fail.
+The final gate fails if any required measurement job fails or is skipped.
+Neither mode publishes commits, opens PRs, nor changes consumer authority.
+
+The consumer's drift check should call this workflow in `check` mode only when
+a change touches the mergemaster flake input, `flake.lock`,
+`.mergemaster/tool-pin.json`, or `.mergemaster/producers.json`; otherwise it
+reports **not applicable**. The double build happens only on that path.
+Detecting an input edit in the root `flake.nix` may conservatively trigger on
+the whole file. Proposal generation is a separate consumer-owned invocation.
+
+This repository's hosted workflows are authored YAML: `genie/` exports
+consumer fragments, and the only `.genie.ts` workflow source is a test fixture,
+not a renderer for `.github/workflows/`. Accordingly `producers.yml` is authored
+alongside the existing workflows, not added to an unrelated consumer generator.
+Hosted execution is required to establish real runner reproducibility and
+release-attestation availability. Consumers using import-from-derivation are
+unsupported; Darwin/other producer coverage and explicit exception policy
+remain outside this two-Linux-system workflow.
 
 The library's `evidence::legacy_policy` schema helpers are separate from native
 lane authorization. Command/input helpers preserve raw commands and bindings;
