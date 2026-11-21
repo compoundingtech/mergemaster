@@ -1256,6 +1256,18 @@ class StTest(unittest.TestCase):
         return code, out.getvalue(), err.getvalue()
 
     @contextlib.contextmanager
+    def capture_wrapper_output(self):
+        """Serial demo output otherwise inherits OS descriptors, not redirect_stdout/stderr."""
+        run_limited = st_test.run_limited
+        with tempfile.TemporaryFile(mode='w+') as output:
+            def run(argv, *args, **options):
+                if 'legacy-wrap' in argv:
+                    options.update(stdout=output, stderr=subprocess.STDOUT)
+                return run_limited(argv, *args, **options)
+            with mock.patch.object(st_test, 'run_limited', side_effect=run):
+                yield output
+
+    @contextlib.contextmanager
     def simulated_limit(self, seconds, waited=False):
         """Each check's time limit as if `seconds` passed once its running time began (for a check that streams scripts/ci-local's output,
         once ci-local printed that it started), all of them spent waiting for a build slot when `waited` (its queue log then holds that wait).
@@ -1392,10 +1404,21 @@ class StTest(unittest.TestCase):
         self.commit('b.txt', 'two')
         origin = Path(self.tmp.name) / 'origin.git'
         before = git(origin, 'for-each-ref', '--format=%(refname) %(objectname)')
-        code, out, err = self.run_st_test('--check', 'demo', '--push', 'origin')
-        self.assertEqual(code, 1, out + err)
-        self.assertIn('pass a trusted absolute path explicitly with --push', out + err)
-        self.assertEqual(git(origin, 'for-each-ref', '--format=%(refname) %(objectname)'), before)
+        confirm_pushed = st_test.confirm_pushed
+        def confirm_after_wrapper(*args):
+            self.assertEqual(git(origin, 'for-each-ref', '--format=%(refname) %(objectname)'), before,
+                             'the wrapper published nothing before the caller retries from its own trust domain')
+            return confirm_pushed(*args)
+        with self.capture_wrapper_output() as log, \
+                mock.patch.object(st_test, 'confirm_pushed', side_effect=confirm_after_wrapper) as confirm:
+            code, out, err = self.run_st_test('--check', 'demo', '--push', 'origin')
+            log.seek(0)
+            wrapper_output = log.read()
+        self.assertEqual(code, 1, out + err + wrapper_output)
+        self.assertRegex(out, r'demo +FAILED \(1\)')
+        self.assertIn('pass a trusted absolute path explicitly with --push', wrapper_output)
+        confirm.assert_called_once()
+        self.assertRegex(out, r'on-remote +pushed again')
 
     def nudge_recorder(self, exit_code=0):
         calls = Path(self.tmp.name) / f'nudge-calls-{exit_code}'
@@ -3769,18 +3792,20 @@ finally:
             'GIT_CONFIG_KEY_0': f'url.{origin.as_uri()}.insteadOf', 'GIT_CONFIG_VALUE_0': url,
             'GIT_CONFIG_KEY_1': 'protocol.file.allow', 'GIT_CONFIG_VALUE_1': 'always',
             'GIT_CONFIG_KEY_2': 'gc.auto', 'GIT_CONFIG_VALUE_2': '0',
-            'EVIDENCE_PUSH_TOKEN': 'test-https-token',
+            'EVIDENCE_PUSH_TOKEN': '',  # explicit local publication is credential-free
         }
         for already_signed in (False, True):
-            code, out, err = self.run_st_test('--check', 'demo', '--push', str(origin), extra_env=env)
-            self.assertEqual(code, 0, out + err)
+            with self.capture_wrapper_output() as log:
+                code, out, err = self.run_st_test('--check', 'demo', '--push', str(origin), extra_env=env)
+                log.seek(0)
+                wrapper_output = log.read()
+            self.assertEqual(code, 0, out + err + wrapper_output)
             if already_signed:
                 self.assertIn('already signed', out)
             else:
                 self.assertIn('fractal-test: evidence-wrap argv:', err)
                 self.assertIn(f'--push {origin}', err)
                 self.assertIn("-- sh -c 'echo ran'", err)
-                self.assertNotIn('test-https-token', err)
             refs = git(origin, 'for-each-ref', '--format=%(refname)', 'refs/tags/evidence/', 'refs/notes/evidence/').splitlines()
             self.assertEqual(len(refs), 2, refs)
             self.assertTrue(all(f'/{tree}/' in ref for ref in refs), refs)
