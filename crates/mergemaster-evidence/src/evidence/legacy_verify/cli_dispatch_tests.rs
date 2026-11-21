@@ -1,6 +1,6 @@
 use std::process::Command;
-pub(super) type Row = (Vec<Vec<u8>>, Vec<u8>, Vec<u8>, i32);
-pub(super) fn compare(rows: Vec<Row>, phase: &str) {
+pub(crate) type Row = (Vec<Vec<u8>>, Vec<u8>, Vec<u8>, i32);
+pub(crate) fn compare(rows: Vec<Row>, phase: &str) {
     for (argv, stdout, stderr, code) in rows {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(root.path().join("argv"), serde_json::to_vec(&argv).unwrap()).unwrap();
