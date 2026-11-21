@@ -1763,6 +1763,34 @@ CONFIG="$HOME/.config/mergemaster/evidence-sign.json"
   -- tools/graph check --full
 ```
 
+The native v2 wrapper's exit-code contract is:
+
+- `0`: signed, published passing record.
+- The lane's own nonzero exit code: signed, published failing record (including
+  crash signals as `128 + signal`), except lane exit `75` maps to wrap exit `1`
+  while retaining `exit_code: 75` in the signed record.
+- `75`: temporary infrastructure unavailability. The first stderr line is
+  `mergemaster: infra_unavailable class=<token>`, followed by details.
+  Classes are `interrupted` (lane or Nix preparation received SIGHUP, SIGINT,
+  SIGKILL or SIGTERM), `signer_unavailable` (signer spawn, signal termination or
+  broken pipe), and `publish_failed` (origin push failure or timeout).
+- `1`: other errors or an explicit signer policy refusal. A lane's own exit `1`
+  still produces a signed failing record as above.
+
+Interrupted runs create neither output refs nor signed notes. SIGPIPE and crash
+signals remain lane failures: a broken pipeline can be a real defect, not
+external cancellation. Signer unavailability creates no usable signed note;
+publication failure occurs **after signing** and can leave an immutable local
+note ref (the remote may also have accepted a push before a timeout). Every retry
+runs the lane and signer again, with no partial-result reuse; a local ref left
+by publication is harmless and is updated if the same record recurs.
+
+Consumers should map `75` to their existing temporary not-run path, not to a
+failed check. Queues own bounded retries and parking/pausing; Mergemaster does
+neither. Wrap exit `75` always means infrastructure unavailability, never a
+completed lane's own exit status. This contract does not change the legacy
+wrapper.
+
 ### Signed repository identity
 
 Pass `--repository compoundingtech/factory` to bind the logical repository to
