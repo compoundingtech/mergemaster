@@ -9,7 +9,7 @@ use serde_json::Value;
 struct Configuration {
     repository: String,
     scratch_repo: PathBuf,
-    recipe_sha256: String,
+    tool_pin_sha256: String,
     accepted_base: String,
     workflow_sha256: String,
     required_checks: BTreeSet<String>,
@@ -210,7 +210,7 @@ pub fn observe_ci(run: u64, attempt: u64, artifact: u64, predecessors: &[String]
         repository: configuration.repository.clone(),
         run,
         attempt,
-        recipe_sha256: configuration.recipe_sha256,
+        tool_pin_sha256: configuration.tool_pin_sha256,
         accepted_base: configuration.accepted_base,
         workflow_sha256: configuration.workflow_sha256,
         required_checks: configuration.required_checks,

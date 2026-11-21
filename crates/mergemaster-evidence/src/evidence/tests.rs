@@ -30,6 +30,16 @@ fn policy() -> Policy {
     }
 }
 
+fn tool_pin() -> Vec<u8> {
+    serde_json::to_vec(&serde_json::json!({
+        "version": 1,
+        "repository": "compoundingtech/mergemaster",
+        "revision": "a".repeat(40),
+        "release": {"version": "v1.2.3", "sha256": "b".repeat(64)}
+    }))
+    .unwrap()
+}
+
 impl Fixture {
     fn new() -> Self {
         let root = tempfile::tempdir().unwrap();
@@ -82,16 +92,16 @@ impl Fixture {
             Some(format!("100644 blob {policy_blob}\tevidence-policy.json\n").as_bytes()),
         )
         .unwrap();
-        let recipe = git_text(
+        let pin = git_text(
             self.repo(),
             &["hash-object", "-w", "--stdin"],
-            Some(b"fixture-ci-source-recipe"),
+            Some(&tool_pin()),
         )
         .unwrap();
-        let scripts = git_text(
+        let mergemaster = git_text(
             self.repo(),
             &["mktree"],
-            Some(format!("100644 blob {recipe}\tci-evidence-source\n").as_bytes()),
+            Some(format!("100644 blob {pin}\ttool-pin.json\n").as_bytes()),
         )
         .unwrap();
         let workflow = git_text(
@@ -116,7 +126,7 @@ impl Fixture {
             self.repo(),
             &["mktree"],
             Some(
-                format!("040000 tree {github}\t.github\n040000 tree {policy_tree}\t.st\n100644 blob {file}\tcheck.rs\n040000 tree {scripts}\tscripts\n")
+                format!("040000 tree {github}\t.github\n040000 tree {mergemaster}\t.mergemaster\n040000 tree {policy_tree}\t.st\n100644 blob {file}\tcheck.rs\n")
                     .as_bytes(),
             ),
         )
@@ -768,12 +778,12 @@ fn ci_observation(
     Vec<serde_json::Value>,
 ) {
     use sha2::{Digest, Sha256};
-    let recipe_digest = hex::encode(Sha256::digest(b"fixture-ci-source-recipe"));
+    let pin = tool_pin();
     let binding = observers::CiBinding {
         repository: "example/project".into(),
         run: 123,
         attempt: 2,
-        recipe_sha256: recipe_digest.clone(),
+        tool_pin_sha256: hex::encode(Sha256::digest(&pin)),
         accepted_base: f.base.clone(),
         workflow_sha256: hex::encode(Sha256::digest(b"fixture-workflow")),
         required_checks: BTreeSet::from(["unit-tests".into()]),
@@ -786,7 +796,7 @@ fn ci_observation(
         "pull_requests":[{"number":7}]
     });
     let receipt = observers::SourceReceipt {
-        version: 1,
+        version: 2,
         repository: "example/project".into(),
         event: "merge_group".into(),
         run_id: "123".into(),
@@ -795,7 +805,7 @@ fn ci_observation(
         tree: tree(f.repo(), &f.head).unwrap(),
         object_format: "sha1".into(),
         change_id: "github:example/project#7".into(),
-        producer_sha256: recipe_digest,
+        tool: source::parse_tool_pin(&pin).unwrap(),
         pack_sha256: "b".repeat(64),
         pack_bytes: 123,
     };
@@ -808,6 +818,201 @@ fn ci_observation(
             "status":"completed", "conclusion":"success", "completed_at":"2026-10-12T12:00:00Z"}),
     ];
     (binding, run, receipt, jobs)
+}
+
+#[test]
+fn source_receipt_rejects_v1_before_legacy_fields_and_typed_validation() {
+    let legacy = serde_json::json!({
+        "producer_sha256": "a".repeat(64),
+        "version": 1
+    });
+    let error = serde_json::from_value::<observers::SourceReceipt>(legacy).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("unsupported source receipt version: 1")
+    );
+    let f = Fixture::new();
+    let (binding, run, mut receipt, _) = ci_observation(&f);
+    receipt.version = 1;
+    assert!(
+        receipt
+            .validate(f.repo(), &binding, &run)
+            .unwrap_err()
+            .to_string()
+            .contains("unsupported source receipt version: 1")
+    );
+    receipt.version = 2;
+    let mut value = serde_json::to_value(&receipt).unwrap();
+    value["producer_sha256"] = "a".repeat(64).into();
+    assert!(
+        serde_json::from_value::<observers::SourceReceipt>(value)
+            .unwrap_err()
+            .to_string()
+            .contains("unknown field")
+    );
+}
+
+#[test]
+fn source_receipt_compares_every_tool_identity_field() {
+    let f = Fixture::new();
+    for field in ["repository", "revision", "release_version", "binary_sha256"] {
+        let (binding, run, receipt, _) = ci_observation(&f);
+        let mut value = serde_json::to_value(receipt).unwrap();
+        value["tool"][field] = match field {
+            "repository" => "other/project".into(),
+            "revision" => "c".repeat(40).into(),
+            "release_version" => "v9.9.9".into(),
+            _ => "c".repeat(64).into(),
+        };
+        let receipt: observers::SourceReceipt = serde_json::from_value(value).unwrap();
+        assert!(
+            receipt
+                .validate(f.repo(), &binding, &run)
+                .unwrap_err()
+                .to_string()
+                .contains("tool identity differs")
+        );
+    }
+}
+
+#[test]
+fn source_receipt_hashes_raw_pin_before_parsing_and_full_trust_pins_base_bytes() {
+    use sha2::{Digest, Sha256};
+    let f = Fixture::new();
+    for malformed in [false, true] {
+        let (mut binding, mut run, mut receipt, _) = ci_observation(&f);
+        let mut pin = tool_pin();
+        if malformed {
+            pin = b"not JSON".to_vec();
+        } else {
+            pin.push(b'\n');
+        }
+        let blob = git_text(f.repo(), &["hash-object", "-w", "--stdin"], Some(&pin)).unwrap();
+        let directory = git_text(
+            f.repo(),
+            &["mktree"],
+            Some(format!("100644 blob {blob}\ttool-pin.json\n").as_bytes()),
+        )
+        .unwrap();
+        let entries = git_text(f.repo(), &["ls-tree", &receipt.tree], None).unwrap();
+        let mut rows = entries
+            .lines()
+            .filter(|row| !row.ends_with("\t.mergemaster"))
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        rows.push(format!("040000 tree {directory}\t.mergemaster"));
+        receipt.tree = git_text(
+            f.repo(),
+            &["mktree"],
+            Some(format!("{}\n", rows.join("\n")).as_bytes()),
+        )
+        .unwrap();
+        receipt.source = f.commit_tree(&receipt.tree, Some(&f.head));
+        run["head_sha"] = receipt.source.clone().into();
+        assert!(
+            receipt
+                .validate(f.repo(), &binding, &run)
+                .unwrap_err()
+                .to_string()
+                .contains("operator's pinned tool pin")
+        );
+        binding.tool_pin_sha256 = hex::encode(Sha256::digest(&pin));
+        if malformed {
+            assert!(receipt.validate(f.repo(), &binding, &run).is_err());
+        } else {
+            receipt.validate(f.repo(), &binding, &run).unwrap();
+            assert!(
+                binding
+                    .full_eligible(f.repo(), &receipt, &run)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("accepted base does not match operator tool-pin/workflow pins")
+            );
+        }
+    }
+}
+
+#[test]
+fn source_receipt_rejects_each_missing_required_field() {
+    let f = Fixture::new();
+    let (_, _, receipt, _) = ci_observation(&f);
+    let complete = serde_json::to_value(receipt).unwrap();
+    for field in complete.as_object().unwrap().keys() {
+        let mut value = complete.clone();
+        value.as_object_mut().unwrap().remove(field);
+        let error = serde_json::from_value::<observers::SourceReceipt>(value)
+            .unwrap_err()
+            .to_string();
+        let expected = if field == "version" {
+            "unsupported source receipt version: null".to_owned()
+        } else {
+            format!("missing field `{field}`")
+        };
+        assert_eq!(error, expected, "missing top-level {field}");
+    }
+    for field in ["repository", "revision", "release_version", "binary_sha256"] {
+        let mut value = complete.clone();
+        value["tool"].as_object_mut().unwrap().remove(field);
+        let error = serde_json::from_value::<observers::SourceReceipt>(value)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            format!("missing field `{field}`"),
+            "missing tool.{field}"
+        );
+    }
+}
+
+#[test]
+fn source_receipt_missing_source_or_base_pin_fails_closed_through_git() {
+    let f = Fixture::new();
+    let (mut binding, mut run, mut receipt, _) = ci_observation(&f);
+    let entries = git_text(f.repo(), &["ls-tree", &receipt.tree], None).unwrap();
+    let rows = entries
+        .lines()
+        .filter(|row| !row.ends_with("\t.mergemaster"))
+        .collect::<Vec<_>>();
+    let missing_tree = git_text(
+        f.repo(),
+        &["mktree"],
+        Some(format!("{}\n", rows.join("\n")).as_bytes()),
+    )
+    .unwrap();
+    let missing_commit = f.commit_tree(&missing_tree, Some(&f.head));
+    let expected = format!(
+        "git show: fatal: path '.mergemaster/tool-pin.json' does not exist in '{missing_commit}'"
+    );
+    // Valid source receipt, but operator accepted base lacks its required pin.
+    binding.accepted_base = missing_commit.clone();
+    receipt.validate(f.repo(), &binding, &run).unwrap();
+    assert_eq!(
+        binding
+            .full_eligible(f.repo(), &receipt, &run)
+            .unwrap_err()
+            .to_string(),
+        expected
+    );
+    // Source lacking the pin cannot be accepted or become fully eligible either.
+    binding.accepted_base = f.base.clone();
+    receipt.source = missing_commit.clone();
+    receipt.tree = missing_tree;
+    run["head_sha"] = missing_commit.into();
+    assert_eq!(
+        receipt
+            .validate(f.repo(), &binding, &run)
+            .unwrap_err()
+            .to_string(),
+        expected
+    );
+    assert_eq!(
+        binding
+            .full_eligible(f.repo(), &receipt, &run)
+            .unwrap_err()
+            .to_string(),
+        expected
+    );
 }
 
 #[test]
@@ -949,7 +1154,7 @@ fn ci_observer_rejects_wrong_provenance_and_duplicate_or_incomplete_checks() {
         assert!(observers::ci_statements(f.repo(), &binding, &run, &receipt, &wrong).is_err());
     }
     let mut wrong_receipt = receipt;
-    wrong_receipt.producer_sha256 = "c".repeat(64);
+    wrong_receipt.tool.binary_sha256 = "c".repeat(64);
     assert!(observers::ci_statements(f.repo(), &binding, &run, &wrong_receipt, &jobs).is_err());
     assert!(records(f.repo()).unwrap().is_empty());
 }
@@ -970,13 +1175,13 @@ fn ci_failed_and_skipped_checks_are_recorded_as_failures() {
 }
 
 #[test]
-fn pull_request_self_reported_tree_never_gets_full_trust_even_with_a_pinned_recipe() {
+fn pull_request_self_reported_tree_never_gets_full_trust_even_with_a_pinned_tool() {
     let f = Fixture::new();
     let (binding, mut run, mut receipt, jobs) = ci_observation(&f);
     run["event"] = "pull_request".into();
     run["head_sha"] = f.head.clone().into();
     receipt.event = "pull_request".into();
-    // The author retains an old clean tree, not the actual head. Every recipe byte matches.
+    // The author retains an old clean tree, not the actual head. Every tool-pin byte matches.
     receipt.source = f.base.clone();
     receipt.tree = tree(f.repo(), &f.base).unwrap();
     assert!(receipt.validate(f.repo(), &binding, &run).is_ok());
@@ -1015,7 +1220,7 @@ fn pull_request_self_reported_tree_never_gets_full_trust_even_with_a_pinned_reci
 }
 
 #[test]
-fn full_queue_trust_requires_exact_workflow_and_recipe_from_operator_accepted_base() {
+fn full_queue_trust_requires_exact_workflow_and_tool_pin_from_operator_accepted_base() {
     let f = Fixture::new();
     let (mut binding, mut run, mut receipt, jobs) = ci_observation(&f);
     assert!(binding.full_eligible(f.repo(), &receipt, &run).unwrap());
@@ -1074,11 +1279,11 @@ fn full_queue_trust_requires_exact_workflow_and_recipe_from_operator_accepted_ba
         )
         .is_err()
     );
-    // Caller-controlled producer claims or an unreviewed baseline cannot replace the operator pin.
+    // Caller-controlled tool claims or an unreviewed baseline cannot replace the operator pin.
     binding.accepted_base = receipt.source.clone();
     assert!(binding.full_eligible(f.repo(), &receipt, &run).is_err());
     binding.accepted_base = f.base.clone();
-    binding.recipe_sha256 = "a".repeat(64);
+    binding.tool_pin_sha256 = "a".repeat(64);
     assert!(binding.full_eligible(f.repo(), &receipt, &run).is_err());
 }
 

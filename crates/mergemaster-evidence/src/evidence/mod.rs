@@ -34,6 +34,7 @@ mod runner_report_value;
 pub mod signer_input;
 pub mod signing;
 pub mod slo;
+pub mod source;
 #[cfg(test)]
 mod tests;
 pub mod workspace;
