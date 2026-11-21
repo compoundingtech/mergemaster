@@ -27,6 +27,8 @@ pub mod producer_proof;
 pub(crate) mod pyfloat;
 pub mod runner_report;
 mod runner_report_args;
+mod runner_report_numbers;
+mod runner_report_value;
 pub mod signer_input;
 pub mod signing;
 pub mod slo;

@@ -1,8 +1,12 @@
 //! Read-only summaries of the local runner's version-one JSONL records.
+use super::{
+    legacy_verify::statement_document::{Document, Node},
+    runner_report_numbers as numbers,
+    runner_report_value::{Input, Output, scalar_text},
+};
 use anyhow::Context;
 use chrono::{DateTime, Duration, Utc};
 use indexmap::IndexMap;
-use serde_json::{Value, json};
 use std::{collections::BTreeMap, fmt::Write, path::PathBuf};
 
 #[derive(clap::Args)]
@@ -44,67 +48,63 @@ fn time(text: &str) -> Option<DateTime<Utc>> {
 fn iso(value: DateTime<Utc>) -> String {
     value.format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
-fn rank(sorted: &[&Value], share: f64) -> Value {
-    sorted
-        .get(((share * sorted.len() as f64).ceil() as usize).saturating_sub(1))
-        .map_or(Value::Null, |v| (*v).clone())
-}
-fn ordered(values: &[Value]) -> Vec<&Value> {
-    let mut sorted: Vec<_> = values.iter().collect();
-    sorted.sort_by(|a, b| compare_numbers(a, b));
-    sorted
-}
-fn compare_numbers(a: &Value, b: &Value) -> std::cmp::Ordering {
-    match (number(a), number(b)) {
-        (Some(a), Some(b)) => a.total_cmp(&b),
-        (a, b) => a.is_some().cmp(&b.is_some()),
-    }
-}
 fn report_error(error: impl std::fmt::Display) -> (i32, String, String) {
     (1, String::new(), format!("fractal-test-report: {error}\n"))
 }
-pub fn percentile(values: &[Value], share: f64) -> Value {
-    rank(&ordered(values), share)
+fn rank_index(count: usize, share: f64) -> usize {
+    ((share * count as f64).ceil() as usize).saturating_sub(1)
 }
-fn summary(values: &[Value]) -> Value {
-    let sorted = ordered(values);
-    json!({"count":values.len(), "p50_s":rank(&sorted,0.5), "p90_s":rank(&sorted,0.9), "max_s":sorted.last().copied()})
+/// Nearest-rank percentile over Python numeric nodes, preserving exact integers.
+pub fn percentile<'a>(values: &[&'a Node], share: f64) -> Option<&'a Node> {
+    let mut sorted = values.to_vec();
+    sorted.sort_by(|a, b| numbers::compare(a, b).unwrap_or(std::cmp::Ordering::Equal));
+    sorted.get(rank_index(sorted.len(), share)).copied()
 }
-fn truth(v: &Value) -> bool {
-    match v {
-        Value::Null => false,
-        Value::Bool(b) => *b,
-        Value::String(s) => !s.is_empty(),
-        Value::Number(n) => n.as_f64() != Some(0.0),
-        Value::Array(a) => !a.is_empty(),
-        Value::Object(o) => !o.is_empty(),
+#[derive(Clone, Copy)]
+struct Summary<'a> {
+    count: usize,
+    p50: Option<Input<'a>>,
+    p90: Option<Input<'a>>,
+    max: Option<Input<'a>>,
+}
+impl<'a> Summary<'a> {
+    fn new(values: &[Input<'a>]) -> Self {
+        let mut sorted = values.to_vec();
+        sorted
+            .sort_by(|a, b| numbers::compare(a.node, b.node).unwrap_or(std::cmp::Ordering::Equal));
+        let mut max = values.first().copied();
+        for value in values.iter().skip(1) {
+            if max.is_some_and(|previous| {
+                numbers::compare(value.node, previous.node) == Some(std::cmp::Ordering::Greater)
+            }) {
+                max = Some(*value);
+            }
+        }
+        Self {
+            count: values.len(),
+            p50: sorted.get(rank_index(sorted.len(), 0.5)).copied(),
+            p90: sorted.get(rank_index(sorted.len(), 0.9)).copied(),
+            max,
+        }
+    }
+    fn output(self) -> Output<'a> {
+        Output::object([
+            ("count", Output::Integer(self.count as i128)),
+            ("p50_s", raw(self.p50)),
+            ("p90_s", raw(self.p90)),
+            ("max_s", raw(self.max)),
+        ])
     }
 }
-fn number(v: &Value) -> Option<f64> {
-    v.as_f64()
-        .or_else(|| v.as_bool().map(|b| if b { 1.0 } else { 0.0 }))
-}
-fn numeric(v: &Value) -> Value {
-    if let Some(b) = v.as_bool() {
-        json!(if b { 1 } else { 0 })
-    } else {
-        v.clone()
-    }
-}
-fn pystr(v: &Value) -> String {
-    match v {
-        Value::Null => "None".into(),
-        Value::String(s) => s.clone(),
-        Value::Bool(true) => "True".into(),
-        Value::Bool(false) => "False".into(),
-        _ => v.to_string(),
-    }
+fn raw<'a>(value: Option<Input<'a>>) -> Output<'a> {
+    value.map_or(Output::Null, Output::Raw)
 }
 const WAITS: [(&str, &str); 3] = [
     ("tree_wait_s", "pool tree"),
     ("tree_slot_wait_s", "build slot, tree free"),
     ("burst_wait_s", "lane burst"),
 ];
+const EXCLUDED: [&str; 5] = ["not_full", "cold", "partial", "failed", "candidate"];
 
 /// Explicit clock boundary keeps frozen observations independent of wall-clock time.
 pub fn run_at(argv: &[String], until: DateTime<Utc>) -> (i32, String, String) {
@@ -155,6 +155,7 @@ pub fn run_at(argv: &[String], until: DateTime<Utc>) -> (i32, String, String) {
     }
     let mut unreadable = 0;
     let mut window = Vec::new();
+    let one = Node::Integer("1".into());
     for path in files {
         let bytes = match std::fs::read(&path) {
             Ok(v) => v,
@@ -174,316 +175,388 @@ pub fn run_at(argv: &[String], until: DateTime<Utc>) -> (i32, String, String) {
                 );
             }
         };
+        // The producer writes UTF-8 text. Match read_text(errors='replace') before
+        // invoking the existing Python JSON parser; byte-encoding detection is not used.
         for line in String::from_utf8_lossy(&bytes)
             .lines()
             .filter(|s| !s.trim().is_empty())
         {
-            let value = serde_json::from_str::<Value>(line).ok();
-            let valid = value.as_ref().filter(|v| {
-                v.is_object()
-                    && number(&v["v"]) == Some(1.0)
-                    && (v["total_s"].is_i64() || v["total_s"].is_u64() || v["total_s"].is_boolean())
+            let document = Document::from_text_with_depth_limit(line, None).ok();
+            let ended = document.as_ref().and_then(|document| {
+                let record = Input::root(document);
+                if !matches!(record.node, Node::Object(_))
+                    || numbers::compare(record.field("v").node, &one)
+                        != Some(std::cmp::Ordering::Equal)
+                    || !matches!(
+                        record.field("total_s").node,
+                        Node::Integer(_) | Node::Bool(_)
+                    )
+                {
+                    return None;
+                }
+                let text: Option<String> = record
+                    .field("ended")
+                    .points()?
+                    .iter()
+                    .map(|p| char::from_u32(*p))
+                    .collect();
+                time(&text?)
             });
-            let ended = valid.and_then(|v| v["ended"].as_str()).and_then(time);
-            match (value, ended) {
-                (Some(v), Some(t)) => {
-                    if since <= t && t <= until {
-                        window.push((t, v));
+            match (document, ended) {
+                (Some(document), Some(ended)) => {
+                    if since <= ended && ended <= until {
+                        window.push((ended, document));
                     }
                 }
                 _ => unreadable += 1,
             }
         }
     }
-    let mut excluded = json!({"not_full":0,"cold":0,"partial":0,"failed":0,"candidate":0});
+    match report(&window, since, until, slo, max, unreadable, markdown) {
+        Ok(out) => (0, format!("{out}\n"), String::new()),
+        Err(error) => report_error(error),
+    }
+}
+fn report(
+    window: &[(DateTime<Utc>, Document)],
+    since: DateTime<Utc>,
+    until: DateTime<Utc>,
+    slo: i64,
+    max: i64,
+    unreadable: usize,
+    markdown: bool,
+) -> anyhow::Result<String> {
+    use std::cmp::Ordering::{Equal, Greater, Less};
+    let zero = Node::Integer("0".into());
+    let partial = Node::Integer("4".into());
+    let slo_number = Node::Integer(slo.to_string());
+    let max_number = Node::Integer(max.to_string());
+    let mut excluded = [0usize; 5];
     let mut counted = Vec::new();
-    for (ended, record) in &window {
-        let reason = if truth(&record["candidate"]) {
-            Some("candidate")
-        } else if record["full"] != true {
-            Some("not_full")
-        } else if record["warm"] != true {
-            Some("cold")
-        } else if number(&record["exit"]) == Some(4.0) {
-            Some("partial")
-        } else if number(&record["exit"]) != Some(0.0) {
-            Some("failed")
+    for (ended, document) in window {
+        let record = Input::root(document);
+        let reason = if record.field("candidate").truth() {
+            Some(4)
+        } else if !matches!(record.field("full").node, Node::Bool(true)) {
+            Some(0)
+        } else if !matches!(record.field("warm").node, Node::Bool(true)) {
+            Some(1)
+        } else if numbers::compare(record.field("exit").node, &partial) == Some(Equal) {
+            Some(2)
+        } else if numbers::compare(record.field("exit").node, &zero) != Some(Equal) {
+            Some(3)
         } else {
             None
         };
         if let Some(reason) = reason {
-            let Some(count) = excluded[reason].as_u64() else {
-                return report_error("invalid exclusion counter");
-            };
-            excluded[reason] = json!(count + 1);
+            excluded[reason] += 1;
         } else {
             counted.push((ended, record));
         }
     }
     counted.sort_by_key(|(ended, _)| *ended);
-    let totals: Vec<_> = counted
-        .iter()
-        .map(|(_, r)| numeric(&r["total_s"]))
-        .collect();
+    let totals: Vec<_> = counted.iter().map(|(_, r)| r.field("total_s")).collect();
+    let overall = Summary::new(&totals);
     let mut reasons = Vec::new();
-    let mut result =
-        json!({"window":{"since":iso(since),"until":iso(until)},"slo_s":slo,"max_allowed_s":max});
-    let overall = summary(&totals);
-    let Some(overall) = overall.as_object() else {
-        return report_error("invalid overall summary");
-    };
-    for (key, value) in overall {
-        result[key] = value.clone();
-    }
-    if number(&result["p90_s"]).is_some_and(|v| v > slo as f64) {
+    if overall
+        .p90
+        .is_some_and(|v| numbers::compare(v.node, &slo_number) == Some(Greater))
+    {
         reasons.push(format!(
             "p90 {}s is over the {slo}s objective",
-            result["p90_s"]
+            Output::Raw(overall.p90.context("missing p90")?).scalar()?
         ));
     }
     let over: Vec<_> = totals
         .iter()
-        .filter(|v| number(v).is_some_and(|n| n > max as f64))
-        .cloned()
+        .copied()
+        .filter(|v| numbers::compare(v.node, &max_number) == Some(Greater))
         .collect();
     if !over.is_empty() {
         reasons.push(format!(
             "{} full warm run(s) over {max}s (slowest {}s)",
             over.len(),
-            percentile(&over, 1.0)
+            Output::Raw(Summary::new(&over).max.context("missing maximum")?).scalar()?
         ));
     }
     let within = totals
         .iter()
-        .filter(|v| number(v).is_some_and(|n| n <= slo as f64))
+        .filter(|v| matches!(numbers::compare(v.node, &slo_number), Some(Less | Equal)))
         .count();
-    result["within_slo"] = if totals.is_empty() {
-        Value::Null
+    let within_slo = if totals.is_empty() {
+        Output::Null
     } else {
-        json!(super::pyfloat::python_round(
+        Output::Float(super::pyfloat::python_round(
             within as f64 / totals.len() as f64,
-            3
+            3,
         ))
     };
-    result["breach"] = json!(!reasons.is_empty());
-    result["breach_reasons"] = json!(reasons);
-    result["excluded"] = excluded;
-    result["unreadable"] = json!(unreadable);
-    let mut hosts: BTreeMap<String, Vec<Value>> = BTreeMap::new();
-    let mut spent: IndexMap<(String, String), Vec<Value>> = IndexMap::new();
+    let mut hosts: BTreeMap<std::borrow::Cow<'_, [u32]>, Vec<Input<'_>>> = BTreeMap::new();
+    let mut spent: IndexMap<(&str, &[u32]), Vec<Input<'_>>> = IndexMap::new();
     for (_, record) in &counted {
         hosts
-            .entry(pystr(&record["host"]))
+            .entry(record.field("host").text()?)
             .or_default()
-            .push(numeric(&record["total_s"]));
-        let stages = record["stages"].as_array().filter(|v| !v.is_empty());
-        let (kind, rows) = if let Some(rows) = stages {
-            ("stage", Some(rows))
+            .push(record.field("total_s"));
+        let stages = record.field("stages");
+        let (kind, parts) = if stages.truth() {
+            ("stage", stages)
         } else {
-            ("check", record["rows"].as_array())
+            ("check", record.field("rows"))
         };
-        for row in rows.into_iter().flatten() {
-            if let (Some(name), Some(_)) = (row["name"].as_str(), number(&row["seconds"])) {
-                spent
-                    .entry((kind.into(), name.into()))
-                    .or_default()
-                    .push(numeric(&row["seconds"]));
+        for part in parts.array() {
+            if matches!(part.node, Node::Object(_)) {
+                if let Some(name) = part.field("name").points() {
+                    let seconds = part.field("seconds");
+                    if seconds.numeric() {
+                        spent.entry((kind, name)).or_default().push(seconds);
+                    }
+                }
             }
         }
     }
-    result["by_host"] = Value::Object(hosts.into_iter().map(|(k, v)| (k, summary(&v))).collect());
-    result["waits"] = json!({});
+    let by_host = Output::Object(
+        hosts
+            .into_iter()
+            .map(|(host, values)| (host, Summary::new(&values).output()))
+            .collect(),
+    );
+    let mut waits = Vec::new();
     for (key, label) in WAITS {
         let values: Vec<_> = window
             .iter()
-            .filter(|(_, r)| number(&r[key]).is_some())
-            .map(|(_, r)| numeric(&r[key]))
+            .map(|(_, document)| Input::root(document).field(key))
+            .filter(|v| v.numeric())
             .collect();
         if !values.is_empty() {
-            result["waits"][label] = summary(&values);
+            waits.push((
+                std::borrow::Cow::Owned(label.chars().map(u32::from).collect()),
+                Summary::new(&values).output(),
+            ));
         }
     }
     let mut slowest = Vec::with_capacity(spent.len());
     for ((kind, name), values) in spent {
-        let Some(total) = values.iter().map(number).sum::<Option<f64>>() else {
-            return report_error("invalid stage duration");
-        };
-        slowest.push(json!({
-            "name": name, "kind": kind, "count": values.len(),
-            "mean_s": super::pyfloat::python_round(total / values.len() as f64, 1),
-            "p90_s": percentile(&values, 0.9)
-        }));
+        let mean = super::pyfloat::python_round(numbers::mean(values.iter().map(|v| v.node))?, 1);
+        let summary = Summary::new(&values);
+        slowest.push((
+            mean,
+            name,
+            Output::object([
+                ("name", Output::Text(std::borrow::Cow::Borrowed(name))),
+                ("kind", Output::text(kind)),
+                ("count", Output::Integer(values.len() as i128)),
+                ("mean_s", Output::Float(mean)),
+                ("p90_s", raw(summary.p90)),
+            ]),
+        ));
     }
     slowest.sort_by(|a, b| {
-        compare_numbers(&b["mean_s"], &a["mean_s"])
-            .then_with(|| a["name"].as_str().cmp(&b["name"].as_str()))
+        let order = b.0.partial_cmp(&a.0).unwrap_or(Equal);
+        if order == Equal && a.0 == b.0 {
+            a.1.cmp(b.1)
+        } else {
+            order
+        }
     });
     slowest.truncate(5);
-    result["slowest"] = json!(slowest);
-    result["candidates"]=json!(window.iter().filter(|(_,r)|truth(&r["candidate"])).map(|(_,r)|json!({"head":r["candidate"],"ended":r["ended"],"total_s":r["total_s"],"exit":r["exit"]})).collect::<Vec<_>>());
-    result["runs"]=json!(counted.iter().map(|(_,r)|json!({"ended":r["ended"],"host":r["host"],"total_s":r["total_s"],"tree":r["tree"]})).collect::<Vec<_>>());
-    let output = if markdown {
-        render_markdown(&result)
+    let breach = !reasons.is_empty();
+    let result = Output::object([
+        (
+            "window",
+            Output::object([
+                ("since", Output::text(iso(since))),
+                ("until", Output::text(iso(until))),
+            ]),
+        ),
+        ("slo_s", Output::Integer(i128::from(slo))),
+        ("max_allowed_s", Output::Integer(i128::from(max))),
+        ("count", Output::Integer(overall.count as i128)),
+        ("p50_s", raw(overall.p50)),
+        ("p90_s", raw(overall.p90)),
+        ("max_s", raw(overall.max)),
+        ("within_slo", within_slo),
+        ("breach", Output::Bool(breach)),
+        (
+            "breach_reasons",
+            Output::Array(reasons.iter().map(Output::text).collect()),
+        ),
+        (
+            "excluded",
+            Output::Object(
+                EXCLUDED
+                    .into_iter()
+                    .zip(excluded)
+                    .map(|(key, count)| {
+                        (
+                            std::borrow::Cow::Owned(key.chars().map(u32::from).collect()),
+                            Output::Integer(count as i128),
+                        )
+                    })
+                    .collect(),
+            ),
+        ),
+        ("unreadable", Output::Integer(unreadable as i128)),
+        ("by_host", by_host),
+        ("waits", Output::Object(waits)),
+        (
+            "slowest",
+            Output::Array(slowest.into_iter().map(|(_, _, row)| row).collect()),
+        ),
+        (
+            "candidates",
+            Output::Array(
+                window
+                    .iter()
+                    .map(|(_, document)| Input::root(document))
+                    .filter(|r| r.field("candidate").truth())
+                    .map(|r| {
+                        Output::object([
+                            ("head", Output::Raw(r.field("candidate"))),
+                            ("ended", Output::Raw(r.field("ended"))),
+                            ("total_s", Output::Raw(r.field("total_s"))),
+                            ("exit", Output::Raw(r.field("exit"))),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ),
+        (
+            "runs",
+            Output::Array(
+                counted
+                    .iter()
+                    .map(|(_, r)| {
+                        Output::object([
+                            ("ended", Output::Raw(r.field("ended"))),
+                            ("host", Output::Raw(r.field("host"))),
+                            ("total_s", Output::Raw(r.field("total_s"))),
+                            ("tree", Output::Raw(r.field("tree"))),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ),
+    ]);
+    if markdown {
+        render_markdown(
+            &result,
+            excluded,
+            within,
+            totals.len(),
+            unreadable,
+            (slo, max),
+            &reasons,
+        )
     } else {
         let mut out = String::new();
-        pretty(&result, 0, &mut out)
-            .map(|()| out)
-            .map_err(anyhow::Error::from)
-    };
-    match output {
-        Ok(output) => (0, format!("{output}\n"), String::new()),
-        Err(error) => report_error(error),
+        result.pretty(0, &mut out)?;
+        Ok(out)
     }
 }
-fn pretty(value: &Value, depth: usize, out: &mut String) -> std::fmt::Result {
-    match value {
-        Value::String(text) => super::legacy_json::string(text, out)?,
-        Value::Array(items) => {
-            out.push('[');
-            for (index, item) in items.iter().enumerate() {
-                if index != 0 {
-                    out.push(',');
-                }
-                out.push('\n');
-                out.extend(std::iter::repeat_n(' ', (depth + 1) * 2));
-                pretty(item, depth + 1, out)?;
-            }
-            if !items.is_empty() {
-                out.push('\n');
-                out.extend(std::iter::repeat_n(' ', depth * 2));
-            }
-            out.push(']');
-        }
-        Value::Object(items) => {
-            out.push('{');
-            for (index, (key, item)) in items.iter().enumerate() {
-                if index != 0 {
-                    out.push(',');
-                }
-                out.push('\n');
-                out.extend(std::iter::repeat_n(' ', (depth + 1) * 2));
-                super::legacy_json::string(key, out)?;
-                out.push_str(": ");
-                pretty(item, depth + 1, out)?;
-            }
-            if !items.is_empty() {
-                out.push('\n');
-                out.extend(std::iter::repeat_n(' ', depth * 2));
-            }
-            out.push('}');
-        }
-        _ => write!(out, "{value}")?,
-    }
-    Ok(())
-}
-
-fn seconds(v: &Value) -> String {
-    if v.is_null() {
-        "-".into()
+fn seconds(value: &Output<'_>) -> anyhow::Result<String> {
+    if matches!(value, Output::Null) {
+        Ok("-".into())
     } else {
-        format!("{v}s")
+        Ok(format!("{}s", value.scalar()?))
     }
 }
-fn render_markdown(r: &Value) -> anyhow::Result<String> {
-    let excluded = r["excluded"]
-        .as_object()
-        .context("invalid exclusions")?
-        .iter()
-        .filter(|(_, v)| v.as_u64() != Some(0))
-        .map(|(k, v)| format!("{v} {k}"))
+fn render_markdown(
+    r: &Output<'_>,
+    excluded: [usize; 5],
+    within: usize,
+    count: usize,
+    unreadable: usize,
+    limits: (i64, i64),
+    reasons: &[String],
+) -> anyhow::Result<String> {
+    let (slo, max) = limits;
+    let excluded = EXCLUDED
+        .into_iter()
+        .zip(excluded)
+        .filter(|(_, n)| *n != 0)
+        .map(|(reason, n)| format!("{n} {reason}"))
         .collect::<Vec<_>>()
         .join(", ");
-    let share = number(&r["within_slo"]).map_or("-".into(), |v| format!("{:.0}%", v * 100.0));
-    let unreadable = if r["unreadable"] != 0 {
-        format!("; {} unreadable lines", r["unreadable"])
+    let share = if count == 0 {
+        "-".into()
+    } else {
+        format!(
+            "{:.0}%",
+            super::pyfloat::python_round(within as f64 / count as f64, 3) * 100.0
+        )
+    };
+    let unreadable = if unreadable != 0 {
+        format!("; {unreadable} unreadable lines")
     } else {
         String::new()
     };
     let mut out = format!(
-        "**fractal-test full warm runs**, {} .. {}: {} counted (left out: {}{unreadable})\n\nObjective: p90 at most {}s, no run over {}s; {share} of runs within {}s.\n\n| runs | count | p50 | p90 | max |\n|---|---:|---:|---:|---:|",
-        r["window"]["since"]
-            .as_str()
-            .context("invalid window start")?,
-        r["window"]["until"]
-            .as_str()
-            .context("invalid window end")?,
-        r["count"],
+        "**fractal-test full warm runs**, {} .. {}: {count} counted (left out: {}{unreadable})\n\nObjective: p90 at most {slo}s, no run over {max}s; {share} of runs within {slo}s.\n\n| runs | count | p50 | p90 | max |\n|---|---:|---:|---:|---:|",
+        r.field("window").field("since").scalar()?,
+        r.field("window").field("until").scalar()?,
         if excluded.is_empty() {
             "none"
         } else {
             &excluded
-        },
-        r["slo_s"],
-        r["max_allowed_s"],
-        r["slo_s"]
+        }
     );
-    let row = |out: &mut String, label: &str, v: &Value| -> std::fmt::Result {
+    let row = |out: &mut String, label: &str, v: &Output<'_>| -> anyhow::Result<()> {
         write!(
             out,
             "\n| {label} | {} | {} | {} | {} |",
-            v["count"],
-            seconds(&v["p50_s"]),
-            seconds(&v["p90_s"]),
-            seconds(&v["max_s"])
-        )
+            v.field("count").scalar()?,
+            seconds(v.field("p50_s"))?,
+            seconds(v.field("p90_s"))?,
+            seconds(v.field("max_s"))?
+        )?;
+        Ok(())
     };
     row(&mut out, "all", r)?;
-    for (host, v) in r["by_host"].as_object().context("invalid host summaries")? {
-        row(&mut out, host, v)?;
+    for (host, value) in r.field("by_host").fields()? {
+        row(&mut out, &scalar_text(host)?, value)?;
     }
-    let waits = r["waits"].as_object().context("invalid wait summaries")?;
+    let waits = r.field("waits").fields()?;
     if !waits.is_empty() {
         out.push_str("\n\n| waited for (every run in the window) | runs | p50 | p90 | max |\n|---|---:|---:|---:|---:|");
-        for (label, v) in waits {
-            row(&mut out, label, v)?;
+        for (label, value) in waits {
+            row(&mut out, &scalar_text(label)?, value)?;
         }
     }
-    let candidates = r["candidates"].as_array().context("invalid candidates")?;
+    let candidates = r.field("candidates").array()?;
     if !candidates.is_empty() {
         out.push_str("\n\nCandidate measurements (excluded from SLO figures):");
         for v in candidates {
             write!(
                 out,
                 "\n- {}: {}s, exit {}, ended {}",
-                pystr(&v["head"]),
-                v["total_s"],
-                pystr(&v["exit"]),
-                pystr(&v["ended"])
+                v.field("head").scalar()?,
+                v.field("total_s").scalar()?,
+                v.field("exit").scalar()?,
+                v.field("ended").scalar()?
             )?;
         }
     }
-    let slowest = r["slowest"]
-        .as_array()
-        .context("invalid slowest durations")?;
+    let slowest = r.field("slowest").array()?;
     if !slowest.is_empty() {
         out.push_str("\n\n| slowest stage or check | mean | p90 |\n|---|---:|---:|");
         for v in slowest {
             write!(
                 out,
-                "\n| {} ({}) | {:.1}s | {} |",
-                pystr(&v["name"]),
-                pystr(&v["kind"]),
-                number(&v["mean_s"]).context("invalid mean duration")?,
-                seconds(&v["p90_s"])
+                "\n| {} ({}) | {}s | {} |",
+                v.field("name").scalar()?,
+                v.field("kind").scalar()?,
+                v.field("mean_s").scalar()?,
+                seconds(v.field("p90_s"))?
             )?;
         }
     }
     out.push_str("\n\n");
-    if r["breach"] == true {
+    if !reasons.is_empty() {
         out.push_str("**Breach**: ");
-        for (index, reason) in r["breach_reasons"]
-            .as_array()
-            .context("invalid breach reasons")?
-            .iter()
-            .enumerate()
-        {
-            if index != 0 {
-                out.push_str("; ");
-            }
-            out.push_str(reason.as_str().context("invalid breach reason")?);
-        }
+        out.push_str(&reasons.join("; "));
     } else {
-        out.push_str(if r["count"] == 0 {
+        out.push_str(if count == 0 {
             "No full warm run in the window: nothing to judge."
         } else {
             "**Within the objective.**"

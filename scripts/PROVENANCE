@@ -121,6 +121,10 @@
 # first-seen stage/check ties, ASCII-escaped JSON and argparse-error recordings.
 # Argument recordings also pin help action ordering for short clusters, unknown
 # leading options, invalid values before help, and missing values before help.
+# Additional recordings pin CPython compensated sums, exact int/float ordering,
+# shared Python-JSON arena acceptance of nonfinite numbers and lone surrogates,
+# and Python float repr in Markdown. The reporter borrows source nodes rather
+# than narrowing records through serde_json; unrelated fields stay lossless.
 # pyfloat unit tests compare exact output bits with pinned Python across finite
 # exponent boundaries, decimal ties, random doubles and all supported precisions.
 # Intended divergence: native runner-report --slo-s/--max-s use signed i64.

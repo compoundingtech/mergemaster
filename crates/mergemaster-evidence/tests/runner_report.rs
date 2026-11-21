@@ -2,9 +2,29 @@
 #[path = "../src/pinned_python.rs"]
 mod pinned_python;
 use chrono::{DateTime, Utc};
-use mergemaster_evidence::evidence::runner_report::{percentile, run_at};
+use mergemaster_evidence::evidence::{
+    legacy_verify::statement_document::{Document, Node},
+    runner_report::{percentile as node_percentile, run_at},
+};
 use serde_json::{Value, json};
 use std::{fs, path::Path, process::Command};
+
+fn percentile(values: &[Value], share: f64) -> Value {
+    let document =
+        Document::from_text_with_depth_limit(&serde_json::to_string(values).unwrap(), None)
+            .unwrap();
+    let Node::Array(ids) = document.root() else {
+        panic!("percentile input must be an array");
+    };
+    let nodes: Vec<_> = ids.iter().map(|id| document.node(*id)).collect();
+    match node_percentile(&nodes, share) {
+        None => Value::Null,
+        Some(Node::Integer(text)) => serde_json::from_str(text).unwrap(),
+        Some(Node::Float(value)) => json!(value),
+        Some(Node::Bool(value)) => json!(value),
+        _ => panic!("percentile result must be numeric"),
+    }
+}
 
 fn fixture() -> Value {
     let mut fixture: Value = serde_json::from_str(include_str!(
