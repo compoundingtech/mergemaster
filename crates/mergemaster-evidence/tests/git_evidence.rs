@@ -434,13 +434,18 @@ fn protected_ci_cli_fetches_selectors_and_exports_verified_objects_without_a_key
         &["hash-object", "-w", "--stdin"],
         b"checked source",
     );
-    let recipe = b"fixture-ci-source-recipe";
-    let recipe_digest = hex::encode(Sha256::digest(recipe));
-    let recipe_blob = git(&caller, &["hash-object", "-w", "--stdin"], recipe);
-    let scripts = git(
+    let pin = serde_json::to_vec(&serde_json::json!({
+        "version":1, "repository":"compoundingtech/mergemaster",
+        "revision":"a".repeat(40),
+        "release":{"version":"v1.2.3","sha256":"b".repeat(64)}
+    }))
+    .unwrap();
+    let tool_pin_digest = hex::encode(Sha256::digest(&pin));
+    let pin_blob = git(&caller, &["hash-object", "-w", "--stdin"], &pin);
+    let mergemaster = git(
         &caller,
         &["mktree"],
-        format!("100644 blob {recipe_blob}\tci-evidence-source\n").as_bytes(),
+        format!("100644 blob {pin_blob}\ttool-pin.json\n").as_bytes(),
     );
     let workflow = b"fixture-workflow";
     let workflow_digest = hex::encode(Sha256::digest(workflow));
@@ -458,7 +463,7 @@ fn protected_ci_cli_fetches_selectors_and_exports_verified_objects_without_a_key
     let tree = git(
         &caller,
         &["mktree"],
-        format!("040000 tree {github}\t.github\n100644 blob {blob}\tcheck.rs\n040000 tree {scripts}\tscripts\n").as_bytes(),
+        format!("040000 tree {github}\t.github\n040000 tree {mergemaster}\t.mergemaster\n100644 blob {blob}\tcheck.rs\n").as_bytes(),
     );
     let source = git(&caller, &["commit-tree", &tree], b"synthetic checkout");
     git(&caller, &["update-ref", "refs/heads/main", &source], b"");
@@ -485,7 +490,7 @@ fn protected_ci_cli_fetches_selectors_and_exports_verified_objects_without_a_key
     )
     .unwrap();
     let object_list = format!(
-        "{source}\n{tree}\n{blob}\n{scripts}\n{recipe_blob}\n{github}\n{workflows}\n{workflow_blob}\n"
+        "{source}\n{tree}\n{blob}\n{mergemaster}\n{pin_blob}\n{github}\n{workflows}\n{workflow_blob}\n"
     );
     let mut child = Command::new("git")
         .arg("-C")
@@ -506,10 +511,12 @@ fn protected_ci_cli_fetches_selectors_and_exports_verified_objects_without_a_key
     let pack = output.stdout;
     std::fs::write(fixtures.join("source.pack"), &pack).unwrap();
     let receipt = serde_json::json!({
-        "version":1, "repository":"example/project", "event":"merge_group",
+        "version":2, "repository":"example/project", "event":"merge_group",
         "run_id":"123", "run_attempt":"2", "source":source, "tree":tree,
         "object_format":"sha1", "change_id":"github:example/project#7",
-        "producer_sha256":recipe_digest, "pack_sha256":hex::encode(Sha256::digest(&pack)),
+        "tool":{"repository":"compoundingtech/mergemaster","revision":"a".repeat(40),
+            "release_version":"v1.2.3","binary_sha256":"b".repeat(64)},
+        "pack_sha256":hex::encode(Sha256::digest(&pack)),
         "pack_bytes":pack.len()
     });
     std::fs::write(
@@ -550,7 +557,7 @@ fn protected_ci_cli_fetches_selectors_and_exports_verified_objects_without_a_key
         private.join(".config/st/evidence-ci.json"),
         serde_json::to_vec(&serde_json::json!({
             "repository":"example/project","scratch_repo":scratch,
-            "recipe_sha256":recipe_digest,"required_checks":["unit-tests"],
+            "tool_pin_sha256":tool_pin_digest,"required_checks":["unit-tests"],
             "accepted_base":source,"workflow_sha256":workflow_digest,
             "tier":"full",
             "signer":"fleet/fixture-observer","ssh_key":key
@@ -739,6 +746,39 @@ os.execv(os.environ['FIXTURE_REAL_GIT'],[os.environ['FIXTURE_REAL_GIT'],*args])
         )
         .unwrap();
     };
+    // Receipt deserialization reports the unsupported version before legacy fields.
+    let mut legacy_receipt = receipt.clone();
+    legacy_receipt["version"] = 1.into();
+    legacy_receipt.as_object_mut().unwrap().remove("tool");
+    legacy_receipt["producer_sha256"] = "a".repeat(64).into();
+    std::fs::write(
+        fixtures.join("receipt.json"),
+        serde_json::to_vec(&legacy_receipt).unwrap(),
+    )
+    .unwrap();
+    refresh_artifact();
+    let legacy = observer(&[]);
+    assert!(!legacy.status.success());
+    assert!(
+        String::from_utf8_lossy(&legacy.stderr).contains("unsupported source receipt version: 1")
+    );
+    let mut altered_identity = receipt.clone();
+    altered_identity["tool"]["binary_sha256"] = "c".repeat(64).into();
+    std::fs::write(
+        fixtures.join("receipt.json"),
+        serde_json::to_vec(&altered_identity).unwrap(),
+    )
+    .unwrap();
+    refresh_artifact();
+    let altered = observer(&[]);
+    assert!(!altered.status.success());
+    assert!(String::from_utf8_lossy(&altered.stderr).contains("tool identity differs"));
+    std::fs::write(
+        fixtures.join("receipt.json"),
+        serde_json::to_vec(&receipt).unwrap(),
+    )
+    .unwrap();
+    refresh_artifact();
     let mut pr_run: serde_json::Value =
         serde_json::from_slice(&std::fs::read(fixtures.join("run.json")).unwrap()).unwrap();
     pr_run["event"] = "pull_request".into();

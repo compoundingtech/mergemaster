@@ -1,0 +1,670 @@
+{
+  "python": "3.14.7",
+  "oracle_source": "/nix/store/bbj5s0bmhsv4a9mjqb97x80r8dvkas45-source/scripts/ci-evidence-source",
+  "oracle_source_sha256": "3c7c0b96883fe019329af3cbcfaf3bf539804014804ee21b76f260ecd85da22a",
+  "source": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "cases": [
+    {
+      "name": "utf-8-sig",
+      "event_name": "pull_request",
+      "event_hex": "efbbbf7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226e756d626572223a20372c202270756c6c5f72657175657374223a207b226e756d626572223a20377d7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 0,
+        "change_id": "github:example/project#7"
+      }
+    },
+    {
+      "name": "utf-16",
+      "event_name": "pull_request",
+      "event_hex": "fffe7b0022007200650070006f007300690074006f007200790022003a0020007b002200660075006c006c005f006e0061006d00650022003a00200022006500780061006d0070006c0065002f00700072006f006a0065006300740022007d002c00200022006e0075006d0062006500720022003a00200037002c0020002200700075006c006c005f00720065007100750065007300740022003a0020007b0022006e0075006d0062006500720022003a00200037007d007d00",
+      "substitute_source": false,
+      "expected": {
+        "exit": 0,
+        "change_id": "github:example/project#7"
+      }
+    },
+    {
+      "name": "utf-16-le",
+      "event_name": "pull_request",
+      "event_hex": "7b0022007200650070006f007300690074006f007200790022003a0020007b002200660075006c006c005f006e0061006d00650022003a00200022006500780061006d0070006c0065002f00700072006f006a0065006300740022007d002c00200022006e0075006d0062006500720022003a00200037002c0020002200700075006c006c005f00720065007100750065007300740022003a0020007b0022006e0075006d0062006500720022003a00200037007d007d00",
+      "substitute_source": false,
+      "expected": {
+        "exit": 0,
+        "change_id": "github:example/project#7"
+      }
+    },
+    {
+      "name": "utf-16-be",
+      "event_name": "pull_request",
+      "event_hex": "007b0022007200650070006f007300690074006f007200790022003a0020007b002200660075006c006c005f006e0061006d00650022003a00200022006500780061006d0070006c0065002f00700072006f006a0065006300740022007d002c00200022006e0075006d0062006500720022003a00200037002c0020002200700075006c006c005f00720065007100750065007300740022003a0020007b0022006e0075006d0062006500720022003a00200037007d007d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 0,
+        "change_id": "github:example/project#7"
+      }
+    },
+    {
+      "name": "utf-32",
+      "event_name": "pull_request",
+      "event_hex": "fffe00007b000000220000007200000065000000700000006f0000007300000069000000740000006f0000007200000079000000220000003a000000200000007b0000002200000066000000750000006c0000006c0000005f0000006e000000610000006d00000065000000220000003a00000020000000220000006500000078000000610000006d000000700000006c000000650000002f00000070000000720000006f0000006a000000650000006300000074000000220000007d0000002c00000020000000220000006e000000750000006d000000620000006500000072000000220000003a00000020000000370000002c000000200000002200000070000000750000006c0000006c0000005f00000072000000650000007100000075000000650000007300000074000000220000003a000000200000007b000000220000006e000000750000006d000000620000006500000072000000220000003a00000020000000370000007d0000007d000000",
+      "substitute_source": false,
+      "expected": {
+        "exit": 0,
+        "change_id": "github:example/project#7"
+      }
+    },
+    {
+      "name": "utf-32-le",
+      "event_name": "pull_request",
+      "event_hex": "7b000000220000007200000065000000700000006f0000007300000069000000740000006f0000007200000079000000220000003a000000200000007b0000002200000066000000750000006c0000006c0000005f0000006e000000610000006d00000065000000220000003a00000020000000220000006500000078000000610000006d000000700000006c000000650000002f00000070000000720000006f0000006a000000650000006300000074000000220000007d0000002c00000020000000220000006e000000750000006d000000620000006500000072000000220000003a00000020000000370000002c000000200000002200000070000000750000006c0000006c0000005f00000072000000650000007100000075000000650000007300000074000000220000003a000000200000007b000000220000006e000000750000006d000000620000006500000072000000220000003a00000020000000370000007d0000007d000000",
+      "substitute_source": false,
+      "expected": {
+        "exit": 0,
+        "change_id": "github:example/project#7"
+      }
+    },
+    {
+      "name": "utf-32-be",
+      "event_name": "pull_request",
+      "event_hex": "0000007b000000220000007200000065000000700000006f0000007300000069000000740000006f0000007200000079000000220000003a000000200000007b0000002200000066000000750000006c0000006c0000005f0000006e000000610000006d00000065000000220000003a00000020000000220000006500000078000000610000006d000000700000006c000000650000002f00000070000000720000006f0000006a000000650000006300000074000000220000007d0000002c00000020000000220000006e000000750000006d000000620000006500000072000000220000003a00000020000000370000002c000000200000002200000070000000750000006c0000006c0000005f00000072000000650000007100000075000000650000007300000074000000220000003a000000200000007b000000220000006e000000750000006d000000620000006500000072000000220000003a00000020000000370000007d0000007d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 0,
+        "change_id": "github:example/project#7"
+      }
+    },
+    {
+      "name": "utf-16-be-bom",
+      "event_name": "pull_request",
+      "event_hex": "feff007b0022007200650070006f007300690074006f007200790022003a0020007b002200660075006c006c005f006e0061006d00650022003a00200022006500780061006d0070006c0065002f00700072006f006a0065006300740022007d002c00200022006e0075006d0062006500720022003a00200037002c0020002200700075006c006c005f00720065007100750065007300740022003a0020007b0022006e0075006d0062006500720022003a00200037007d007d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 0,
+        "change_id": "github:example/project#7"
+      }
+    },
+    {
+      "name": "utf-32-be-bom",
+      "event_name": "pull_request",
+      "event_hex": "0000feff0000007b000000220000007200000065000000700000006f0000007300000069000000740000006f0000007200000079000000220000003a000000200000007b0000002200000066000000750000006c0000006c0000005f0000006e000000610000006d00000065000000220000003a00000020000000220000006500000078000000610000006d000000700000006c000000650000002f00000070000000720000006f0000006a000000650000006300000074000000220000007d0000002c00000020000000220000006e000000750000006d000000620000006500000072000000220000003a00000020000000370000002c000000200000002200000070000000750000006c0000006c0000005f00000072000000650000007100000075000000650000007300000074000000220000003a000000200000007b000000220000006e000000750000006d000000620000006500000072000000220000003a00000020000000370000007d0000007d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 0,
+        "change_id": "github:example/project#7"
+      }
+    },
+    {
+      "name": "unused-NaN",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226e756d626572223a20372c202270756c6c5f72657175657374223a207b226e756d626572223a20377d2c2022756e75736564223a204e614e7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 0,
+        "change_id": "github:example/project#7"
+      }
+    },
+    {
+      "name": "unused-Infinity",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226e756d626572223a20372c202270756c6c5f72657175657374223a207b226e756d626572223a20377d2c2022756e75736564223a20496e66696e6974797d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 0,
+        "change_id": "github:example/project#7"
+      }
+    },
+    {
+      "name": "unused--Infinity",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226e756d626572223a20372c202270756c6c5f72657175657374223a207b226e756d626572223a20377d2c2022756e75736564223a202d496e66696e6974797d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 0,
+        "change_id": "github:example/project#7"
+      }
+    },
+    {
+      "name": "unused-1e400",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226e756d626572223a20372c202270756c6c5f72657175657374223a207b226e756d626572223a20377d2c2022756e75736564223a2031653430307d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 0,
+        "change_id": "github:example/project#7"
+      }
+    },
+    {
+      "name": "unused-lone-surrogate-title",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226e756d626572223a20372c202270756c6c5f72657175657374223a207b226e756d626572223a20372c20227469746c65223a20225c7564383030227d7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 0,
+        "change_id": "github:example/project#7"
+      }
+    },
+    {
+      "name": "number-arbitrary-large",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226e756d626572223a2031303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030372c202270756c6c5f72657175657374223a207b226e756d626572223a2031303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030377d7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 0,
+        "change_id": "github:example/project#10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000007"
+      }
+    },
+    {
+      "name": "number-nested-float-equal",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226e756d626572223a20372c202270756c6c5f72657175657374223a207b226e756d626572223a20372e307d7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 0,
+        "change_id": "github:example/project#7"
+      }
+    },
+    {
+      "name": "number-nested-bool-equal",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226e756d626572223a20312c202270756c6c5f72657175657374223a207b226e756d626572223a20747275657d7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 0,
+        "change_id": "github:example/project#1"
+      }
+    },
+    {
+      "name": "number-nested-float-unequal",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226e756d626572223a20372c202270756c6c5f72657175657374223a207b226e756d626572223a20372e357d7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "ValueError",
+        "message": "invalid pull request identity"
+      }
+    },
+    {
+      "name": "number-nested-bool-unequal",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226e756d626572223a20372c202270756c6c5f72657175657374223a207b226e756d626572223a20747275657d7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "ValueError",
+        "message": "invalid pull request identity"
+      }
+    },
+    {
+      "name": "number-top-bool",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226e756d626572223a20747275652c202270756c6c5f72657175657374223a207b226e756d626572223a20317d7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "ValueError",
+        "message": "invalid pull request identity"
+      }
+    },
+    {
+      "name": "number-top-float",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226e756d626572223a20372e302c202270756c6c5f72657175657374223a207b226e756d626572223a20377d7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "ValueError",
+        "message": "invalid pull request identity"
+      }
+    },
+    {
+      "name": "number-zero",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226e756d626572223a20302c202270756c6c5f72657175657374223a207b226e756d626572223a20307d7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "ValueError",
+        "message": "invalid pull request identity"
+      }
+    },
+    {
+      "name": "number-negative",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226e756d626572223a202d312c202270756c6c5f72657175657374223a207b226e756d626572223a202d317d7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "ValueError",
+        "message": "invalid pull request identity"
+      }
+    },
+    {
+      "name": "event-null",
+      "event_name": "pull_request",
+      "event_hex": "6e756c6c",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "AttributeError",
+        "message": "'NoneType' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "repository-null",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a206e756c6c2c20226e756d626572223a20372c202270756c6c5f72657175657374223a207b226e756d626572223a20377d7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "AttributeError",
+        "message": "'NoneType' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "pull-request-null",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226e756d626572223a20372c202270756c6c5f72657175657374223a206e756c6c7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "AttributeError",
+        "message": "'NoneType' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "merge-group-null",
+      "event_name": "merge_group",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226d657267655f67726f7570223a206e756c6c7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "AttributeError",
+        "message": "'NoneType' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "queue-ref-null",
+      "event_name": "merge_group",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226d657267655f67726f7570223a207b22686561645f726566223a206e756c6c2c2022686561645f736861223a202261616161616161616161616161616161616161616161616161616161616161616161616161616161227d7d",
+      "substitute_source": true,
+      "expected": {
+        "exit": 1,
+        "class": "TypeError",
+        "message": "expected string or bytes-like object, got 'NoneType'"
+      }
+    },
+    {
+      "name": "event-list",
+      "event_name": "pull_request",
+      "event_hex": "5b5d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "AttributeError",
+        "message": "'list' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "repository-list",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a205b5d2c20226e756d626572223a20372c202270756c6c5f72657175657374223a207b226e756d626572223a20377d7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "AttributeError",
+        "message": "'list' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "pull-request-list",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226e756d626572223a20372c202270756c6c5f72657175657374223a205b5d7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "AttributeError",
+        "message": "'list' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "merge-group-list",
+      "event_name": "merge_group",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226d657267655f67726f7570223a205b5d7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "AttributeError",
+        "message": "'list' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "queue-ref-list",
+      "event_name": "merge_group",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226d657267655f67726f7570223a207b22686561645f726566223a205b5d2c2022686561645f736861223a202261616161616161616161616161616161616161616161616161616161616161616161616161616161227d7d",
+      "substitute_source": true,
+      "expected": {
+        "exit": 1,
+        "class": "TypeError",
+        "message": "expected string or bytes-like object, got 'list'"
+      }
+    },
+    {
+      "name": "event-string",
+      "event_name": "pull_request",
+      "event_hex": "227465787422",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "AttributeError",
+        "message": "'str' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "repository-string",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a202274657874222c20226e756d626572223a20372c202270756c6c5f72657175657374223a207b226e756d626572223a20377d7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "AttributeError",
+        "message": "'str' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "pull-request-string",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226e756d626572223a20372c202270756c6c5f72657175657374223a202274657874227d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "AttributeError",
+        "message": "'str' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "merge-group-string",
+      "event_name": "merge_group",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226d657267655f67726f7570223a202274657874227d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "AttributeError",
+        "message": "'str' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "queue-ref-string",
+      "event_name": "merge_group",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226d657267655f67726f7570223a207b22686561645f726566223a202274657874222c2022686561645f736861223a202261616161616161616161616161616161616161616161616161616161616161616161616161616161227d7d",
+      "substitute_source": true,
+      "expected": {
+        "exit": 1,
+        "class": "ValueError",
+        "message": "unsupported or mismatched merge group identity"
+      }
+    },
+    {
+      "name": "event-integer",
+      "event_name": "pull_request",
+      "event_hex": "33",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "AttributeError",
+        "message": "'int' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "repository-integer",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a20332c20226e756d626572223a20372c202270756c6c5f72657175657374223a207b226e756d626572223a20377d7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "AttributeError",
+        "message": "'int' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "pull-request-integer",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226e756d626572223a20372c202270756c6c5f72657175657374223a20337d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "AttributeError",
+        "message": "'int' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "merge-group-integer",
+      "event_name": "merge_group",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226d657267655f67726f7570223a20337d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "AttributeError",
+        "message": "'int' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "queue-ref-integer",
+      "event_name": "merge_group",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226d657267655f67726f7570223a207b22686561645f726566223a20332c2022686561645f736861223a202261616161616161616161616161616161616161616161616161616161616161616161616161616161227d7d",
+      "substitute_source": true,
+      "expected": {
+        "exit": 1,
+        "class": "TypeError",
+        "message": "expected string or bytes-like object, got 'int'"
+      }
+    },
+    {
+      "name": "event-bool",
+      "event_name": "pull_request",
+      "event_hex": "74727565",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "AttributeError",
+        "message": "'bool' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "repository-bool",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a20747275652c20226e756d626572223a20372c202270756c6c5f72657175657374223a207b226e756d626572223a20377d7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "AttributeError",
+        "message": "'bool' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "pull-request-bool",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226e756d626572223a20372c202270756c6c5f72657175657374223a20747275657d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "AttributeError",
+        "message": "'bool' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "merge-group-bool",
+      "event_name": "merge_group",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226d657267655f67726f7570223a20747275657d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "AttributeError",
+        "message": "'bool' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "queue-ref-bool",
+      "event_name": "merge_group",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226d657267655f67726f7570223a207b22686561645f726566223a20747275652c2022686561645f736861223a202261616161616161616161616161616161616161616161616161616161616161616161616161616161227d7d",
+      "substitute_source": true,
+      "expected": {
+        "exit": 1,
+        "class": "TypeError",
+        "message": "expected string or bytes-like object, got 'bool'"
+      }
+    },
+    {
+      "name": "repository-missing",
+      "event_name": "pull_request",
+      "event_hex": "7b7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "ValueError",
+        "message": "event repository mismatch"
+      }
+    },
+    {
+      "name": "repository-full-name-missing",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a207b7d7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "ValueError",
+        "message": "event repository mismatch"
+      }
+    },
+    {
+      "name": "number-missing",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "ValueError",
+        "message": "invalid pull request identity"
+      }
+    },
+    {
+      "name": "pull-request-missing",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226e756d626572223a20377d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "ValueError",
+        "message": "invalid pull request identity"
+      }
+    },
+    {
+      "name": "nested-number-missing",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226e756d626572223a20372c202270756c6c5f72657175657374223a207b7d7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "ValueError",
+        "message": "invalid pull request identity"
+      }
+    },
+    {
+      "name": "queue-missing",
+      "event_name": "merge_group",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d7d",
+      "substitute_source": true,
+      "expected": {
+        "exit": 1,
+        "class": "ValueError",
+        "message": "unsupported or mismatched merge group identity"
+      }
+    },
+    {
+      "name": "queue-empty",
+      "event_name": "merge_group",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226d657267655f67726f7570223a207b7d7d",
+      "substitute_source": true,
+      "expected": {
+        "exit": 1,
+        "class": "ValueError",
+        "message": "unsupported or mismatched merge group identity"
+      }
+    },
+    {
+      "name": "queue-head-ref-missing",
+      "event_name": "merge_group",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226d657267655f67726f7570223a207b22686561645f736861223a202261616161616161616161616161616161616161616161616161616161616161616161616161616161227d7d",
+      "substitute_source": true,
+      "expected": {
+        "exit": 1,
+        "class": "ValueError",
+        "message": "unsupported or mismatched merge group identity"
+      }
+    },
+    {
+      "name": "queue-head-sha-missing",
+      "event_name": "merge_group",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226d657267655f67726f7570223a207b22686561645f726566223a2022726566732f68656164732f67682d726561646f6e6c792d71756575652f6d61696e2f70722d372d61616161616161616161616161616161616161616161616161616161616161616161616161616161227d7d",
+      "substitute_source": true,
+      "expected": {
+        "exit": 1,
+        "class": "ValueError",
+        "message": "unsupported or mismatched merge group identity"
+      }
+    },
+    {
+      "name": "queue-valid",
+      "event_name": "merge_group",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226d657267655f67726f7570223a207b22686561645f726566223a2022726566732f68656164732f67682d726561646f6e6c792d71756575652f6d61696e2f70722d372d61616161616161616161616161616161616161616161616161616161616161616161616161616161222c2022686561645f736861223a202261616161616161616161616161616161616161616161616161616161616161616161616161616161227d7d",
+      "substitute_source": true,
+      "expected": {
+        "exit": 0,
+        "change_id": "github:example/project#7"
+      }
+    },
+    {
+      "name": "queue-large-number",
+      "event_name": "merge_group",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226d657267655f67726f7570223a207b22686561645f726566223a2022726566732f68656164732f67682d726561646f6e6c792d71756575652f6d61696e2f70722d31303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030372d61616161616161616161616161616161616161616161616161616161616161616161616161616161222c2022686561645f736861223a202261616161616161616161616161616161616161616161616161616161616161616161616161616161227d7d",
+      "substitute_source": true,
+      "expected": {
+        "exit": 0,
+        "change_id": "github:example/project#10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000007"
+      }
+    },
+    {
+      "name": "queue-lone-surrogate",
+      "event_name": "merge_group",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c20226d657267655f67726f7570223a207b22686561645f726566223a2022726566732f68656164732f67682d726561646f6e6c792d71756575652f6d61696e2f70722d372d616161616161616161616161616161616161616161616161616161616161616161616161616161615c7564383030222c2022686561645f736861223a202261616161616161616161616161616161616161616161616161616161616161616161616161616161227d7d",
+      "substitute_source": true,
+      "expected": {
+        "exit": 1,
+        "class": "ValueError",
+        "message": "unsupported or mismatched merge group identity"
+      }
+    },
+    {
+      "name": "malformed-json",
+      "event_name": "pull_request",
+      "event_hex": "7b227265706f7369746f7279223a",
+      "substitute_source": false,
+      "expected": {
+        "exit": 1,
+        "class": "JSONDecodeError",
+        "message": "Expecting value: line 1 column 15 (char 14)"
+      }
+    },
+    {
+      "name": "dispatch-unused-fields",
+      "event_name": "workflow_dispatch",
+      "event_hex": "7b227265706f7369746f7279223a207b2266756c6c5f6e616d65223a20226578616d706c652f70726f6a656374227d2c202270756c6c5f72657175657374223a206e756c6c2c20226d657267655f67726f7570223a206e756c6c2c2022756e75736564223a204e614e7d",
+      "substitute_source": false,
+      "expected": {
+        "exit": 0,
+        "change_id": "github:example/project@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    }
+  ]
+}
