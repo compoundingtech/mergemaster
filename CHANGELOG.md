@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add `mergemaster evidence legacy-sign`, the native cooperative v1 signer, separately from the BASE-bound `evidence sign` protocol. It retains the legacy HOME configuration, request and signed-pack response. The intended producer-identity change is `producer_sha256`: it identifies the native signing executable instead of the Python script; the remaining statement bytes retain the legacy encoding.
+- Add `mergemaster evidence legacy-wrap` for cooperative v1 command/aggregate measurement, inputs and lane bindings, signed-pack artifacts, indexed notes and optional publication. Its default signer retains the sekrets boundary and names native `mergemaster evidence legacy-sign`; `wrapper_sha256` now identifies the native executable. Legacy exits remain separate from v2's exit-75 infrastructure contract.
 
 ## [0.13.0] - 2026-11-21
 

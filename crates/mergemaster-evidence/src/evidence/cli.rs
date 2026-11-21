@@ -47,6 +47,12 @@ pub enum EvidenceCommand {
     Sign(super::signing::SignArgs),
     /// Sign the legacy cooperative v1 request using HOME/.config/st/evidence-sign.json.
     LegacySign,
+    /// Run or aggregate a cooperative v1 check and retain its signed legacy pack.
+    #[command(disable_help_flag = true)]
+    LegacyWrap {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        argv: Vec<String>,
+    },
     #[command(hide = true)]
     SignWorker(super::signing::SignArgs),
     /// Installed observer for a protected profile; accepts authenticated CI selectors only.
@@ -156,6 +162,7 @@ pub fn run(args: EvidenceArgs) -> Result<()> {
         }
         EvidenceCommand::Sign(args) => return super::signing::run_sign(args),
         EvidenceCommand::LegacySign => return super::legacy_sign::run(),
+        EvidenceCommand::LegacyWrap { argv } => return super::legacy_wrap::run(&argv),
         EvidenceCommand::SignWorker(args) => return super::signing::run_worker(args),
         EvidenceCommand::ObserveCi {
             run,
