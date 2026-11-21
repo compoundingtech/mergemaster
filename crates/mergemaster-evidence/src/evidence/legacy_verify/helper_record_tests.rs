@@ -34,6 +34,13 @@ for fmt in ['sha1','sha256']:
  variants=[(signed,None),(signed,tree),(signed,'0'*len(tree)),(unsigned,None),(note(b'not JSON'),None),(note(b'{}'),None),(note(json.dumps(value).encode(),mode='100755'),None),(note(json.dumps(value).encode(),extra=True),None),(note(json.dumps(value).encode(),parent=None),None),(note(json.dumps(value).encode(),path=b'\xff'),None),(note(json.dumps(value).encode('utf-16')),None)]
  bad=dict(value,predicateType='wrong');variants.append((note(json.dumps(bad).encode()),None));variants.append(('f'*len(tree),None))
  raw_ref=b'refs/tags/record-\xff';git('update-ref',raw_ref,signed)
+ raw_repo=root/(fmt+'-\udcff');raw_repo.symlink_to(repo,target_is_directory=True)
+ raw_keys=root/'keys-\udcff';raw_keys.write_text(keys.read_text())
+ raw_revocations=root/'revocations-\udcff';raw_revocations.write_text('')
+ row(['read-statement','--repo',str(raw_repo),'--record',signed],lambda:v['load'](str(raw_repo),signed,None))
+ row(['read-statement','--repo',str(repo),'--record',signed,'--tree','\udcff'],lambda:v['load'](str(repo),signed,'\udcff'))
+ for raw_record,raw_repository,allowed,revoke in [(os.fsdecode(raw_ref),repo,keys,revocations),(signed,raw_repo,keys,revocations),(signed,repo,raw_keys,revocations),(signed,repo,keys,raw_revocations)]:
+  row(['signature','--repo',str(raw_repository),'--record',raw_record,'--keys',str(allowed),'--revocations',str(revoke)],lambda raw_record=raw_record,raw_repository=raw_repository,allowed=allowed,revoke=revoke:v['signature'](str(raw_repository),raw_record,str(allowed),str(revoke)))
  variants.append((os.fsdecode(raw_ref),None))
  for record,target in variants:
   argv=['read-statement','--repo',str(repo),'--record',record]+(['--tree',target] if target is not None else [])
@@ -54,7 +61,7 @@ print(json.dumps(rows))
         String::from_utf8_lossy(&output.stderr)
     );
     let rows: Vec<Row> = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(rows.len(), 42);
+    assert_eq!(rows.len(), 54);
     for (argv, stdout, code) in rows {
         let actual = run(argv.iter().cloned().map(OsString::from_vec), &mut &b""[..]).unwrap();
         assert_eq!(actual.code, code, "{argv:?}");

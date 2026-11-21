@@ -151,14 +151,18 @@ fn replace_first(text: TextRef<'_>, needle: &str, replacement: &str) -> Normaliz
         None => NormalizedText::around("", text, ""),
     }
 }
-fn read(repo: &Path, tree: &str, args: &[&OsStr]) -> Result<Vec<u8>, PolicyError> {
-    read_git_source(repo, args, SourceResource::RawBlob(tree.into()))
+fn read(repo: &Path, tree: &OsStr, args: &[&OsStr]) -> Result<Vec<u8>, PolicyError> {
+    read_git_source(
+        repo,
+        args,
+        SourceResource::RawBlob(super::cli_adapter::decode(tree)),
+    )
 }
 /// Keep the original ls-tree/show operations, so invalid expressions fail in
 /// precisely the operation Python performs (never an eager rev-parse).
 pub fn selected(
     repo: &Path,
-    tree: &str,
+    tree: &OsStr,
     item: TextRef<'_>,
 ) -> Result<Option<Vec<u8>>, PolicyError> {
     let (path, selector) = item.split_once("::").unwrap_or((item, TextRef::Str("")));
@@ -175,7 +179,7 @@ pub fn selected(
                 OsStr::new("ls-tree"),
                 OsStr::new("-z"),
                 OsStr::new("--full-tree"),
-                OsStr::new(tree),
+                tree,
                 OsStr::new("--"),
                 OsStr::from_bytes(&preferred_bytes),
                 OsStr::from_bytes(&legacy_bytes),
@@ -212,7 +216,7 @@ pub fn selected(
 }
 pub(super) fn selected_content(
     repo: &Path,
-    tree: &str,
+    tree: &OsStr,
     path: TextRef<'_>,
     selector: TextRef<'_>,
 ) -> Result<Option<Vec<u8>>, PolicyError> {
@@ -223,7 +227,7 @@ pub(super) fn selected_content(
         &[
             OsStr::new("ls-tree"),
             OsStr::new("--full-tree"),
-            OsStr::new(tree),
+            tree,
             OsStr::new("--"),
             OsStr::from_bytes(&encoded),
         ],

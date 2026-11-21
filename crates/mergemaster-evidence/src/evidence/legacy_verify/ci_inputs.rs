@@ -10,7 +10,7 @@ use std::{ffi::OsStr, os::unix::ffi::OsStrExt, path::Path};
 /// and the whole-tree marker do not need to resolve. Selector errors propagate.
 pub fn unresolved_ci_inputs<'a>(
     repo: &Path,
-    tree: &str,
+    tree: &OsStr,
     inputs: &'a [NormalizedText],
 ) -> Result<Vec<&'a NormalizedText>, PolicyError> {
     let mut unresolved = Vec::new();
@@ -29,11 +29,11 @@ pub fn unresolved_ci_inputs<'a>(
                 &[
                     OsStr::new("ls-tree"),
                     OsStr::new("--full-tree"),
-                    OsStr::new(tree),
+                    tree,
                     OsStr::new("--"),
                     OsStr::from_bytes(&encoded),
                 ],
-                SourceResource::TreeListing(tree.into()),
+                SourceResource::RawBlob(super::cli_adapter::decode(tree)),
             )?;
             listing.iter().any(|byte| !byte.is_ascii_whitespace())
         };
@@ -74,7 +74,7 @@ pub fn ci_inputs_unchanged(
         })
         .collect::<Result<Vec<_>, PolicyError>>()?;
     for tree in &trees {
-        if !unresolved_ci_inputs(repo, tree, inputs)?.is_empty() {
+        if !unresolved_ci_inputs(repo, OsStr::new(tree), inputs)?.is_empty() {
             return Ok(false);
         }
     }

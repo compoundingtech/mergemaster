@@ -283,7 +283,7 @@ fn project_with_selection(
                     .borrowed()
                     .split_once("::")
                     .unwrap_or((item.borrowed(), super::value_inputs::TextRef::Str("")));
-                super::helper_selection::selected_content(repo, tree, path, selector)?
+                super::helper_selection::selected_content(repo, OsStr::new(tree), path, selector)?
             }
         };
         if let Some(bytes) = bytes {

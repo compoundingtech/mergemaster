@@ -114,6 +114,46 @@ fn wave2_a2_nested_pin_roundtrips_from_base_tree_and_hashes_raw_bytes() {
 }
 
 #[test]
+fn wave2_a2_tool_pin_accepts_non_utf8_repository_and_base_arguments() {
+    use std::ffi::OsString;
+    use std::os::unix::{ffi::OsStringExt, fs::symlink};
+
+    let fixture = Fixture::new();
+    let bytes = serde_json::to_vec(&pin(&running_identity(), REVISION)).unwrap();
+    let tree = fixture.tree(Some(&bytes));
+    let raw_ref = OsString::from_vec(b"refs/tags/pin-\xff".to_vec());
+    let status = Command::new("git")
+        .arg("-C")
+        .arg(fixture.path())
+        .arg("update-ref")
+        .arg(&raw_ref)
+        .arg(&tree)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let alias = fixture
+        .path()
+        .join(OsString::from_vec(b"repo-\xff".to_vec()));
+    symlink(fixture.path(), &alias).unwrap();
+    let result = super::super::cli_helper::run(
+        [
+            OsString::from("verify-tool-pin"),
+            OsString::from("--repo"),
+            alias.into_os_string(),
+            OsString::from("--base"),
+            raw_ref,
+        ],
+        &mut &b""[..],
+    )
+    .unwrap();
+    assert_eq!(result.code, 0, "{}", result.stdout);
+    assert_eq!(
+        serde_json::from_str::<Value>(&result.stdout).unwrap(),
+        fixture.verify(&tree).unwrap()
+    );
+}
+
+#[test]
 fn wave2_a2_missing_malformed_and_flat_pins_fail_closed() {
     let fixture = Fixture::new();
     let empty_tree = fixture.tree(None);
