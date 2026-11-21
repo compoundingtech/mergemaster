@@ -7,8 +7,13 @@ use clap::{Args as ClapArgs, Subcommand};
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
+    ffi::CStr,
     fs::{self, File, OpenOptions},
     io::{Read, Write},
+    os::{
+        fd::{AsRawFd, FromRawFd},
+        unix::fs::OpenOptionsExt,
+    },
     path::{Path, PathBuf},
 };
 
@@ -71,7 +76,7 @@ fn measure(args: Measure) -> Result<()> {
             "expected a top-level /nix/store output path"
         );
         producers.push(Producer {
-            executable_sha256: hash_file(&out_path.join("bin/mergemaster"), true)?,
+            executable_sha256: hash_nix_output(&out_path)?,
             flavor: ProducerFlavor::Nix,
             provenance: ProducerProvenance {
                 mergemaster_revision: args.mergemaster_revision.context("missing revision")?,
@@ -95,7 +100,7 @@ fn measure(args: Measure) -> Result<()> {
         let expected = checksums
             .get(name.as_str())
             .context("asset missing from SHA256SUMS")?;
-        let digest = hash_file(&asset, false)?;
+        let digest = hash_file(&asset)?;
         ensure!(digest == *expected, "release asset SHA256SUMS mismatch");
         producers.push(Producer {
             executable_sha256: digest,
@@ -149,31 +154,55 @@ fn measure(args: Measure) -> Result<()> {
     Ok(())
 }
 
-fn hash_file(path: &Path, reject_symlink: bool) -> Result<String> {
-    if reject_symlink {
-        ensure!(
-            fs::symlink_metadata(path)
-                .with_context(|| format!("inspect {}", path.display()))?
-                .file_type()
-                .is_file(),
-            "measured executable must be a regular file, not a symlink: {}",
-            path.display()
-        );
+fn hash_nix_output(root: &Path) -> Result<String> {
+    let directory = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(root)
+        .with_context(|| {
+            format!(
+                "open Nix output root {} as a directory without symlinks",
+                root.display()
+            )
+        })?;
+    let bin = open_relative(&directory, c"bin", libc::O_DIRECTORY)
+        .context("open Nix output bin as a directory without symlinks")?;
+    let file = open_relative(&bin, c"mergemaster", 0)
+        .context("open Nix output bin/mergemaster without symlinks")?;
+    hash_open_file(file)
+}
+
+fn open_relative(directory: &File, name: &CStr, flags: libc::c_int) -> Result<File> {
+    // SAFETY: directory owns a live fd and name is NUL-terminated. No mode is
+    // needed because O_CREAT/O_TMPFILE are never passed.
+    let fd = unsafe {
+        libc::openat(
+            directory.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK | flags,
+        )
+    };
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error().into());
     }
-    let mut options = OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    if reject_symlink {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW);
-    }
-    let mut file: File = options
+    // SAFETY: successful openat returns a new, owned fd; this is its sole owner.
+    Ok(unsafe { File::from_raw_fd(fd) })
+}
+
+fn hash_file(path: &Path) -> Result<String> {
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
         .open(path)
-        .with_context(|| format!("open {}", path.display()))?;
+        .with_context(|| format!("open {} without symlinks", path.display()))?;
+    hash_open_file(file)
+}
+
+fn hash_open_file(mut file: File) -> Result<String> {
+    // File::metadata uses fstat on this fd, not another path-based lookup.
     ensure!(
         file.metadata()?.is_file(),
-        "measured path must be a regular file: {}",
-        path.display()
+        "measured executable must be a regular file"
     );
     let mut digest = Sha256::new();
     let mut buffer = [0_u8; 65536];
@@ -213,29 +242,59 @@ fn parse_checksums(sums: &str) -> Result<BTreeMap<&str, &str>> {
 
 #[cfg(test)]
 mod tests {
-    use super::hash_file;
-    use std::fs;
+    use super::{hash_file, hash_nix_output};
+    use std::{fs, os::unix::fs::symlink};
 
     #[test]
-    fn nix_file_measurement_hashes_regular_bytes_and_refuses_directories() {
+    fn nix_output_measurement_hashes_regular_bytes_and_refuses_directories() {
         let root = tempfile::tempdir().unwrap();
-        let binary = root.path().join("mergemaster");
+        let bin = root.path().join("bin");
+        fs::create_dir(&bin).unwrap();
+        let binary = bin.join("mergemaster");
         fs::write(&binary, b"abc").unwrap();
         assert_eq!(
-            hash_file(&binary, true).unwrap(),
+            hash_nix_output(root.path()).unwrap(),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
-        assert!(hash_file(root.path(), true).is_err());
+        fs::remove_file(&binary).unwrap();
+        fs::create_dir(&binary).unwrap();
+        assert!(
+            hash_nix_output(root.path())
+                .unwrap_err()
+                .to_string()
+                .contains("regular file")
+        );
     }
 
-    #[cfg(unix)]
     #[test]
-    fn nix_file_measurement_refuses_symlinks() {
+    fn nix_output_measurement_refuses_each_symlink_component() {
+        for component in ["root", "bin", "mergemaster"] {
+            let temporary = tempfile::tempdir().unwrap();
+            let root = temporary.path().join("output");
+            let bin = root.join("bin");
+            fs::create_dir_all(&bin).unwrap();
+            fs::write(bin.join("mergemaster"), b"abc").unwrap();
+            let path = match component {
+                "root" => root.clone(),
+                "bin" => bin,
+                _ => root.join("bin/mergemaster"),
+            };
+            let target = temporary.path().join("target");
+            fs::rename(&path, &target).unwrap();
+            symlink(&target, &path).unwrap();
+            let error = hash_nix_output(&root).unwrap_err().to_string();
+            assert!(error.contains("without symlinks"), "{component}: {error}");
+        }
+    }
+
+    #[test]
+    fn release_file_measurement_refuses_symlinks_and_directories() {
         let root = tempfile::tempdir().unwrap();
         let binary = root.path().join("mergemaster");
         fs::write(&binary, b"abc").unwrap();
         let link = root.path().join("link");
-        std::os::unix::fs::symlink(&binary, &link).unwrap();
-        assert!(hash_file(&link, true).is_err());
+        symlink(&binary, &link).unwrap();
+        assert!(hash_file(&link).is_err());
+        assert!(hash_file(root.path()).is_err());
     }
 }

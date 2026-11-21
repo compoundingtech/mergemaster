@@ -63,6 +63,7 @@ jobs:
           claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
           # The token is obtained directly from GitHub over authenticated HTTPS,
           # not accepted from workflow inputs or an external unverified JWT.
+          assert claims['aud'] == 'mergemaster-producers', 'unexpected OIDC audience'
           assert claims['job_workflow_ref'].startswith(
               'compoundingtech/mergemaster/.github/workflows/producers.yml@'
           ), 'unexpected reusable workflow identity'
@@ -139,8 +140,10 @@ jobs:
           # Seed the existing output required by --rebuild (may be substituted).
           nix build "${flags[@]}" --expr "$expr" --no-link --print-build-logs
           nix path-info "$out" >/dev/null
-          # --rebuild MUST build and compare with the existing output. A failed
-          # rebuild/comparison stops measurement; cache retrieval alone cannot pass.
+          # --rebuild re-executes only the top-level derivation and compares its
+          # output; dependencies may be substituted. This proves top-level build
+          # reproducibility, not reproducibility of the full dependency closure.
+          # A failed rebuild/comparison stops measurement; cache retrieval alone cannot pass.
           # https://nix.dev/manual/nix/2.28/command-ref/new-cli/nix3-build.html#opt-rebuild
           nix build "${flags[@]}" --expr "$expr" --no-link --rebuild --print-build-logs
           "$MERGEMASTER" producers measure --nix-package "$out" --system "$SYSTEM" \

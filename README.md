@@ -725,12 +725,17 @@ The workflow derives the full revision from the resolved input and verifies
 release attestations (`gh attestation verify`) before measurement; this command
 only checks release checksums. SHA256SUMS requires lowercase hex digests and
 GNU separators (two spaces, or space plus `*`); malformed or duplicate lines,
-missing assets, and mismatches refuse. Nix outputs must be top-level `/nix/store`
-paths and `bin/mergemaster` must be a regular file, not a symlink.
+missing assets, and mismatches refuse. Asset names match case-sensitively.
+Nix outputs must be top-level `/nix/store` paths; the output root, `bin`
+directory, and regular `bin/mergemaster` file must not be symlinks.
+Release assets must also be regular files, not symlinks.
 Output is compact UTF-8 JSON with lexicographic object keys, lowercase hex,
 producers sorted by `(system, flavor, executable_sha256)`, omitted absent
 optional fields, and one trailing LF. Duplicate entries refuse. `--check`
 requires byte equality, including the final LF; drift exits nonzero.
+`--merge` builds the manifest only from the supplied inputs; it never reads
+entries from the committed manifest. Replacing `producers.json` with that output
+drops entries not supplied, and `--check` refuses the resulting drift.
 
 #### Reusable producer workflow
 
@@ -763,10 +768,12 @@ Each job first realizes the target (possibly from cache), verifies the output
 exists, then requires a successful local `nix build --rebuild` of the same
 expression. The [Nix manual](https://nix.dev/manual/nix/2.28/command-ref/new-cli/nix3-build.html#opt-rebuild)
 defines this as rebuilding an already built package and comparing against its
-existing store paths. Thus the prerequisite for `--rebuild` is explicit:
-retrieving a cached target alone cannot pass, and a rebuild or comparison
-failure stops measurement. This is deliberately stricter than comparing only
-the executable: differences elsewhere in the output also fail.
+existing store paths. `--rebuild` re-executes only the top-level derivation;
+dependencies may be substituted. This proves top-level build reproducibility,
+not reproducibility of the full dependency closure. The prerequisite for
+`--rebuild` is explicit: retrieving a cached target alone cannot pass, and a
+rebuild or comparison failure stops measurement. This is deliberately stricter
+than comparing only the executable: differences elsewhere in the output also fail.
 The final `producers/reproducible` job requires byte-identical canonical entries
 and derivation/output provenance between the two runners for each system,
 then merges one entry per system. Per-run build identity remains in the

@@ -89,6 +89,8 @@ fn release_checksums_refuse_mismatch_missing_duplicate_and_malformed_lines() {
     for sums in [
         format!("{}  {ASSET}\n", "0".repeat(64)),
         format!("{DIGEST}  another-asset\n"),
+        format!("{}  {ASSET}\n", DIGEST.to_ascii_uppercase()),
+        format!("{DIGEST}  {}\n", ASSET.to_ascii_uppercase()),
         format!("{DIGEST}  {ASSET}\n{DIGEST}  {ASSET}\n"),
         format!("{DIGEST} {ASSET}\n"),
         format!("{DIGEST}  {ASSET}\r\n"),
