@@ -642,11 +642,12 @@ fn queue_projection_policy_preserves_merge_and_explicit_member_bytes() {
                 "{{\"base\":\"{}\",\"members\":[\"{}\"],\"tree\":\"{}\"}}",
                 f.base, member, f.tree
             );
-            let output = f.gate(if members.is_empty() {
-                &["--event", "queue"]
+            let args: Vec<&str> = if members.is_empty() {
+                vec!["--event", "queue"]
             } else {
-                &["--event", "queue", "--member", &member]
-            });
+                vec!["--event", "queue", "--member", &member]
+            };
+            let output = f.gate(&args);
             assert!(output.status.success());
             let expected = format!(
                 concat!(
