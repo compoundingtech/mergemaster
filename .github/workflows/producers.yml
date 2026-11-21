@@ -1,0 +1,309 @@
+name: Producer manifest
+
+on:
+  workflow_call:
+    inputs:
+      repository:
+        description: Consumer repository (owner/name; public, no credentials required)
+        required: true
+        type: string
+      commit:
+        description: Exact consumer commit (40 lowercase hexadecimal characters)
+        required: true
+        type: string
+      flavor:
+        description: nix (root flake) or release (tool-pin.json)
+        required: true
+        type: string
+      mode:
+        description: propose (artifact only) or check (also compare committed manifest)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  identity:
+    name: Resolve measuring workflow identity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      # Only this job can request OIDC; it never checks out consumer code.
+      id-token: write
+    outputs:
+      revision: ${{ steps.identity.outputs.revision }}
+    steps:
+      - name: Validate inputs and resolve reusable workflow SHA
+        id: identity
+        env:
+          CONSUMER_REPOSITORY: ${{ inputs.repository }}
+          CONSUMER_COMMIT: ${{ inputs.commit }}
+          FLAVOR: ${{ inputs.flavor }}
+          MODE: ${{ inputs.mode }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CONSUMER_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+          [[ "$CONSUMER_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$FLAVOR" == nix || "$FLAVOR" == release ]]
+          [[ "$MODE" == propose || "$MODE" == check ]]
+          # github.workflow_sha belongs to the caller. GitHub's OIDC token
+          # identifies the reusable workflow via job_workflow_sha instead.
+          python3 - <<'PY'
+          import base64, json, os, re, urllib.request
+          request = urllib.request.Request(
+              os.environ['ACTIONS_ID_TOKEN_REQUEST_URL'] + '&audience=mergemaster-producers',
+              headers={'Authorization': 'Bearer ' + os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']},
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              token = json.load(response)['value']
+          payload = token.split('.')[1]
+          claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
+          # The token is obtained directly from GitHub over authenticated HTTPS,
+          # not accepted from workflow inputs or an external unverified JWT.
+          assert claims['aud'] == 'mergemaster-producers', 'unexpected OIDC audience'
+          assert claims['job_workflow_ref'].startswith(
+              'compoundingtech/mergemaster/.github/workflows/producers.yml@'
+          ), 'unexpected reusable workflow identity'
+          revision = claims['job_workflow_sha']
+          assert re.fullmatch('[0-9a-f]{40}', revision), 'invalid workflow SHA'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'revision={revision}\n')
+          PY
+
+  nix:
+    name: Nix ${{ matrix.system }} / independent runner ${{ matrix.replica }}
+    needs: identity
+    if: inputs.flavor == 'nix'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: x86_64-linux
+            runner: ubuntu-24.04
+            replica: 1
+          - system: x86_64-linux
+            runner: ubuntu-24.04
+            replica: 2
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+            replica: 1
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+            replica: 2
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: compoundingtech/mergemaster
+          ref: ${{ needs.identity.outputs.revision }}
+          path: tool
+          persist-credentials: false
+      - uses: DeterminateSystems/determinate-nix-action@92957199488000b908fdad19f63711000965d8f3 # v3
+      - name: Build trusted measuring tool before evaluating consumer
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$(nix build ./tool#default --no-link --print-out-paths --no-update-lock-file)"
+          echo "MERGEMASTER=$out/bin/mergemaster" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.commit }}
+          path: consumer
+          persist-credentials: false
+      - name: Resolve exact consumer package and force local rebuild
+        env:
+          CONSUMER_COMMIT: ${{ inputs.commit }}
+          SYSTEM: ${{ matrix.system }}
+          TOOL_REVISION: ${{ needs.identity.outputs.revision }}
+          CONSUMER_REPOSITORY: ${{ inputs.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git -C consumer rev-parse HEAD)" == "$CONSUMER_COMMIT" ]]
+          flake="git+file://$GITHUB_WORKSPACE/consumer?rev=$CONSUMER_COMMIT"
+          root="(builtins.getFlake \"$flake\")"
+          package="inputs.mergemaster.packages.$SYSTEM.default"
+          expr="$root.$package"
+          flags=(--no-update-lock-file --option pure-eval true
+            --option allow-import-from-derivation false --option accept-flake-config false
+            --option sandbox true --option builders "" --option max-jobs auto)
+          revision="$(nix eval "${flags[@]}" --raw --expr "$root.inputs.mergemaster.rev")"
+          [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+          drv="$(nix eval "${flags[@]}" --raw --expr "$expr.drvPath")"
+          out="$(nix eval "${flags[@]}" --raw --expr "$expr.outPath")"
+          mkdir -p measurement
+          # Seed the existing output required by --rebuild (may be substituted).
+          nix build "${flags[@]}" --expr "$expr" --no-link --print-build-logs
+          nix path-info "$out" >/dev/null
+          # --rebuild re-executes only the top-level derivation and compares its
+          # output; dependencies may be substituted. This proves top-level build
+          # reproducibility, not reproducibility of the full dependency closure.
+          # A failed rebuild/comparison stops measurement; cache retrieval alone cannot pass.
+          # https://nix.dev/manual/nix/2.28/command-ref/new-cli/nix3-build.html#opt-rebuild
+          nix build "${flags[@]}" --expr "$expr" --no-link --rebuild --print-build-logs
+          "$MERGEMASTER" producers measure --nix-package "$out" --system "$SYSTEM" \
+            --mergemaster-revision "$revision" --package "$package" > measurement/entry.json
+          jq -n --arg repository "$CONSUMER_REPOSITORY" --arg commit "$CONSUMER_COMMIT" \
+            --arg tool_revision "$TOOL_REVISION" --arg drv "$drv" --arg output "$out" \
+            '{repository: $repository, commit: $commit, tool_revision: $tool_revision, drv: $drv, output: $output}' \
+            > measurement/build.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: producer-nix-${{ matrix.system }}-${{ matrix.replica }}
+          path: measurement/
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Authenticate and measure released executables
+    needs: identity
+    if: inputs.flavor == 'release'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      attestations: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: compoundingtech/mergemaster
+          ref: ${{ needs.identity.outputs.revision }}
+          path: tool
+          persist-credentials: false
+      - uses: DeterminateSystems/determinate-nix-action@92957199488000b908fdad19f63711000965d8f3 # v3
+      - name: Build trusted measuring tool
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$(nix build ./tool#default --no-link --print-out-paths --no-update-lock-file)"
+          echo "MERGEMASTER=$out/bin/mergemaster" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.commit }}
+          path: consumer
+          persist-credentials: false
+      - name: Verify release provenance before hashing (never execute assets)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONSUMER_COMMIT: ${{ inputs.commit }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git -C consumer rev-parse HEAD)" == "$CONSUMER_COMMIT" ]]
+          pin="$(git -C consumer show "$CONSUMER_COMMIT:.mergemaster/tool-pin.json")"
+          jq -e '.version == 1 and .repository == "compoundingtech/mergemaster"
+            and (.revision | type == "string" and test("^[0-9a-f]{40}\\z"))
+            and (.release.version | type == "string" and test("^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\z"))
+            and (.release.sha256 | type == "string" and test("^[0-9a-f]{64}\\z"))' <<< "$pin" >/dev/null
+          revision="$(jq -r '.revision' <<< "$pin")"
+          version="$(jq -r '.release.version' <<< "$pin")"
+          mkdir -p assets measurement
+          gh release download "$version" --repo compoundingtech/mergemaster --dir assets \
+            --pattern SHA256SUMS --pattern mergemaster-x86_64-unknown-linux-musl \
+            --pattern mergemaster-aarch64-unknown-linux-musl
+          for asset in SHA256SUMS mergemaster-x86_64-unknown-linux-musl mergemaster-aarch64-unknown-linux-musl; do
+            gh attestation verify "assets/$asset" --repo compoundingtech/mergemaster \
+              --signer-workflow compoundingtech/mergemaster/.github/workflows/release.yml \
+              --signer-digest "$revision" --source-digest "$revision" \
+              --source-ref "refs/tags/$version" --deny-self-hosted-runners
+          done
+          printf '%s  %s\n' "$(jq -r '.release.sha256' <<< "$pin")" \
+            assets/mergemaster-x86_64-unknown-linux-musl | sha256sum --check --strict
+          for system in x86_64-linux aarch64-linux; do
+            asset="mergemaster-${system%-linux}-unknown-linux-musl"
+            "$MERGEMASTER" producers measure --release-asset "assets/$asset" \
+              --sha256sums assets/SHA256SUMS --asset-name "$asset" \
+              --system "$system" --mergemaster-revision "$revision" > "measurement/$system.json"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: producer-release
+          path: measurement/
+          if-no-files-found: error
+          retention-days: 7
+
+  manifest:
+    name: producers/reproducible
+    needs: [identity, nix, release]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Require successful measurement jobs
+        env:
+          IDENTITY_RESULT: ${{ needs.identity.result }}
+          NIX_RESULT: ${{ needs.nix.result }}
+          RELEASE_RESULT: ${{ needs.release.result }}
+          FLAVOR: ${{ inputs.flavor }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$IDENTITY_RESULT" == success ]]
+          case "$FLAVOR" in
+            nix) [[ "$NIX_RESULT" == success ]] ;;
+            release) [[ "$RELEASE_RESULT" == success ]] ;;
+            *) exit 1 ;;
+          esac
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: compoundingtech/mergemaster
+          ref: ${{ needs.identity.outputs.revision }}
+          path: tool
+          persist-credentials: false
+      - uses: DeterminateSystems/determinate-nix-action@92957199488000b908fdad19f63711000965d8f3 # v3
+      - name: Build trusted merging tool
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$(nix build ./tool#default --no-link --print-out-paths --no-update-lock-file)"
+          echo "MERGEMASTER=$out/bin/mergemaster" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.commit }}
+          path: consumer
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: producer-${{ inputs.flavor }}*
+          path: measurements
+      - name: Require independent agreement, merge, and optionally check
+        env:
+          FLAVOR: ${{ inputs.flavor }}
+          MODE: ${{ inputs.mode }}
+          CONSUMER_COMMIT: ${{ inputs.commit }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git -C consumer rev-parse HEAD)" == "$CONSUMER_COMMIT" ]]
+          if [[ "$FLAVOR" == nix ]]; then
+            entries=()
+            for system in x86_64-linux aarch64-linux; do
+              first="measurements/producer-nix-$system-1"
+              second="measurements/producer-nix-$system-2"
+              cmp "$first/entry.json" "$second/entry.json"
+              cmp "$first/build.json" "$second/build.json"
+              entries+=("$first/entry.json")
+            done
+          else
+            entries=(measurements/producer-release/x86_64-linux.json measurements/producer-release/aarch64-linux.json)
+          fi
+          mkdir -p manifest
+          check=()
+          if [[ "$MODE" == check ]]; then
+            git -C consumer show "$CONSUMER_COMMIT:.mergemaster/producers.json" > "$RUNNER_TEMP/committed-producers.json"
+            check=(--check "$RUNNER_TEMP/committed-producers.json")
+          fi
+          "$MERGEMASTER" producers measure --merge "${entries[@]}" "${check[@]}" > manifest/producers.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: producer-manifest
+          path: manifest/producers.json
+          if-no-files-found: error
+          retention-days: 7
