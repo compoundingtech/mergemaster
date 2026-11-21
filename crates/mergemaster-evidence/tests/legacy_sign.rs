@@ -43,6 +43,28 @@ fn literal_inf_check_keeps_its_name_in_real_signed_statement_parity() {
 }
 
 #[test]
+fn python_json_extensions_match_signed_bytes_and_integer_limit_refusals() {
+    for group in [
+        "signing-nan",
+        "signing-infinity",
+        "signing-surrogate",
+        "json-refusals",
+    ] {
+        replay(group);
+    }
+}
+
+#[test]
+fn missing_home_configuration_refusals_name_python_paths() {
+    replay("home");
+}
+
+#[test]
+fn every_falsy_config_path_uses_the_default_tool_path() {
+    replay("config-falsy");
+}
+
+#[test]
 fn group_7_loader_tripwire_precedes_configuration_and_allows_library_path() {
     replay("loader");
 }
@@ -62,7 +84,8 @@ env.update(GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_NOSYSTEM='1', GIT_TERMINAL_
 NOW = '2026-01-02T03:04:05Z'
 
 def run(argv, data=None, cwd=None, extra=None):
-    return subprocess.run(list(map(str, argv)), input=data, cwd=cwd, env=dict(env, **(extra or {})), capture_output=True, timeout=300)
+    child_env = {k: v for k, v in dict(env, **(extra or {})).items() if v is not None}
+    return subprocess.run(list(map(str, argv)), input=data, cwd=cwd, env=child_env, capture_output=True, timeout=300)
 
 def good(done):
     assert done.returncode == 0, (done.args, done.returncode, done.stdout, done.stderr)
@@ -144,6 +167,44 @@ with tempfile.TemporaryDirectory() as directory:
                 assert observed == expected, (case['label'], expected, observed)
             assert actual.returncode == reference.returncode, case['label']
 
+    elif group == 'json-refusals':
+        request = json.loads(json.loads(matrix.read_bytes())[0]['request_json'])
+        # Parsing must reach validation for -Infinity; no valid request position
+        # can contain it (str(-Infinity) == '-inf' is not a legal check name).
+        request['check'] = float('-inf')
+        raw = json.dumps(request).encode()
+        assert refusal(invoke(True, home, repo, raw)) == refusal(invoke(False, home, repo, raw)) == 'check name must be lowercase letters, digits, dot, dash or underscore'
+        request['check'] = 'gate'
+        request['exit_code'] = 'OVER_LIMIT_INTEGER'
+        raw = json.dumps(request).replace('"OVER_LIMIT_INTEGER"', '1' * 4301).encode()
+        expected = 'Exceeds the limit (4300 digits) for integer string conversion: value has 4301 digits; use sys.set_int_max_str_digits() to increase the limit'
+        assert refusal(invoke(False, home, repo, raw)) == expected
+        assert refusal(invoke(True, home, repo, raw)) == expected
+
+    elif group == 'home':
+        import pwd
+        for setting, expected_home in (('', pathlib.Path('/')), (None, pathlib.Path(pwd.getpwuid(os.getuid()).pw_dir))):
+            expected_path = expected_home / '.config/st/evidence-sign.json'
+            reference = invoke(False, home, repo, b'{}', {'HOME': setting})
+            actual = invoke(True, home, repo, b'{}', {'HOME': setting})
+            expected, observed = refusal(reference), refusal(actual)
+            if not expected_path.exists():
+                assert str(expected_path) in expected and str(expected_path) in observed, (setting, expected, observed)
+            else:
+                assert expected == observed, (setting, expected, observed)
+
+    elif group == 'config-falsy':
+        defaults = dict(config)
+        defaults.pop('path')
+        for native in (False, True):
+            config_path.write_text(json.dumps(defaults))
+            baseline = invoke(native, home, repo, b'{}')
+            assert 'invalid signer configuration' not in refusal(baseline)
+            for value in (None, False, 0, 0.0, -0.0, '', [], {}):
+                config_path.write_text(json.dumps(dict(defaults, path=value)))
+                actual = invoke(native, home, repo, b'{}')
+                assert (actual.returncode, actual.stdout, actual.stderr) == (baseline.returncode, baseline.stdout, baseline.stderr), (native, value, baseline.stderr, actual.stderr)
+
     elif group == 'loader':
         config_path.unlink()
         for native in (False, True):
@@ -162,7 +223,7 @@ with tempfile.TemporaryDirectory() as directory:
             assert 'evidence-sign.json' in refusal(accepted), accepted.stderr
             assert b'scrub' not in accepted.stderr
 
-    elif group in ('signing', 'signing-inf'):
+    elif group in ('signing', 'signing-inf', 'signing-nan', 'signing-infinity', 'signing-surrogate'):
         lock = b'{"nodes":{},"root":"root","version":7}\n'
         (repo / 'flake.lock').write_bytes(lock)
         (repo / 'file.txt').write_text('committed source\n')
@@ -178,6 +239,14 @@ with tempfile.TemporaryDirectory() as directory:
                        output_sha256='b'*64, change_id='local:real-signature',
                        inputs=dict(flake_lock_sha256=hashlib.sha256(lock).hexdigest(), toolchain_sha256='d'*64,
                                    wrapper_sha256='e'*64, system='x86_64-linux', attempt='1', run_id='fixture'))
+        if group == 'signing-nan':
+            request['check'], check = float('nan'), 'NaN'
+        elif group == 'signing-infinity':
+            request['check'], check = float('inf'), 'Infinity'
+        elif group == 'signing-surrogate':
+            request['command'] = ['printf', '\ud800', '\udfff']
+            request['change_id'] = 'surrogate:\ud800'
+            request['inputs']['system'] = 'system:\udfff'
         allowed = root / 'allowed-signers'
         allowed.write_text('fleet/legacy-fixture namespaces="git" ' + key.with_suffix('.pub').read_text())
         untrusted = root / 'untrusted-signers'

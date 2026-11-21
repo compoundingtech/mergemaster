@@ -66,7 +66,7 @@ fn run(program: &str, args: &[&OsStr]) -> Result<String> {
     Ok(String::from_utf8(output.stdout)?.trim().to_owned())
 }
 
-fn recorded_home(uid: u32) -> Result<PathBuf> {
+pub(super) fn recorded_home(uid: u32) -> Result<PathBuf> {
     let mut buffer = vec![0u8; 4096];
     loop {
         let mut entry = std::mem::MaybeUninit::<libc::passwd>::uninit();

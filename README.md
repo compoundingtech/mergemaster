@@ -1767,9 +1767,36 @@ Intentional `legacy-sign` divergences from the pinned Python oracle:
   has no completeness preflight: an absent commit first fails at `git cat-file -t`.
   Recorded valid requests with synthetic absent commits therefore produce
   `git rev-list failed:` natively versus `git cat-file failed:` in the oracle.
+  This preflight matches the in-tree resynced `scripts/evidence-sign`
+  (`require_complete_commit`), not the pinned oracle.
+- Missing configuration errors name the configuration path without Python's
+  `[Errno ...]` text. Malformed configuration types produce normalized
+  refusals instead of Python crash tracebacks.
+- Scratch `git init` has a 300-second deadline (Python has no init deadline).
+  A nonzero exit is reported as `git init failed: <status>` rather than Python's
+  `CalledProcessError` message; deadline failures use the native child-process
+  timeout diagnostic.
+- Request and configuration JSON have no nesting-depth limit. Python's decoder
+  raises `RecursionError` near the interpreter recursion limit; native decoding
+  can accept deeper values, including an over-nested earlier duplicate field
+  that a later shallow field overrides.
+- Request stdin must be strict UTF-8. Python's surrogateescape stdin can admit
+  raw non-UTF-8 bytes inside strings as lone `\udcXX` surrogates; native decoding
+  refuses those bytes. Escaped lone surrogates in valid UTF-8 remain supported.
+- If the account has no passwd entry, native emits the normalized refusal
+  `evidence-sign refused: Could not determine home directory.` instead of
+  Python's uncaught `RuntimeError` traceback; the message itself matches Python.
 - `ssh_key`, `scratch_repo` and a truthy configuration `path` must be plain
   strings: Python accepts escaped lone surrogates `\udc80`–`\udcff` as raw
   filesystem bytes via `os.fsencode` surrogateescape; native signing refuses them.
+
+The configuration, signing key and `scratch_repo` are trusted launcher state.
+Neither implementation checks the key's mode, owner or file type, or rejects
+scratch-repository symlinks. Scratch initialization runs Git without the `-c`
+hardening flags used for subsequent plumbing commands, just like the oracle.
+Empty `HOME` resolves to `/`; unset `HOME` uses the account database.
+Request and configuration JSON retain Python's non-finite numbers and lone-surrogate
+escapes, including `NaN`/`Infinity` check-key spelling, and its 4300-digit integer limit.
 
 `mergemaster evidence legacy-wrap` implements the cooperative v1 wrapper,
 separately from the v2 `evidence wrap` below. It accepts the legacy command,

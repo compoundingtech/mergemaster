@@ -171,22 +171,7 @@ struct DirectoryContext {
 impl DirectoryContext {
     fn load() -> Result<Self> {
         let cwd = std::env::current_dir()?;
-        let home = if let Some(home) = std::env::var_os("HOME") {
-            // posixpath.expanduser strips trailing slashes and maps an empty HOME to /.
-            let bytes = home.as_os_str().as_bytes();
-            let end = bytes
-                .iter()
-                .rposition(|byte| *byte != b'/')
-                .map_or(0, |at| at + 1);
-            if end == 0 {
-                PathBuf::from("/")
-            } else {
-                PathBuf::from(OsStr::from_bytes(&bytes[..end]))
-            }
-        } else {
-            #[allow(deprecated)]
-            std::env::home_dir().context("Could not determine home directory.")?
-        };
+        let home = super::home(std::env::var_os("HOME"))?;
         // tempfile.gettempdir checks these candidates by actually creating a file.
         let mut candidates: Vec<PathBuf> = ["TMPDIR", "TEMP", "TMP"]
             .into_iter()

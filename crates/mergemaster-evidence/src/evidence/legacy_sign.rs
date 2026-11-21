@@ -14,20 +14,48 @@ mod tools;
 const CONFIGURATION: &str = "configuration must have signer, ssh_key, scratch_repo (optionally path; for tests only test_clock)";
 
 struct Config {
-    signer: String,
+    signer: Value,
     key: PathBuf,
     scratch: PathBuf,
     path: Option<String>,
     test_clock: bool,
 }
 
+fn home(home: Option<std::ffi::OsString>) -> Result<PathBuf> {
+    use std::os::unix::ffi::OsStringExt;
+    let home = match home {
+        Some(home) => home,
+        None => {
+            // SAFETY: getuid takes no pointers and only reads the process identity.
+            super::keygen::recorded_home(unsafe { libc::getuid() })
+                .map_err(|_| anyhow::anyhow!("Could not determine home directory."))?
+                .into_os_string()
+        }
+    };
+    let mut bytes = home.into_vec();
+    let end = bytes
+        .iter()
+        .rposition(|byte| *byte != b'/')
+        .map_or(0, |at| at + 1);
+    Ok(if end == 0 {
+        PathBuf::from("/")
+    } else {
+        bytes.truncate(end);
+        std::ffi::OsString::from_vec(bytes).into()
+    })
+}
+
 impl Config {
     fn load() -> Result<Self> {
-        let home = std::env::var_os("HOME").context("HOME is not set")?;
-        let path = PathBuf::from(home).join(".config/st/evidence-sign.json");
+        let path = home(std::env::var_os("HOME"))?.join(".config/st/evidence-sign.json");
         let bytes = std::fs::read(&path).with_context(|| format!("{}", path.display()))?;
-        let value = legacy_json::parse(&bytes)?;
-        let fields = value.as_object().context(CONFIGURATION)?;
+        Self::parse(&bytes)
+    }
+
+    fn parse(bytes: &[u8]) -> Result<Self> {
+        let Value::Object(mut fields) = legacy_request::parse(bytes)? else {
+            anyhow::bail!(CONFIGURATION);
+        };
         ensure!(
             ["signer", "ssh_key", "scratch_repo"]
                 .iter()
@@ -42,23 +70,22 @@ impl Config {
                 .contains(&key.as_str())),
             CONFIGURATION
         );
-        let signer = value["signer"]
-            .as_str()
-            .context("invalid signer configuration")?
-            .to_owned();
+        let signer = fields.remove("signer").context(CONFIGURATION)?;
+        ensure!(signer.is_string(), "invalid signer configuration");
         let key = PathBuf::from(
-            value["ssh_key"]
-                .as_str()
+            fields
+                .get("ssh_key")
+                .and_then(Value::as_str)
                 .context("invalid signer configuration")?,
         );
         let scratch = PathBuf::from(
-            value["scratch_repo"]
-                .as_str()
+            fields
+                .get("scratch_repo")
+                .and_then(Value::as_str)
                 .context("invalid signer configuration")?,
         );
-        let path = match value.get("path") {
-            None | Some(Value::Null) | Some(Value::Bool(false)) => None,
-            Some(Value::String(path)) if path.is_empty() => None,
+        let path = match fields.get("path").filter(|value| truthy(value)) {
+            None => None,
             Some(Value::String(path)) => Some(path.clone()),
             _ => anyhow::bail!("invalid signer configuration"),
         };
@@ -67,22 +94,39 @@ impl Config {
             key,
             scratch,
             path,
-            test_clock: matches!(value.get("test_clock"), Some(Value::Bool(true))),
+            test_clock: matches!(fields.get("test_clock"), Some(Value::Bool(true))),
         })
     }
 
     fn validate(&self) -> Result<()> {
+        let mut signer = self
+            .signer
+            .text_points()
+            .context("invalid signer configuration")?
+            .peekable();
         ensure!(
-            !self.signer.is_empty()
-                && !self
-                    .signer
-                    .chars()
-                    .any(super::legacy_verify::projection_oid::space)
+            signer.peek().is_some()
+                && !signer.any(|point| {
+                    char::from_u32(point).is_some_and(super::legacy_verify::projection_oid::space)
+                })
                 && self.key.is_absolute()
                 && self.scratch.is_absolute(),
             "invalid signer configuration"
         );
         Ok(())
+    }
+}
+
+fn truthy(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::Bool(value) => *value,
+        Value::Number(value) => value.parse::<f64>() != Ok(0.0),
+        Value::String(value) => !value.is_empty(),
+        Value::SurrogateString(value) => !value.is_empty(),
+        Value::Array(value) => !value.is_empty(),
+        Value::Object(value) => !value.is_empty(),
+        Value::SurrogateObject(value) => !value.is_empty(),
     }
 }
 
@@ -261,7 +305,7 @@ fn statement(
     request: &Value,
     commit: &str,
     tree: &str,
-    signer: &str,
+    signer: &Value,
     producer: &str,
     now: &str,
 ) -> Result<String> {
@@ -273,7 +317,7 @@ fn statement(
     body.push_str("}}], \"predicateType\": \"https://compounding.tech/fractal/evidence/gate/v1\", \"predicate\": {\"schema_version\": 1, \"change_id\": ");
     json(&request["change_id"], &mut body)?;
     body.push_str(", \"signer\": ");
-    legacy_json::string(signer, &mut body)?;
+    json(signer, &mut body)?;
     body.push_str(", \"tier\": \"full\", \"re_attests\": null, \"producer_sha256\": ");
     legacy_json::string(producer, &mut body)?;
     body.push_str(", \"observed_at\": ");
@@ -288,10 +332,10 @@ fn statement(
     )?;
     body.push_str(", \"checks\": {");
     let check = legacy_request::token(&request["check"])?;
-    let check = if request["check"].as_number().is_some() && check == "inf" {
-        "Infinity"
-    } else {
-        &check
+    let check = match request["check"].as_number() {
+        Some("NaN") => "NaN",
+        Some(_) if check == "inf" => "Infinity",
+        _ => &check,
     };
     legacy_json::string(check, &mut body)?;
     body.push_str(": {\"command\": ");
@@ -304,4 +348,51 @@ fn statement(
     json(&request["inputs"], &mut body)?;
     body.push_str("}}}");
     Ok(body)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nonfinite_test_clock_keeps_the_real_clock_and_surrogate_signer() {
+        for clock in ["NaN", "Infinity", "-Infinity"] {
+            let raw = format!(
+                r#"{{"signer":"fleet/\ud800","ssh_key":"/key","scratch_repo":"/scratch","test_clock":{clock}}}"#
+            );
+            let config = Config::parse(raw.as_bytes()).unwrap();
+            config.validate().unwrap();
+            assert!(!config.test_clock, "{clock}");
+            let mut signer = String::new();
+            json(&config.signer, &mut signer).unwrap();
+            assert_eq!(signer, r#""fleet/\ud800""#);
+        }
+    }
+
+    #[test]
+    fn unset_and_empty_home_match_python_resolution() {
+        for setting in [None, Some(std::ffi::OsString::new())] {
+            let actual = home(setting.clone())
+                .unwrap()
+                .join(".config/st/evidence-sign.json");
+            let mut command = crate::pinned_python::command();
+            command.args([
+                "-I",
+                "-B",
+                "-c",
+                "from pathlib import Path; print(Path.home() / '.config/st/evidence-sign.json')",
+            ]);
+            command.env_remove("HOME");
+            if let Some(setting) = &setting {
+                command.env("HOME", setting);
+            }
+            let expected = command.output().unwrap();
+            assert!(expected.status.success(), "{:?}", expected.stderr);
+            assert_eq!(
+                actual,
+                PathBuf::from(String::from_utf8(expected.stdout).unwrap().trim()),
+                "{setting:?}"
+            );
+        }
+    }
 }
