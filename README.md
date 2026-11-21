@@ -103,8 +103,10 @@ definitions and `gh api` reads the pull request's changed paths.
 Consumer adapters provision the accepted base's pinned, SHA-256-checked release
 and verify its GitHub attestation before running the native command. Missing pins,
 unavailable releases and older releases without this command retain the advisory
-fallback. Rust tests own the former self-test assertions; frozen independent
-Python recordings are replayed by `tests/oracle_corpus.py`.
+fallback. Provisioning explicitly errors on runners other than x86_64 instead of
+silently substituting that fallback for an incompatible release asset.
+Rust tests own the former self-test assertions; frozen independent Python
+recordings are replayed by `tests/oracle_corpus.py`.
 
 ## Evidence gate SLO counters
 

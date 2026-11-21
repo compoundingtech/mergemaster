@@ -95,7 +95,12 @@ export const evidenceGateJobs = ({ checks: evidenceGateChecks, runInputs: eviden
 // Every command propagates failure even when the caller uses an informational fallback.
 // Successful provisioning sets MERGEMASTER; candidate checkout files never select the tool.
 export const provisionEvidenceTool = String.raw`provision_evidence_tool() {
-  local pin revision release_version release_sha256 destination
+  local pin revision release_version release_sha256 destination architecture
+  architecture=$(uname -m) || { echo '::error::Could not determine evidence runner architecture' >&2; exit 1; }
+  case "$architecture" in
+    x86_64) ;;
+    *) printf '::error::Unsupported evidence runner architecture: %s (requires x86_64)\n' "$architecture" >&2; exit 1 ;;
+  esac
   pin=$(git show "$BASE_SHA:.mergemaster/tool-pin.json") || return
   printf '%s\n' "$pin" | jq -e '
     .version == 1 and .repository == "compoundingtech/mergemaster"
