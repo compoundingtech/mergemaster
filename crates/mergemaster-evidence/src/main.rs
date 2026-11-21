@@ -88,8 +88,19 @@ fn main() -> ExitCode {
     let code = match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("{error:#}");
-            ExitCode::FAILURE
+            if let Some(infra) =
+                error.downcast_ref::<mergemaster_evidence::evidence::generic::InfraUnavailable>()
+            {
+                eprintln!(
+                    "mergemaster: infra_unavailable class={}",
+                    infra.class.token()
+                );
+                eprintln!("{}", infra.detail);
+                ExitCode::from(75)
+            } else {
+                eprintln!("{error:#}");
+                ExitCode::FAILURE
+            }
         }
     };
     mergemaster_evidence::cli_output::finish(code)
