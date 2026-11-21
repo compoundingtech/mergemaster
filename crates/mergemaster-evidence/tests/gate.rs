@@ -464,10 +464,17 @@ fn queue_fixture() -> Fixture {
 }
 
 fn queue_fixture_with_repository(repository: Option<&str>) -> Fixture {
+    queue_fixture_with_policy(repository, None)
+}
+
+fn queue_fixture_with_policy(repository: Option<&str>, queue: Option<Value>) -> Fixture {
     let mut f = Fixture::with_repository(repository);
     let mut policy = Fixture::policy("required_evidence");
     if let Some(repository) = repository {
         policy["repository"] = json!(repository);
+    }
+    if let Some(queue) = queue {
+        policy["queue"] = queue;
     }
     policy["lanes"][CHECK]["events"] = json!(["queue"]);
     f.write(".mergemaster/lanes.json", policy.to_string());
@@ -530,6 +537,384 @@ fn batch_decision(f: &Fixture, members: &[String]) -> Value {
         args.extend(["--member", member.as_str()]);
     }
     f.decision(&args)
+}
+
+fn projection_fixture() -> Fixture {
+    queue_fixture_with_policy(None, Some(json!({"generated_paths":["generated/"]})))
+}
+
+fn add_projection(f: &mut Fixture, path: &str) -> String {
+    let parent = f.head.clone();
+    f.git(&["checkout", "--detach", "-q", &parent], b"");
+    f.write(path, "regenerated\n");
+    f.refresh_head();
+    parent
+}
+
+#[test]
+fn queue_projection_binds_final_tree_and_admitted_member() {
+    for base_first in [false, true] {
+        let mut f = projection_fixture();
+        let member = f.git(&["rev-parse", &format!("{}^2", f.head)], b"");
+        if !base_first {
+            f.head = f.git(
+                &[
+                    "commit-tree",
+                    &f.tree,
+                    "-p",
+                    &member,
+                    "-p",
+                    &f.base,
+                    "-m",
+                    "serial",
+                ],
+                b"",
+            );
+        }
+        let parent = add_projection(&mut f, "generated/output");
+        let record = f.note(&f.statement(), &f.key, "tree");
+        let d = f.decision(&["--event", "queue"]);
+        assert_eq!(d["reason"], "satisfied");
+        assert_eq!(d["record"], record);
+        assert_eq!(d["report_only"], true);
+        assert_eq!(d["decision"], "refuse");
+        assert_eq!(
+            d["queue_binding"],
+            json!({
+                "base": f.base, "members": [member], "tree": f.tree,
+                "projection": {"commit": f.head, "parent": parent, "paths": ["generated/output"]}
+            })
+        );
+    }
+}
+
+#[test]
+fn queue_projection_refuses_non_generated_paths_and_component_siblings() {
+    for path in ["source.txt", "generated-sibling/output", "outside/output"] {
+        let mut f = projection_fixture();
+        add_projection(&mut f, path);
+        let d = f.decision(&["--event", "queue"]);
+        assert_eq!(d["reason"], "source_unbound");
+        assert_eq!(
+            d["summary"],
+            format!("queue projection touches non-generated path {path}")
+        );
+        assert!(d.get("queue_binding").is_none());
+    }
+}
+
+#[test]
+fn queue_projection_refuses_stacked_commits_and_missing_base_policy() {
+    for policy in [false, true] {
+        let mut f = if policy {
+            projection_fixture()
+        } else {
+            queue_fixture()
+        };
+        add_projection(&mut f, "generated/first");
+        if policy {
+            add_projection(&mut f, "generated/second");
+        }
+        let d = f.decision(&["--event", "queue"]);
+        assert_eq!(d["reason"], "source_unbound");
+        let message = if policy {
+            "more than one projection commit"
+        } else {
+            "requires BASE queue.generated_paths policy"
+        };
+        assert!(d["summary"].as_str().unwrap().contains(message), "{d}");
+        assert!(d.get("queue_binding").is_none());
+    }
+}
+
+#[test]
+fn queue_projection_policy_preserves_merge_and_explicit_member_bytes() {
+    for policy in [false, true] {
+        let f = if policy {
+            projection_fixture()
+        } else {
+            queue_fixture()
+        };
+        let member = f.git(&["rev-parse", &format!("{}^2", f.head)], b"");
+        for members in [vec![], vec![member.clone()]] {
+            let d = batch_decision(&f, &members);
+            let expected = format!(
+                "{{\"base\":\"{}\",\"members\":[\"{}\"],\"tree\":\"{}\"}}",
+                f.base, member, f.tree
+            );
+            let args: Vec<&str> = if members.is_empty() {
+                vec!["--event", "queue"]
+            } else {
+                vec!["--event", "queue", "--member", &member]
+            };
+            let output = f.gate(&args);
+            assert!(output.status.success());
+            let expected = format!(
+                concat!(
+                    "{{\"version\":1,\"check\":\"{}\",\"base\":\"{}\",",
+                    "\"head\":\"{}\",\"tree\":\"{}\",\"queue_binding\":{},",
+                    "\"expectation_source\":\"caller\",\"decision\":\"refuse\",",
+                    "\"outcome\":\"no_note\",\"reason\":\"no_record\",\"record\":null,",
+                    "\"report_only\":true,\"producer_digest\":null,\"signer\":null,",
+                    "\"observed_at\":null,\"age_seconds\":null,",
+                    "\"lane_definition_sha256\":null,\"input_key_equal\":null,",
+                    "\"compared_record\":null,\"protected_paths\":[],\"summary\":\"\"}}\n"
+                ),
+                CHECK, f.base, f.head, f.tree, expected
+            );
+            assert_eq!(output.stdout, expected.as_bytes());
+            assert!(d["queue_binding"].get("projection").is_none());
+        }
+    }
+}
+
+#[test]
+fn queue_explicit_members_do_not_accept_projection_even_with_policy() {
+    let mut f = projection_fixture();
+    let member = f.git(&["rev-parse", &format!("{}^2", f.head)], b"");
+    add_projection(&mut f, "generated/output");
+    let d = batch_decision(&f, &[member]);
+    assert_eq!(d["reason"], "source_unbound");
+    assert!(
+        d["summary"]
+            .as_str()
+            .unwrap()
+            .contains("exactly two parents")
+    );
+}
+
+#[test]
+fn queue_generated_paths_policy_is_strict_and_nonempty() {
+    for queue in [
+        json!({"generated_paths":[]}),
+        json!({"generated_paths":["../outside"]}),
+        json!({"generated_paths":["generated//output"]}),
+        json!({"generated_paths":["/absolute"]}),
+        json!({"generated_paths":["generated"],"unknown":true}),
+        json!({}),
+    ] {
+        let f = queue_fixture_with_policy(None, Some(queue.clone()));
+        assert!(load(&f.repo, &f.base).is_err(), "{queue}");
+    }
+}
+
+#[test]
+fn queue_projection_accepts_literal_dotfiles_registry_patterns() {
+    let queue = json!({"generated_paths":[
+        "nix/scripts/lib/diff-class-policy.generated.json",
+        "nix/buck2-products/product-revs/*.json",
+        "flakes/grafana-dashboards/src/telemetry/registry-projection.golden.json"
+    ]});
+    for (path, accepted) in [
+        ("nix/buck2-products/product-revs/area/product.json", true),
+        ("nix/buck2-products/product-revs/product.json", true),
+        ("nix/scripts/lib/diff-class-policy.generated.json", true),
+        (
+            "flakes/grafana-dashboards/src/telemetry/registry-projection.golden.json",
+            true,
+        ),
+        ("nix/buck2-products/product-revs/product.txt", false),
+        ("nix/buck2-products/product-revs/product.JSON", false),
+        ("nix/buck2-products/product-revs/.json", false),
+        ("nix/buck2-products/product-revs-other/product.json", false),
+    ] {
+        let mut f = queue_fixture_with_policy(None, Some(queue.clone()));
+        load(&f.repo, &f.base).unwrap();
+        add_projection(&mut f, path);
+        let d = f.decision(&["--event", "queue"]);
+        if accepted {
+            assert_ne!(d["reason"], "source_unbound", "{path}: {d}");
+            assert_eq!(d["queue_binding"]["projection"]["paths"], json!([path]));
+        } else {
+            assert_eq!(d["reason"], "source_unbound", "{path}: {d}");
+            assert_eq!(
+                d["summary"],
+                format!("queue projection touches non-generated path {path}")
+            );
+        }
+    }
+}
+
+#[test]
+fn queue_generated_paths_refuse_malformed_patterns() {
+    for pattern in [
+        "*.json",
+        "gen/*",
+        "gen/**.json",
+        "gen/**/file.json",
+        "gen/file*.json",
+        "gen/*.json/child",
+        "gen/*x*y",
+        "g*en/*.json",
+        "gen/?.json",
+        "gen/[ab].json",
+        "gen//*.json",
+        "gen/*.json/",
+        "gen/*?.json",
+        "gen/../*.json",
+    ] {
+        let f = queue_fixture_with_policy(None, Some(json!({"generated_paths":[pattern]})));
+        assert!(load(&f.repo, &f.base).is_err(), "{pattern}");
+    }
+}
+
+#[test]
+fn queue_projection_allowlist_is_case_sensitive_and_byte_exact() {
+    for path in ["GEN/x", "ｇｅｎ/x", "gen-sibling/x"] {
+        let mut f = queue_fixture_with_policy(None, Some(json!({"generated_paths":["gen"]})));
+        add_projection(&mut f, path);
+        let d = f.decision(&["--event", "queue"]);
+        assert_eq!(d["reason"], "source_unbound");
+        assert_eq!(
+            d["summary"],
+            format!("queue projection touches non-generated path {path}")
+        );
+        assert!(d.get("queue_binding").is_none());
+    }
+}
+
+#[test]
+fn queue_generated_paths_refuse_folded_protected_and_bootstrap_overlap() {
+    for (generated, protected, bootstrap) in [
+        (".MERGEMASTER/output", None, None),
+        (".ｍｅｒｇｅｍａｓｔｅｒ/output", None, None),
+        (".github", None, None),
+        (".github/workflows/output", None, None),
+        (".github/actions", None, None),
+        ("safe/CHILD", Some("safe/"), None),
+        ("SAFE", Some("safe/child"), None),
+        ("bootstrap/generated", None, Some("bootstrap/")),
+        ("BOOTSTRAP", None, Some("bootstrap/child")),
+        ("SAFE/", Some("safe/child/"), None),
+        ("ＳＡＦＥ／", Some("safe/child/"), None),
+        (".github/", None, None),
+        ("safe/*.json", Some("safe/protected.txt"), None),
+        (".github/*.json", None, None),
+    ] {
+        let mut f = queue_fixture_with_policy(None, Some(json!({"generated_paths":[generated]})));
+        let mut policy: Value = serde_json::from_str(
+            &fs::read_to_string(f.repo.join(".mergemaster/lanes.json")).unwrap(),
+        )
+        .unwrap();
+        // Remove the explicit roots to exercise the implicit roots independently.
+        policy["protected_paths"] = json!(protected.into_iter().collect::<Vec<_>>());
+        policy["bootstrap_paths"] = json!(bootstrap.into_iter().collect::<Vec<_>>());
+        if let Some(path) = bootstrap {
+            f.write(
+                &format!("{}/input", path.trim_end_matches('/')),
+                "bootstrap\n",
+            );
+        }
+        f.write(".mergemaster/lanes.json", policy.to_string());
+        f.base = f.commit("overlapping queue policy");
+        let error = load(&f.repo, &f.base).unwrap_err();
+        assert!(
+            error.to_string().contains("overlaps protected path"),
+            "{generated}: {error}"
+        );
+    }
+}
+
+#[test]
+fn queue_projection_tracks_renames_deletes_and_refuses_executable_modes() {
+    use std::os::unix::fs::PermissionsExt;
+    let mut f = projection_fixture();
+    f.git(&["checkout", "--detach", "-q", &f.head], b"");
+    f.write("generated/old", "old\n");
+    f.write("generated/deleted", "deleted\n");
+    f.write("generated/executable", "mode\n");
+    f.refresh_head();
+    // Put these files in the merge tree, not a second projection commit.
+    f.head = f.git(
+        &[
+            "commit-tree",
+            &f.tree,
+            "-p",
+            &f.base,
+            "-p",
+            &f.head,
+            "-m",
+            "merge",
+        ],
+        b"",
+    );
+    let parent = f.head.clone();
+    f.git(&["checkout", "--detach", "-q", &parent], b"");
+    fs::rename(f.repo.join("generated/old"), f.repo.join("generated/new")).unwrap();
+    fs::remove_file(f.repo.join("generated/deleted")).unwrap();
+    f.refresh_head();
+    let d = f.decision(&["--event", "queue"]);
+    assert_ne!(d["reason"], "source_unbound", "{d}");
+    assert_eq!(
+        d["queue_binding"]["projection"]["paths"],
+        json!(["generated/deleted", "generated/new", "generated/old"])
+    );
+    // A rename out must expose the destination as non-generated too.
+    f.git(&["checkout", "--detach", "-q", &parent], b"");
+    fs::rename(f.repo.join("generated/old"), f.repo.join("outside")).unwrap();
+    f.refresh_head();
+    let d = f.decision(&["--event", "queue"]);
+    assert_eq!(d["reason"], "source_unbound");
+    assert!(
+        d["summary"]
+            .as_str()
+            .unwrap()
+            .contains("non-generated path outside")
+    );
+    for path in ["generated/executable", "generated/added-executable"] {
+        f.git(&["checkout", "--detach", "-q", &parent], b"");
+        f.write(path, "executable\n");
+        fs::set_permissions(f.repo.join(path), fs::Permissions::from_mode(0o755)).unwrap();
+        f.refresh_head();
+        let d = f.decision(&["--event", "queue"]);
+        assert_eq!(d["reason"], "source_unbound");
+        assert!(
+            d["summary"]
+                .as_str()
+                .unwrap()
+                .contains("must be a regular non-executable file")
+        );
+        assert!(d.get("queue_binding").is_none());
+    }
+}
+
+#[test]
+fn queue_projection_refuses_symlinks_and_ancestor_replacements() {
+    for ancestor in [false, true] {
+        let mut f = queue_fixture_with_policy(
+            None,
+            Some(json!({"generated_paths": [if ancestor {"generated/nested"} else {"generated"}]})),
+        );
+        f.git(&["checkout", "--detach", "-q", &f.head], b"");
+        std::os::unix::fs::symlink("../source.txt", f.repo.join("generated")).unwrap();
+        f.refresh_head();
+        let d = f.decision(&["--event", "queue"]);
+        assert_eq!(d["reason"], "source_unbound");
+        assert!(d["summary"].as_str().unwrap().contains(if ancestor {
+            "non-generated path generated"
+        } else {
+            "must be a regular non-executable file"
+        }));
+    }
+}
+
+#[test]
+fn queue_candidate_policy_cannot_authorize_projection() {
+    let mut f = queue_fixture();
+    f.git(&["checkout", "--detach", "-q", &f.head], b"");
+    let mut candidate = Fixture::policy("required_evidence");
+    candidate["queue"] = json!({"generated_paths":["generated/"]});
+    f.write(".mergemaster/lanes.json", candidate.to_string());
+    f.write("generated/output", "candidate\n");
+    f.refresh_head();
+    let d = f.decision(&["--event", "queue"]);
+    assert_eq!(d["reason"], "source_unbound");
+    assert!(
+        d["summary"]
+            .as_str()
+            .unwrap()
+            .contains("requires BASE queue.generated_paths policy")
+    );
 }
 
 #[test]

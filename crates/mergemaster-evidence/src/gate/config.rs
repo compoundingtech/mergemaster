@@ -147,11 +147,19 @@ pub struct Policy {
     pub version: u32,
     #[serde(default)]
     pub repository: Option<String>,
+    #[serde(default)]
+    pub queue: Option<QueuePolicy>,
     pub pull_request: PullRequestPolicy,
     pub protected_paths: Vec<String>,
     #[serde(default)]
     pub bootstrap_paths: Vec<String>,
     pub lanes: BTreeMap<String, Lane>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QueuePolicy {
+    pub generated_paths: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -334,6 +342,30 @@ pub fn validate_path(path: &str) -> Result<()> {
         "invalid repository path"
     );
     Ok(())
+}
+
+/// Generated entries permit only a literal prefix or PREFIX/*SUFFIX. Return
+/// the conservative directory prefix used for protected-path overlap checks.
+fn generated_prefix(pattern: &str) -> Result<&str> {
+    validate_path(pattern)?;
+    ensure!(
+        !pattern.contains(['?', '[']),
+        "invalid queue generated path pattern {pattern}"
+    );
+    if let Some((prefix, suffix)) = pattern.split_once("/*") {
+        validate_path(prefix)?;
+        ensure!(
+            !prefix.contains('*') && !suffix.is_empty() && !suffix.contains(['*', '/']),
+            "invalid queue generated path pattern {pattern}"
+        );
+        Ok(prefix)
+    } else {
+        ensure!(
+            !pattern.contains('*'),
+            "invalid queue generated path pattern {pattern}"
+        );
+        Ok(pattern)
+    }
 }
 
 /// Explicit direct execution is limited to a single tracked Bun script.
@@ -583,6 +615,30 @@ pub fn load(repo: &Path, base: &str) -> Result<Config> {
     }
     for path in policy.protected_paths.iter().chain(&policy.bootstrap_paths) {
         validate_path(path)?;
+    }
+    if let Some(queue) = &policy.queue {
+        ensure!(
+            !queue.generated_paths.is_empty(),
+            "queue generated_paths must not be empty"
+        );
+        for path in &queue.generated_paths {
+            let prefix = generated_prefix(path)?;
+            let folded_prefix = super::normalized_path(prefix);
+            let folded_prefix = folded_prefix.trim_end_matches('/');
+            for protected in [".mergemaster/", ".github/workflows/", ".github/actions/"]
+                .into_iter()
+                .chain(policy.protected_paths.iter().map(String::as_str))
+                .chain(policy.bootstrap_paths.iter().map(String::as_str))
+            {
+                let folded_protected = super::normalized_path(protected);
+                let folded_protected = folded_protected.trim_end_matches('/');
+                ensure!(
+                    !super::component_within(folded_prefix, folded_protected)
+                        && !super::component_within(folded_protected, folded_prefix),
+                    "queue generated path {path} overlaps protected path {protected}"
+                );
+            }
+        }
     }
     let tree = read_tree(repo, base)?;
     for path in &policy.bootstrap_paths {
