@@ -104,7 +104,7 @@
 # scripts/ci-evidence-gate: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/ci-evidence-gate 2952f89514a584465a428017b3f3e8ea043f41b2 b9754da6ff9acac41a99acea6d8de21b9da7bdb3
 # scripts/ci-evidence-gate-test: wave-2 cutover: verifier and crate keys via mergemaster binary
-# local-patch scripts/ci-evidence-gate-test 38a34e7d48ed407b428f739c0f3d38b151fced59 cd095839b4a66e7998dd29218e10adb7a5877fe8
+# local-patch scripts/ci-evidence-gate-test 38a34e7d48ed407b428f739c0f3d38b151fced59 8d067c117994b9b286dcba8bb413baea47d5cf00
 # scripts/ci-evidence-observe: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/ci-evidence-observe af65b642fbb0e55b1dece0b5ce3a4e9e7b3f6966 1002d8647154b1f527f8b40bccd68eb12158136c
 # scripts/ci-evidence-observe-test: wave-2 cutover: verifier and crate keys via mergemaster binary

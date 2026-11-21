@@ -1510,8 +1510,10 @@ class EndToEnd(unittest.TestCase):
             with self.subTest(path):
                 self.tmp_reset()
                 if path == '.mergemaster/tool-pin.json':
-                    pin = tool_pin(self.f.repo)
-                    content = json.dumps({**pin, 'revision': 'f' * 40})
+                    # The fresh repository has no commit yet; only the provenance revision differs from a valid pin.
+                    identity = rust_json('legacy-evidence-verify-helper', 'tool-identity')
+                    content = json.dumps({'version': 1, 'repository': identity['repository'], 'revision': 'f' * 40,
+                                          'release': {'version': identity['version'], 'sha256': identity['binary_sha256']}})
                 else:
                     source = ROOT / path
                     content = (source.read_text() if source.exists() else '') + '\n# main moved this\n'
