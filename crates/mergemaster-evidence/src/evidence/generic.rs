@@ -12,6 +12,80 @@ use std::{
     process::{Command, Stdio},
 };
 
+/// Temporary unavailability of the v2 wrapper's execution infrastructure.
+#[derive(Debug)]
+pub struct InfraUnavailable {
+    pub class: InfraClass,
+    pub detail: String,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum InfraClass {
+    Interrupted,
+    SignerUnavailable,
+    PublishFailed,
+}
+
+impl InfraClass {
+    pub const fn token(self) -> &'static str {
+        match self {
+            Self::Interrupted => "interrupted",
+            Self::SignerUnavailable => "signer_unavailable",
+            Self::PublishFailed => "publish_failed",
+        }
+    }
+}
+
+impl std::fmt::Display for InfraUnavailable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.detail)
+    }
+}
+
+impl std::error::Error for InfraUnavailable {}
+
+impl InfraUnavailable {
+    fn new(class: InfraClass, detail: impl Into<String>) -> Self {
+        Self {
+            class,
+            detail: detail.into(),
+        }
+    }
+}
+
+fn check_interruption(status: std::process::ExitStatus) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        // SIGPIPE is not external cancellation: a broken lane pipeline can be a defect.
+        if let Some(signal @ (1 | 2 | 9 | 15)) = status.signal() {
+            return Err(InfraUnavailable::new(
+                InfraClass::Interrupted,
+                format!("evidence lane interrupted by signal {signal}"),
+            )
+            .into());
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = status;
+    Ok(())
+}
+
+fn signer_io(error: std::io::Error) -> anyhow::Error {
+    if matches!(
+        error.kind(),
+        std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::UnexpectedEof
+    ) {
+        InfraUnavailable::new(
+            InfraClass::SignerUnavailable,
+            format!("evidence signer pipe failed: {error}"),
+        )
+        .into()
+    } else {
+        error.into()
+    }
+}
+
 #[derive(Debug, Args)]
 pub struct WrapArgs {
     #[arg(long)]
@@ -52,12 +126,23 @@ fn store_output(
     Ok(String::from_utf8(output.stdout)?.trim().to_owned())
 }
 fn publish_output(command: &mut Command, timeout: std::time::Duration) -> Result<()> {
-    let output = git::deadline::GitChild::capture(command, None, timeout)
-        .context("publishing evidence to origin")?;
-    ensure!(
-        output.status.success(),
-        "evidence publication to origin failed"
-    );
+    let output = git::deadline::GitChild::capture(command, None, timeout).map_err(|error| {
+        InfraUnavailable::new(
+            InfraClass::PublishFailed,
+            format!("publishing evidence to origin: {error:#}"),
+        )
+    })?;
+    if !output.status.success() {
+        return Err(InfraUnavailable::new(
+            InfraClass::PublishFailed,
+            format!(
+                "evidence publication to origin failed: {}: {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr)
+            ),
+        )
+        .into());
+    }
     Ok(())
 }
 
@@ -175,6 +260,7 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
         if !args.reuse && !derivation.valid(nix, git)? {
             let argv = super::derivation::argv(&lane.argv[0], &derivation.path, "reused")?;
             let status = execute(&repo, None, &argv, &output_file, git_tool)?;
+            check_interruption(status)?;
             if status.success() {
                 None
             } else {
@@ -199,6 +285,7 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
             git_tool,
         )?
     };
+    check_interruption(status)?;
     if !status.success() && nix_check.is_some() {
         execution = "failed";
     }
@@ -280,23 +367,42 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
             launch.env_remove(key);
         }
     }
+    let request_bytes = serde_json::to_vec(&request)?;
     let mut child = launch
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .context("starting explicit evidence signer")?;
-    child
+        .map_err(|error| {
+            InfraUnavailable::new(
+                InfraClass::SignerUnavailable,
+                format!("starting explicit evidence signer: {error}"),
+            )
+        })?;
+    let input_result = child
         .stdin
         .take()
         .context("missing signer input")?
-        .write_all(&serde_json::to_vec(&request)?)?;
-    let signed = child.wait_with_output()?;
+        .write_all(&request_bytes);
+    let signed = child.wait_with_output().map_err(signer_io)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(signal) = signed.status.signal() {
+            return Err(InfraUnavailable::new(
+                InfraClass::SignerUnavailable,
+                format!("evidence signer interrupted by signal {signal}"),
+            )
+            .into());
+        }
+    }
     ensure!(
         signed.status.success(),
         "evidence signer refused: {}",
         String::from_utf8_lossy(&signed.stderr)
     );
+    // A completed policy refusal takes precedence over an early closed stdin.
+    input_result.map_err(signer_io)?;
     let response: Response =
         serde_json::from_slice(&signed.stdout).context("invalid signer response")?;
     ensure!(
@@ -330,6 +436,8 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
     );
     super::workspace::verify(&repo, &head, lane, false, Some(&publication_toolchain))?;
     git::git(&repo, &["update-ref", &response.note_ref, &response.record])?;
+    // Failed publication leaves this immutable local ref behind. A retry runs the
+    // lane and signer again; updating the same ref to the same record is harmless.
     // Publication deliberately targets origin, never an argv/HEAD-provided remote.
     // Local file transport supports bare integration fixtures; SSH remains normal account auth.
     publish_output(
@@ -352,7 +460,9 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
         std::time::Duration::from_secs(600),
     )?;
     eprintln!("evidence record {}", response.record);
-    Ok(exit_code)
+    // Reserve the wrapper's temporary-unavailable code for typed infra errors.
+    // The signed request above retains the lane's original exit code.
+    Ok(if exit_code == 75 { 1 } else { exit_code })
 }
 
 #[cfg(all(test, unix))]
@@ -451,7 +561,14 @@ mod tests {
             let result = super::publish_output(&mut command, Duration::from_secs(600));
             assert_eq!(result.is_ok(), status == 0);
             if let Err(error) = result {
-                assert_eq!(error.to_string(), "evidence publication to origin failed");
+                assert_eq!(
+                    error
+                        .downcast_ref::<super::InfraUnavailable>()
+                        .unwrap()
+                        .class
+                        .token(),
+                    "publish_failed"
+                );
             }
         }
         for storing in [false, true] {
@@ -464,10 +581,51 @@ mod tests {
             } else {
                 super::publish_output(&mut command, Duration::ZERO).unwrap_err()
             };
+            if storing {
+                assert_eq!(
+                    error.downcast_ref::<std::io::Error>().unwrap().kind(),
+                    std::io::ErrorKind::TimedOut
+                );
+            } else {
+                let infra = error.downcast_ref::<super::InfraUnavailable>().unwrap();
+                assert_eq!(infra.class.token(), "publish_failed");
+                assert!(infra.detail.contains("Git subprocess deadline exceeded"));
+            }
+        }
+    }
+
+    #[test]
+    fn only_external_termination_signals_are_infrastructure() {
+        use std::os::unix::process::ExitStatusExt;
+        for signal in [1, 2, 9, 15] {
+            let error =
+                super::check_interruption(std::process::ExitStatus::from_raw(signal)).unwrap_err();
+            let infra = error.downcast_ref::<super::InfraUnavailable>().unwrap();
+            assert_eq!(infra.class.token(), "interrupted");
+            assert!(infra.detail.ends_with(&format!("signal {signal}")));
+        }
+        // SIGILL, SIGABRT, SIGBUS, SIGFPE, SIGSEGV, SIGPIPE are check failures.
+        for signal in [4, 6, 7, 8, 11, 13] {
+            super::check_interruption(std::process::ExitStatus::from_raw(signal)).unwrap();
+        }
+        super::check_interruption(std::process::ExitStatus::from_raw(75 << 8)).unwrap();
+    }
+
+    #[test]
+    fn signer_pipe_failures_are_typed_but_other_io_errors_are_not() {
+        use std::io::ErrorKind;
+        for kind in [ErrorKind::BrokenPipe, ErrorKind::UnexpectedEof] {
+            let error = super::signer_io(std::io::Error::from(kind));
             assert_eq!(
-                error.downcast_ref::<std::io::Error>().unwrap().kind(),
-                std::io::ErrorKind::TimedOut
+                error
+                    .downcast_ref::<super::InfraUnavailable>()
+                    .unwrap()
+                    .class
+                    .token(),
+                "signer_unavailable"
             );
         }
+        let error = super::signer_io(std::io::Error::from(ErrorKind::PermissionDenied));
+        assert!(error.downcast_ref::<super::InfraUnavailable>().is_none());
     }
 }

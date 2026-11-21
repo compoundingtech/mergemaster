@@ -662,6 +662,154 @@ use lowercase booleans and an empty `record` for JSON null. This native protocol
 is not the legacy `evidence-verify` document consumed by Fractal's
 `ci-evidence-gate` (`satisfied`, `tier`, policy/trust/matching fields).
 
+**Producer digest binding to a BASE manifest (phase 1, report-only).**
+The native gate optionally reads `.mergemaster/producers.json` from
+accepted BASE, never HEAD or the checkout. It is separate from `tool-pin.json`,
+which identifies the verifier release. For example:
+
+```json
+{
+  "version": 1,
+  "producers": [{
+    "system": "x86_64-linux",
+    "flavor": "nix",
+    "executable_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "provenance": {
+      "mergemaster_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "package": "packages.x86_64-linux.default",
+      "nix_output_path": "/nix/store/00000000000000000000000000000000-mergemaster"
+    }
+  }]
+}
+```
+
+Version must be 1; producers must be nonempty. Systems are `x86_64-linux`,
+`aarch64-linux`, `x86_64-darwin`, or `aarch64-darwin`; flavor is `nix` or `release`.
+Executable digests require 64 lowercase hex characters; revisions require 40
+hex characters; package names must be nonempty. `nix_output_path` is optional
+and, when present, names a top-level Nix store output. Unknown fields and
+duplicate `(system, flavor, executable_sha256)` entries are errors.
+Provenance is informational for reviewers reproducing an entry. Matching only
+compares `executable_sha256` to the signed `wrapper_sha256`, plus the signed
+`system` when present; it does not evaluate Nix or compare build flavor.
+
+For a selected note, native decision JSON reports `producer_digest` as `listed`,
+`unlisted`, `no_manifest` (no BASE manifest), or `not_applicable` (the fact kind
+is not subject to wrapper digest binding); it is null when no note was selected.
+This phase changes neither note selection nor satisfaction, refusal, or signing
+authorization: unlisted digests and absent manifests are report-only. Malformed
+BASE manifests fail closed in the gate and in the wrap and sign paths, which
+share configuration loading, just like malformed tool pins. The gate returns a
+nonzero error with no decision or GitHub outputs. A bad manifest on main stops
+evidence production until it is fixed. A HEAD-only manifest is ignored as
+authority; existing protected-edit rules still apply to adding or changing it.
+
+### Measuring producer manifests
+
+`mergemaster producers measure` writes a version-one manifest, not a status
+wrapper. Build the package separately, then measure its executable without
+executing it or invoking Nix:
+
+```sh
+mergemaster producers measure --nix-package "$out" --system x86_64-linux \
+  --mergemaster-revision "$revision" \
+  --package inputs.mergemaster.packages.x86_64-linux.default > nix-entry.json
+mergemaster producers measure --release-asset ./mergemaster-linux \
+  --sha256sums ./SHA256SUMS --asset-name mergemaster-linux \
+  --system x86_64-linux --mergemaster-revision "$revision" > release-entry.json
+mergemaster producers measure --merge nix-entry.json release-entry.json \
+  --check .mergemaster/producers.json
+```
+
+The workflow derives the full revision from the resolved input and verifies
+release attestations (`gh attestation verify`) before measurement; this command
+only checks release checksums. SHA256SUMS requires lowercase hex digests and
+GNU separators (two spaces, or space plus `*`); malformed or duplicate lines,
+missing assets, and mismatches refuse. Asset names match case-sensitively.
+Nix outputs must be top-level `/nix/store` paths; the output root, `bin`
+directory, and regular `bin/mergemaster` file must not be symlinks.
+Release assets must also be regular files, not symlinks.
+Output is compact UTF-8 JSON with lexicographic object keys, lowercase hex,
+producers sorted by `(system, flavor, executable_sha256)`, omitted absent
+optional fields, and one trailing LF. Duplicate entries refuse. `--check`
+requires byte equality, including the final LF; drift exits nonzero.
+`--merge` builds the manifest only from the supplied inputs; it never reads
+entries from the committed manifest. Replacing `producers.json` with that output
+drops entries not supplied, and `--check` refuses the resulting drift.
+
+#### Reusable producer workflow
+
+Call `compoundingtech/mergemaster/.github/workflows/producers.yml` at a reviewed
+full commit SHA. Its required string inputs are `repository` (`owner/name`),
+`commit` (the exact 40-character lowercase consumer SHA), `flavor` (`nix` or
+`release`), and `mode` (`propose` or `check`). No secrets are accepted.
+For a same-repository PR, pass `github.event.pull_request.head.sha`; for forks,
+pass its head repository as well. The consumer must be publicly readable.
+
+The calling job grants `contents: read` and `id-token: write`; release callers
+also grant `attestations: read`. Only the identity job requests OIDC, solely to
+read GitHub's `job_workflow_sha` claim: `github.workflow_sha` identifies the
+caller, not this reusable workflow. Every measuring/merging job checks out
+`compoundingtech/mergemaster` at that claim's exact SHA and builds its tool
+before evaluating consumer code. No consumer-supplied executable is run.
+All actions are full-SHA pinned, checkout credentials are not persisted, and
+the consumer is never checked out in the OIDC-enabled job.
+
+For `nix`, four separate fresh hosted jobs build the exact consumer expression
+`(builtins.getFlake "git+file://<checkout>?rev=<commit>").inputs.mergemaster.packages.<system>.default`:
+two `ubuntu-24.04` runners for `x86_64-linux`, and two
+`ubuntu-24.04-arm` runners for `aarch64-linux`. The revision is evaluated from
+the resolved input's `.rev`, preserving consumer input overrides.
+Evaluation is pure, refuses lock updates and import-from-derivation, and ignores
+consumer flake configuration; builds require sandboxing and disable remote
+builders. Dependencies may be substituted.
+
+Each job first realizes the target (possibly from cache), verifies the output
+exists, then requires a successful local `nix build --rebuild` of the same
+expression. The [Nix manual](https://nix.dev/manual/nix/2.28/command-ref/new-cli/nix3-build.html#opt-rebuild)
+defines this as rebuilding an already built package and comparing against its
+existing store paths. `--rebuild` re-executes only the top-level derivation;
+dependencies may be substituted. This proves top-level build reproducibility,
+not reproducibility of the full dependency closure. The prerequisite for
+`--rebuild` is explicit: retrieving a cached target alone cannot pass, and a
+rebuild or comparison failure stops measurement. This is deliberately stricter
+than comparing only the executable: differences elsewhere in the output also fail.
+The final `producers/reproducible` job requires byte-identical canonical entries
+and derivation/output provenance between the two runners for each system,
+then merges one entry per system. Per-run build identity remains in the
+`producer-nix-<system>-<replica>` artifacts, not in the manifest.
+
+For `release`, the workflow reads the exact consumer commit's
+`.mergemaster/tool-pin.json`, downloads both Linux musl executables and
+`SHA256SUMS`, and verifies all three with `gh attestation verify` against
+`compoundingtech/mergemaster/.github/workflows/release.yml`, the pin's full
+source/signer revision, and its release tag. It also checks the pinned x86_64
+digest and strictly verifies each asset against the authenticated checksums
+before measurement. Release verification authenticates published bytes; it
+does **not** prove independent source-build reproducibility.
+
+Both modes upload the canonical `producers.json` as the `producer-manifest`
+artifact. `check` additionally requires byte equality with the manifest stored
+at the specified consumer commit; missing manifests and drift fail.
+The final gate fails if any required measurement job fails or is skipped.
+Neither mode publishes commits, opens PRs, nor changes consumer authority.
+
+The consumer's drift check should call this workflow in `check` mode only when
+a change touches the mergemaster flake input, `flake.lock`,
+`.mergemaster/tool-pin.json`, or `.mergemaster/producers.json`; otherwise it
+reports **not applicable**. The double build happens only on that path.
+Detecting an input edit in the root `flake.nix` may conservatively trigger on
+the whole file. Proposal generation is a separate consumer-owned invocation.
+
+This repository's hosted workflows are authored YAML: `genie/` exports
+consumer fragments, and the only `.genie.ts` workflow source is a test fixture,
+not a renderer for `.github/workflows/`. Accordingly `producers.yml` is authored
+alongside the existing workflows, not added to an unrelated consumer generator.
+Hosted execution is required to establish real runner reproducibility and
+release-attestation availability. Consumers using import-from-derivation are
+unsupported; Darwin/other producer coverage and explicit exception policy
+remain outside this two-Linux-system workflow.
+
 The library's `evidence::legacy_policy` schema helpers are separate from native
 lane authorization. Command/input helpers preserve raw commands and bindings;
 base-input helpers validate declarations without reading files. They do not
@@ -1469,6 +1617,59 @@ Log readers preserve lossless check names through comparisons and filesystem
 surrogateescape argv encoding; invalid surrogates and NUL retain exact Python
 exception class, text and evaluation order.
 
+### Report-only queue binding
+
+`gate --event queue --base BASE --head LANDING_HEAD` reports evidence for the
+final landing tree; it never authorizes a live queue or protected-target write.
+The BASE lane must allow `"queue"` in `events`. Without `--member`, the head
+must be a two-parent merge with BASE as either parent; the other parent is the
+admitted member. Ordered repeatable `--member SHA` arguments instead bind an
+exact first-parent chain of two-parent merges back to BASE, each second parent
+equal to its declared member.
+
+A dotfiles-merge SERIAL round may regenerate projections after merging BASE
+into the admitted PR head. To allow **one** single-parent projection commit on
+top of that merge, opt in in BASE's `.mergemaster/lanes.json`:
+
+```json
+"queue": {"generated_paths": ["generated/projections/", "nix/buck2-products/product-revs/*.json"]}
+```
+
+This is **authority-bearing BASE policy**, not a candidate declaration. The
+nonempty list accepts two repository-relative forms: a literal complete
+path-component prefix with no `*`, or `PREFIX/*SUFFIX`. For the latter, PREFIX
+must be a valid literal prefix and SUFFIX must be nonempty and contain no `*`
+or `/`. The `*` matches one or more characters, **including `/`**, so nested
+product JSON files match `nix/buck2-products/product-revs/*.json`. Other `*`
+placements, `**`, `?` and `[` are refused at config load. Paths otherwise use
+the same validation as `protected_paths` and `bootstrap_paths`.
+
+Allowlist matching is case-sensitive and byte-exact. Configuration refuses
+overlap in either direction with implicit protected roots, `protected_paths`
+or `bootstrap_paths`, using NFKC/lowercase folding for this denylist comparison.
+For `PREFIX/*SUFFIX`, overlap checks conservatively use PREFIX. Every path
+changed between the merge and projection trees must match a declared entry;
+renames check both old and new paths, and deletes and mode
+changes count. Both sides of each change must be regular non-executable files
+(mode `100644`), or absent for additions/deletions (`000000`); executable-bit,
+symlink and submodule changes are refused, as are replacements of an allowed
+prefix's ancestor. The field does not bypass protected-path or evidence checks and
+does not prove that a producer actually generated the content.
+
+The projection parent must itself satisfy the no-member merge rule. More than
+one projection commit, an unbound parent, or a non-generated edit yields
+`source_unbound` with a diagnostic. Omission keeps merge-only binding; explicit
+`--member` batches remain merge-only even with this policy.
+
+Successful binding adds v1 `queue_binding: {base, members, tree}`. With a
+projection it additionally contains `projection: {commit, parent, paths}`,
+where `tree` is the **final landing head's tree**, `members` still names the
+admitted PR head, and `paths` lists the changed Git paths. Without a projection,
+that field is omitted and existing decision JSON bytes are unchanged.
+The report remains `report_only: true` and `decision: "refuse"`, even when
+evidence is satisfied. The caller must fence BASE before landing; when BASE
+has not moved, GitHub's final merge tree equals this bound landing tree.
+
 ### Main-push tree-equality evidence
 
 `gate --event push` explicitly allows a signed PR-head observation to satisfy a
@@ -1550,6 +1751,58 @@ authorized workflow's implementation. Reviewers must inspect such changes.
 
 ## Generic lane execution and signing
 
+`mergemaster evidence legacy-sign` is the separate cooperative **v1** signer.
+It reads the same single JSON request from stdin and
+`$HOME/.config/st/evidence-sign.json` (`signer`, `ssh_key`, `scratch_repo`,
+optional `path` and test-only `test_clock`) as `scripts/evidence-sign`.
+It returns `record`, `tier`, `tree`, `commit` and `object_pack_base64`;
+it does not publish refs or accept the v2 `--config` option.
+Intentional `legacy-sign` divergences from the pinned Python oracle:
+
+- The signed `producer_sha256` identifies the resolved running native executable,
+  not `scripts/evidence-sign`. All other statement encoding and pack/object
+  conventions remain v1.
+- Native signing first checks object completeness with `git rev-list --objects
+  --missing=print`, refusing missing objects before signing. The pinned Python
+  has no completeness preflight: an absent commit first fails at `git cat-file -t`.
+  Recorded requests naming an absent 40-character object therefore produce
+  `1 missing objects before signing; hydrate the source repository in the caller
+  first` natively versus `git cat-file failed:` in the oracle. Request spellings
+  that Git rejects as revisions instead produce `git rev-list failed:` natively.
+  This preflight matches the in-tree resynced `scripts/evidence-sign`
+  (`require_complete_commit`), not the pinned oracle.
+- Native signing reproduces Python's lone-surrogate escapes byte for byte, but
+  the native typed v1 verifier (`evidence verify`) refuses such statements
+  (fail-closed), whereas the removed Python `evidence-verify` accepted them.
+  Verifier parity for these statements remains a tracked follow-up.
+- Missing configuration errors name the configuration path without Python's
+  `[Errno ...]` text. Malformed configuration types produce normalized
+  refusals instead of Python crash tracebacks.
+- Scratch `git init` has a 300-second deadline (Python has no init deadline).
+  A nonzero exit is reported as `git init failed: <status>` rather than Python's
+  `CalledProcessError` message; deadline failures use the native child-process
+  timeout diagnostic.
+- Request and configuration JSON have no nesting-depth limit. Python's decoder
+  raises `RecursionError` near the interpreter recursion limit; native decoding
+  can accept deeper values, including an over-nested earlier duplicate field
+  that a later shallow field overrides.
+- Request stdin must be strict UTF-8. Python's surrogateescape stdin can admit
+  raw non-UTF-8 bytes inside strings as lone `\udcXX` surrogates; native decoding
+  refuses those bytes. Escaped lone surrogates in valid UTF-8 remain supported.
+- If the account has no passwd entry, native emits the normalized refusal
+  `evidence-sign refused: Could not determine home directory.` instead of
+  Python's uncaught `RuntimeError` traceback; the message itself matches Python.
+
+The configuration, signing key and `scratch_repo` are trusted launcher state.
+Neither implementation checks the key's mode, owner or file type, or rejects
+scratch-repository symlinks. Scratch initialization runs Git without the `-c`
+hardening flags used for subsequent plumbing commands, just like the oracle.
+Empty `HOME` resolves to `/`; unset `HOME` uses the account database.
+Request and configuration JSON retain Python's non-finite numbers and lone-surrogate
+escapes, including `NaN`/`Infinity` check-key spelling, and its 4300-digit integer limit.
+
+Existing callers and the Python scripts remain unchanged in this signer-only slice.
+
 `mergemaster evidence wrap` runs the exact BASE-declared command once, measures
 its inputs before and after execution, signs successes and failures, imports the
 immutable signed note and explicitly pushes its note ref to `origin`:
@@ -1561,6 +1814,34 @@ CONFIG="$HOME/.config/mergemaster/evidence-sign.json"
   --signer "[\"$MM\",\"evidence\",\"sign\",\"--config\",\"$CONFIG\"]" \
   -- tools/graph check --full
 ```
+
+The native v2 wrapper's exit-code contract is:
+
+- `0`: signed, published passing record.
+- The lane's own nonzero exit code: signed, published failing record (including
+  crash signals as `128 + signal`), except lane exit `75` maps to wrap exit `1`
+  while retaining `exit_code: 75` in the signed record.
+- `75`: temporary infrastructure unavailability. The first stderr line is
+  `mergemaster: infra_unavailable class=<token>`, followed by details.
+  Classes are `interrupted` (lane or Nix preparation received SIGHUP, SIGINT,
+  SIGKILL or SIGTERM), `signer_unavailable` (signer spawn, signal termination or
+  broken pipe), and `publish_failed` (origin push failure or timeout).
+- `1`: other errors or an explicit signer policy refusal. A lane's own exit `1`
+  still produces a signed failing record as above.
+
+Interrupted runs create neither output refs nor signed notes. SIGPIPE and crash
+signals remain lane failures: a broken pipeline can be a real defect, not
+external cancellation. Signer unavailability creates no usable signed note;
+publication failure occurs **after signing** and can leave an immutable local
+note ref (the remote may also have accepted a push before a timeout). Every retry
+runs the lane and signer again, with no partial-result reuse; a local ref left
+by publication is harmless and is updated if the same record recurs.
+
+Consumers should map `75` to their existing temporary not-run path, not to a
+failed check. Queues own bounded retries and parking/pausing; Mergemaster does
+neither. Wrap exit `75` always means infrastructure unavailability, never a
+completed lane's own exit status. This contract does not change the legacy
+wrapper.
 
 ### Signed repository identity
 

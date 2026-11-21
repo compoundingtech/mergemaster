@@ -45,6 +45,8 @@ pub enum EvidenceCommand {
     Wrap(super::generic::WrapArgs),
     /// Sign a wrapper request using explicit account-local configuration.
     Sign(super::signing::SignArgs),
+    /// Sign the legacy cooperative v1 request using HOME/.config/st/evidence-sign.json.
+    LegacySign,
     #[command(hide = true)]
     SignWorker(super::signing::SignArgs),
     /// Installed observer for a protected profile; accepts authenticated CI selectors only.
@@ -153,6 +155,7 @@ pub fn run(args: EvidenceArgs) -> Result<()> {
             return Ok(());
         }
         EvidenceCommand::Sign(args) => return super::signing::run_sign(args),
+        EvidenceCommand::LegacySign => return super::legacy_sign::run(),
         EvidenceCommand::SignWorker(args) => return super::signing::run_worker(args),
         EvidenceCommand::ObserveCi {
             run,

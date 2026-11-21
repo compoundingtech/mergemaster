@@ -59,6 +59,8 @@
           '';
           # Oracle-backed tests belong to checks.evidence, not the production package.
           doCheck = false;
+          # Keep vendored native crates (aws-lc-sys) under consumers' cargoUseSystemLibs hook.
+          dontCargoUseSystemLibs = true;
           meta = {
             description = "Portable signed gate observations in immutable Git notes";
             license = pkgs.lib.licenses.mit;
@@ -81,6 +83,7 @@
           # Exercise the production subprocess boundary with the wrapper's tools.
           nativeCheckInputs = [ pkgs.openssl ] ++ runtimeTools;
           doCheck = false;
+          dontCargoUseSystemLibs = true;
           postInstall = ''
             wrapProgram "$out/bin/mergemaster-reconciler" \
               --prefix PATH : ${pkgs.lib.makeBinPath runtimeTools}

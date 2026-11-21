@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Add `mergemaster evidence legacy-sign`, the native cooperative v1 signer, separately from the BASE-bound `evidence sign` protocol. It retains the legacy HOME configuration (including empty/unset HOME and falsy tool-path defaults), Python request JSON semantics and signed-pack response. The intended producer-identity change is `producer_sha256`: it identifies the native signing executable instead of the Python script; the remaining statement bytes retain the legacy encoding. The README lists intentional diagnostic, scratch-init deadline and completeness-preflight divergences.
+
+## [0.13.0] - 2026-11-21
+
+- Native v2 `evidence wrap` reports temporary execution interruption, signer unavailability and origin publication failure as exit 75 with stable `infra_unavailable` class tokens, allowing consumers to retry/park rather than fail checks. External termination is never signed; crashes and explicit signer refusals retain their existing behavior. Legacy wrappers are unchanged.
+- Opt the `mergemaster` and `mergemaster-reconciler` packages out of the nixpkgs `cargoUseSystemLibs` hook so vendored native crates (aws-lc-sys) build unchanged under consumer nixpkgs; consumers can drop their `dontCargoUseSystemLibs` overrides.
+- Bind report-only single-member queue landing trees with one generated projection commit when BASE opts in through byte-exact `queue.generated_paths` prefixes or `PREFIX/*SUFFIX` patterns; refuse folded overlap with protected/bootstrap paths, unmatched edits, executable/symlink/submodule changes and stacked projections, record optional v1 projection metadata, and preserve merge-only and explicit-member binding.
+
+## [0.12.0] - 2026-11-21
+
+- Add a BASE-only `.mergemaster/producers.json` manifest, the report-only `producer_digest` decision field (`listed` / `unlisted` / `no_manifest` / `not_applicable`), `mergemaster producers measure`, and the reusable `producers.yml` workflow. (#416, #417)
+- Refuse symlinked Nix output roots, `bin` directories, executable files, and release assets during producer measurement; hash only regular files opened through verified descriptors. Require the producer workflow's expected OIDC audience and clarify top-level-only rebuild evidence and input-only manifest merges.
 - Rust port wave 2: remove `scripts/evidence-verify`, `scripts/evidence-verify-test` and `tests/fixtures/fractal/scripts/rust-test-keys`; callers use the pinned `mergemaster` verifier/helpers and crate keys. The gate validates the binary against BASE `.mergemaster/tool-pin.json`, retaining BASE policy, keys, lanes and inputs. An accepted base without `.mergemaster/tool-pin.json`, or whose pin does not match the running binary, now makes the gate report `unavailable` (CI runs in full); the base's `scripts/evidence-verify` no longer stands in for it. Documented divergences: `rust-test-keys --verifier` is refused; traceback frames are omitted; evidence-log emits a refusal instead of a traceback; GC always computes keys when accepted inputs exist; helper JSON depth is bounded at 256 containers.
 - Fixed: display flip-readiness window timestamps in UTC when suffixed with `Z`, correcting the inherited Python offset-wall-clock mislabel without changing readiness arithmetic.
 - Rust port wave 1: `mergemaster evidence flip-ready` and `mergemaster evidence skip-report` replace `scripts/evidence-flip-ready`, `scripts/evidence-skip-report` and their self-tests; 22 frozen cases are compared against the pinned Python oracle.

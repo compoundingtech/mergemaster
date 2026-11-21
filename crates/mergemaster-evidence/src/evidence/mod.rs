@@ -23,6 +23,7 @@ mod legacy_json;
 pub mod legacy_output;
 pub mod legacy_policy;
 pub mod legacy_request;
+pub mod legacy_sign;
 pub mod legacy_verify;
 pub mod log_watch;
 mod nix;

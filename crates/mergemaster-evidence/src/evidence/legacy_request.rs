@@ -1,13 +1,91 @@
 //! Validation of the copied signer's request protocol, independent of signing authority.
 pub use super::legacy_json::Value;
+use super::legacy_verify::statement_document::{Document, Node, TextError};
 use anyhow::{Context, Result, ensure};
 use std::borrow::Cow;
 
-/// Decode legacy JSON with locally retained number lexemes, then validate claims.
+/// Decode the shallow v1 protocol fields with Python JSON semantics.
+pub(super) fn parse(bytes: &[u8]) -> Result<Value> {
+    let text = std::str::from_utf8(bytes)?;
+    let document = Document::from_text(text).map_err(|error| match error {
+        TextError::Syntax(error) => anyhow::anyhow!("{error}"),
+        TextError::IntegerLimit { digits } => anyhow::anyhow!(
+            "Exceeds the limit (4300 digits) for integer string conversion: value has {digits} digits; use sys.set_int_max_str_digits() to increase the limit"
+        ),
+    })?;
+    value(&document, document.root(), 0)
+}
+
+/// Decode legacy JSON, then validate request claims.
 pub fn decode(bytes: &[u8]) -> Result<Value> {
-    let request = super::legacy_json::parse(bytes)?;
+    let request = parse(bytes)?;
     validate(&request)?;
     Ok(request)
+}
+
+// Reuse the Python JSON decoder used by watch state and CI events. Only accepted
+// scalar text needs a Rust String; lone surrogates retain their original points.
+fn value(document: &Document, node: &Node, depth: usize) -> Result<Value> {
+    Ok(match node {
+        // Protocol values below command/input entries must be scalars.
+        // Retain their invalid type, without recursively copying an arbitrary
+        // attacker-supplied tree that the flat Python decoder already checked.
+        Node::Array(_) if depth >= 2 => Value::Array(Vec::new()),
+        Node::Object(_) if depth >= 2 => Value::Object(Default::default()),
+        Node::Null => Value::Null,
+        Node::Bool(value) => Value::Bool(*value),
+        Node::Integer(value) => Value::Number(value.clone()),
+        Node::Float(value) => Value::Number(if value.is_nan() {
+            "NaN".to_owned()
+        } else if value.is_infinite() {
+            if value.is_sign_negative() {
+                "-Infinity"
+            } else {
+                "Infinity"
+            }
+            .to_owned()
+        } else {
+            float_token(*value)?
+        }),
+        Node::String(points) => match points.iter().copied().map(char::from_u32).collect() {
+            Some(text) => Value::String(text),
+            None => Value::SurrogateString(points.clone()),
+        },
+        Node::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|id| value(document, document.node(*id), depth + 1))
+                .collect::<Result<_>>()?,
+        ),
+        Node::Object(fields) => {
+            if fields
+                .keys()
+                .all(|key| key.iter().all(|point| char::from_u32(*point).is_some()))
+            {
+                Value::Object(
+                    fields
+                        .iter()
+                        .map(|(key, id)| {
+                            let key = key
+                                .iter()
+                                .filter_map(|point| char::from_u32(*point))
+                                .collect();
+                            Ok((key, value(document, document.node(*id), depth + 1)?))
+                        })
+                        .collect::<Result<_>>()?,
+                )
+            } else {
+                Value::SurrogateObject(
+                    fields
+                        .iter()
+                        .map(|(key, id)| {
+                            Ok((key.clone(), value(document, document.node(*id), depth + 1)?))
+                        })
+                        .collect::<Result<_>>()?,
+                )
+            }
+        }
+    })
 }
 
 const REQUIRED: [&str; 7] = [
@@ -31,7 +109,7 @@ const INPUTS: [&str; 5] = [
 fn end(value: &str) -> &str {
     value.strip_suffix('\n').unwrap_or(value)
 }
-fn token(value: &Value) -> Result<Cow<'_, str>> {
+pub(super) fn token(value: &Value) -> Result<Cow<'_, str>> {
     match value {
         Value::String(s) => Ok(Cow::Borrowed(s)),
         Value::Number(n) => number_token(n),
@@ -39,6 +117,12 @@ fn token(value: &Value) -> Result<Cow<'_, str>> {
     }
 }
 fn number_token(number: &str) -> Result<Cow<'_, str>> {
+    match number {
+        "NaN" => return Ok(Cow::Borrowed("nan")),
+        "Infinity" => return Ok(Cow::Borrowed("inf")),
+        "-Infinity" => return Ok(Cow::Borrowed("-inf")),
+        _ => {}
+    }
     if !number.contains(['.', 'e', 'E']) {
         return Ok(Cow::Borrowed(if number == "-0" { "0" } else { number }));
     }
@@ -126,13 +210,13 @@ fn signature(value: &str) -> bool {
 
 // Git bindings and signing authority are checked separately.
 fn validate(request: &Value) -> Result<()> {
-    let fields = request.as_object().context("request must be an object")?;
+    let fields = request.as_object().context("request must have exactly: change_id, check, command, commit, exit_code, inputs, output_sha256 (and optionally runner)")?;
     ensure!(
         REQUIRED.iter().all(|key| fields.contains_key(*key))
             && fields
                 .keys()
                 .all(|key| REQUIRED.contains(&key.as_str()) || key == "runner"),
-        "unexpected or missing request keys"
+        "request must have exactly: change_id, check, command, commit, exit_code, inputs, output_sha256 (and optionally runner)"
     );
     let runner = request.get("runner").map_or(Some("wrapper"), Value::as_str);
     ensure!(
@@ -150,12 +234,12 @@ fn validate(request: &Value) -> Result<()> {
         !name.is_empty()
             && name.len() <= 64
             && (name.as_bytes()[0].is_ascii_lowercase() || name.as_bytes()[0].is_ascii_digit()),
-        "check name must start with a lowercase letter or digit"
+        "check name must be lowercase letters, digits, dot, dash or underscore"
     );
     ensure!(
         name.bytes()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || b"._-".contains(&c)),
-        "invalid check name"
+        "check name must be lowercase letters, digits, dot, dash or underscore"
     );
     let command = request["command"]
         .as_array()
@@ -163,8 +247,8 @@ fn validate(request: &Value) -> Result<()> {
     ensure!(
         command
             .first()
-            .and_then(Value::as_str)
-            .is_some_and(|s| !s.is_empty())
+            .and_then(Value::text_points)
+            .is_some_and(|mut points| points.next().is_some())
             && command.iter().all(Value::is_string),
         "command must be a nonempty argument vector"
     );
@@ -181,25 +265,51 @@ fn validate(request: &Value) -> Result<()> {
         "output_sha256 must be 64 lowercase hex digits"
     );
     let change = request["change_id"]
-        .as_str()
+        .text_points()
         .context("change_id must be a short nonempty string")?;
+    let mut length = 0;
+    let mut nonblank = false;
+    for point in change {
+        length += 1;
+        nonblank |= char::from_u32(point)
+            .is_none_or(|c| !c.is_whitespace() && !('\u{1c}'..='\u{1f}').contains(&c));
+    }
     ensure!(
-        change.chars().take(200).count() < 200
-            && change
-                .chars()
-                .any(|c| !c.is_whitespace() && !('\u{1c}'..='\u{1f}').contains(&c)),
+        length < 200 && nonblank,
         "change_id must be a short nonempty string"
     );
+    if let Value::SurrogateObject(fields) = &request["inputs"] {
+        ensure!(
+            INPUTS.iter().all(|name| fields
+                .keys()
+                .any(|key| key.iter().copied().eq(name.chars().map(u32::from))))
+                && fields.len() <= 40
+                && fields.values().all(|value| value
+                    .text_points()
+                    .is_some_and(|points| (1..=500).contains(&points.take(501).count()))),
+            "inputs must be short nonempty strings and include: attempt, flake_lock_sha256, system, toolchain_sha256, wrapper_sha256"
+        );
+        let key = fields
+            .keys()
+            .find(|key| key.iter().any(|point| char::from_u32(*point).is_none()))
+            .context("missing surrogate input name")?;
+        anyhow::bail!(
+            "input name {} must be lowercase letters, digits and underscore",
+            super::legacy_verify::python_repr::Repr(
+                super::legacy_verify::value_inputs::TextRef::Points(key)
+            )
+        );
+    }
     let inputs = request["inputs"]
         .as_object()
-        .context("inputs must be an object")?;
+        .context("inputs must be short nonempty strings and include: attempt, flake_lock_sha256, system, toolchain_sha256, wrapper_sha256")?;
     ensure!(
         INPUTS.iter().all(|key| inputs.contains_key(*key))
             && inputs.len() <= 40
             && inputs.values().all(|v| v
-                .as_str()
-                .is_some_and(|s| !s.is_empty() && s.chars().take(501).count() <= 500)),
-        "inputs must be short nonempty strings with required fingerprints"
+                .text_points()
+                .is_some_and(|points| (1..=500).contains(&points.take(501).count()))),
+        "inputs must be short nonempty strings and include: attempt, flake_lock_sha256, system, toolchain_sha256, wrapper_sha256"
     );
     for key in inputs.keys().filter(|key| !INPUTS.contains(&key.as_str())) {
         let name = end(key);
@@ -210,7 +320,10 @@ fn validate(request: &Value) -> Result<()> {
                 && name
                     .bytes()
                     .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_'),
-            "invalid input name"
+            "input name {} must be lowercase letters, digits and underscore",
+            super::legacy_verify::python_repr::Repr(
+                super::legacy_verify::value_inputs::TextRef::Str(key)
+            )
         );
     }
     for key in &INPUTS[..3] {
@@ -225,7 +338,7 @@ fn validate(request: &Value) -> Result<()> {
     let attempt = inputs
         .get("attempt")
         .and_then(Value::as_str)
-        .context("inputs must be short nonempty strings with required fingerprints")?;
+        .context("inputs must be short nonempty strings and include: attempt, flake_lock_sha256, system, toolchain_sha256, wrapper_sha256")?;
     ensure!(
         (1..=4).contains(&attempt.len())
             && (b'1'..=b'9').contains(&attempt.as_bytes()[0])
@@ -268,7 +381,7 @@ fn validate_nix(
     let drv = input("drv_path");
     ensure!(
         store(drv) && drv.ends_with(".drv"),
-        "a nix record needs drv_path ending in .drv"
+        "a nix record needs drv_path, a store path ending in .drv"
     );
     if !matches!(request["exit_code"].as_number(), Some("0" | "-0")) {
         ensure!(
@@ -298,7 +411,7 @@ fn validate_nix(
                     .next()
                     .and_then(|s| s.split_once('-'))
                     .map(|(_, s)| Some(s)),
-        "out_path must be named like drv_path without .drv"
+        "out_path must be a store path named like drv_path without .drv"
     );
     ensure!(
         input("nar_hash")
@@ -319,7 +432,7 @@ fn validate_nix(
             || references.split(',').all(
                 |path| store(path) && previous.replace(path).is_none_or(|before| before < path)
             ),
-        "references must be sorted distinct store paths or -"
+        "references must be sorted, distinct store paths joined by commas, or - for none"
     );
     ensure!(
         matches!(input("cache_hit"), "true" | "false"),
@@ -329,11 +442,11 @@ fn validate_nix(
     let unsigned = signatures == "none";
     ensure!(
         unsigned || signatures.split(',').all(signature),
-        "nix_signatures must be name:base64 signatures or none"
+        "nix_signatures must be name:base64 signatures joined by commas, or none"
     );
     ensure!(
         input("nix_unsigned") == if unsigned { "true" } else { "false" },
-        "nix_unsigned contradicts signatures"
+        "nix_unsigned must say whether nix_signatures is none"
     );
     ensure!(
         input("nix_key_id")
@@ -344,7 +457,7 @@ fn validate_nix(
                     .split_once(':')
                     .map_or(signatures, |(name, _)| name)
             },
-        "nix_key_id must name the first signature key"
+        "nix_key_id must name the first signature's key, or none"
     );
     Ok(())
 }
