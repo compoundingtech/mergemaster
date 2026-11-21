@@ -1001,6 +1001,10 @@ out-of-range integers fail clearly rather than being narrowed or dropped.
 Unconsumed response metadata is not interpreted: PR labels may be objects,
 whereas release-job labels consumed for runner accounting must be strings.
 Long options retain argparse's unique-prefix resolution and ambiguity errors.
+Their shared parser preserves Python default types: the omitted `--hours` is
+integer `24`, while explicit `--hours 24` is float `24.0`; only string defaults
+undergo type conversion. Hours enter duration arithmetic, not report formatting,
+so these two invocations produce identical report windows and output.
 
 The protected CI fetch instead retains its existing external `timeout` wrapper:
 30 seconds with a 2-second kill-after, not a GitChild deadline. Direct Git fixture

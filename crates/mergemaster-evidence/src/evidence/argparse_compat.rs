@@ -1,5 +1,47 @@
 //! Small optional-only argparse compatibility parser; command policy lives in callers.
 use super::legacy_verify::{python_digits::decimal, python_repr::Repr, value_inputs::TextRef};
+use std::collections::{BTreeMap, BTreeSet};
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(untagged)]
+pub(super) enum Value {
+    None,
+    Bool(bool),
+    Int(i64),
+    Float(f64),
+    String(String),
+    List(Vec<Value>),
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum DefaultValue {
+    None,
+    Bool(bool),
+    Int(i64),
+    #[allow(dead_code)] // These commands do not use float defaults, but the schema supports them.
+    Float(f64),
+    String(&'static str),
+    List(&'static [DefaultValue]),
+    Factory(fn() -> Value),
+}
+impl DefaultValue {
+    fn value(self) -> Value {
+        match self {
+            Self::None => Value::None,
+            Self::Bool(v) => Value::Bool(v),
+            Self::Int(v) => Value::Int(v),
+            Self::Float(v) => Value::Float(v),
+            Self::String(v) => Value::String(v.to_owned()),
+            Self::List(v) => Value::List(v.iter().map(|v| v.value()).collect()),
+            Self::Factory(f) => f(),
+        }
+    }
+}
+
+pub(super) struct Parsed {
+    pub values: BTreeMap<&'static str, Value>,
+    pub provided: BTreeSet<&'static str>,
+}
 
 pub(super) struct Exit {
     pub code: i32,
@@ -14,7 +56,7 @@ pub(super) enum Action {
     Append,
     Convert {
         name: &'static str,
-        parse: fn(&str) -> Option<String>,
+        parse: fn(&str) -> Option<Value>,
     },
 }
 pub(super) struct OptionSpec {
@@ -25,6 +67,7 @@ pub(super) struct OptionSpec {
     pub choices: &'static [&'static str],
     pub help: &'static str,
     pub hidden: bool,
+    pub default: DefaultValue,
 }
 pub(super) struct Parser {
     pub program: &'static str,
@@ -189,9 +232,11 @@ impl Parser {
             Token::Unknown
         }
     }
-    /// Return canonical argv, retaining all appends and only the last store.
-    pub fn parse(&self, argv: &[String]) -> Result<Vec<String>, Exit> {
-        let mut stored: Vec<(usize, Option<String>)> = Vec::new();
+    /// Preserve Python default types; conversion applies only to supplied values
+    /// and to string defaults, never to integer/float/list/bool/None defaults.
+    pub fn parse(&self, argv: &[String]) -> Result<Parsed, Exit> {
+        let mut stored: Vec<(usize, Value)> = Vec::new();
+        let mut provided = BTreeSet::new();
         let mut extras = Vec::new();
         let mut index = 0;
         while let Some(arg) = argv.get(index) {
@@ -209,6 +254,7 @@ impl Parser {
                 }
                 Token::Option(id, explicit, attached) => {
                     let spec = &self.options[id];
+                    provided.insert(spec.long);
                     if !spec.takes_value() {
                         if let Some(mut value) = explicit {
                             // Short help clusters queue their actions before the
@@ -242,9 +288,8 @@ impl Parser {
                         if matches!(spec.action, Action::Help) {
                             return Err(self.helped());
                         }
-                        if !stored.iter().any(|(key, _)| *key == id) {
-                            stored.push((id, None));
-                        }
+                        stored.retain(|(key, _)| *key != id);
+                        stored.push((id, Value::Bool(true)));
                     } else {
                         let value = if let Some(value) = explicit {
                             value
@@ -271,9 +316,11 @@ impl Parser {
                             };
                             converted
                         } else {
-                            value.to_owned()
+                            Value::String(value.to_owned())
                         };
-                        if !spec.choices.is_empty() && !spec.choices.contains(&converted.as_str()) {
+                        if !spec.choices.is_empty()
+                            && !matches!(&converted, Value::String(v) if spec.choices.contains(&v.as_str()))
+                        {
                             return Err(self.error(format!(
                                 "argument {}: invalid choice: {} (choose from {})",
                                 spec.diagnostic(),
@@ -288,25 +335,53 @@ impl Parser {
                         if !matches!(spec.action, Action::Append) {
                             stored.retain(|(key, _)| *key != id);
                         }
-                        stored.push((id, Some(converted)));
+                        stored.push((id, converted));
                     }
                 }
             }
             index += 1;
         }
+        let mut values = BTreeMap::new();
+        for spec in self.options {
+            if matches!(spec.action, Action::Help) {
+                continue;
+            }
+            let supplied = provided.contains(spec.long);
+            if supplied && !matches!(spec.action, Action::Append) {
+                continue;
+            }
+            let mut value = spec.default.value();
+            if !supplied {
+                if let (Action::Convert { name, parse }, Value::String(text)) =
+                    (spec.action, &value)
+                {
+                    value = parse(text).ok_or_else(|| {
+                        self.error(format!(
+                            "argument {}: invalid {name} value: {}",
+                            spec.diagnostic(),
+                            repr(text)
+                        ))
+                    })?;
+                }
+            }
+            values.insert(spec.long, value);
+        }
+        for (id, value) in stored {
+            let spec = &self.options[id];
+            if matches!(spec.action, Action::Append) {
+                if let Some(Value::List(items)) = values.get_mut(spec.long) {
+                    items.push(value);
+                } else {
+                    values.insert(spec.long, Value::List(vec![value]));
+                }
+            } else {
+                values.insert(spec.long, value);
+            }
+        }
         if !extras.is_empty() {
             return Err(self.error(format!("unrecognized arguments: {}", extras.join(" "))));
         }
-        Ok(stored
-            .into_iter()
-            .map(|(id, value)| {
-                if let Some(value) = value {
-                    format!("{}={value}", self.options[id].long)
-                } else {
-                    self.options[id].long.to_owned()
-                }
-            })
-            .collect())
+        Ok(Parsed { values, provided })
     }
 }
 /// Append wrapped text after a caller-supplied first-line prefix.

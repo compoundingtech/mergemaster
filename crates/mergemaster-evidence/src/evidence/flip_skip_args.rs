@@ -1,9 +1,10 @@
 //! Pinned evidence-flip-ready/evidence-skip-report argparse boundary.
 use super::super::{
-    argparse_compat::{Action, Exit as Early, OptionSpec, Parser as CompatParser},
+    argparse_compat::{
+        Action, DefaultValue, Exit as Early, OptionSpec, Parser as CompatParser, Value,
+    },
     legacy_verify::python_digits::decimal,
 };
-use clap::Parser;
 
 const fn option(
     long: &'static str,
@@ -19,6 +20,11 @@ const fn option(
         choices: &[],
         help,
         hidden: false,
+        default: match action {
+            Action::Flag => DefaultValue::Bool(false),
+            Action::Append => DefaultValue::List(&[]),
+            _ => DefaultValue::None,
+        },
     }
 }
 const HELP: OptionSpec = OptionSpec {
@@ -30,8 +36,21 @@ const HELP: OptionSpec = OptionSpec {
         "show this help message and exit",
     )
 };
-const REPO: OptionSpec = option("--repo", Some("REPO"), Action::Store, "");
-const CACHE: OptionSpec = option("--cache", Some("CACHE"), Action::Store, "");
+const REPO: OptionSpec = OptionSpec {
+    default: DefaultValue::String("compoundingtech/fractal"),
+    ..option("--repo", Some("REPO"), Action::Store, "")
+};
+const CACHE: OptionSpec = OptionSpec {
+    default: DefaultValue::Factory(cache_default),
+    ..option("--cache", Some("CACHE"), Action::Store, "")
+};
+fn cache_default() -> Value {
+    Value::String(
+        super::super::flip_ready::cache_dir()
+            .to_string_lossy()
+            .into_owned(),
+    )
+}
 const NOW: OptionSpec = OptionSpec {
     hidden: true,
     ..option("--now", Some("NOW"), Action::Store, "")
@@ -64,15 +83,18 @@ const SKIP: CompatParser = CompatParser {
     options: &[
         HELP,
         REPO,
-        option(
-            "--hours",
-            Some("HOURS"),
-            Action::Convert {
-                name: "float",
-                parse: float,
-            },
-            "",
-        ),
+        OptionSpec {
+            default: DefaultValue::Int(24),
+            ..option(
+                "--hours",
+                Some("HOURS"),
+                Action::Convert {
+                    name: "float",
+                    parse: float,
+                },
+                "",
+            )
+        },
         option(
             "--actor",
             Some("ACTOR"),
@@ -90,7 +112,7 @@ const SKIP: CompatParser = CompatParser {
         NOW,
     ],
 };
-fn float(text: &str) -> Option<String> {
+fn float(text: &str) -> Option<Value> {
     // Python float accepts Unicode decimal digits and digit-separated underscores,
     // but not Rust's broader trim set (notably U+001C through U+001F).
     let text = text.trim_matches(|c: char| c.is_whitespace() && !matches!(c, '\u{1c}'..='\u{1f}'));
@@ -121,7 +143,7 @@ fn float(text: &str) -> Option<String> {
         "nan" | "+nan" | "-nan" => Some(f64::NAN),
         _ => normalized.parse().ok(),
     }?;
-    Some(number.to_string())
+    Some(Value::Float(number))
 }
 fn valid_repo(repo: &str) -> bool {
     let mut parts = repo.split('/');
@@ -132,36 +154,68 @@ fn valid_repo(repo: &str) -> bool {
     };
     parts.next().is_some_and(valid) && parts.next().is_some_and(valid) && parts.next().is_none()
 }
-#[derive(Parser)]
-struct FlipArgs {
-    #[command(flatten)]
-    args: super::super::flip_ready::Args,
+fn string(value: Option<Value>) -> Option<String> {
+    match value {
+        Some(Value::String(value)) => Some(value),
+        _ => None,
+    }
 }
-#[derive(Parser)]
-struct SkipArgs {
-    #[command(flatten)]
-    args: super::super::skip_report::Args,
+fn strings(value: Option<Value>) -> Vec<String> {
+    match value {
+        Some(Value::List(values)) => values.into_iter().filter_map(|v| string(Some(v))).collect(),
+        _ => Vec::new(),
+    }
 }
 pub(super) fn flip(argv: &[String]) -> Result<super::super::flip_ready::Args, Early> {
-    let args = FLIP.parse(argv)?;
-    let repo = args
-        .iter()
-        .find_map(|arg| arg.strip_prefix("--repo="))
-        .unwrap_or("compoundingtech/fractal");
-    if !valid_repo(repo)
-        || (args.iter().any(|arg| arg == "--dry-run") && !args.iter().any(|arg| arg == "--propose"))
-    {
+    let parsed = FLIP.parse(argv)?;
+    let cache = parsed.provided.contains("--cache");
+    let mut values = parsed.values;
+    let repo = string(values.remove("--repo")).ok_or_else(|| FLIP.error("missing --repo"))?;
+    let propose = values.remove("--propose") == Some(Value::Bool(true));
+    let dry_run = values.remove("--dry-run") == Some(Value::Bool(true));
+    if !valid_repo(&repo) || (dry_run && !propose) {
         return Err(FLIP.error("bad --repo, or --dry-run without --propose"));
     }
-    FlipArgs::try_parse_from(std::iter::once("evidence-flip-ready".to_owned()).chain(args))
-        .map(|parsed| parsed.args)
-        .map_err(|error| FLIP.error(error))
+    Ok(super::super::flip_ready::Args {
+        repo,
+        cache: if cache {
+            string(values.remove("--cache")).map(Into::into)
+        } else {
+            None
+        },
+        propose,
+        dry_run,
+        now: string(values.remove("--now")),
+    })
 }
 pub(super) fn skip(argv: &[String]) -> Result<super::super::skip_report::Args, Early> {
-    let args = SKIP.parse(argv)?;
-    SkipArgs::try_parse_from(std::iter::once("evidence-skip-report".to_owned()).chain(args))
-        .map(|parsed| parsed.args)
-        .map_err(|error| SKIP.error(error))
+    let parsed = SKIP.parse(argv)?;
+    let cache = parsed.provided.contains("--cache");
+    let mut values = parsed.values;
+    let repo = string(values.remove("--repo")).ok_or_else(|| SKIP.error("missing --repo"))?;
+    // Integer defaults and explicit floats meet only at timedelta arithmetic;
+    // neither command prints the raw hours value.
+    let hours = match values.remove("--hours") {
+        Some(Value::Int(value)) => value as f64,
+        Some(Value::Float(value)) => value,
+        _ => return Err(SKIP.error("invalid --hours type")),
+    };
+    Ok(super::super::skip_report::Args {
+        repo,
+        hours,
+        actors: strings(values.remove("--actor")),
+        receipts: strings(values.remove("--receipts"))
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+        cache: if cache {
+            string(values.remove("--cache")).map(Into::into)
+        } else {
+            None
+        },
+        markdown: values.remove("--markdown") == Some(Value::Bool(true)),
+        now: string(values.remove("--now")),
+    })
 }
 /// clap consumes an initial `--` marker before collecting trailing values.
 /// Restore the process argv at this boundary so argparse can diagnose it too.
@@ -190,7 +244,7 @@ pub(super) fn finish(early: Early) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{Value, json};
+    use serde_json::Value as JsonValue;
     use std::path::PathBuf;
 
     const ORACLE: &str = r#"
@@ -209,28 +263,19 @@ print(json.dumps(vars(args), ensure_ascii=True))
         let parsed = parser
             .parse(&argv)
             .unwrap_or_else(|exit| panic!("{}", exit.stderr));
-        let flip = parser.program == FLIP.program;
-        let mut actual = if flip {
-            json!({"repo":"compoundingtech/fractal", "cache":"/argparse-cache/evidence-flip-ready", "propose":false, "dry_run":false})
-        } else {
-            json!({"repo":"compoundingtech/fractal", "cache":"/argparse-cache/evidence-flip-ready", "hours":24.0, "actor":[], "receipts":[], "markdown":false})
-        };
-        for arg in parsed {
-            let (key, value) = arg
-                .split_once('=')
-                .map_or((arg.as_str(), None), |(key, value)| (key, Some(value)));
-            let key = key.trim_start_matches("--").replace('-', "_");
-            if matches!(key.as_str(), "actor" | "receipts") {
-                actual[&key]
-                    .as_array_mut()
-                    .unwrap()
-                    .push(json!(value.unwrap()));
-            } else if key == "hours" {
-                actual[&key] = json!(value.unwrap().parse::<f64>().unwrap());
-            } else {
-                actual[&key] = value.map_or(Value::Bool(true), |value| json!(value));
+        let mut actual = serde_json::Map::new();
+        for (key, value) in parsed.values {
+            if key == "--now" {
+                continue;
             }
+            let value = if key == "--cache" && !args.iter().any(|arg| arg.starts_with("--c")) {
+                JsonValue::String("/argparse-cache/evidence-flip-ready".to_owned())
+            } else {
+                serde_json::to_value(value).unwrap()
+            };
+            actual.insert(key.trim_start_matches("--").replace('-', "_"), value);
         }
+        let actual = JsonValue::Object(actual);
         let source = PathBuf::from(std::env::var_os("MERGEMASTER_PYTHON_ORACLE").unwrap())
             .join("scripts")
             .join(parser.program);
@@ -246,7 +291,7 @@ print(json.dumps(vars(args), ensure_ascii=True))
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
-        let expected: Value = serde_json::from_slice(&output.stdout).unwrap();
+        let expected: JsonValue = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(actual, expected, "{} {args:?}", parser.program);
     }
 
@@ -265,6 +310,10 @@ print(json.dumps(vars(args), ensure_ascii=True))
         }
         let skip: &[&[&str]] = &[
             &[],
+            &["--hours=24"],
+            &["--hours=24.0"],
+            &["--hours=1"],
+            &["--hours=1.5"],
             &["--rec", "one"],
             &["--repo=one/two", "--rep=three/four"],
             &["--actor=a", "--a", "b", "--receipts=one", "--rec", "two"],
@@ -280,6 +329,107 @@ print(json.dumps(vars(args), ensure_ascii=True))
         ];
         for args in skip {
             compare_values(&SKIP, args);
+        }
+    }
+    #[test]
+    fn non_string_defaults_retain_their_python_types() {
+        const PARSER: CompatParser = CompatParser {
+            program: "typed-defaults",
+            description: "",
+            options: &[
+                OptionSpec {
+                    default: DefaultValue::Int(24),
+                    ..option(
+                        "--integer",
+                        None,
+                        Action::Convert {
+                            name: "float",
+                            parse: float,
+                        },
+                        "",
+                    )
+                },
+                OptionSpec {
+                    default: DefaultValue::Float(24.0),
+                    ..option(
+                        "--float",
+                        None,
+                        Action::Convert {
+                            name: "float",
+                            parse: float,
+                        },
+                        "",
+                    )
+                },
+                OptionSpec {
+                    default: DefaultValue::String("24"),
+                    ..option(
+                        "--string",
+                        None,
+                        Action::Convert {
+                            name: "float",
+                            parse: float,
+                        },
+                        "",
+                    )
+                },
+                OptionSpec {
+                    default: DefaultValue::None,
+                    ..option(
+                        "--none",
+                        None,
+                        Action::Convert {
+                            name: "float",
+                            parse: float,
+                        },
+                        "",
+                    )
+                },
+                OptionSpec {
+                    default: DefaultValue::List(&[DefaultValue::Int(7)]),
+                    ..option("--list", None, Action::Append, "")
+                },
+                OptionSpec {
+                    default: DefaultValue::Bool(false),
+                    ..option("--flag", None, Action::Flag, "")
+                },
+            ],
+        };
+        for args in [
+            vec![],
+            vec![
+                "--integer=24",
+                "--float=24",
+                "--string=24.5",
+                "--none=1.5",
+                "--list=x",
+                "--flag",
+            ],
+        ] {
+            let argv: Vec<String> = args.iter().map(|s| (*s).to_owned()).collect();
+            let parsed = PARSER
+                .parse(&argv)
+                .unwrap_or_else(|exit| panic!("{}", exit.stderr));
+            let actual = serde_json::to_value(parsed.values).unwrap();
+            let output = crate::pinned_python::command()
+                .args([
+                    "-c",
+                    r#"
+import argparse,json
+p=argparse.ArgumentParser()
+for name,default in [('integer',24),('float',24.0),('string','24'),('none',None)]:
+    p.add_argument('--'+name,type=float,default=default)
+p.add_argument('--list',action='append',default=[7])
+p.add_argument('--flag',action='store_true')
+print(json.dumps({'--'+k:v for k,v in vars(p.parse_args()).items()}))
+"#,
+                ])
+                .args(&args)
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+            let expected: JsonValue = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(actual, expected, "{args:?}");
         }
     }
 }

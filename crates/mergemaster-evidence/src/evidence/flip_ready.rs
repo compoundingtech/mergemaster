@@ -6,7 +6,6 @@ mod policy;
 use anyhow::{Context, Result, anyhow, bail, ensure};
 pub(super) use api::parse_api;
 use chrono::{DateTime, Duration, SecondsFormat, Utc};
-use clap::Args as ClapArgs;
 use serde_json::{Map, Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -27,18 +26,12 @@ const TEST_LISTS: [(&str, &str); 2] = [
     ("scripts/evidence-verify-test", "ENFORCED"),
 ];
 
-#[derive(ClapArgs)]
 pub struct Args {
-    #[arg(long, default_value = "compoundingtech/fractal")]
-    repo: String,
-    #[arg(long)]
-    cache: Option<PathBuf>,
-    #[arg(long)]
-    propose: bool,
-    #[arg(long, requires = "propose")]
-    dry_run: bool,
-    #[arg(long, hide = true)]
-    now: Option<String>,
+    pub(super) repo: String,
+    pub(super) cache: Option<PathBuf>,
+    pub(super) propose: bool,
+    pub(super) dry_run: bool,
+    pub(super) now: Option<String>,
 }
 
 pub fn parse_time(text: &str) -> Option<DateTime<Utc>> {

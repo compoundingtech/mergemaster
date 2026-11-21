@@ -32,23 +32,15 @@ const CATEGORIES: [&str; 11] = [
 const RELEASE_WORKFLOW: &str = "release-fractal.yml";
 type Lanes = BTreeMap<String, Vec<String>>;
 
-#[derive(clap::Args)]
 pub struct Args {
-    #[arg(long, default_value = "compoundingtech/fractal")]
-    repo: String,
-    #[arg(long, default_value_t = 24.0, allow_hyphen_values = true)]
-    hours: f64,
-    #[arg(long = "actor")]
-    actors: Vec<String>,
-    #[arg(long)]
-    receipts: Vec<PathBuf>,
-    #[arg(long)]
-    cache: Option<PathBuf>,
-    #[arg(long)]
-    markdown: bool,
+    pub(super) repo: String,
+    pub(super) hours: f64,
+    pub(super) actors: Vec<String>,
+    pub(super) receipts: Vec<PathBuf>,
+    pub(super) cache: Option<PathBuf>,
+    pub(super) markdown: bool,
     /// Override the end of the reporting window for deterministic replay.
-    #[arg(long, hide = true)]
-    now: Option<String>,
+    pub(super) now: Option<String>,
 }
 
 // The production implementation delegates all GitHub selection and transport to

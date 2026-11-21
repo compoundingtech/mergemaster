@@ -12,7 +12,7 @@ fixture = json.loads((repository / 'tests/fixtures/oracle/skip-report.json').rea
 base = fixture['cases'][0]
 source = pathlib.Path(os.environ['MERGEMASTER_PYTHON_ORACLE']) / 'scripts/evidence-skip-report'
 
-def compare(label, receipt=b'', mutate=lambda api: None, expected_seat=None, expected_minutes=None, expected_error=False, expected_prs=None, oracle_error=False):
+def compare(label, receipt=b'', mutate=lambda api: None, expected_seat=None, expected_minutes=None, expected_error=False, expected_prs=None, oracle_error=False, extra_args=()):
     with tempfile.TemporaryDirectory(prefix='mergemaster-skip-parity-') as temporary:
         root = pathlib.Path(temporary)
         for tool in ('git','gh'):
@@ -27,7 +27,7 @@ def compare(label, receipt=b'', mutate=lambda api: None, expected_seat=None, exp
                            FLIP_SKIP_API=str(root/'api.json'), FLIP_SKIP_CALLS=str(root/'calls'))
         for markdown in (False, True):
             arguments = ['--repo','org/repo','--cache',str(root/'cache'),
-                         *[arg.replace('${root}',str(root)) for arg in base['argv']]]
+                         *[arg.replace('${root}',str(root)) for arg in base['argv']], *extra_args]
             if markdown: arguments.append('--markdown')
             observations = []
             for implementation in ('python','native'):
@@ -56,7 +56,10 @@ def compare(label, receipt=b'', mutate=lambda api: None, expected_seat=None, exp
             if not expected_error:
                 assert observations[0] == observations[1], (suite,label,markdown,observations)
 
-if suite == 'receipts':
+if suite == 'hours':
+    for arguments in ((), ('--hours','24'), ('--hours','24.0'), ('--hours','1'), ('--hours','1.5')):
+        compare('typed-hours-'+repr(arguments), extra_args=arguments)
+elif suite == 'receipts':
     for literal in ('null','false','0','-0','0.0','-0.0','[]','{}','""'):
         receipt = ('{"branch":"feature","agent":"kept"}\n{"branch":"feature","agent":'+literal+'}\n').encode()
         compare('falsey-agent-'+literal,receipt,expected_seat='kept')
@@ -168,4 +171,9 @@ fn github_pull_and_file_fields_reject_out_of_schema_values_without_narrowing() {
 #[test]
 fn fallback_pull_numbers_are_required_and_label_objects_are_unread_metadata() {
     differential("fallback");
+}
+
+#[test]
+fn default_integer_and_explicit_float_hours_match_python_json_and_markdown() {
+    differential("hours");
 }
