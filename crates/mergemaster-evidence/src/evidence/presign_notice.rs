@@ -15,13 +15,47 @@ fn environment(name: &str) -> Result<String, String> {
     env::var(name).map_err(|_| format!("'{name}'"))
 }
 
-fn output(program: &str, args: &[&str]) -> Result<std::process::Output, String> {
-    Command::new(program).args(args).output().map_err(|error| {
+struct TextOutput {
+    status: std::process::ExitStatus,
+    stdout: String,
+    stderr: String,
+}
+
+fn decode_stream(bytes: Vec<u8>) -> Result<String, String> {
+    String::from_utf8(bytes).map_err(|error| {
+        let invalid = error.utf8_error();
+        let start = invalid.valid_up_to();
+        let byte = error.as_bytes()[start];
+        let reason = match invalid.error_len() {
+            None => "unexpected end of data",
+            Some(_) if !(0xc2..=0xf4).contains(&byte) => "invalid start byte",
+            Some(_) => "invalid continuation byte",
+        };
+        let length = invalid
+            .error_len()
+            .unwrap_or(error.as_bytes().len() - start);
+        let location = if length == 1 {
+            format!("byte 0x{byte:02x} in position {start}")
+        } else {
+            format!("bytes in position {start}-{}", start + length - 1)
+        };
+        format!("'utf-8' codec can't decode {location}: {reason}")
+    })
+}
+
+fn output(program: &str, args: &[&str]) -> Result<TextOutput, String> {
+    let done = Command::new(program).args(args).output().map_err(|error| {
         if error.kind() == io::ErrorKind::NotFound {
             format!("[Errno 2] No such file or directory: '{program}'")
         } else {
             error.to_string()
         }
+    })?;
+    // subprocess.run(text=True) decodes both streams, even for successful commands.
+    Ok(TextOutput {
+        status: done.status,
+        stdout: decode_stream(done.stdout)?,
+        stderr: decode_stream(done.stderr)?,
     })
 }
 
@@ -39,8 +73,8 @@ fn lanes_at(base: &str) -> Result<Lanes, String> {
     if !done.status.success() {
         return Err(format!("cannot read {path} at {short}"));
     }
-    let document: Value = serde_json::from_slice(&done.stdout).map_err(|error| {
-        super::legacy_verify::json_bytes::parse(&done.stdout)
+    let document: Value = serde_json::from_str(&done.stdout).map_err(|error| {
+        super::legacy_verify::json_bytes::parse(done.stdout.as_bytes())
             .err()
             .map_or_else(|| error.to_string(), |error| error.detail.to_string())
     })?;
@@ -86,15 +120,15 @@ fn changed_files(repository: &str, number: &str) -> Result<Vec<String>, String> 
         ],
     )?;
     if !done.status.success() {
-        let error = String::from_utf8_lossy(&done.stderr);
-        let error = error.trim();
+        let error = done.stderr.trim();
         let tail: String = error
             .chars()
             .skip(error.chars().count().saturating_sub(200))
             .collect();
         return Err(format!("could not read the pull request files: {tail}"));
     }
-    Ok(String::from_utf8_lossy(&done.stdout)
+    Ok(done
+        .stdout
         .split('\n')
         .filter(|name| !name.is_empty())
         .map(str::to_owned)
