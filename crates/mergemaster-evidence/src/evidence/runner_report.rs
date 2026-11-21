@@ -305,12 +305,12 @@ fn report(
             ("check", record.field("rows"))
         };
         for part in parts.array() {
-            if matches!(part.node, Node::Object(_)) {
-                if let Some(name) = part.field("name").points() {
-                    let seconds = part.field("seconds");
-                    if seconds.numeric() {
-                        spent.entry((kind, name)).or_default().push(seconds);
-                    }
+            if matches!(part.node, Node::Object(_))
+                && let Some(name) = part.field("name").points()
+            {
+                let seconds = part.field("seconds");
+                if seconds.numeric() {
+                    spent.entry((kind, name)).or_default().push(seconds);
                 }
             }
         }

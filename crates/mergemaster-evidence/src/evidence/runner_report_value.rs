@@ -115,6 +115,8 @@ impl<'a> Input<'a> {
     }
 }
 
+type Field<'a> = (Cow<'a, [u32]>, Output<'a>);
+
 pub(super) enum Output<'a> {
     Null,
     Bool(bool),
@@ -123,7 +125,7 @@ pub(super) enum Output<'a> {
     Text(Cow<'a, [u32]>),
     Raw(Input<'a>),
     Array(Vec<Self>),
-    Object(Vec<(Cow<'a, [u32]>, Self)>),
+    Object(Vec<Field<'a>>),
 }
 impl<'a> Output<'a> {
     pub fn text(value: impl AsRef<str>) -> Self {
@@ -138,13 +140,12 @@ impl<'a> Output<'a> {
         )
     }
     pub fn field(&self, key: &str) -> &Self {
-        if let Self::Object(fields) = self {
-            if let Some((_, v)) = fields
+        if let Self::Object(fields) = self
+            && let Some((_, v)) = fields
                 .iter()
                 .find(|(k, _)| k.iter().copied().eq(key.chars().map(u32::from)))
-            {
-                return v;
-            }
+        {
+            return v;
         }
         static NULL: Output<'static> = Output::Null;
         &NULL
@@ -156,7 +157,7 @@ impl<'a> Output<'a> {
             anyhow::bail!("invalid report array")
         }
     }
-    pub fn fields(&self) -> Result<&[(Cow<'a, [u32]>, Self)]> {
+    pub fn fields(&self) -> Result<&[Field<'a>]> {
         if let Self::Object(v) = self {
             Ok(v)
         } else {
