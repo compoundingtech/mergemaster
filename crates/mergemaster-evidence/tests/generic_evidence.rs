@@ -609,6 +609,118 @@ fn command_failure_is_signed_and_keeps_exit_code_and_output() {
 }
 
 #[test]
+fn externally_terminated_lanes_are_not_signed_or_stored() {
+    for signal in ["HUP", "INT", "TERM", "KILL"] {
+        let f = Fixture::new(
+            "required_evidence",
+            &format!("printf interrupted; kill -{signal} $$"),
+        );
+        let marker = f.root.path().join("signer-called");
+        let output = f.wrap(
+            Some(json!([
+                f.runtime,
+                "-c",
+                "touch \"$1\"; exit 1",
+                "signer",
+                marker
+            ])),
+            None,
+        );
+        assert_eq!(output.status.code(), Some(75), "signal {signal}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(
+            stderr.lines().next(),
+            Some("mergemaster: infra_unavailable class=interrupted")
+        );
+        assert!(stderr.contains("signal "));
+        assert_eq!(fs::read(&f.counter).unwrap(), b"x");
+        assert!(!marker.exists(), "interrupted lane contacted signer");
+        assert!(f.refs().is_empty());
+        assert!(
+            f.git(&[
+                "for-each-ref",
+                "--format=%(refname)",
+                "refs/evidence-output/"
+            ])
+            .is_empty()
+        );
+    }
+}
+
+#[test]
+fn segfault_is_signed_with_signal_exit_code() {
+    let f = Fixture::new(
+        "required_evidence",
+        "ulimit -c 0; printf crashed; kill -SEGV $$",
+    );
+    let output = f.wrap(None, None);
+    assert_eq!(output.status.code(), Some(139));
+    assert_eq!(output.stdout, b"crashed");
+    assert!(!f.refs().is_empty());
+    let record = f.refs();
+    let tree = f.git(&["rev-parse", "HEAD^{tree}"]);
+    let note = f.git(&["show", &format!("{record}:{tree}")]);
+    let statement: Value = serde_json::from_str(&note).unwrap();
+    assert_eq!(
+        statement["predicate"]["observed"]["checks"][CHECK]["exit_code"],
+        139
+    );
+    assert_eq!(f.gate()["decision"], "refuse");
+}
+
+#[test]
+fn lane_exit_75_is_signed_but_wrapper_returns_1() {
+    let f = Fixture::new("required_evidence", "printf failed; exit 75");
+    let output = f.wrap(None, None);
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.stdout, b"failed");
+    assert_eq!(fs::read(&f.counter).unwrap(), b"x");
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("infra_unavailable"));
+    let record = f.refs();
+    assert!(!record.is_empty());
+    let tree = f.git(&["rev-parse", "HEAD^{tree}"]);
+    let note = f.git(&["show", &format!("{record}:{tree}")]);
+    let statement: Value = serde_json::from_str(&note).unwrap();
+    assert_eq!(
+        statement["predicate"]["observed"]["checks"][CHECK]["exit_code"],
+        75
+    );
+    assert_eq!(f.gate()["decision"], "refuse");
+}
+
+#[test]
+fn signer_unavailability_differs_from_explicit_policy_refusal() {
+    for case in ["missing", "killed", "broken_pipe", "refusal"] {
+        // A large request makes early stdin closure reliably break the write.
+        let script = if case == "broken_pipe" {
+            "printf '%01048576d' 0"
+        } else {
+            "printf ok"
+        };
+        let f = Fixture::new("required_evidence", script);
+        let signer = match case {
+            "missing" => json!([f.root.path().join("missing-signer")]),
+            "killed" => json!([f.runtime, "-c", "cat >/dev/null; kill -TERM $$"]),
+            "broken_pipe" => json!([f.runtime, "-c", "exec 0<&-; exit 0"]),
+            "refusal" => json!([f.runtime, "-c", "cat >/dev/null; exit 1"]),
+            _ => unreachable!(),
+        };
+        let output = f.wrap(Some(signer), None);
+        if case == "refusal" {
+            assert_eq!(output.status.code(), Some(1));
+            assert!(String::from_utf8_lossy(&output.stderr).contains("evidence signer refused"));
+        } else {
+            assert_eq!(output.status.code(), Some(75), "case {case}");
+            assert_eq!(
+                String::from_utf8_lossy(&output.stderr).lines().next(),
+                Some("mergemaster: infra_unavailable class=signer_unavailable")
+            );
+        }
+        assert!(f.refs().is_empty());
+    }
+}
+
+#[test]
 fn preconditions_fail_before_execution() {
     for case in [
         "dirty",
@@ -725,7 +837,23 @@ fn postconditions_and_signing_or_publication_fail_closed() {
         if matches!(case, "signer_failure" | "invalid_response" | "push_failure") {
             assert_eq!(out.stdout, b"original output\n");
         }
-        if case != "push_failure" {
+        if case == "push_failure" {
+            assert_eq!(out.status.code(), Some(75));
+            assert_eq!(
+                String::from_utf8_lossy(&out.stderr).lines().next(),
+                Some("mergemaster: infra_unavailable class=publish_failed")
+            );
+            assert!(
+                !f.refs().is_empty(),
+                "local note remains after push failure"
+            );
+            // Retry re-executes rather than reusing the local note.
+            f.git(&["remote", "set-url", "origin", f.origin.to_str().unwrap()]);
+            let retried = f.wrap(None, None);
+            assert!(retried.status.success());
+            assert_eq!(fs::read(&f.counter).unwrap(), b"xx");
+        } else {
+            assert_eq!(out.status.code(), Some(1), "case {case}");
             assert!(f.refs().is_empty(), "case {case} published evidence");
         }
     }
