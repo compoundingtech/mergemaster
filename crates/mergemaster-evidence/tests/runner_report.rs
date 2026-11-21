@@ -71,7 +71,10 @@ fn run_case(case: &Value) -> (i32, String, String) {
     if case["id"]
         .as_str()
         .is_some_and(|id| id.starts_with("edge_arguments_"))
-        && case["exit"] == 2
+        && (case["exit"] == 2
+            || case["stdout"]
+                .as_str()
+                .is_some_and(|s| s.starts_with("usage:")))
     {
         let cli = Command::new(env!("CARGO_BIN_EXE_mergemaster"))
             .args(["evidence", "runner-report"])

@@ -348,6 +348,111 @@
       "exit": 2,
       "stdout": "",
       "stderr": "--hours, --slo-s and --max-s must be positive\n"
+    },
+    {
+      "id": "edge_arguments_action_order_help_unknown_tail",
+      "files": {},
+      "argv": [
+        "-hx"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\n\nHow long the per-PR suite takes on a dev box: scripts/fractal-test's own run\nrecords against the time objective.\n\npositional arguments:\n  RUNS.jsonl     default: the file scripts/fractal-test writes\n\noptions:\n  -h, --help     show this help message and exit\n  --hours HOURS  the window, ending now (default 24)\n  --since SINCE  the window starts here instead (ISO 8601, UTC)\n  --slo-s SLO_S  the p90 objective in seconds (default 720)\n  --max-s MAX_S  no single full warm run may take longer (default 900)\n  --markdown     a short table instead of JSON\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_arguments_action_order_help_unknown_tail_repeated",
+      "files": {},
+      "argv": [
+        "-hhx"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\n\nHow long the per-PR suite takes on a dev box: scripts/fractal-test's own run\nrecords against the time objective.\n\npositional arguments:\n  RUNS.jsonl     default: the file scripts/fractal-test writes\n\noptions:\n  -h, --help     show this help message and exit\n  --hours HOURS  the window, ending now (default 24)\n  --since SINCE  the window starts here instead (ISO 8601, UTC)\n  --slo-s SLO_S  the p90 objective in seconds (default 720)\n  --max-s MAX_S  no single full warm run may take longer (default 900)\n  --markdown     a short table instead of JSON\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_arguments_action_order_help_unknown_word_tail",
+      "files": {},
+      "argv": [
+        "-hbad"
+      ],
+      "environment": {},
+      "exit": 0,
+      "stdout": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\n\nHow long the per-PR suite takes on a dev box: scripts/fractal-test's own run\nrecords against the time objective.\n\npositional arguments:\n  RUNS.jsonl     default: the file scripts/fractal-test writes\n\noptions:\n  -h, --help     show this help message and exit\n  --hours HOURS  the window, ending now (default 24)\n  --since SINCE  the window starts here instead (ISO 8601, UTC)\n  --slo-s SLO_S  the p90 objective in seconds (default 720)\n  --max-s MAX_S  no single full warm run may take longer (default 900)\n  --markdown     a short table instead of JSON\n",
+      "stderr": ""
+    },
+    {
+      "id": "edge_arguments_action_order_unknown_before_help",
+      "files": {},
+      "argv": [
+        "-xh"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: unrecognized arguments: -xh\n"
+    },
+    {
+      "id": "edge_arguments_action_order_help_after_invalid_float",
+      "files": {},
+      "argv": [
+        "--hours",
+        "bad",
+        "--help"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: argument --hours: invalid float value: 'bad'\n"
+    },
+    {
+      "id": "edge_arguments_action_order_help_after_missing_float",
+      "files": {},
+      "argv": [
+        "--hours",
+        "-h"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: argument --hours: expected one argument\n"
+    },
+    {
+      "id": "edge_arguments_action_order_help_after_invalid_int",
+      "files": {},
+      "argv": [
+        "--slo-s",
+        "bad",
+        "--help"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: argument --slo-s: invalid int value: 'bad'\n"
+    },
+    {
+      "id": "edge_arguments_action_order_help_after_missing_int",
+      "files": {},
+      "argv": [
+        "--slo-s",
+        "-h"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: argument --slo-s: expected one argument\n"
+    },
+    {
+      "id": "edge_arguments_action_order_help_cluster_explicit_value",
+      "files": {},
+      "argv": [
+        "-hh=bad"
+      ],
+      "environment": {},
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\nfractal-test-report: error: argument -h/--help: ignored explicit argument 'bad'\n"
     }
   ]
 }

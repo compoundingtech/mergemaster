@@ -104,8 +104,8 @@ fn classify(text: &str) -> Token<'_> {
             };
         }
     } else if let Some(tail) = text.strip_prefix("-h") {
-        // The only short option is help. argparse processes a short cluster
-        // before invoking help, so '-hx' is unrecognized, not a help request.
+        // Keep the attached tail for cluster validation. An unknown trailing
+        // short flag does not prevent the preceding help action from running.
         return Token::Option {
             flag: "-h",
             explicit: Some(tail),
@@ -170,7 +170,7 @@ pub(super) fn parse(argv: &[String]) -> Result<Options, Early> {
     let mut extras = Vec::new();
     let mut positional_used = false;
     let mut index = 0;
-    'arguments: while let Some(arg) = argv.get(index) {
+    while let Some(arg) = argv.get(index) {
         match classify(arg) {
             Token::Argument | Token::Separator => {
                 // A nargs='*' positional consumes one contiguous group, not
@@ -231,11 +231,10 @@ pub(super) fn parse(argv: &[String]) -> Result<Options, Early> {
                                 if let Some(rest) = value.strip_prefix('h') {
                                     value = rest;
                                 } else {
-                                    // Unknown tails of short clusters are reported
-                                    // with their own leading dash.
-                                    extras.push(format!("-{value}"));
-                                    index += 1;
-                                    continue 'arguments;
+                                    // argparse collects the unknown tail as an extra,
+                                    // then runs the preceding help action before
+                                    // reporting leftover arguments.
+                                    return Err((0, format!("{USAGE}{HELP}"), String::new()));
                                 }
                             }
                         }
@@ -342,6 +341,8 @@ oracle['main'].__globals__['argparse'] = types.SimpleNamespace(ArgumentParser=Ca
 cases = [
     [], ['--help'], ['-h'], ['--he'], ['-hh'], ['-hhh'], ['-hx'], ['-hhx'],
     ['-h=bad'], ['-hbad'], ['-h--'], ['-hh=bad'],
+    ['-xh'], ['--hours', 'bad', '--help'], ['--hours', '-h'],
+    ['--slo-s', 'bad', '--help'], ['--slo-s', '-h'],
     ['--help=false'], ['--he='], ['--markdown=false'], ['--mark=false'],
     ['--mar='], ['--markdown', 'false'], ['--m'], ['--s'], ['--s=value'],
     ['--h'], ['--hours'], ['--hours', '--markdown'], ['--hours', '--s'],

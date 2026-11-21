@@ -103,6 +103,8 @@
 # replayed by replay_runner_report in tests/oracle_corpus.py.
 # runner-report-edges.json adds exact-binary rounding, ISO timestamp variants,
 # first-seen stage/check ties, ASCII-escaped JSON and argparse-error recordings.
+# Argument recordings also pin help action ordering for short clusters, unknown
+# leading options, invalid values before help, and missing values before help.
 # pyfloat unit tests compare exact output bits with pinned Python across finite
 # exponent boundaries, decimal ties, random doubles and all supported precisions.
 # Intended divergence: native runner-report --slo-s/--max-s use signed i64.
