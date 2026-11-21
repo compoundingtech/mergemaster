@@ -44,9 +44,10 @@ The separate-capability alternative is rejected here: it adds another issuer,
 replay protocol and deployment boundary without removing protected execution.
 
 This requires a new protected execution service: signing keys and daemon
-credentials are unavailable to the caller and build processes; consumer code
-executes only in the Nix build sandbox, never in the signing process. A
-same-UID cooperative launcher/config check is not this isolation boundary.
+credentials are unavailable to callers, untrusted evaluation and build
+processes. Evaluation runs in a credential-free isolated worker; consumer code
+never executes in the signing process. A same-UID cooperative launcher/config
+check is not this isolation boundary.
 The service loads only reviewed immutable producer binaries, measures the
 actually loaded signer executable, and requires its digest and system to be
 listed in BASE's producer manifest (§6). A deployment must prevent replacement
@@ -108,10 +109,14 @@ Extend the gate's existing signature worker and object-only input checks
 
 - Verify the candidate normally, including exact HEAD/tree, current BASE
   signature, lane inputs, normalized argv, success and workspace claims.
+  Additionally require the signing key's BASE-pinned `v2_service_issuer`
+  role and repository/service-endpoint scope (§5); level membership alone
+  never authorizes a v2 root, origin or rebind.
 - For a rebind, directly load R by its signed ID outside candidate-tree
   discovery (which currently filters other trees at `gate.rs:944-947`).
-  Verify its signature and actual root subject/tree under current BASE keys.
-  Do not apply candidate exact-head/tree equality to R.
+  Verify its signature, actual root subject/tree and `v2_service_issuer`
+  role/scope under current BASE authority. Ordinary v1 evidence keys cannot
+  authorize v2. Do not apply candidate exact-head/tree equality to R.
 - Require v2 root-only provenance, `rebuild`, success, no `reused_from` or
   `re_attests`; compare check, full tier, runner `nix`, exact signer level,
   repository, origin class, complete reuse key and output digest. Check both
@@ -135,11 +140,13 @@ This capability does **not** exist in the current measurement code (§2).
 The Nix/host execution owner must provide a protected daemon-side execution
 broker with this contract before reuse is enabled:
 
-- It controls the actual daemon/store endpoint, authenticates the protected
-  signer, and owns a receipt key whose public authority is enrolled in BASE
-  reuse policy. The caller/build cannot reach that key or an unrestricted
-  alternate store endpoint. Local-store execution must use the same broker
-  contract; unsupported deployments refuse reuse.
+- It controls the actual daemon/store endpoint and mutually authenticates
+  the protected signer using BASE-pinned endpoint identities. Its receipt key
+  has the scoped `daemon_policy_receipt` role (§5). Missing authentication,
+  transport failure or endpoint mismatch fails closed; no ambient-store or
+  unsigned-receipt fallback. The caller/build cannot reach that key or an
+  unrestricted alternate store endpoint. Local-store execution must use the
+  same broker contract; unsupported deployments refuse reuse.
 - It measures the **effective daemon policy after per-operation overrides**,
   including sandbox/fallback, sandbox and extra-sandbox paths, substituters
   and extra-substituters, trusted-public-keys and extra-trusted-public-keys,
@@ -162,8 +169,8 @@ broker with this contract before reuse is enabled:
   devices/proc and platform features are fixed by the profile version.
   Substitution requires signatures from the measured explicit key allowlist;
   substituters/keys must equal the root's policy even if a store hit occurs.
-  The broker applies these restrictions to root preparation and all child
-  builds, not just the final drv. Unknown policy fields/features refuse.
+  The policy-generation pin and restrictions cover preparation and every child
+  build, not just the final drv. Unknown policy fields/features refuse.
 
 The signer inspects the transitive derivation graph: final check must be
 input-addressed, not fixed-output, impure or `__noChroot`. Non-fixed-output
@@ -173,6 +180,12 @@ No ambient host mounts, unpinned network input or consumer-selected policy
 escape is permitted. Fresh roots also require this profile and receipts;
 old roots cannot be upgraded by assertion.
 
+Implementation review targets: bound untrusted evaluation/receipt bytes,
+parser depth, derivation-graph nodes/depth and traversal time; exceeding limits
+refuses rather than truncating validation. Review credential isolation during
+evaluation as well as builds, authenticated broker endpoints, fail-closed
+transport and generation pinning across preparation and every child build.
+
 This is evidence equivalence, **not** a proof that builds are deterministic.
 Drv identity binds declared inputs; output NAR equality binds the realized
 result, not arbitrary behavior in a hypothetical second execution. Clock,
@@ -180,8 +193,10 @@ scheduling, randomness, logs, host timing and kernel behavior may vary within
 the approved profile. Lanes whose correctness needs another observation of
 those effects must require `fresh` and are ineligible. `any` explicitly accepts
 the prior successful result within finite age. Substituter correctness/signing
-keys and protected host/kernel integrity remain trusted; equal content hashes
-do not establish who executed a test.
+keys remain trusted. Self-measured executable digests require uncompromised
+signer and broker hosts, including kernel, loader and key custody, as well as
+builder integrity. Manifest equality is not remote attestation; equal content
+hashes do not establish who executed a test.
 
 ## 5. Trust, origin, schema and revocation
 
@@ -191,7 +206,8 @@ GitHub OIDC signature, issuer, service-specific audience, expiry, repository
 identity and reviewed job/workflow SHA against its deployment allowlist. It
 queries the authenticated GitHub API for the corresponding job/event and live
 PR head/base/source repository; caller JSON and environment variables are not
-event authority. The service signs the derived origin in its observation.
+event authority. The origin adapter is inside the service signing boundary,
+with no separate adapter key; the service signs its derived origin.
 It binds repository, exact subject HEAD and accepted BASE, event
 kind, source repository, PR identity when applicable, and class:
 `same_repository_pr`, `fork_pr`, `push`, or `local`. Missing/contradictory
@@ -202,10 +218,38 @@ binding against its authenticated candidate context and compares root/rebind
 classes exactly. No fork-to-PR, push-to-PR or local-to-PR laundering.
 
 Use exact signer-level equality, not "not lower"; retain BASE lane
-`trust_levels` checks on both signatures. Both statements must have required
-equal logical repository identities, full tier and runner `nix`. Different
-principals at the same permitted level may sign only through the protected
-service. A v1 Nix `wrapper` note is not reclassified as an eligible root.
+`trust_levels` checks on both signatures, but also require the scoped
+`v2_service_issuer` key role for each. Ordinary v1 evidence keys never authorize
+v2 roots, origins or rebinds, even at an allowed level. Both statements require
+equal logical repository identities, full tier and runner `nix`.
+A v1 Nix `wrapper` note is not reclassified as an eligible root.
+
+### Key roles, lifecycle and compromise boundary
+
+BASE reuse policy pins each authority's key ID (public-key fingerprint), public
+key, role, logical repository and authenticated service/broker endpoint scope.
+V2 observations and broker receipts carry their issuer key IDs; the gate checks
+the signature against the corresponding current BASE role and scope, not a
+caller-selected key or signer-level membership. `v2_service_issuer` and
+`daemon_policy_receipt` use separate keys, neither interchangeable with v1 keys.
+
+The Mergemaster signing/deployment owner provisions the service key in isolated
+service custody; the Nix/host owner provisions the broker receipt key in broker
+custody. Neither private key is exported to workers. For planned rotation,
+provision a new key ID, enroll it in reviewed BASE policy before use, and retain
+both scoped IDs for an explicit finite overlap covering intended evidence age.
+Switch issuance, then remove the old ID from BASE and destroy its private key;
+removal immediately invalidates dependent evidence, even within its age limit.
+On compromise, stop issuance, remove the affected ID/endpoint authorization
+from accepted BASE without overlap or grace, replace credentials and investigate
+dependent records before provisioning a separately reviewed replacement.
+
+A compromised v2 service key defeats origin, producer and evaluation claims
+together. A root and rebind signed by it are not independent witnesses; genuine
+broker receipts can be re-paired with fabricated service claims. Accept this
+as the trusted-service compromise boundary, not a protection supplied by
+receipt signatures or root re-verification. Broker-key compromise likewise
+defeats daemon-policy assurance; immediate revocation is the default (§5).
 
 Introduce predicate URI `https://compounding.tech/fractal/evidence/gate/v2`
 and `schema_version=2`, keeping the in-toto Statement/v1 envelope. Define a
@@ -270,23 +314,30 @@ reuse stays disabled; report-only producer manifests remain report-only.
 ## 8. Questions for Johannes
 
 1. Approve the initial same-repository-PR-only origin profile and Linux-only
-   daemon profile? Other classes/platforms remain ineligible until reviewed.
+   daemon profile? Janitor recommends this initial eligibility; other
+   classes/platforms remain ineligible until reviewed.
 2. Which lanes accept the nondeterminism boundary in §4, and what positive
-   finite age should each opt-in declare? No unbounded default.
-3. Is any root-key-revocation grace needed? Default is immediate refusal at
-   the gate, including already-issued rebinds. Any exception needs a separately
-   approved policy naming scope, duration and revocation authority.
+   finite age should each opt-in declare? Janitor recommends per-lane opt-in,
+   finite `max_age_seconds` and explicit acceptance of that boundary.
+3. Is any root-key-revocation grace needed? Janitor recommends immediate
+   revocation with no grace, including already-issued rebinds. That remains
+   the default; any exception needs separately approved scope and authority.
 
 Exact level equality plus origin equality and gate-side root verification
 are design requirements, not unresolved weaker-policy alternatives.
 
 ## Review response
 
+Janitor's conditional GO (message/e1766cf7620a854e) resolves C1/C5/C6 and
+findings 4–5; C2–C4 remain PARTIAL pending the service/key/host assumptions
+and implementation review below. This revision specifies those conditions,
+not implemented or independently verified capabilities.
+
 | Review item | Resolution |
 |---|---|
 | C1; finding 4 (chains/age/revocation) | §3 gate enforcement and §5: verify direct fresh root under current BASE, equal times/classes, required repository, finite age; revoke root authorization immediately. |
-| C2; finding 2 (signer boundary) | §3, §6: protected service owns execution and rebind; reject self-reported digest/status as authentication. |
-| C3; finding 1 (input closure) | §2, §4: authenticated executing-daemon receipts include sandbox paths, substitution keys/endpoints and impure features; missing capability refuses reuse; explicit nondeterminism boundary. |
-| C4; finding 3 (origin) | §5: authenticated signed origin with exact class equality; initial same-repository PRs only. |
+| C2; finding 2 (signer boundary) — PARTIAL | §3, §5–§6: service-only v2 issuer role and lifecycle; trusted-service compromise defeats correlated claims. Requires protected-service implementation and review. |
+| C3; finding 1 (input closure) — PARTIAL | §4–§6: authenticated broker receipts, scoped receipt-key lifecycle, host-integrity assumption and bounded-processing review targets. Daemon capability remains a prerequisite, not existing closure proof. |
+| C4; finding 3 (origin) — PARTIAL | §5: origin adapter inside scoped service signing boundary, exact class equality, initial same-repository PRs only. Requires authenticated adapter implementation; service-key compromise defeats origin assurance. |
 | C5; finding 5 (contract) | §2, §5: HEAD files under BASE declarations, `environment_sha256`, v2 runner `nix`, strict versioned predicate fields. |
 | C6 (merge and producer foundations) | References use merged main bd3526be; §6 distinguishes landed #416/#417 report-only manifests from still-required authentication/enforcement. |
