@@ -384,7 +384,12 @@ mod tests {
     }
     #[test]
     fn required_lanes_have_definition_paths() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        // The Python self-test ran inside the pinned Fractal fixture overlay; this
+        // repository has no required-lanes file of its own.
+        let root = std::path::PathBuf::from(
+            std::env::var("MERGEMASTER_FRACTAL_FIXTURE")
+                .expect("MERGEMASTER_FRACTAL_FIXTURE must point to the pinned Fractal consumer"),
+        );
         let current = root.join(".fractal/required-lanes.json");
         let path = if current.symlink_metadata().is_ok() {
             current
