@@ -27,6 +27,26 @@
   },
   "cases": [
     {
+      "id": "carriage-return-gh-filenames",
+      "environment": {
+        "LINES": "evidence-decision v1 check=stage-lane decision=run outcome=no_note tree_of=head head_tree=used fork=false",
+        "BASE_SHA": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "REPOSITORY": "org/repo",
+        "PR_NUMBER": "7"
+      },
+      "summary_initial": "",
+      "executables": {
+        "git": "#!/bin/sh\ncase \"$1\" in\nls-tree) exit 0;;\nshow) printf %s '{\"lanes\":{\"stage-lane\":{\"definition_paths\":[\"scripts\"]}}}';;\nesac\n",
+        "gh": "#!/bin/sh\nprintf 'scripts\\r/file.rs\\r\\n'\n"
+      },
+      "expected": {
+        "stdout": "evidence-presign-notice v1 pr=7 listed=- passed_over=stage-lane:edits_its_own_lane\n",
+        "stderr": "",
+        "exit_code": 0,
+        "summary": "evidence-presign-notice v1 pr=7 listed=- passed_over=stage-lane:edits_its_own_lane\n"
+      }
+    },
+    {
       "id": "invalid-utf8-gh-filename",
       "environment": {
         "LINES": "evidence-decision v1 check=stage-lane decision=run outcome=no_note tree_of=head head_tree=used fork=false",

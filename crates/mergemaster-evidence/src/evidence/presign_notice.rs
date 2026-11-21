@@ -22,25 +22,33 @@ struct TextOutput {
 }
 
 fn decode_stream(bytes: Vec<u8>) -> Result<String, String> {
-    String::from_utf8(bytes).map_err(|error| {
-        let invalid = error.utf8_error();
-        let start = invalid.valid_up_to();
-        let byte = error.as_bytes()[start];
-        let reason = match invalid.error_len() {
-            None => "unexpected end of data",
-            Some(_) if !(0xc2..=0xf4).contains(&byte) => "invalid start byte",
-            Some(_) => "invalid continuation byte",
-        };
-        let length = invalid
-            .error_len()
-            .unwrap_or(error.as_bytes().len() - start);
-        let location = if length == 1 {
-            format!("byte 0x{byte:02x} in position {start}")
-        } else {
-            format!("bytes in position {start}-{}", start + length - 1)
-        };
-        format!("'utf-8' codec can't decode {location}: {reason}")
-    })
+    String::from_utf8(bytes)
+        .map_err(|error| {
+            let invalid = error.utf8_error();
+            let start = invalid.valid_up_to();
+            let byte = error.as_bytes()[start];
+            let reason = match invalid.error_len() {
+                None => "unexpected end of data",
+                Some(_) if !(0xc2..=0xf4).contains(&byte) => "invalid start byte",
+                Some(_) => "invalid continuation byte",
+            };
+            let length = invalid
+                .error_len()
+                .unwrap_or(error.as_bytes().len() - start);
+            let location = if length == 1 {
+                format!("byte 0x{byte:02x} in position {start}")
+            } else {
+                format!("bytes in position {start}-{}", start + length - 1)
+            };
+            format!("'utf-8' codec can't decode {location}: {reason}")
+        })
+        .map(|text| {
+            if text.contains('\r') {
+                text.replace("\r\n", "\n").replace('\r', "\n")
+            } else {
+                text
+            }
+        })
 }
 
 fn output(program: &str, args: &[&str]) -> Result<TextOutput, String> {

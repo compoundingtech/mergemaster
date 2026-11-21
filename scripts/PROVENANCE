@@ -124,7 +124,7 @@
 # streams using a deliberately public fixed test key and explicit home template;
 # oracle_corpus.py replays independently, and Rust compares both implementations.
 # Native notice migration: mergemaster evidence presign-notice replaces the
-# copied notice entrypoint and its Python self-test. The 21 independent CPython
+# copied notice entrypoint and its Python self-test. The 22 independent CPython
 # 3.14.7 recordings in tests/fixtures/oracle/presign-notice.json freeze complete
 # stdout/stderr/exit and summary contents, including append. oracle_corpus.py
 # replays each case against the pinned source and native executable with the
@@ -134,12 +134,16 @@
 # assertions, unreadable lanes/files, noise/placeholders and required lane names/
 # nonempty definition paths. Extra cases cover probe failure, missing BASE_SHA,
 # duplicate decisions, preferred layout, malformed selected JSON and strict UTF-8
-# decoding of both subprocess streams (invalid gh filenames and git stderr).
-# fractal-test-test still extracts the notice reader and asserts identical
-# real-Git layout selection, old-revision isolation, malformed selected config,
-# missing object and missing revision behavior; only its source is now the
-# independent pinned oracle, not a removed local module (mergemaster#401).
-# local-patch scripts/fractal-test-test decb42b9d442807c9601b473c190b3743b24c4c0 64512b587397413f98c5614c7745cc11f472b891
+# decoding and universal newlines of both subprocess streams (invalid gh
+# filenames, git stderr, and CR/CRLF in gh filenames).
+# Native notice real-Git layout precedence, old-revision isolation, malformed
+# selected config, missing object and missing revision assertions now live in
+# crates/mergemaster-evidence/tests/presign_notice.rs. They run the shipped native
+# command and compare pinned Python stdout/summary when oracle inputs are set.
+# fractal-test-test no longer loads the removed notice module or its oracle copy.
+# Its local patch remains necessary to relocate those assertions out of the
+# copied Python suite; the other readers' real-Git assertions remain unchanged.
+# local-patch scripts/fractal-test-test decb42b9d442807c9601b473c190b3743b24c4c0 6e09f301916a9bd0eb93a429bfd69adb9caee136
 # local-patch scripts/ci-signed-tree 77a560621f8182d2ca19f622782ff24c95e7d514 2bdd0922a31a6dad544bf6826666efeec68a3466
 # local-patch scripts/ci-signed-tree-test 91612975e7ae383ca5c55b94a19af20b0b1c7df2 9b1877c7407fe1128620fb94e376b66a7fcca8d2
 # Intentional local gate adoption: verification and project subprocesses use the
