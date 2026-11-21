@@ -6,6 +6,7 @@ use std::{
     collections::BTreeMap,
     ffi::{OsStr, OsString},
     io::{self, Write},
+    os::unix::ffi::OsStringExt,
     process::{Command, Output, Stdio},
     time::Duration,
 };
@@ -110,6 +111,7 @@ fn git_command(
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_NO_LAZY_FETCH", "1")
             .env("GIT_ALLOW_PROTOCOL", "https:ssh:file");
         command.args(["-c", "http.followRedirects=false"]);
     }
@@ -261,22 +263,102 @@ fn publication_url(remote: &str, authenticated: bool) -> Result<String> {
     Ok(trusted_url(&url, authenticated, caller_explicit)?)
 }
 
+#[derive(Debug)]
+enum PublicationObjectsError {
+    InvalidDirectory(std::path::PathBuf),
+    InvalidPackOrMissingObjects(String),
+    MissingHistory(String),
+    InvalidShallowBoundary,
+}
+
+impl std::fmt::Display for PublicationObjectsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidDirectory(path) => write!(
+                f,
+                "checkout object directory is not a directory: {}",
+                path.display()
+            ),
+            Self::InvalidPackOrMissingObjects(detail) => write!(
+                f,
+                "publication pack is invalid or required checkout objects are missing (automatic fetching is disabled): {detail}"
+            ),
+            Self::MissingHistory(detail) => write!(
+                f,
+                "publication requires complete checkout history (automatic fetching is disabled): {detail}"
+            ),
+            Self::InvalidShallowBoundary => {
+                f.write_str("checkout shallow boundary must contain only 40- or 64-hex object IDs")
+            }
+        }
+    }
+}
+
+impl std::error::Error for PublicationObjectsError {}
+
+fn alternate_path(objects: &std::path::Path) -> String {
+    use std::fmt::Write as _;
+    let mut path = String::with_capacity(objects.as_os_str().len() + 3);
+    path.push('"');
+    for byte in objects.as_os_str().as_encoded_bytes() {
+        match *byte {
+            b'"' | b'\\' => {
+                path.push('\\');
+                path.push(char::from(*byte));
+            }
+            0x20..=0x7e => path.push(char::from(*byte)),
+            _ => {
+                let _ = write!(path, "\\{byte:03o}");
+            }
+        }
+    }
+    path.push_str("\"\n");
+    path
+}
+
 fn publication_repository(
     directory: &std::path::Path,
     pack: &[u8],
+    objects: &std::path::Path,
     refs: &[(String, String)],
     environ: &Environment,
 ) -> Result<()> {
+    if !objects.is_absolute() || !objects.is_dir() {
+        return Err(PublicationObjectsError::InvalidDirectory(objects.to_owned()).into());
+    }
     let mut init = git_command(&["init", "--bare", "--template=", "."], environ, &[], true);
     init.current_dir(directory);
     let done = capture(&mut init, None)?;
     if !done.status.success() {
         bail!("initializing isolated publication repository failed");
     }
+    // Alternates expose content-addressed objects only, never repository config
+    // or hooks. Quote the path using Git's C-style alternate-path syntax.
+    std::fs::write(
+        directory.join("objects/info/alternates"),
+        alternate_path(objects),
+    )?;
+    match std::fs::read(objects.with_file_name("shallow")) {
+        Ok(shallow) => {
+            if !shallow.split_inclusive(|byte| *byte == b'\n').all(|line| {
+                let oid = line.strip_suffix(b"\n").unwrap_or(line);
+                matches!(oid.len(), 40 | 64) && oid.iter().all(u8::is_ascii_hexdigit)
+            }) {
+                return Err(PublicationObjectsError::InvalidShallowBoundary.into());
+            }
+            std::fs::write(directory.join("shallow"), shallow)?;
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
     let mut import = git_command(&["index-pack", "--strict", "--stdin"], environ, &[], true);
     import.current_dir(directory);
-    if !capture(&mut import, Some(pack))?.status.success() {
-        bail!("importing isolated publication pack failed");
+    let imported = capture(&mut import, Some(pack))?;
+    if !imported.status.success() {
+        return Err(PublicationObjectsError::InvalidPackOrMissingObjects(
+            String::from_utf8_lossy(&imported.stderr).trim().to_owned(),
+        )
+        .into());
     }
     for (name, oid) in refs {
         let mut update = git_command(&["update-ref", name, oid], environ, &[], true);
@@ -306,11 +388,20 @@ pub(super) fn push_refs(
                 ))
             })
             .collect::<Result<Vec<_>>>()?;
+        let mut common = git(
+            &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+            None,
+        )?
+        .stdout;
+        if common.last() == Some(&b'\n') {
+            common.pop();
+        }
+        let objects = std::path::PathBuf::from(OsString::from_vec(common)).join("objects");
         let environ = std::env::vars_os().collect();
         let repository = tempfile::Builder::new()
             .prefix("evidence-push-")
             .tempdir()?;
-        publication_repository(repository.path(), pack, &resolved, &environ)?;
+        publication_repository(repository.path(), pack, &objects, &resolved, &environ)?;
         let extra = token_environment(&secrets.token, &url);
         push_with(
             &url,
@@ -325,7 +416,13 @@ pub(super) fn push_refs(
             secrets,
         )
     })();
-    result.map_err(|error: anyhow::Error| anyhow::anyhow!("{}", secrets.text(&error.to_string())))
+    result.map_err(|error: anyhow::Error| {
+        let detail = error.to_string();
+        match secrets.text(&detail) {
+            std::borrow::Cow::Borrowed(_) => error,
+            std::borrow::Cow::Owned(redacted) => anyhow::anyhow!("{redacted}"),
+        }
+    })
 }
 
 fn push_with(
@@ -348,8 +445,33 @@ fn push_with(
         if done.status.success() {
             return Ok(());
         }
-        // Like Python's dict, preserve the first insertion order and the last reason.
+        let stderr = String::from_utf8_lossy(&done.stderr);
         let stdout = String::from_utf8_lossy(&done.stdout);
+        if [
+            "Could not read ",
+            "unable to read ",
+            "unable to find ",
+            "bad object ",
+            "Failed to traverse parents",
+            "did not receive expected object",
+            "missing necessary objects",
+            "missing blob ",
+            "missing tree ",
+            "missing commit ",
+            "unresolved deltas",
+            "shallow update not allowed",
+        ]
+        .iter()
+        .any(|message| stderr.contains(message) || stdout.contains(message))
+        {
+            return Err(PublicationObjectsError::MissingHistory(format!(
+                "{}\n{}",
+                diagnostic_tail(&done.stderr, secrets),
+                diagnostic_tail(&done.stdout, secrets),
+            ))
+            .into());
+        }
+        // Like Python's dict, preserve the first insertion order and the last reason.
         let mut refused = IndexMap::new();
         for line in stdout.split([
             '\n', '\r', '\u{b}', '\u{c}', '\u{1c}', '\u{1d}', '\u{1e}', '\u{85}', '\u{2028}',
@@ -676,6 +798,7 @@ mod tests {
         publication_repository(
             &isolated,
             &pack.stdout,
+            &repo.join(".git/objects"),
             &[("refs/tags/evidence/test".into(), oid.into())],
             &hostile_env,
         )
@@ -729,7 +852,171 @@ mod tests {
             &[],
         );
         assert_eq!(String::from_utf8(actual.stdout).unwrap().trim(), oid);
-        assert!(!isolated.join("objects/info/alternates").exists());
+        assert!(isolated.join("objects/info/alternates").is_file());
+    }
+
+    #[test]
+    fn shallow_porcelain_refusal_has_typed_redacted_history_detail() {
+        let error = push_with(
+            "/trusted/sink.git",
+            &["refs/notes/evidence/test".into()],
+            |_| {
+                Ok(output(
+                    false,
+                    "!\ta:a\t[remote rejected] (shallow update not allowed) secret-token\n",
+                    "Git transport refused secret-token",
+                ))
+            },
+            |_| panic!("shallow rejection must not retry"),
+            &mut Vec::new(),
+            &Redactor::new("secret-token".into()),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<PublicationObjectsError>(),
+            Some(PublicationObjectsError::MissingHistory(_))
+        ));
+        assert!(error.to_string().contains("shallow update not allowed"));
+        assert!(error.to_string().contains("Git transport refused ***"));
+        assert!(!error.to_string().contains("secret-token"));
+    }
+
+    #[test]
+    fn malformed_shallow_boundary_is_refused_before_import() {
+        let tmp = tempfile::tempdir().unwrap();
+        let common = tmp.path().join("source.git");
+        let objects = common.join("objects");
+        let isolated = tmp.path().join("isolated.git");
+        std::fs::create_dir_all(&objects).unwrap();
+        std::fs::create_dir(&isolated).unwrap();
+        std::fs::write(common.join("shallow"), b"not-an-object-id\n").unwrap();
+        let error = publication_repository(
+            &isolated,
+            b"",
+            &objects,
+            &[],
+            &std::env::vars_os().collect(),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<PublicationObjectsError>(),
+            Some(PublicationObjectsError::InvalidShallowBoundary)
+        ));
+    }
+
+    #[test]
+    fn missing_promisor_history_fails_closed_with_typed_publication_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("source.git");
+        let isolated = tmp.path().join("isolated.git");
+        std::fs::create_dir(&source).unwrap();
+        std::fs::create_dir(&isolated).unwrap();
+        let env: Environment = std::env::vars_os().collect();
+        run_in(
+            &source,
+            &env,
+            &["init", "--bare", "--template=", "."],
+            None,
+            &[],
+        );
+        run_in(&source, &env, &["config", "user.name", "Test"], None, &[]);
+        run_in(
+            &source,
+            &env,
+            &["config", "user.email", "test@example.invalid"],
+            None,
+            &[],
+        );
+        let tree = run_in(&source, &env, &["mktree"], Some(b""), &[]);
+        let tree = std::str::from_utf8(&tree.stdout).unwrap().trim();
+        let root = run_in(&source, &env, &["commit-tree", tree], Some(b"root\n"), &[]);
+        let root = std::str::from_utf8(&root.stdout).unwrap().trim();
+        let middle = run_in(
+            &source,
+            &env,
+            &["commit-tree", tree, "-p", root],
+            Some(b"middle\n"),
+            &[],
+        );
+        let middle = std::str::from_utf8(&middle.stdout).unwrap().trim();
+        let subject = run_in(
+            &source,
+            &env,
+            &["commit-tree", tree, "-p", middle],
+            Some(b"subject\n"),
+            &[],
+        );
+        let subject = std::str::from_utf8(&subject.stdout).unwrap().trim();
+        let record = run_in(
+            &source,
+            &env,
+            &["commit-tree", tree, "-p", subject],
+            Some(b"record\n"),
+            &[],
+        );
+        let record = std::str::from_utf8(&record.stdout).unwrap().trim();
+        let pack = run_in(
+            &source,
+            &env,
+            &["pack-objects", "--stdout"],
+            Some(format!("{record}\n{subject}\n{tree}\n").as_bytes()),
+            &[],
+        );
+        run_in(
+            &source,
+            &env,
+            &["config", "remote.origin.promisor", "true"],
+            None,
+            &[],
+        );
+        run_in(
+            &source,
+            &env,
+            &["config", "remote.origin.url", "ext::must-not-fetch"],
+            None,
+            &[],
+        );
+        std::fs::remove_file(source.join("objects").join(&root[..2]).join(&root[2..])).unwrap();
+        publication_repository(
+            &isolated,
+            &pack.stdout,
+            &source.join("objects"),
+            &[("refs/notes/evidence/test".into(), record.into())],
+            &env,
+        )
+        .unwrap();
+        let sink = tmp.path().join("sink.git");
+        run_in(
+            &source,
+            &env,
+            &["init", "--bare", "--template=", sink.to_str().unwrap()],
+            None,
+            &[],
+        );
+        let error = push_with(
+            sink.to_str().unwrap(),
+            &["refs/notes/evidence/test".into()],
+            |args| {
+                let mut command = git_command(args, &env, &[], true);
+                command.current_dir(&isolated);
+                capture(&mut command, None)
+            },
+            |_| panic!("missing history must not retry"),
+            &mut Vec::new(),
+            &Redactor::new(String::new()),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<PublicationObjectsError>(),
+            Some(PublicationObjectsError::MissingHistory(_))
+        ));
+        assert!(error.to_string().contains("automatic fetching is disabled"));
+        let command = git_command(&["push"], &env, &[], true);
+        assert!(
+            command
+                .get_envs()
+                .any(|(key, value)| key == "GIT_NO_LAZY_FETCH" && value == Some(OsStr::new("1")))
+        );
     }
 
     #[test]
