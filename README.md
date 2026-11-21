@@ -721,8 +721,9 @@ for verification, helpers and crate keys; BASE still supplies policy, keys,
 lanes and inputs. Only the measured binary digest binds binary identity to BASE
 `.mergemaster/tool-pin.json` (repository and compiled release version must also
 match); the pin's revision is provenance and is not checked against the binary.
-Nothing in this repository verifies the #405 release attestation: the provisioning
-workflow does that before the binary reaches `MERGEMASTER_BIN`.
+The generated workflow's `provisionEvidenceTool` (`genie/evidence.ts`) checks
+the release binary against BASE's pinned SHA-256 and runs `gh attestation verify`
+before setting `MERGEMASTER_BIN`.
 The gate and binary inherit the workflow's Git environment (`GIT_DIR` and similar),
 like every other gate Git call; this is trusted workflow configuration, not
 candidate input. The decision line's `verifier_sha256` is the validated binary

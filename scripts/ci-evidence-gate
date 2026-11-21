@@ -26,6 +26,8 @@ agent built and signed; GitHub attaches the required checks to that sha), but on
 `choose_tree` holds; otherwise it asks about the merge tree, as before. A merge_group run always uses its own tree.
 """
 import hashlib
+import importlib.machinery
+import importlib.util
 import json
 import os
 import re
@@ -112,7 +114,7 @@ SIGNED_ONLY = '.st/evidence-signed-only.json'
 SIGN = 'scripts/st-test --all --push origin'
 MISSING = ('no_record', 'stale_tree', 'wrong_check', 'crate_uncovered')  # crate_uncovered: some crate has no note for its key
 UNAVAILABLE = ('error', 'no_policy')
-OID = re.compile(r'^(?:[0-9a-f]{40}|[0-9a-f]{64})$')
+OID = re.compile(r'^(?:[0-9a-f]{40}|[0-9a-f]{64})\Z')
 TOKEN = re.compile(r'^[A-Za-z0-9._:/@+=-]+$')
 
 

@@ -207,8 +207,36 @@ class BaseReadPermissions(unittest.TestCase):
         closure = load('gate_test_lane_closure', 'scripts/lane-definition-closure')
         self.assertEqual(closure.protected_files(closure.Repo(ROOT)), set(gate.PROTECTED) - set(gate.BASE_READ))
 
+    def test_choose_tree_loads_real_base_signing_module_and_uses_head(self):
+        fixture = Fixture()
+        self.addCleanup(fixture.tmp.cleanup)
+        fixture.git('config', 'core.hooksPath', '/dev/null')
+        fixture.git('config', 'commit.gpgsign', 'false')
+        (fixture.repo / 'scripts').mkdir()
+        shutil.copy(ROOT / 'scripts/ci-evidence-signing', fixture.repo / 'scripts/ci-evidence-signing')
+        (fixture.repo / '.st').mkdir()
+        (fixture.repo / '.st/evidence-authors.json').write_text(json.dumps({
+            'logins': ['alice'], 'emails': ['fixture@example.invalid'], 'noreply_logins': [],
+            'committers_also': []}))
+        fixture.git('add', '-A')
+        fixture.git('commit', '-q', '-m', 'accepted author policy')
+        base = fixture.git('rev-parse', 'HEAD')
+        head, _ = fixture.commit('head')
+        context = gate.context_from(dict(
+            CHECK='demo', REPOSITORY='org/repo', HEAD_REPOSITORY='org/repo',
+            EVENT_NAME='pull_request', BASE_SHA=base, PR_HEAD_SHA=head,
+            PR_USER='alice', ACTOR='alice', TRIGGERING_ACTOR='alice', PR_DRAFT='false'))
+        previous = os.getcwd()
+        try:
+            os.chdir(fixture.repo)
+            revision, edits = gate.choose_tree(context)
+        finally:
+            os.chdir(previous)
+        self.assertEqual((revision, edits), (head, []))
+        self.assertEqual((context['tree_of'], context['head_tree']), ('head', 'used'))
+
     def test_observe_refuses_symbolic_base_without_calling_the_binary(self):
-        for base in ('HEAD', 'main'):
+        for base in ('HEAD', 'main', 'a' * 40 + '\n', 'b' * 64 + '\n'):
             with self.subTest(base=base), mock.patch.object(gate, 'run') as run:
                 context = {'base': base, 'check': 'demo', 'repository': 'org/repo'}
                 self.assertEqual(gate.observe(context),
@@ -216,7 +244,7 @@ class BaseReadPermissions(unittest.TestCase):
                 run.assert_not_called()
 
     def test_ci_inputs_refuses_symbolic_base_without_calling_the_binary(self):
-        for base in ('HEAD', 'main'):
+        for base in ('HEAD', 'main', 'a' * 40 + '\n', 'b' * 64 + '\n'):
             with self.subTest(base=base), mock.patch.object(gate, 'run') as run:
                 self.assertFalse(gate.ci_inputs_kept('demo', 'a' * 40, base, 'b' * 40))
                 run.assert_not_called()

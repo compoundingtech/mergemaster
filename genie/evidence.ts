@@ -42,6 +42,7 @@ export const evidenceGateJobs = ({ checks: evidenceGateChecks, runInputs: eviden
         CHECK: check,
         REPOSITORY: '${{ github.repository }}',
         BASE_SHA: "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || (github.event_name == 'push' && github.event.before) || '' }}",
+        GH_TOKEN: '${{ github.token }}',
         HEAD_SHA: '${{ github.sha }}',
         HEAD_REPOSITORY: "${{ github.event.pull_request.head.repo.full_name || ((github.event_name == 'merge_group' || github.event_name == 'push') && github.repository) || '' }}",
         EVENT_NAME: '${{ github.event_name }}',
@@ -63,7 +64,7 @@ export const evidenceGateJobs = ({ checks: evidenceGateChecks, runInputs: eviden
       // merged the head into, which the gate judges. The payload's base.sha is not: a reopen or ready_for_review keeps the one from
       // the last open or push, and on 2026-10-28 a reopen ran a gate from before .st/evidence-signed-only.json existed (#4144). The
       // payload's base goes to the gate as EVENT_BASE_SHA, which refuses a signed-only opener's run when it is not in that history.
-      run: `gate_base="$BASE_SHA"; if [ "$EVENT_NAME" = pull_request ]; then set -- $(git cat-file -p HEAD | sed -n 's/^parent //p'); if [ "$#" = 2 ] && [ "$2" = "$PR_HEAD_SHA" ]; then gate_base=$1; fi; fi; export EVENT_BASE_SHA="$BASE_SHA" BASE_SHA="$gate_base"; git fetch --no-tags --depth=1 -q origin "$BASE_SHA" && git show "$BASE_SHA:scripts/ci-evidence-gate" > "$RUNNER_TEMP/ci-evidence-gate" && python3 "$RUNNER_TEMP/ci-evidence-gate" || { printf 'outcome=unavailable\\nskip=false\\nrecord=-\\n' >> "$GITHUB_OUTPUT"; echo "evidence-decision v1 check=$CHECK decision=run outcome=unavailable reason=no-gate-at-base run=$RUN_ID"; }`,
+      run: `${provisionEvidenceTool}\ngate_base="$BASE_SHA"; if [ "$EVENT_NAME" = pull_request ]; then set -- $(git cat-file -p HEAD | sed -n 's/^parent //p'); if [ "$#" = 2 ] && [ "$2" = "$PR_HEAD_SHA" ]; then gate_base=$1; fi; fi; export EVENT_BASE_SHA="$BASE_SHA" BASE_SHA="$gate_base"; git fetch --no-tags --depth=1 -q origin "$BASE_SHA" && provision_evidence_tool && git show "$BASE_SHA:scripts/ci-evidence-gate" > "$RUNNER_TEMP/ci-evidence-gate" && MERGEMASTER_BIN="$MERGEMASTER" python3 "$RUNNER_TEMP/ci-evidence-gate" || { printf 'outcome=unavailable\\nskip=false\\nrecord=-\\n' >> "$GITHUB_OUTPUT"; echo "evidence-decision v1 check=$CHECK decision=run outcome=unavailable reason=no-gate-at-base run=$RUN_ID"; }`,
     },
     ...evidenceGateOutcomes.map(([outcome, name]) => ({
       name,
@@ -430,13 +431,15 @@ export const signedTreeJob = (actions: Actions): WorkflowObject => ({
         {
           name: 'Would this pull request be rejected for lacking a signed note?',
           env: {
+            BASE_SHA: '${{ github.event.pull_request.base.sha }}',
+            GH_TOKEN: '${{ github.token }}',
             REPOSITORY: '${{ github.repository }}',
             PR_NUMBER: '${{ github.event.pull_request.number }}',
             PR_HEAD_SHA: '${{ github.event.pull_request.head.sha }}',
             PR_HEAD_REPOSITORY: '${{ github.event.pull_request.head.repo.full_name }}',
             PR_DRAFT: '${{ github.event.pull_request.draft }}',
           },
-          run: 'python3 scripts/ci-signed-tree',
+          run: `${provisionEvidenceTool}\ngit fetch --no-tags --depth=1 -q origin "$BASE_SHA" && provision_evidence_tool && MERGEMASTER_BIN="$MERGEMASTER" python3 scripts/ci-signed-tree`,
         },
       ],
     })

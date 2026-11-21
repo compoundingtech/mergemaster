@@ -151,6 +151,34 @@ def shadow_migration(actual, expected, notice_script):
     return script
 
 
+def verifier_job_migration(actual, expected, notice_script, gate=False):
+    actual_job = yaml.load(actual, Loader=yaml.BaseLoader)
+    expected_job = yaml.load(expected, Loader=yaml.BaseLoader)
+    key, = actual_job
+    assert list(expected_job) == [key]
+    actual_step = actual_job[key]['steps'][1]
+    expected_step = expected_job[key]['steps'][1]
+    script = actual_step.pop('run').rstrip('\n')
+    old_script = expected_step.pop('run').rstrip('\n')
+    assert actual_step['env'].pop('GH_TOKEN') == '${{ github.token }}'
+    if not gate:
+        assert actual_step['env'].pop('BASE_SHA') == '${{ github.event.pull_request.base.sha }}'
+    assert actual_job == expected_job, 'Verifier job changed beyond provisioning'
+    provisioning = notice_script.split('\ngit fetch', 1)[0]
+    assert script.startswith(provisioning + '\n')
+    body = script[len(provisioning) + 1:]
+    if gate:
+        expected_body = old_script.replace('&& git show "$BASE_SHA:scripts/ci-evidence-gate"',
+                                          '&& provision_evidence_tool && git show "$BASE_SHA:scripts/ci-evidence-gate"')
+        expected_body = expected_body.replace('&& python3 "$RUNNER_TEMP/ci-evidence-gate"',
+                                              '&& MERGEMASTER_BIN="$MERGEMASTER" python3 "$RUNNER_TEMP/ci-evidence-gate"')
+    else:
+        assert old_script == 'python3 scripts/ci-signed-tree'
+        expected_body = ('git fetch --no-tags --depth=1 -q origin "$BASE_SHA" && provision_evidence_tool '
+                         '&& MERGEMASTER_BIN="$MERGEMASTER" python3 scripts/ci-signed-tree')
+    assert body == expected_body, 'Verifier invocation/base selection/fallback changed'
+
+
 def tool_provisioning(script, scratch, command):
     root = Path(scratch) / f'{command}-provisioning'
     root.mkdir()
@@ -331,10 +359,19 @@ with tempfile.TemporaryDirectory(prefix='workflow-adapters-', dir=ROOT / 'tmp') 
             source_script = source_migration(actual_blocks['evidence-source'], baseline_blocks['evidence-source'], notice_script)
             tool_provisioning(source_script, scratch, 'source')
             shadow_migration(actual_blocks['evidence-note-linux-gate'], baseline_blocks['evidence-note-linux-gate'], notice_script)
+            gate_keys = [key for key in actual_blocks if key.startswith('evidence-gate-')]
+            assert gate_keys
+            for key in gate_keys:
+                verifier_job_migration(actual_blocks[key], baseline_blocks[key], notice_script, gate=True)
             comparable = actual.decode()
-            for key in (notice_key, 'evidence-source', 'evidence-note-linux-gate'):
+            for key in (notice_key, 'evidence-source', 'evidence-note-linux-gate', *gate_keys):
                 comparable = comparable.replace(actual_blocks[key], baseline_blocks[key], 1)
             comparable = comparable.encode()
+        elif name == 'signed-tree':
+            actual_block = job_blocks(actual.decode())['signed-tree']
+            baseline_block = job_blocks(baseline[name].decode())['signed-tree']
+            verifier_job_migration(actual_block, baseline_block, notice_script)
+            comparable = actual.decode().replace(actual_block, baseline_block, 1).encode()
         assert comparable == baseline[name], ''.join(difflib.unified_diff(
             baseline[name].decode().splitlines(keepends=True),
             comparable.decode().splitlines(keepends=True),
@@ -357,10 +394,18 @@ with tempfile.TemporaryDirectory(prefix='workflow-adapters-', dir=ROOT / 'tmp') 
                 if key == 'evidence-note-linux-gate':
                     shadow_migration(actual_jobs[key], expected_jobs[key], notice_script)
                     continue
+                if key.startswith('evidence-gate-'):
+                    verifier_job_migration(actual_jobs[key], expected_jobs[key], notice_script, gate=True)
+                    continue
                 assert actual_jobs[key].encode() == expected_jobs[key].encode(), ''.join(
                     difflib.unified_diff(expected_jobs[key].splitlines(keepends=True),
                                          actual_jobs[key].splitlines(keepends=True),
                                          fromfile=f'pinned/{name}/{key}', tofile=f'rendered/{name}/{key}'))
+        elif name == 'signed-tree':
+            actual_block = job_blocks(actual.decode())['signed-tree']
+            expected_block = job_blocks(expected.decode())['signed-tree']
+            verifier_job_migration(actual_block, expected_block, notice_script)
+            assert actual.decode().replace(actual_block, expected_block, 1).encode() == expected
         else:
             assert actual == expected, ''.join(difflib.unified_diff(
                 expected.decode().splitlines(keepends=True), actual.decode().splitlines(keepends=True),
