@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## [0.12.0] - 2026-11-21
 
+- Add a BASE-only `.mergemaster/producers.json` manifest, the report-only `producer_digest` decision field (`listed` / `unlisted` / `no_manifest` / `not_applicable`), `mergemaster producers measure`, and the reusable `producers.yml` workflow. (#416, #417)
 - Refuse symlinked Nix output roots, `bin` directories, executable files, and release assets during producer measurement; hash only regular files opened through verified descriptors. Require the producer workflow's expected OIDC audience and clarify top-level-only rebuild evidence and input-only manifest merges.
 - Rust port wave 2: remove `scripts/evidence-verify`, `scripts/evidence-verify-test` and `tests/fixtures/fractal/scripts/rust-test-keys`; callers use the pinned `mergemaster` verifier/helpers and crate keys. The gate validates the binary against BASE `.mergemaster/tool-pin.json`, retaining BASE policy, keys, lanes and inputs. An accepted base without `.mergemaster/tool-pin.json`, or whose pin does not match the running binary, now makes the gate report `unavailable` (CI runs in full); the base's `scripts/evidence-verify` no longer stands in for it. Documented divergences: `rust-test-keys --verifier` is refused; traceback frames are omitted; evidence-log emits a refusal instead of a traceback; GC always computes keys when accepted inputs exist; helper JSON depth is bounded at 256 containers.
 - Fixed: display flip-readiness window timestamps in UTC when suffixed with `Z`, correcting the inherited Python offset-wall-clock mislabel without changing readiness arithmetic.
