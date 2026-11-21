@@ -6,3 +6,8 @@
 /repos/
 /iac/node_modules/
 /iac/.alchemy/
+
+# Shared Buck2 cells are materialized by the Nix devShell, never vendored.
+/.buck2/
+/buck-out/
+/.buckconfig.local

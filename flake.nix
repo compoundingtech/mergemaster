@@ -190,8 +190,42 @@
         let
           pkgs = import nixpkgs { inherit system; };
           oraclePython = oraclePythonFor pkgs;
+          effectUtilsPackages = effect-utils.packages.${system};
+          # Same consumer-root renderer and cell materialization as Fractal
+          # 2b0246c95a28f3c4f43b4d6fd87ad50e8e5d05cd:nix/web-shell.nix.
+          # flake.lock pins the rules, capabilities and Buck2 to one effect-utils revision.
+          buckRoot = effect-utils.lib.mkConsumerBuckRoot {
+            inherit pkgs;
+            rules = effectUtilsPackages.buck2-rules;
+            capabilities = effectUtilsPackages.buck2-capabilities;
+            cellName = "mergemaster";
+            projectIgnore = [
+              "**/__pycache__" "**/dist" "**/node_modules" "**/target"
+              ".devenv" ".git" "buck-out" "node_modules" "repos" "target" "tmp"
+            ];
+          };
+          buckShell = {
+            packages = [ pkgs.watchman effectUtilsPackages.buck2 ];
+            BUCK2_BIN = "${effectUtilsPackages.buck2}/bin/buck2";
+            MERGEMASTER_BUCK_ROOT = "${buckRoot}";
+            shellHook = ''
+              # Consumer files come from the shared renderer, not a second configuration.
+              for file in .buckconfig BUCK buck2/toolchains/BUCK .watchmanconfig; do
+                if ! ${pkgs.diffutils}/bin/cmp "$file" "${buckRoot}/$file"; then
+                  echo "Buck2 consumer file differs from pinned mkConsumerBuckRoot: $file" >&2
+                  return 1
+                fi
+              done
+              mkdir -p .buck2
+              ln -sfn ${buckRoot}/.buck2/rules .buck2/rules
+              ln -sfn ${buckRoot}/.buck2/capabilities .buck2/capabilities
+            '';
+          };
         in { default = pkgs.mkShell {
-          packages = [ pkgs.cargo pkgs.rustc pkgs.rustfmt pkgs.clippy oraclePython ] ++ scriptInputs pkgs;
+          packages = [
+            pkgs.cargo pkgs.rustc pkgs.rustfmt pkgs.clippy oraclePython
+          ] ++ buckShell.packages ++ scriptInputs pkgs;
+          inherit (buckShell) BUCK2_BIN MERGEMASTER_BUCK_ROOT shellHook;
           MERGEMASTER_ORACLE_PYTHON = "${oraclePython}/bin/python3.14";
           MERGEMASTER_PYTHON_KEYS_ORACLE = "${python-keys-oracle}";
           # Copied script tests execute the local Rust-backed evidence gate.
@@ -201,6 +235,9 @@
           MERGEMASTER_FRACTAL_FIXTURE = "${fractal-fixture}";
           MERGEMASTER_PYTHON_ORACLE = "${python-oracle}";
           MERGEMASTER_PYTHON_PARITY_ORACLE = "${python-oracle-parity}";
-        }; });
+        };
+          # Resolving Buck2's toolchain must not first build the Cargo application.
+          buck2 = pkgs.mkShell buckShell;
+        });
     };
 }
