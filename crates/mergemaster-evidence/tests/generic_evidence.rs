@@ -791,7 +791,7 @@ fn postconditions_and_signing_or_publication_fail_closed() {
         };
         let f = Fixture::new("required_evidence", script);
         let signer = match case {
-            "signer_failure" => Some(json!(["/bin/false"])),
+            "signer_failure" => Some(json!([f.runtime, "-c", "cat >/dev/null; exit 1"])),
             "invalid_response" => Some(json!([f.runtime, "-c", "cat >/dev/null; printf '{}' "])),
             _ => None,
         };
