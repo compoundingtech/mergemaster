@@ -237,9 +237,14 @@ fn policy_metadata_and_consumed_truthiness_use_lossless_json_str_input() {
             "{value}"
         );
         assert_eq!(policy::checks(&source).unwrap()["web"]["enforce"], false);
-        let source = format!(
-            "{{\"metadata\":{value},\"checks\":{{\"fractal-web\":{{\"enforce\":false,\"kinds\":{{\"wrapper\":{{\"input_order\":{{\"kit_inputs\":[\"true\",\"false\"]}},\"shard_inputs\":{value}}}}}}}}}}"
-        );
+        let source = [
+            "{\"metadata\":",
+            value,
+            ",\"checks\":{\"fractal-web\":{\"enforce\":false,\"kinds\":{\"wrapper\":{\"input_order\":{\"kit_inputs\":[\"true\",\"false\"]},\"shard_inputs\":",
+            value,
+            "}}}}}",
+        ]
+        .concat();
         let entries = policy::checks(&source).unwrap();
         let actual = preconditions(
             json!({"why_not":[],"ready":true}),

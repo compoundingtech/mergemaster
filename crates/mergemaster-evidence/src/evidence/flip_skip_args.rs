@@ -5,10 +5,6 @@ use super::super::{
 };
 use clap::Parser;
 
-#[cfg(test)]
-#[path = "../pinned_python.rs"]
-mod pinned_python;
-
 const fn option(
     long: &'static str,
     metavar: Option<&'static str>,
@@ -238,7 +234,7 @@ print(json.dumps(vars(args), ensure_ascii=True))
         let source = PathBuf::from(std::env::var_os("MERGEMASTER_PYTHON_ORACLE").unwrap())
             .join("scripts")
             .join(parser.program);
-        let output = pinned_python::command()
+        let output = crate::pinned_python::command()
             .args(["-c", ORACLE])
             .arg(source)
             .args(args)
