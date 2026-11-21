@@ -4,8 +4,15 @@
 # Repository-owned scripts/merge-pr is not copied from Fractal and has no legacy
 # oracle counterpart. It is explicitly exempt from the byte/mode oracle guard;
 # tests/test-merge-pr.py owns its behavioral regression coverage.
-# Wave 1 SLO removal: scripts/ci-evidence-slo and scripts/ci-evidence-slo-test
-# are tombstoned in tests/python-removals.json. Native entrypoint:
+# Wave 1 SLO removal.
+# Review parity fixes: SLO reuses legacy_verify::statement's Python-compatible
+# ISO parser, preserving naive intervals and fractional timezone offsets.
+# Intended divergence: mixed naive/aware bounds exit 1 with the same TypeError
+# message but omit Python's uncaught-exception traceback; that frozen case alone
+# compares exit/stdout/log calls and the stderr message substring.
+# Log capture deadline/spawn/read errors propagate with Python-style exception
+# diagnostics; only a completed nonzero gh exit is tolerated as an empty log.
+# scripts/ci-evidence-slo and its self-test are tombstoned in tests/python-removals.json. Native entrypoint:
 # mergemaster evidence slo; all former assertions: crates/mergemaster-evidence/tests/slo.rs.
 # tests/fixtures/oracle/slo.json freezes raw CLI bytes, exit codes, API inputs and
 # log-download order against immutable oracle blob 8009b173d74522847dd27f6c77091faf6756e9f5

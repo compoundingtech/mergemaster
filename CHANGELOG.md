@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Port evidence-gate SLO counters to `mergemaster evidence slo`; remove the Python command/self-test, preserve their assertions in Rust integration tests, and replay frozen CLI/API observations against the pinned Python oracle.
+- Preserve Python-compatible SLO ISO timestamp forms and naive intervals; fail SLO reports on log-capture deadlines or I/O errors instead of silently attributing unknown producers.
 - Rust port wave 1: remove the Python keygen (`scripts/evidence-keygen`, its self-test and `tests/test-native-keygen.py`); `mergemaster evidence keygen` owns every former assertion, with frozen recordings compared against the pinned Python oracle.
 - merge-pr: match personal names case-insensitively and print actionable async-result recovery commands with a verification-only mode for late merges.
 - Enforce the corpus-wide 256 KiB raw-stdout ceiling; preserve larger argparse outputs with verified input recipes/result identities and raw stderr/exit codes.

@@ -93,7 +93,10 @@ def replay_slo(interpreter):
                                       env=environment, capture_output=True)
                 assert done.returncode == case["exit_code"], (case["id"], command, done.stderr)
                 assert done.stdout == case["stdout"].encode(), (case["id"], command, "stdout")
-                assert done.stderr == case["stderr"].encode(), (case["id"], command, "stderr")
+                if "stderr_contains" in case:
+                    assert case["stderr_contains"].encode() in done.stderr, (case["id"], command, "stderr")
+                else:
+                    assert done.stderr == case["stderr"].encode(), (case["id"], command, "stderr")
                 calls = [int(line) for line in (root / "calls").read_text().splitlines()]
                 assert calls == case["logs"], (case["id"], command, calls)
     print(f"Replayed {len(fixture['cases'])} frozen SLO cases against Python and Rust")

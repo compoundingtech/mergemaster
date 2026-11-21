@@ -1,5 +1,5 @@
 //! Read-only evidence-gate SLO counters, compatible with the pinned ci-evidence-slo oracle.
-use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, SecondsFormat, Utc};
+use chrono::{DateTime, SecondsFormat, Utc};
 use indexmap::IndexMap;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, fmt::Write, process::Command, time::Duration};
@@ -33,40 +33,61 @@ fn argument_error(message: &str) -> Exit {
     Exit::error(2, format!("{USAGE}ci-evidence-slo: error: {message}\n"))
 }
 
-fn parse_time(text: &str) -> Option<DateTime<FixedOffset>> {
-    DateTime::parse_from_rfc3339(&text.replace('Z', "+00:00"))
-        .ok()
-        .or_else(|| {
-            let naive = NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f")
-                .ok()
-                .or_else(|| NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S%.f").ok())
-                .or_else(|| {
-                    NaiveDate::parse_from_str(text, "%Y-%m-%d")
-                        .ok()?
-                        .and_hms_opt(0, 0, 0)
-                })?;
-            Some(naive.and_utc().fixed_offset())
-        })
+#[derive(Clone, Copy)]
+struct Time {
+    local: DateTime<Utc>,
+    offset: Option<i64>,
 }
-fn iso(time: DateTime<FixedOffset>, naive: bool) -> String {
-    let text = time.to_rfc3339_opts(
-        if time.timestamp_subsec_micros() == 0 {
+fn parse_time(text: &str) -> Option<Time> {
+    use super::legacy_verify::statement::{zoned_time_components, zoned_time_micros};
+    let mut points: Vec<_> = text.chars().map(u32::from).collect();
+    if let Some((utc, local)) = zoned_time_components(&points) {
+        return Some(Time {
+            local: DateTime::from_timestamp_micros(local)?,
+            offset: Some(local - utc),
+        });
+    }
+    // fromisoformat also accepts naive date/time and date-only values. Use the
+    // same clock/date parser with a synthetic zero offset, retaining naivety.
+    points.extend("+00:00".chars().map(u32::from));
+    let local = zoned_time_micros(&points).or_else(|| {
+        points.truncate(text.chars().count());
+        points.extend("T00:00+00:00".chars().map(u32::from));
+        zoned_time_micros(&points)
+    })?;
+    Some(Time {
+        local: DateTime::from_timestamp_micros(local)?,
+        offset: None,
+    })
+}
+fn iso(time: Time) -> String {
+    let mut text = time.local.to_rfc3339_opts(
+        if time.local.timestamp_subsec_micros() == 0 {
             SecondsFormat::Secs
         } else {
             SecondsFormat::Micros
         },
-        false,
+        true,
     );
-    if naive {
-        text[..text.len() - 6].to_owned()
-    } else {
-        text
+    let _ = text.pop(); // The local projection's synthetic UTC suffix is not its timezone.
+    if let Some(offset) = time.offset {
+        let magnitude = offset.abs();
+        let seconds = magnitude / 1_000_000;
+        let _ = write!(
+            text,
+            "{}{:02}:{:02}",
+            if offset < 0 { '-' } else { '+' },
+            seconds / 3600,
+            seconds / 60 % 60
+        );
+        if seconds % 60 != 0 || magnitude % 1_000_000 != 0 {
+            let _ = write!(text, ":{:02}", seconds % 60);
+            if magnitude % 1_000_000 != 0 {
+                let _ = write!(text, ".{:06}", magnitude % 1_000_000);
+            }
+        }
     }
-}
-fn naive(text: Option<&str>) -> bool {
-    text.is_some_and(|text| {
-        !text.contains('Z') && !text.get(10..).is_some_and(|tail| tail.contains(['+', '-']))
-    })
+    text
 }
 
 /// Keep argparse diagnostics at this compatibility boundary; the rest of the CLI uses clap.
@@ -178,29 +199,49 @@ pub fn run(argv: &[String]) -> Exit {
     }
     let until = match values.get("--until") {
         Some(value) => parse_time(value),
-        None => Some(Utc::now().fixed_offset()),
+        None => Some(Time {
+            local: Utc::now(),
+            offset: Some(0),
+        }),
     };
     let Some(until) = until else {
         return Exit::error(2, "bad --since or --until\n");
     };
     let since = match values.get("--since") {
         Some(value) => parse_time(value),
-        None => until.checked_sub_signed(chrono::Duration::microseconds(
-            (hours * 3_600_000_000.0).round_ties_even() as i64,
-        )),
+        None => until
+            .local
+            .checked_sub_signed(chrono::Duration::microseconds(
+                (hours * 3_600_000_000.0).round_ties_even() as i64,
+            ))
+            .map(|local| Time {
+                local,
+                offset: until.offset,
+            }),
     };
     let Some(since) = since else {
         return Exit::error(2, "bad --since or --until\n");
     };
-    if since >= until {
+    if since.offset.is_some() != until.offset.is_some() {
+        return Exit::error(
+            1,
+            "TypeError: can't compare offset-naive and offset-aware datetimes\n",
+        );
+    }
+    // Python compares equal-tzinfo datetimes in local time, others in UTC.
+    let comparable = |time: Time| {
+        time.local.timestamp_micros()
+            - if since.offset == until.offset {
+                0
+            } else {
+                time.offset.unwrap_or(0)
+            }
+    };
+    if comparable(since) >= comparable(until) {
         return Exit::error(2, "--since must be before --until\n");
     }
-    let since_text = iso(
-        since,
-        naive(values.get("--since").copied())
-            || (!values.contains_key("--since") && naive(values.get("--until").copied())),
-    );
-    let until_text = iso(until, naive(values.get("--until").copied()));
+    let since_text = iso(since);
+    let until_text = iso(until);
     match collect(repository, since, until, max_logs) {
         Ok(mut report) => {
             report["interval"] = json!({"since": since_text, "until": until_text});
@@ -230,7 +271,7 @@ fn request(path: &str, paginate: Option<&str>) -> Result<Value, String> {
     }
     let done =
         crate::gate::git::deadline::GitChild::capture(&mut command, None, Duration::from_secs(300))
-            .map_err(|error| format!("RuntimeError: {error}"))?;
+            .map_err(|error| capture_error(&command, Duration::from_secs(300), &error))?;
     if !done.status.success() {
         return Err(format!(
             "RuntimeError: gh api {path}: {}",
@@ -276,18 +317,74 @@ fn strip_ansi(text: &str) -> String {
     out.push_str(rest);
     out
 }
-fn log(job: &Value, repository: &str) -> String {
-    let mut command = Command::new("gh");
+fn log(job: &Value, repository: &str) -> Result<String, String> {
+    log_with(
+        std::ffi::OsStr::new("gh"),
+        job,
+        repository,
+        Duration::from_secs(300),
+    )
+}
+fn log_with(
+    program: &std::ffi::OsStr,
+    job: &Value,
+    repository: &str,
+    timeout: Duration,
+) -> Result<String, String> {
+    let mut command = Command::new(program);
     command.args([
         "api",
         "--allow-escape-sequences",
         &format!("repos/{repository}/actions/jobs/{}/logs", job["id"]),
     ]);
-    crate::gate::git::deadline::GitChild::capture(&mut command, None, Duration::from_secs(300))
-        .ok()
-        .filter(|done| done.status.success())
-        .map(|done| strip_ansi(&String::from_utf8_lossy(&done.stdout)))
-        .unwrap_or_default()
+    let done = crate::gate::git::deadline::GitChild::capture(&mut command, None, timeout)
+        .map_err(|error| capture_error(&command, timeout, &error))?;
+    Ok(if done.status.success() {
+        strip_ansi(&String::from_utf8_lossy(&done.stdout))
+    } else {
+        String::new()
+    })
+}
+fn capture_error(command: &Command, timeout: Duration, error: &std::io::Error) -> String {
+    if error.kind() == std::io::ErrorKind::TimedOut {
+        let mut argv = String::from("[");
+        for (index, arg) in std::iter::once(command.get_program())
+            .chain(command.get_args())
+            .enumerate()
+        {
+            if index > 0 {
+                argv.push_str(", ");
+            }
+            let _ = write!(
+                argv,
+                "{}",
+                super::legacy_verify::python_repr::Repr(
+                    super::legacy_verify::value_inputs::TextRef::Str(&arg.to_string_lossy())
+                )
+            );
+        }
+        argv.push(']');
+        return format!(
+            "TimeoutExpired: Command '{argv}' timed out after {} seconds",
+            timeout.as_secs_f64()
+        );
+    }
+    let class = match error.kind() {
+        std::io::ErrorKind::NotFound => "FileNotFoundError",
+        std::io::ErrorKind::PermissionDenied => "PermissionError",
+        _ => "OSError",
+    };
+    match error.raw_os_error() {
+        Some(errno) => {
+            let description = error.to_string();
+            let description = description
+                .split(" (os error")
+                .next()
+                .unwrap_or(&description);
+            format!("{class}: [Errno {errno}] {description}: 'gh'")
+        }
+        None => format!("{class}: {error}"),
+    }
 }
 fn fields(text: &str) -> BTreeMap<&str, &str> {
     for line in text.split('\n') {
@@ -312,17 +409,12 @@ struct Counts {
 fn increment(map: &mut IndexMap<String, u64>, key: String) {
     *map.entry(key).or_default() += 1;
 }
-fn collect(
-    repository: &str,
-    since: DateTime<FixedOffset>,
-    until: DateTime<FixedOffset>,
-    max_logs: i128,
-) -> Result<Value, String> {
+fn collect(repository: &str, since: Time, until: Time, max_logs: i128) -> Result<Value, String> {
     let runs = request(
         &format!(
             "repos/{repository}/actions/workflows/fleet.yml/runs?per_page=100&created={}..{}",
-            since.format("%Y-%m-%dT%H:%M:%SZ"),
-            until.format("%Y-%m-%dT%H:%M:%SZ")
+            since.local.format("%Y-%m-%dT%H:%M:%SZ"),
+            until.local.format("%Y-%m-%dT%H:%M:%SZ")
         ),
         Some("workflow_runs"),
     )?;
@@ -406,7 +498,7 @@ fn collect(
             }
             if matches!(outcome, "satisfied" | "rejected" | "degraded") && logs_read < max_logs {
                 logs_read += 1;
-                let text = log(job, repository);
+                let text = log(job, repository)?;
                 let fields = fields(&text);
                 if outcome == "satisfied" {
                     increment(
@@ -567,4 +659,32 @@ fn text_report(report: &Value) -> String {
         );
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn log_capture_deadline_is_an_error_not_an_empty_log() {
+        let root = tempfile::tempdir().unwrap();
+        let gh = root.path().join("gh");
+        std::fs::write(&gh, "#!/bin/sh\nexec sleep 2\n").unwrap();
+        std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let error = log_with(
+            gh.as_os_str(),
+            &json!({"id": 11}),
+            "org/repo",
+            Duration::from_millis(50),
+        )
+        .unwrap_err();
+        assert_eq!(
+            error,
+            format!(
+                "TimeoutExpired: Command '['{}', 'api', '--allow-escape-sequences', 'repos/org/repo/actions/jobs/11/logs']' timed out after 0.05 seconds",
+                gh.display()
+            )
+        );
+    }
 }

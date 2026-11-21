@@ -193,11 +193,18 @@ fn frozen_cli_bytes_match_the_pinned_python_oracle() {
             case["stdout"].as_str().unwrap().as_bytes(),
             "{id}: stdout"
         );
-        assert_eq!(
-            output.stderr,
-            case["stderr"].as_str().unwrap().as_bytes(),
-            "{id}: stderr"
-        );
+        if let Some(message) = case["stderr_contains"].as_str() {
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains(message),
+                "{id}: stderr"
+            );
+        } else {
+            assert_eq!(
+                output.stderr,
+                case["stderr"].as_str().unwrap().as_bytes(),
+                "{id}: stderr"
+            );
+        }
         assert_eq!(json!(calls), case["logs"], "{id}: log calls");
     }
     let output = pinned_python::command()

@@ -110,6 +110,14 @@ recordings in `tests/fixtures/oracle/slo.json` are compared byte-for-byte agains
 the immutable `MERGEMASTER_PYTHON_ORACLE` source with pinned CPython 3.14.7 and the
 native command, both in that integration test and `tests/oracle_corpus.py`.
 
+Timestamp parsing follows pinned Python `datetime.fromisoformat`, including
+basic/week dates, reduced-precision clocks and naive intervals. Mixing naive
+and timezone-aware bounds exits 1 with the Python `TypeError` message; intentionally,
+Rust omits the Python crash traceback. Only that frozen case compares the message
+substring instead of exact stderr. A nonzero `gh` log-download exit remains
+tolerated, but deadline, spawn and read errors fail the command rather than
+silently counting an unknown producer.
+
 ## Copied evidence scripts
 
 The evidence scripts and their self-tests originate from

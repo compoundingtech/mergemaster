@@ -3887,6 +3887,658 @@
       "stderr": "",
       "exit_code": 0,
       "logs": []
+    },
+    {
+      "id": "iso-reduced-minutes",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00+00:00",
+        "--until",
+        "2026-10-18T12:00+00:00",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00+00:00\",\n    \"until\": \"2026-10-18T12:00:00+00:00\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "iso-reduced-hours",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12Z",
+        "--until",
+        "2026-10-18T12Z",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00+00:00\",\n    \"until\": \"2026-10-18T12:00:00+00:00\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "iso-basic",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "20261017T120000Z",
+        "--until",
+        "20261018T120000Z",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00+00:00\",\n    \"until\": \"2026-10-18T12:00:00+00:00\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "iso-basic-reduced",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "20261017T1200+0000",
+        "--until",
+        "20261018T1200+0000",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00+00:00\",\n    \"until\": \"2026-10-18T12:00:00+00:00\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "iso-naive",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00",
+        "--until",
+        "2026-10-18T12:00:00",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00\",\n    \"until\": \"2026-10-18T12:00:00\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "iso-naive-basic",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "20261017T1200",
+        "--until",
+        "20261018T1200",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00\",\n    \"until\": \"2026-10-18T12:00:00\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "iso-date-only",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17",
+        "--until",
+        "2026-10-18",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T00:00:00\",\n    \"until\": \"2026-10-18T00:00:00\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "iso-date-only-basic",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "20261017",
+        "--until",
+        "20261018",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T00:00:00\",\n    \"until\": \"2026-10-18T00:00:00\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "iso-offset",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00+05:30",
+        "--until",
+        "2026-10-18T12:00-02:00",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00+05:30\",\n    \"until\": \"2026-10-18T12:00:00-02:00\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "iso-offset-seconds",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00+05:30:12",
+        "--until",
+        "2026-10-18T12:00:00-02:00:15",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00+05:30:12\",\n    \"until\": \"2026-10-18T12:00:00-02:00:15\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "iso-offset-fraction",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00+05:30:12.123456",
+        "--until",
+        "2026-10-18T12:00:00-02:00:15.123",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00+05:30:12.123456\",\n    \"until\": \"2026-10-18T12:00:00-02:00:15.123000\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "iso-fraction-3",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00.123Z",
+        "--until",
+        "2026-10-18T12:00:00.123+00:00",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00.123000+00:00\",\n    \"until\": \"2026-10-18T12:00:00.123000+00:00\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "iso-fraction-6",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00.123456Z",
+        "--until",
+        "2026-10-18T12:00:00.123456+00:00",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00.123456+00:00\",\n    \"until\": \"2026-10-18T12:00:00.123456+00:00\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "iso-fraction-basic",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "20261017T120000.123456Z",
+        "--until",
+        "20261018T120000.123Z",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00.123456+00:00\",\n    \"until\": \"2026-10-18T12:00:00.123000+00:00\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "iso-fraction-comma",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "20261017T120000,123456Z",
+        "--until",
+        "20261018T120000,123Z",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00.123456+00:00\",\n    \"until\": \"2026-10-18T12:00:00.123000+00:00\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "iso-fraction-truncate",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00.123456789Z",
+        "--until",
+        "2026-10-18T12:00:00.123456789Z",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00.123456+00:00\",\n    \"until\": \"2026-10-18T12:00:00.123456+00:00\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "iso-invalid-minute-fraction",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00.5Z",
+        "--until",
+        "2026-10-18T12:00Z",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "",
+      "stderr": "bad --since or --until\n",
+      "exit_code": 2,
+      "logs": []
+    },
+    {
+      "id": "iso-invalid-hour-fraction",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12.5Z",
+        "--until",
+        "2026-10-18T12Z",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "",
+      "stderr": "bad --since or --until\n",
+      "exit_code": 2,
+      "logs": []
+    },
+    {
+      "id": "iso-week",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-W42-6T12:00Z",
+        "--until",
+        "2026-W42-7T12:00Z",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00+00:00\",\n    \"until\": \"2026-10-18T12:00:00+00:00\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "iso-week-basic",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026W426T1200Z",
+        "--until",
+        "2026W427T1200Z",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00+00:00\",\n    \"until\": \"2026-10-18T12:00:00+00:00\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "iso-week-default-day",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-W42T12:00Z",
+        "--until",
+        "2026-W43T12:00Z",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-12T12:00:00+00:00\",\n    \"until\": \"2026-10-19T12:00:00+00:00\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "iso-week-naive",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-W42-6",
+        "--until",
+        "2026-W42-7",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T00:00:00\",\n    \"until\": \"2026-10-18T00:00:00\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "iso-separator",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17\ud83d\udc0d12:00Z",
+        "--until",
+        "2026-10-18\ud83d\udc0d12:00Z",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00+00:00\",\n    \"until\": \"2026-10-18T12:00:00+00:00\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "iso-invalid-day",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-02-30T12:00Z",
+        "--until",
+        "2026-10-18T12:00Z",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "",
+      "stderr": "bad --since or --until\n",
+      "exit_code": 2,
+      "logs": []
+    },
+    {
+      "id": "iso-invalid-week",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-W54-1T12:00Z",
+        "--until",
+        "2026-10-18T12:00Z",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "",
+      "stderr": "bad --since or --until\n",
+      "exit_code": 2,
+      "logs": []
+    },
+    {
+      "id": "iso-invalid-clock",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T25:00Z",
+        "--until",
+        "2026-10-18T12:00Z",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "",
+      "stderr": "bad --since or --until\n",
+      "exit_code": 2,
+      "logs": []
+    },
+    {
+      "id": "iso-invalid-offset",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00+24:00",
+        "--until",
+        "2026-10-18T12:00Z",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "",
+      "stderr": "bad --since or --until\n",
+      "exit_code": 2,
+      "logs": []
+    },
+    {
+      "id": "iso-mixed-naive-aware",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00",
+        "--until",
+        "2026-10-18T12:00Z",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/nix/store/bbj5s0bmhsv4a9mjqb97x80r8dvkas45-source/scripts/ci-evidence-slo\", line 190, in <module>\n    sys.exit(main(sys.argv[1:]))\n             ~~~~^^^^^^^^^^^^^^\n  File \"/nix/store/bbj5s0bmhsv4a9mjqb97x80r8dvkas45-source/scripts/ci-evidence-slo\", line 168, in main\n    if since >= until:\n       ^^^^^^^^^^^^^^\nTypeError: can't compare offset-naive and offset-aware datetimes\n",
+      "exit_code": 1,
+      "logs": [],
+      "stderr_contains": "TypeError: can't compare offset-naive and offset-aware datetimes"
+    },
+    {
+      "id": "iso-midnight-24",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T24:00:00+00:00",
+        "--until",
+        "2026-10-19T00:00:00Z",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-18T00:00:00+00:00\",\n    \"until\": \"2026-10-19T00:00:00+00:00\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "iso-offset-subsecond",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00+00:00:00.5",
+        "--until",
+        "2026-10-18T12:00:00Z",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00+00:00:00.500000\",\n    \"until\": \"2026-10-18T12:00:00+00:00\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
+    },
+    {
+      "id": "iso-fraction-submicrosecond",
+      "argv": [
+        "--repository",
+        "org/repo",
+        "--since",
+        "2026-10-17T12:00:00.0000009Z",
+        "--until",
+        "2026-10-18T12:00:00Z",
+        "--json"
+      ],
+      "api": {
+        "runs": [],
+        "jobs": {},
+        "logs": {}
+      },
+      "stdout": "{\n  \"interval\": {\n    \"since\": \"2026-10-17T12:00:00+00:00\",\n    \"until\": \"2026-10-18T12:00:00+00:00\"\n  },\n  \"runs_read\": 0,\n  \"logs_read\": 0,\n  \"totals\": {\n    \"decisions\": 0,\n    \"satisfied\": 0,\n    \"produced_not_verified\": 0\n  },\n  \"target\": {\n    \"produced_not_verified\": 0\n  },\n  \"checks\": []\n}\n",
+      "stderr": "",
+      "exit_code": 0,
+      "logs": []
     }
   ]
 }
