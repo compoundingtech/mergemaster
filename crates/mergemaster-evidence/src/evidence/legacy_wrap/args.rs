@@ -254,7 +254,10 @@ fn token(text: &str) -> Result<Token<'_>, Exit> {
     if text == "--" {
         return Ok(Token::Separator);
     }
-    if !text.starts_with('-') || text == "-" {
+    let Some(number) = text.strip_prefix('-') else {
+        return Ok(Token::Value);
+    };
+    if number.is_empty() {
         return Ok(Token::Value);
     }
     let (key, explicit) = text
@@ -290,15 +293,14 @@ fn token(text: &str) -> Result<Token<'_>, Exit> {
     } else if let Some(rest) = text.strip_prefix("-h") {
         return Ok(Token::Option(&PARSER.options[0], Some(rest)));
     }
-    // argparse's negative-number matcher is ^-\d+$|^-\d*\.\d+$,
-    // not a generic float parser (exponents are unknown options).
-    let number = &text[1..];
-    let digits = |s: &str| s.chars().all(|c| decimal(u32::from(c)).is_some());
-    let negative = if let Some((whole, fraction)) = number.split_once('.') {
-        digits(whole) && !fraction.is_empty() && digits(fraction)
-    } else {
-        !number.is_empty() && digits(number)
-    };
+    // CPython 3.14 uses r'-\.?\d' without an end anchor, so digit-prefixed
+    // spellings such as -1x and -1e3 are values. This parser declares no
+    // negative-number-like options, so _has_negative_number_optionals is false.
+    let candidate = number.strip_prefix('.').unwrap_or(number);
+    let negative = candidate
+        .chars()
+        .next()
+        .is_some_and(|c| decimal(u32::from(c)).is_some());
     Ok(if negative || text.contains(' ') {
         Token::Value
     } else {
@@ -471,7 +473,12 @@ print(json.dumps(vars(args)))
             &["-h=x"],
             &["--check"],
             &["--check", "--out"],
+            &["--check", "-1"],
+            &["--check", "-1.5"],
             &["--check", "-1x"],
+            &["--check", "-x1"],
+            &["--check", "-.5"],
+            &["--check", "-1e3"],
             &["--check", "-1e2"],
             &["--unknown"],
             &["--check", "x"],
@@ -488,6 +495,12 @@ print(json.dumps(vars(args)))
             ],
             &["--check", "x", "--unknown", "true"],
             &["--check", "x", "--in", "a=b"],
+            &["--check", "x", "--in", "-1"],
+            &["--check", "x", "--in", "-1.5"],
+            &["--check", "x", "--in", "-1x"],
+            &["--check", "x", "--in", "-x1"],
+            &["--check", "x", "--in", "-.5"],
+            &["--check", "x", "--in", "-1e3"],
             &["--check", "x", "true", "--in"],
             &["--check", "x", "--input"],
             &["--check", "x", "--input-file", "--help"],
