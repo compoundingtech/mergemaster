@@ -108,7 +108,7 @@
 # streams using a deliberately public fixed test key and explicit home template;
 # oracle_corpus.py replays independently, and Rust compares both implementations.
 # Native notice migration: mergemaster evidence presign-notice replaces the
-# copied notice entrypoint and its Python self-test. The 19 independent CPython
+# copied notice entrypoint and its Python self-test. The 21 independent CPython
 # 3.14.7 recordings in tests/fixtures/oracle/presign-notice.json freeze complete
 # stdout/stderr/exit and summary contents, including append. oracle_corpus.py
 # replays each case against the pinned source and native executable with the
@@ -117,7 +117,8 @@
 # shadow/rejected exclusions, fork/merge/lane-edit reasons, all four path-boundary
 # assertions, unreadable lanes/files, noise/placeholders and required lane names/
 # nonempty definition paths. Extra cases cover probe failure, missing BASE_SHA,
-# duplicate decisions, preferred layout and malformed selected JSON.
+# duplicate decisions, preferred layout, malformed selected JSON and strict UTF-8
+# decoding of both subprocess streams (invalid gh filenames and git stderr).
 # fractal-test-test still extracts the notice reader and asserts identical
 # real-Git layout selection, old-revision isolation, malformed selected config,
 # missing object and missing revision behavior; only its source is now the
