@@ -20,6 +20,14 @@ fn subprocess_driver() {
     assert!(unsafe { libc::dup2(stderr.as_raw_fd(), 2) } >= 0);
     let argv: Vec<Vec<u8>> =
         serde_json::from_slice(&std::fs::read(root.join("argv")).unwrap()).unwrap();
+    if std::env::var_os("MM_DISPATCH_ALL").is_some() {
+        let exit =
+            super::super::cli_dispatch::run(argv.into_iter().map(std::ffi::OsString::from_vec))
+                .unwrap();
+        std::io::stdout().write_all(exit.stdout.as_bytes()).unwrap();
+        std::io::stderr().write_all(exit.stderr.as_bytes()).unwrap();
+        std::process::exit(i32::from(exit.code));
+    }
     let owned: Vec<_> = argv
         .into_iter()
         .map(|v| decode(&std::ffi::OsString::from_vec(v)))

@@ -33,18 +33,33 @@ enum Command {
 
 fn main() -> ExitCode {
     let mut raw = std::env::args_os().skip(1);
-    if raw.next().is_some_and(|v| v == "legacy-evidence-verify") {
-        let result = mergemaster_evidence::evidence::legacy_verify::cli_dispatch::run(raw)
-            .and_then(|exit| {
-                std::io::stdout().lock().write_all(exit.stdout.as_bytes())?;
-                std::io::stderr().lock().write_all(exit.stderr.as_bytes())?;
-                Ok(exit.code)
-            });
+    let command = raw.next();
+    let helper = command
+        .as_ref()
+        .is_some_and(|v| v == "legacy-evidence-verify-helper");
+    if helper
+        || command
+            .as_ref()
+            .is_some_and(|v| v == "legacy-evidence-verify")
+    {
+        let result = if helper {
+            mergemaster_evidence::evidence::legacy_verify::cli_helper::run(
+                raw,
+                &mut std::io::stdin().lock(),
+            )
+        } else {
+            mergemaster_evidence::evidence::legacy_verify::cli_dispatch::run(raw)
+        }
+        .and_then(|exit| {
+            std::io::stdout().lock().write_all(exit.stdout.as_bytes())?;
+            std::io::stderr().lock().write_all(exit.stderr.as_bytes())?;
+            Ok(exit.code)
+        });
         return mergemaster_evidence::cli_output::finish(ExitCode::from(match result {
             Ok(code) => code,
             Err(error) => {
                 eprintln!("{error:#}");
-                1
+                if helper { 3 } else { 1 }
             }
         }));
     }
