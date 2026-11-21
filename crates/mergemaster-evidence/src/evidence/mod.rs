@@ -26,6 +26,7 @@ pub mod observers;
 pub mod producer_proof;
 pub mod signer_input;
 pub mod signing;
+pub mod slo;
 #[cfg(test)]
 mod tests;
 pub mod workspace;
