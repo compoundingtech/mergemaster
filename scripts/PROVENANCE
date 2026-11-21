@@ -104,7 +104,7 @@
 # scripts/ci-evidence-gate: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/ci-evidence-gate 2952f89514a584465a428017b3f3e8ea043f41b2 b9754da6ff9acac41a99acea6d8de21b9da7bdb3
 # scripts/ci-evidence-gate-test: wave-2 cutover: verifier and crate keys via mergemaster binary
-# local-patch scripts/ci-evidence-gate-test 38a34e7d48ed407b428f739c0f3d38b151fced59 a360e4d8477a39bb776ec08e636e1f5ea6fb27d1
+# local-patch scripts/ci-evidence-gate-test 38a34e7d48ed407b428f739c0f3d38b151fced59 cd095839b4a66e7998dd29218e10adb7a5877fe8
 # scripts/ci-evidence-observe: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/ci-evidence-observe af65b642fbb0e55b1dece0b5ce3a4e9e7b3f6966 1002d8647154b1f527f8b40bccd68eb12158136c
 # scripts/ci-evidence-observe-test: wave-2 cutover: verifier and crate keys via mergemaster binary
@@ -116,7 +116,7 @@
 # scripts/ci-evidence-signing: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/ci-evidence-signing b57b9d0d9badd16e3d7edf45b3bccd0632361e02 5490f6f3d5c24d44398f6ca315419e123f016d4d
 # scripts/ci-evidence-signing-test: wave-2 cutover: verifier and crate keys via mergemaster binary
-# local-patch scripts/ci-evidence-signing-test cd72694762e05984446ce19ad167df112bbbc441 0fc04b710b92a8b857437cfaff635c494e7d4e17
+# local-patch scripts/ci-evidence-signing-test cd72694762e05984446ce19ad167df112bbbc441 975250bb0bebe4d2aa98c9b18b08cc23b06f31c1
 # scripts/ci-signed-tree: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/ci-signed-tree 77a560621f8182d2ca19f622782ff24c95e7d514 d18c3452dfb2a3c79089fa739c135090ab734245
 # scripts/ci-signed-tree-test: wave-2 cutover: verifier and crate keys via mergemaster binary
@@ -146,7 +146,7 @@
 # scripts/evidence_test_support.py: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/evidence_test_support.py 3590f507364ac813bed170e490149c25561fa2d5 9f60e5e6b4b07959045f402c45231f3770788652
 # scripts/fractal-test-test: wave-2 cutover: verifier and crate keys via mergemaster binary
-# local-patch scripts/fractal-test-test decb42b9d442807c9601b473c190b3743b24c4c0 fc01de0bb4b0070e2214def9408dfbcfd1cd945f
+# local-patch scripts/fractal-test-test decb42b9d442807c9601b473c190b3743b24c4c0 139ae035ccba3a460d43991427fc6c062903a9a5
 # scripts/lane-definition-closure: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/lane-definition-closure 492b3741b117092395855d9790dc96e6ce3612e6 df4cd022958b56316698ea7ca05225686329c69f
 # scripts/lane-definition-closure-test: wave-2 cutover: verifier and crate keys via mergemaster binary

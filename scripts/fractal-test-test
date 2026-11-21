@@ -41,7 +41,7 @@ PRIVATE_GIT_CONFIG.write_text('[gc]\n\tauto = 0\n[maintenance]\n\tauto = false\n
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from evidence_test_support import tool_path  # noqa: E402
+from evidence_test_support import LOADER_VARIABLES, tool_path  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 loader = importlib.machinery.SourceFileLoader('st_test', str(ROOT / 'scripts/st-test'))
@@ -4282,9 +4282,11 @@ finally:
                    'output_sha256': '0' * 64, 'change_id': 'local:web-inputs',
                    'inputs': dict(st_test.WEB_INPUTS, flake_lock_sha256=hashlib.sha256((self.work / 'flake.lock').read_bytes()).hexdigest(),
                                   toolchain_sha256='1' * 64, wrapper_sha256='2' * 64, system='x86_64-linux', attempt='1')}
+        # As in the other signer fixtures, scrub loader inputs before starting Python.
+        signer_env = {k: v for k, v in GIT_ENV.items() if k not in LOADER_VARIABLES}
         signed = subprocess.run([sys.executable, str(ROOT / 'scripts/evidence-sign')], cwd=self.work,
                                 input=json.dumps(request), capture_output=True, text=True,
-                                env=dict(GIT_ENV, HOME=str(self.home), EVIDENCE_SIGN_NOW=DATE))
+                                env=dict(signer_env, HOME=str(self.home), EVIDENCE_SIGN_NOW=DATE))
         self.assertEqual(signed.returncode, 0, signed.stderr)
         answer = json.loads(signed.stdout)
         subprocess.run(['git', '-C', str(self.work), 'index-pack', '--stdin'],

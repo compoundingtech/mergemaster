@@ -53,7 +53,7 @@ def lane_definition(repo, base, tree, lanes):
 
 def project(repo, tree, paths):
     return rust_json('legacy-evidence-verify', '--repo', str(repo), '--tree', tree,
-                     '--project', '--paths', ','.join(paths))['source_inputs']
+                     '--check', 'linux-gate', '--project', '--paths', ','.join(paths))['source_inputs']
 
 
 @functools.cache
@@ -800,7 +800,7 @@ class EndToEnd(unittest.TestCase):
         self.assertIn(str(missing), fields['reason'])
 
     def test_missing_malformed_or_mismatched_base_pin_runs_even_with_matching_note(self):
-        for mutation in ('missing', 'malformed', 'repository', 'revision', 'version', 'sha256'):
+        for mutation in ('missing', 'malformed', 'repository', 'version', 'sha256'):
             with self.subTest(mutation):
                 self.f = Fixture()
                 self.addCleanup(self.f.tmp.cleanup)
@@ -814,7 +814,7 @@ class EndToEnd(unittest.TestCase):
                     path.write_text('{invalid')
                 else:
                     target = pin['release'] if mutation in ('version', 'sha256') else pin
-                    target[mutation] = {'repository': 'other/repo', 'revision': 'f' * 40,
+                    target[mutation] = {'repository': 'other/repo',
                                         'version': 'v999999.0.0', 'sha256': 'f' * 64}[mutation]
                     path.write_text(json.dumps(pin))
                 self.f.git('add', '-A')
@@ -825,6 +825,19 @@ class EndToEnd(unittest.TestCase):
                 fields = self.assertRuns(base)
                 self.assertEqual(fields['outcome'], 'unavailable')
                 self.assertIn('tool_pin', fields['reason'])
+
+    def test_a_different_valid_base_pin_revision_is_provenance_not_a_binary_mismatch(self):
+        self.commit_base()
+        path = self.f.repo / '.mergemaster/tool-pin.json'
+        pin = json.loads(path.read_text())
+        pin['revision'] = 'f' * 40
+        path.write_text(json.dumps(pin))
+        self.f.git('add', '-A')
+        self.f.git('commit', '-qm', 'different provenance revision')
+        base = self.f.git('rev-parse', 'HEAD')
+        commit, tree = self.head()
+        self.note(commit, tree)
+        self.assertEqual(self.run_gate(base)[0]['decision'], 'skip')
 
     def test_unset_verifier_binary_without_mergemaster_on_path_runs_even_with_a_matching_note(self):
         base = self.commit_base()
@@ -1415,7 +1428,8 @@ class EndToEnd(unittest.TestCase):
         self.assertIn('authors', fields['head_tree'])
 
     def test_a_branch_that_edits_a_protected_file_skips_on_a_host_note_for_its_head_and_runs_on_any_other(self):
-        for path in ('scripts/ci-evidence-gate', 'scripts/evidence-verify', '.st/evidence-skip-policy.json', '.st/evidence-keys',
+        for path in ('scripts/ci-evidence-gate', 'scripts/evidence-verify', '.mergemaster/tool-pin.json',
+                     '.st/evidence-skip-policy.json', '.st/evidence-keys',
                      '.st/required-lanes.json', '.st/evidence-signed-only.json', '.github/workflows/fleet.yml',
                      '.fractal/evidence-skip-policy.json', '.fractal/evidence-keys', '.fractal/required-lanes.json',
                      '.fractal/evidence-authors.json', '.fractal/evidence-log-key', '.fractal/evidence-signed-only.json'):
@@ -1490,13 +1504,18 @@ class EndToEnd(unittest.TestCase):
         self.assertIn(old, self.CI_WORKFLOW)
         return self.CI_WORKFLOW.replace(old, new, 1)
 
-    def test_main_changing_the_gate_or_the_verifier_keeps_the_head_tree_for_a_check_that_does_not_read_them(self):
-        # The signing system can change without voiding the expensive checks' signatures: only a check whose own tests read the gate
-        # and the verifier (ci-script-tests, which declares no CI inputs here) falls back.
-        for path in ('scripts/ci-evidence-gate', 'scripts/evidence-verify'):
+    def test_main_changing_the_gate_or_verifier_artifacts_keeps_the_head_tree_for_a_check_that_does_not_read_them(self):
+        # Only a check whose own tests read these protected artifacts (ci-script-tests, which declares no CI inputs here) falls back.
+        for path in ('scripts/ci-evidence-gate', 'scripts/evidence-verify', '.mergemaster/tool-pin.json'):
             with self.subTest(path):
                 self.tmp_reset()
-                s = self.ci_inputs_pull_request({path: (ROOT / path).read_text() + '\n# main moved this\n'})  # the base has ROOT's copy
+                if path == '.mergemaster/tool-pin.json':
+                    pin = tool_pin(self.f.repo)
+                    content = json.dumps({**pin, 'revision': 'f' * 40})
+                else:
+                    source = ROOT / path
+                    content = (source.read_text() if source.exists() else '') + '\n# main moved this\n'
+                s = self.ci_inputs_pull_request({path: content})
                 record = self.note(s['head'], s['head_tree'], seconds=1)
                 fields, outputs = self.run_gate(s['tip'], **self.pr_env(s))
                 self.assertEqual((fields['decision'], fields['tree_of'], fields['head_tree'], fields['ci_inputs'], outputs['record']),
@@ -2271,7 +2290,7 @@ class EndToEnd(unittest.TestCase):
                 fields = self.assertRuns(base, path)
                 self.assertEqual(fields['outcome'], 'satisfied')  # the note is fine; the change is not skippable
                 self.assertIn('protected', fields['reason'].lower() + 'protected')
-        # Moving a protected file away (rename detection would report only the new name) still counts.
+        # Moving a protected file away still counts; reintroducing a removed artifact must also force a run.
         for path in EXPECTED_PROTECTED:
             with self.subTest('moved ' + path):
                 self.f = Fixture()
@@ -2302,9 +2321,17 @@ class EndToEnd(unittest.TestCase):
                     self.f.git('add', '-A')
                     self.f.git('commit', '-q', '-m', 'seed protected new-layout counterpart')
                     base = self.f.git('rev-parse', 'HEAD')
-                (self.f.repo / 'moved-away').mkdir(exist_ok=True)
-                self.f.git('mv', path, 'moved-away/' + path.replace('/', '_'))
+                target = self.f.repo / path
+                added = not target.exists()
+                if not added:
+                    (self.f.repo / 'moved-away').mkdir(exist_ok=True)
+                    self.f.git('mv', path, 'moved-away/' + path.replace('/', '_'))
+                else:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text('reintroduced protected artifact\n')
                 commit, tree = self.head()
+                if added:
+                    self.assertEqual(self.f.git('diff', '--name-status', base, commit, '--', path), 'A\t' + path)
                 self.note(commit, tree)
                 self.assertRuns(base, 'moved ' + path)
         # An unrelated change to other files still skips.

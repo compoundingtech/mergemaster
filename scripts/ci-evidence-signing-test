@@ -479,7 +479,8 @@ with tempfile.TemporaryDirectory() as directory:
         event = tmp / 'event.json'
         event.write_text(payload if isinstance(payload, str) else json.dumps(payload))
         env_ = dict(NEEDS_JSON=json.dumps({'linux-gate': {'result': 'success'}, 'linux-tests': {'result': 'success'}}),
-                    GITHUB_EVENT_NAME='merge_group', GITHUB_EVENT_PATH=str(event), GITHUB_REPOSITORY='example/repo', GITHUB_SHA='d' * 40)
+                    GITHUB_EVENT_NAME='merge_group', GITHUB_EVENT_PATH=str(event), GITHUB_REPOSITORY='example/repo', GITHUB_SHA='d' * 40,
+                    MERGEMASTER_BIN=str(stub_dir / 'mergemaster'))
         env_.update(extra or {})
         done = subprocess.run([sys.executable, str(stub_dir / 'ci-evidence-signing'), 'aggregate', str(out)], capture_output=True, text=True,
                               env=dict(BASE, **env_))
