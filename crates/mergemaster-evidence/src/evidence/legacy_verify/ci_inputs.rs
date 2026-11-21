@@ -33,7 +33,7 @@ pub fn unresolved_ci_inputs<'a>(
                     OsStr::new("--"),
                     OsStr::from_bytes(&encoded),
                 ],
-                SourceResource::RawBlob(super::cli_adapter::decode(tree)),
+                SourceResource::TreeListing(super::cli_adapter::decode(tree)),
             )?;
             listing.iter().any(|byte| !byte.is_ascii_whitespace())
         };
