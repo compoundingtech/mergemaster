@@ -808,10 +808,39 @@ fn queue_generated_paths_refuse_folded_protected_and_bootstrap_overlap() {
         f.write(".mergemaster/lanes.json", policy.to_string());
         f.base = f.commit("overlapping queue policy");
         let error = load(&f.repo, &f.base).unwrap_err();
+        if !generated.is_ascii() {
+            assert!(
+                error.is::<mergemaster_evidence::gate::config::NonAsciiAuthorityPath>(),
+                "{generated}: {error}"
+            );
+            continue;
+        }
         assert!(
             error.to_string().contains("overlaps protected path"),
             "{generated}: {error}"
         );
+    }
+}
+
+#[test]
+fn authority_path_policy_refuses_non_ascii_with_typed_errors() {
+    for field in ["protected_paths", "bootstrap_paths", "generated_paths"] {
+        for path in ["safe/Σ", "safe/ς", "safe/é", "safe／child", "safe/*.é"] {
+            let mut f = Fixture::new();
+            let mut policy = Fixture::policy("required_evidence");
+            if field == "generated_paths" {
+                policy["queue"] = json!({"generated_paths":[path]});
+            } else {
+                policy[field] = json!([path]);
+            }
+            f.write(".mergemaster/lanes.json", policy.to_string());
+            f.base = f.commit("non-ASCII authority path");
+            let error = load(&f.repo, &f.base).unwrap_err();
+            let typed = error
+                .downcast_ref::<mergemaster_evidence::gate::config::NonAsciiAuthorityPath>()
+                .unwrap();
+            assert_eq!(typed.0, path, "{field}");
+        }
     }
 }
 
@@ -2727,11 +2756,15 @@ fn protected_changes_include_both_sides_of_renames() {
         "rename_out",
         "rename_in",
         "component_boundary",
+        "fullwidth_alias",
+        "case_alias",
     ] {
         let mut f = Fixture::new();
         match case {
             "add" => f.write(".github/actions/new/action.yml", "new\n"),
             "edit" => f.write(".github/workflows/evidence.yml", "changed\n"),
+            "fullwidth_alias" => f.write(".ｍｅｒｇｅｍａｓｔｅｒ/x", "protected alias\n"),
+            "case_alias" => f.write(".MERGEMASTER/x", "protected alias\n"),
             "delete" => fs::remove_file(f.repo.join(".github/workflows/evidence.yml")).unwrap(),
             "rename_out" => {
                 fs::rename(

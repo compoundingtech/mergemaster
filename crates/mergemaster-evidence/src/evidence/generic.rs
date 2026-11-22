@@ -385,6 +385,8 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
         .context("missing signer input")?
         .write_all(&request_bytes);
     let signed = child.wait_with_output().map_err(signer_io)?;
+    // Only a normal nonzero exit completes a refusal: stdout has no refusal
+    // protocol, so output followed by a signal cannot establish a policy decision.
     #[cfg(unix)]
     {
         use std::os::unix::process::ExitStatusExt;
@@ -604,8 +606,8 @@ mod tests {
             assert_eq!(infra.class.token(), "interrupted");
             assert!(infra.detail.ends_with(&format!("signal {signal}")));
         }
-        // SIGILL, SIGABRT, SIGBUS, SIGFPE, SIGSEGV, SIGPIPE are check failures.
-        for signal in [4, 6, 7, 8, 11, 13] {
+        // Crash/resource-limit/timer signals are check failures, not cancellation.
+        for signal in [4, 6, 7, 8, 11, 13, 14, 24] {
             super::check_interruption(std::process::ExitStatus::from_raw(signal)).unwrap();
         }
         super::check_interruption(std::process::ExitStatus::from_raw(75 << 8)).unwrap();
