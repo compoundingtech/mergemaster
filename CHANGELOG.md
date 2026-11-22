@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Derive selective-reuse validation fixture producer systems from the verifier host, keeping signed measurements and BASE producer authority consistent on ARM as well as x86.
 - Add selective-reuse slice 5's pure same-PR equivalence, current-authority and lifetime validator; reuse stays disabled. Broker receipt verification and the slice-6/external authenticated-origin adapter remain prerequisites; event files cannot supply that authority.
 - Add selective-reuse slice 3: scoped SSH v2 object verification and direct immutable root lookup; production reuse stays disabled.
 - Preserve legacy v1 admission for large notes/messages and unavailable SSH fingerprint metadata; selective-reuse limits and strict issuer fingerprint checks apply only to v2.
