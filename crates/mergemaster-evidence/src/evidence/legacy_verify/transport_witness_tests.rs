@@ -113,11 +113,10 @@ print(json.dumps(cases))
 #[test]
 fn signed_tree_local_patch_preserves_binary_transport_bytes() {
     let scratch = tempfile::tempdir().unwrap();
-    let local = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap();
+    let manifest_dir = std::path::PathBuf::from(
+        std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set at test runtime"),
+    );
+    let local = manifest_dir.parent().unwrap().parent().unwrap();
     let output = crate::pinned_python::command().args(["-c", r#"
 import json,os,pathlib,runpy,subprocess,sys
 consumer=pathlib.Path(sys.argv[1]);(consumer/'scripts').mkdir()
@@ -173,7 +172,7 @@ assert previous[0]==0,previous
 print(json.dumps(dict(upstream=dict(exit=previous[0],stdout=list(previous[1]),stderr=list(previous[2])),
                       binary=observations)))
 "#]).arg(scratch.path()).arg(local).arg(std::env::current_exe().unwrap())
-        .arg(option_env!("CARGO_BIN_EXE_mergemaster").unwrap_or("")).output().unwrap();
+        .arg(std::env::var_os("CARGO_BIN_EXE_mergemaster").unwrap_or_default()).output().unwrap();
     assert!(
         output.status.success(),
         "{}",

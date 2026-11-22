@@ -102,7 +102,7 @@ fn git(repo: &Path, args: &[&str], input: &[u8]) -> String {
 }
 
 fn cli(repo: &Path, args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_mergemaster"))
+    Command::new(mergemaster_bin())
         .arg("evidence")
         .args(args)
         .arg("--repo")
@@ -617,7 +617,7 @@ os.execv(os.environ['FIXTURE_REAL_GIT'],[os.environ['FIXTURE_REAL_GIT'],*args])
     let observe_request = |attempt: &str, artifact: &str, extra: &[&str]| {
         let mut paths = vec![tools.clone()];
         paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap()));
-        Command::new(env!("CARGO_BIN_EXE_mergemaster"))
+        Command::new(mergemaster_bin())
             .args([
                 "evidence",
                 "observe-ci",
@@ -984,11 +984,14 @@ fn immutable_wrapper_record_matches_oracle_even_when_shallow() {
         .expect("MERGEMASTER_PYTHON_ORACLE must be set; run tests in nix develop");
     let output = pinned_python::command()
         .args(["-B", "-c", LEGACY_RECORD_DRIVER])
-        .arg(env!("CARGO_BIN_EXE_mergemaster"))
+        .arg(mergemaster_bin())
         .arg(oracle)
         .arg(
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../tests/fixtures/fractal/scripts/testdata/evidence/wrapper-note"),
+            std::path::PathBuf::from(
+                std::env::var_os("CARGO_MANIFEST_DIR")
+                    .expect("CARGO_MANIFEST_DIR is set at test runtime"),
+            )
+            .join("../../tests/fixtures/fractal/scripts/testdata/evidence/wrapper-note"),
         )
         .output()
         .unwrap();
@@ -1084,3 +1087,10 @@ with tempfile.TemporaryDirectory() as scratch:
         reference.unlink()
     assert not marker.exists(), 'inspection must never lazily fetch absent objects'
 "#;
+
+fn mergemaster_bin() -> std::path::PathBuf {
+    std::path::PathBuf::from(
+        std::env::var_os("CARGO_BIN_EXE_mergemaster")
+            .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+    )
+}

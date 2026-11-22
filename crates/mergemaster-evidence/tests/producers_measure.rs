@@ -7,7 +7,10 @@ const DIGEST: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f2
 const ASSET: &str = "mergemaster-linux";
 
 fn command() -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_mergemaster"));
+    let mut command = Command::new(
+        std::env::var_os("CARGO_BIN_EXE_mergemaster")
+            .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+    );
     command.args(["producers", "measure"]);
     command
 }

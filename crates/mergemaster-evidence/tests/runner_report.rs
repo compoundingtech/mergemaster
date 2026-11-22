@@ -7,7 +7,7 @@ use mergemaster_evidence::evidence::{
     runner_report::{percentile as node_percentile, run_at},
 };
 use serde_json::{Value, json};
-use std::{fs, path::Path, process::Command};
+use std::{fs, process::Command};
 
 fn percentile(values: &[Value], share: f64) -> Value {
     let document =
@@ -61,7 +61,7 @@ fn run_case(case: &Value) -> (i32, String, String) {
     let observed = if !case["environment"].as_object().unwrap().is_empty() {
         // Exercise environment-based discovery through the real process boundary, without
         // changing the test runner's process-global environment. Only the wall clock differs.
-        let output = Command::new(env!("CARGO_BIN_EXE_mergemaster"))
+        let output = Command::new(mergemaster_bin())
             .args([
                 "evidence",
                 "runner-report",
@@ -96,7 +96,7 @@ fn run_case(case: &Value) -> (i32, String, String) {
                 .as_str()
                 .is_some_and(|s| s.starts_with("usage:")))
     {
-        let cli = Command::new(env!("CARGO_BIN_EXE_mergemaster"))
+        let cli = Command::new(mergemaster_bin())
             .args(["evidence", "runner-report"])
             .args(&argv)
             .output()
@@ -140,7 +140,7 @@ fn integer_threshold_domain_is_an_intended_divergence() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("runs.jsonl");
     fs::write(&path, "").unwrap();
-    let native = Command::new(env!("CARGO_BIN_EXE_mergemaster"))
+    let native = Command::new(mergemaster_bin())
         .args([
             "evidence",
             "runner-report",
@@ -395,7 +395,7 @@ fn each_wait_is_its_own_line_over_every_run_in_the_window() {
 fn a_record_st_test_writes_is_one_the_report_reads() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("written/runs.jsonl");
-    let repository = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let repository = manifest_dir().join("../..");
     let output=pinned_python::command().args(["-B","-c",r#"import importlib.machinery, importlib.util, sys
 loader=importlib.machinery.SourceFileLoader('runner',sys.argv[1]); module=importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name,loader)); loader.exec_module(module)
 module.POOL_SETTINGS['ST_TEST_RUNS']=sys.argv[2]
@@ -421,7 +421,7 @@ fn frozen_cli_bytes_match_the_independent_pinned_python() {
     let output = pinned_python::command()
         .arg("-B")
         .args(["-c", "import runpy, sys; runpy.run_path(sys.argv[1])['replay_runner_report'](sys.executable)"])
-        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/oracle_corpus.py"))
+        .arg(manifest_dir().join("../../tests/oracle_corpus.py"))
         .output()
         .unwrap();
     assert!(
@@ -434,4 +434,17 @@ fn frozen_cli_bytes_match_the_independent_pinned_python() {
             .unwrap()
             .contains("Replayed 24 frozen runner-report cases")
     );
+}
+
+fn manifest_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from(
+        std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set at test runtime"),
+    )
+}
+
+fn mergemaster_bin() -> std::path::PathBuf {
+    std::path::PathBuf::from(
+        std::env::var_os("CARGO_BIN_EXE_mergemaster")
+            .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+    )
 }
