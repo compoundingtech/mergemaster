@@ -1209,6 +1209,18 @@ fn legacy_subject_probe_distinguishes_absence_from_git_failures() {
             for cli in [false, true] {
                 let error = read(&matching, cli).unwrap_err();
                 assert_eq!(error.reason, "subject-probe-failed");
+                if cli {
+                    let detail = error.detail.to_string();
+                    assert!(detail.starts_with("git rev-parse: "));
+                    assert!(detail.contains("objects/"));
+                    assert!(detail.contains(if damage.is_empty() {
+                        "is empty"
+                    } else {
+                        "is corrupt"
+                    }));
+                } else {
+                    assert_eq!(error.detail, "Git subject probe failed");
+                }
             }
             if format == "sha1" && !damage.is_empty() {
                 let python = pinned_python::command()
@@ -1237,10 +1249,11 @@ fn legacy_subject_probe_distinguishes_absence_from_git_failures() {
         )
         .unwrap();
         for cli in [false, true] {
-            assert_eq!(
-                read(&absent, cli).unwrap_err().reason,
-                "subject-probe-failed"
-            );
+            let error = read(&absent, cli).unwrap_err();
+            assert_eq!(error.reason, "subject-probe-failed");
+            if !cli {
+                assert_eq!(error.detail, "Git subject probe failed");
+            }
         }
     }
 }
