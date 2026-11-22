@@ -1,9 +1,6 @@
 //! Pinned evidence-flip-ready/evidence-skip-report argparse boundary.
-use super::super::{
-    argparse_compat::{
-        Action, DefaultValue, Exit as Early, OptionSpec, Parser as CompatParser, Value,
-    },
-    legacy_verify::python_digits::decimal,
+use super::super::argparse_compat::{
+    Action, DefaultValue, Exit as Early, OptionSpec, Parser as CompatParser, Value, float,
 };
 
 const fn option(
@@ -112,39 +109,6 @@ const SKIP: CompatParser = CompatParser {
         NOW,
     ],
 };
-fn float(text: &str) -> Option<Value> {
-    // Python float accepts Unicode decimal digits and digit-separated underscores,
-    // but not Rust's broader trim set (notably U+001C through U+001F).
-    let text = text.trim_matches(|c: char| c.is_whitespace() && !matches!(c, '\u{1c}'..='\u{1f}'));
-    let mut normalized = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    let mut previous_digit = false;
-    while let Some(ch) = chars.next() {
-        if ch == '_' {
-            if !previous_digit
-                || !chars
-                    .peek()
-                    .is_some_and(|c| decimal(u32::from(*c)).is_some())
-            {
-                return None;
-            }
-            previous_digit = false;
-        } else if let Some(digit) = decimal(u32::from(ch)) {
-            normalized.push(char::from(b'0' + digit));
-            previous_digit = true;
-        } else {
-            normalized.push(ch);
-            previous_digit = false;
-        }
-    }
-    let number = match normalized.to_ascii_lowercase().as_str() {
-        "inf" | "+inf" | "infinity" | "+infinity" => Some(f64::INFINITY),
-        "-inf" | "-infinity" => Some(f64::NEG_INFINITY),
-        "nan" | "+nan" | "-nan" => Some(f64::NAN),
-        _ => normalized.parse().ok(),
-    }?;
-    Some(Value::Float(number))
-}
 fn valid_repo(repo: &str) -> bool {
     let mut parts = repo.split('/');
     let valid = |s: &str| {

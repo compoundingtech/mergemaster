@@ -168,6 +168,31 @@ impl Watch {
 }
 
 #[test]
+fn log_watch_non_utf8_state_matches_pinned_python() {
+    use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+
+    let watch = Watch::new();
+    watch.publish(T0);
+    let notify = json!([python(), "-c", "pass"]);
+    let mut results = Vec::new();
+    for (oracle, name) in [
+        (false, b"native-\xff".as_slice()),
+        (true, b"oracle-\xff".as_slice()),
+    ] {
+        let state = watch.root.path().join(OsString::from_vec(name.to_vec()));
+        let done = watch
+            .command(T0 + 1, &notify, &watch.remote, &state, oracle)
+            .output()
+            .unwrap();
+        assert!(done.status.success(), "{:?}", done.stderr);
+        let saved: Value =
+            serde_json::from_slice(&fs::read(state.join("watch.json")).unwrap()).unwrap();
+        results.push((done.status.code(), done.stdout, done.stderr, saved));
+    }
+    assert_eq!(results[0], results[1]);
+}
+
+#[test]
 fn log_watch_frozen_transition_recordings_are_pure() {
     let corpus: Value = serde_json::from_str(include_str!(
         "../../../tests/fixtures/oracle/log-watch.json"
