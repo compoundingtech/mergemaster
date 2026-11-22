@@ -10,6 +10,7 @@ mod binding_path;
 pub mod candidates;
 pub mod ci_inputs;
 pub mod cli_adapter;
+mod cli_batch;
 pub mod cli_config;
 pub mod cli_discovery;
 pub mod cli_dispatch;
