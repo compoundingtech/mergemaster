@@ -12,7 +12,7 @@ fn validates_whole_batch_and_refuses_nested_batches() {
         "[\"--tree\"]",
         "[[true]]",
     ] {
-        let answer = run(text).unwrap();
+        let answer = run(text.as_bytes()).unwrap();
         assert_eq!(answer.code, 2, "{text}");
         assert!(answer.stdout.is_empty());
         assert_eq!(
@@ -20,8 +20,8 @@ fn validates_whole_batch_and_refuses_nested_batches() {
             "--batch reads a JSON array of argument vectors, each an array of strings, on standard input\n"
         );
     }
-    assert_eq!(run("[]").unwrap().stdout, "[]\n");
-    let answer = run(r#"[["--batch"],["--batch","--help"],["--help"],[]]"#).unwrap();
+    assert_eq!(run(b"[]").unwrap().stdout, "[]\n");
+    let answer = run(br#"[["--batch"],["--batch","--help"],["--help"],[]]"#).unwrap();
     assert_eq!(answer.code, 0);
     assert!(answer.stderr.is_empty());
     let rows: Value = serde_json::from_str(&answer.stdout).unwrap();
@@ -47,7 +47,7 @@ fn validates_whole_batch_and_refuses_nested_batches() {
 #[test]
 fn lossless_json_arguments_keep_single_run_diagnostics() {
     let answer = run(
-        r#"[["--tree","HEAD","--check","\udcff"],["--tree","HEAD","--check","\ud800"],["--help"]]"#,
+        br#"[["--tree","HEAD","--check","\udcff"],["--tree","HEAD","--check","\ud800"],["--help"]]"#,
     )
     .unwrap();
     let rows: Value = serde_json::from_str(&answer.stdout).unwrap();
@@ -66,6 +66,93 @@ fn lossless_json_arguments_keep_single_run_diagnostics() {
         );
     }
     assert_eq!(rows[2]["exit"], 0);
+}
+
+#[test]
+fn raw_batch_stdin_uses_surrogateescape_inside_strings_only() {
+    use std::{
+        ffi::OsString,
+        io::Write as _,
+        os::unix::ffi::OsStringExt,
+        process::{Command, Stdio},
+    };
+    if let Ok(case) = std::env::var("MM_RAW_BATCH_DRIVER") {
+        let answer = super::super::cli_dispatch::run([OsString::from("--batch")]).unwrap();
+        assert!(answer.stderr.is_empty() || case == "outside");
+        match case.as_str() {
+            "inside" => {
+                assert_eq!(answer.code, 0);
+                assert_eq!(
+                    answer.stdout,
+                    "[{\"exit\": 2, \"stdout\": \"\", \"stderr\": \"one of --keys or --keys-from is required\\n\"}]\n"
+                );
+                assert!(answer.stderr.is_empty());
+            }
+            "outside" => {
+                assert_eq!(answer.code, 2);
+                assert!(answer.stdout.is_empty());
+                assert_eq!(
+                    answer.stderr,
+                    "--batch reads a JSON array of argument vectors, each an array of strings, on standard input\n"
+                );
+            }
+            "echo" => {
+                let standalone = super::super::cli_dispatch::run(
+                    [
+                        b"--tree".as_slice(),
+                        b"HEAD",
+                        b"--check",
+                        b"\xff",
+                        b"--keys",
+                        b"unused",
+                    ]
+                    .map(|bytes| OsString::from_vec(bytes.to_vec())),
+                )
+                .unwrap();
+                let rows: Value = serde_json::from_str(&answer.stdout).unwrap();
+                assert_eq!(answer.code, 0);
+                assert_eq!(
+                    rows,
+                    json!([{"exit":standalone.code,"stdout":standalone.stdout,"stderr":standalone.stderr}])
+                );
+                assert!(answer.stdout.contains(r"\\udcff"), "{}", answer.stdout);
+            }
+            _ => panic!("unknown raw batch test case"),
+        }
+        return;
+    }
+    for (case, input) in [
+        (
+            "inside",
+            b"[[\"--tree\",\"HEAD\",\"--check\",\"\xff\"]]".as_slice(),
+        ),
+        ("outside", b"[[\"--help\"],\xff]".as_slice()),
+        (
+            "echo",
+            b"[[\"--tree\",\"HEAD\",\"--check\",\"\xff\",\"--keys\",\"unused\"]]".as_slice(),
+        ),
+    ] {
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "evidence::legacy_verify::cli_batch::tests::raw_batch_stdin_uses_surrogateescape_inside_strings_only",
+                "--nocapture",
+            ])
+            .env("MM_RAW_BATCH_DRIVER", case)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(input).unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{case}: {}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }
 
 #[test]
@@ -91,7 +178,7 @@ fn capture_batch_surface_divergence() {
 fn signed_batch_matches_standalone_and_reuses_only_immutable_facts() {
     if let Some(root) = std::env::var_os("MM_BATCH_DRIVER") {
         let root = std::path::PathBuf::from(root);
-        let input = std::fs::read_to_string(root.join("input")).unwrap();
+        let input = std::fs::read(root.join("input")).unwrap();
         let answer = run(&input).unwrap();
         assert_eq!(answer.code, 0);
         assert!(answer.stderr.is_empty());

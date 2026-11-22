@@ -4,8 +4,8 @@ use super::{
     statement_document::{Document, Node},
     value_inputs::TextRef,
 };
-use crate::evidence::legacy_json;
-use std::fmt::Write;
+use crate::evidence::{legacy_json, legacy_policy::normalized_text::NormalizedText};
+use std::{ffi::OsStr, fmt::Write, os::unix::ffi::OsStrExt};
 
 pub(super) fn usage(message: &str) -> Exit {
     Exit {
@@ -33,9 +33,18 @@ impl Drop for Memo {
     }
 }
 
-pub(super) fn run(text: &str) -> anyhow::Result<Exit> {
+pub(super) fn run(bytes: &[u8]) -> anyhow::Result<Exit> {
     const INVALID: &str = "--batch reads a JSON array of argument vectors, each an array of strings, on standard input";
-    let Ok(document) = Document::from_text(text) else {
+    // CPython's isolated stdin uses UTF-8/surrogateescape, not strict UTF-8.
+    // Keep the valid-text fast path and reuse CLI ingress decoding otherwise.
+    let document = match std::str::from_utf8(bytes) {
+        Ok(text) => Document::from_text(text),
+        Err(_) => match super::cli_adapter::decode(OsStr::from_bytes(bytes)) {
+            NormalizedText::Codepoints(points) => Document::from_points(points),
+            NormalizedText::Scalar(text) => Document::from_text(&text),
+        },
+    };
+    let Ok(document) = document else {
         return Ok(usage(INVALID));
     };
     let Node::Array(runs) = document.root() else {

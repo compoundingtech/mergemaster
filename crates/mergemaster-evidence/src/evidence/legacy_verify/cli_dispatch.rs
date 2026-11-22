@@ -263,9 +263,9 @@ pub fn run(argv: impl IntoIterator<Item = OsString>) -> anyhow::Result<Exit> {
                 "--batch takes no other argument: each run's arguments come on standard input",
             ));
         }
-        let mut text = String::new();
-        std::io::Read::read_to_string(&mut std::io::stdin().lock(), &mut text)?;
-        return super::cli_batch::run(&text);
+        let mut bytes = Vec::new();
+        std::io::Read::read_to_end(&mut std::io::stdin().lock(), &mut bytes)?;
+        return super::cli_batch::run(&bytes);
     }
     run_arguments(&argv)
 }
