@@ -92,10 +92,22 @@ impl Transport {
             command.env("GIT_NO_LAZY_FETCH", "1").stdin(Stdio::piped());
             Ok::<_, PolicyError>(command)
         };
+        let failure = |error| {
+            let error = projection_capture::subject_error(error);
+            if self == Self::Native {
+                // Native Git diagnostics may contain candidate-controlled paths.
+                PolicyError {
+                    detail: "Git subject probe failed".into(),
+                    ..error
+                }
+            } else {
+                error
+            }
+        };
         // Probe the literal subject first: rev-parse also fails for present but
         // corrupt or wrong-type objects, so its status cannot establish absence.
         let mut probe = command(&["cat-file", "--batch-check=%(objectname)"])?;
-        if !projection_capture::record_subject(&mut probe, subject)? {
+        if !projection_capture::record_subject(&mut probe, subject).map_err(failure)? {
             return Ok(None);
         }
         let object = format!("{subject}^{{tree}}");
@@ -114,6 +126,6 @@ impl Transport {
             Duration::from_secs(60),
         )
         .map(Some)
-        .map_err(projection_capture::subject_error)
+        .map_err(failure)
     }
 }
