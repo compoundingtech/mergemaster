@@ -6,6 +6,12 @@ fn record_subject_requires_an_exact_missing_result() {
     let subject = "a".repeat(40);
     for (stdout, stderr, status, expected) in [
         (format!("{subject}\n"), "", 0, Some(true)),
+        (
+            format!("{subject}\n"),
+            "ERROR: ld.so: object cannot be preloaded",
+            0,
+            Some(true),
+        ),
         (format!("{subject} missing\n"), "", 0, Some(false)),
         (format!("{subject} missing\n"), "corrupt object", 0, None),
         (String::new(), "", 1, None),

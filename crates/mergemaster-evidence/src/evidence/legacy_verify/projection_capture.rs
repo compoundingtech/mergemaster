@@ -201,15 +201,17 @@ impl CaptureSink for SubjectCapture<'_> {
     }
     fn finish(self, status: ExitStatus) -> Self::Output {
         // Unavailable alternates can produce a successful "missing" batch row
-        // accompanied by stderr. Neither status nor the row alone is sufficient.
-        if self.capture.overflow || !self.capture.stderr.is_empty() {
-            return Err(subject_error(failure("Git subject probe emitted stderr")));
-        }
+        // accompanied by stderr, so absence additionally requires empty stderr.
+        // Presence leads to the stricter tree comparison, so unrelated stderr
+        // (for example loader warnings from the caller environment) is harmless.
+        let noisy = self.capture.overflow || !self.capture.stderr.is_empty();
         let bytes = self.capture.finish(status).map_err(subject_error)?;
-        if bytes.strip_suffix(b" missing\n") == Some(self.subject.as_bytes()) {
-            Ok(false)
-        } else if bytes.strip_suffix(b"\n") == Some(self.subject.as_bytes()) {
+        if bytes.strip_suffix(b"\n") == Some(self.subject.as_bytes()) {
             Ok(true)
+        } else if noisy {
+            Err(subject_error(failure("Git subject probe emitted stderr")))
+        } else if bytes.strip_suffix(b" missing\n") == Some(self.subject.as_bytes()) {
+            Ok(false)
         } else {
             Err(subject_error(failure(
                 "Git subject probe returned a malformed object result",
