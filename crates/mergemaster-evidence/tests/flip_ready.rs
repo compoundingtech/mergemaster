@@ -5,7 +5,6 @@ use chrono::{Duration, TimeZone, Utc};
 use serde_json::{Value, json};
 use std::{
     fs,
-    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::{Command, Output},
 };
@@ -180,8 +179,19 @@ case "$path" in
   *) echo "unexpected $*" >&2; exit 1;;
 esac
 "#;
-        fs::write(bin.join("gh"), format!("#!{}\n{shim}", shell.display())).unwrap();
-        fs::set_permissions(bin.join("gh"), fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(
+            Command::new("/bin/sh")
+                .args([
+                    "-c",
+                    "printf '%s' \"$1\" > \"$2\" && chmod 755 \"$2\"",
+                    "sh",
+                ])
+                .arg(format!("#!{}\n{shim}", shell.display()))
+                .arg(bin.join("gh"))
+                .status()
+                .unwrap()
+                .success()
+        );
         Self {
             _temp: temp,
             root,
