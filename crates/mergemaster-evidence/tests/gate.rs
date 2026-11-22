@@ -6195,11 +6195,44 @@ fn selective_reuse_fixture(authority: &str) -> Fixture {
 }
 
 fn selective_nix_statement(f: &Fixture, mode: &str, v2: bool) -> Value {
-    use mergemaster_evidence::evidence::derivation;
     let mut s = f.statement();
     s["repository"] = json!("fixture/repo");
     let drv = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-fixture.drv";
-    let argv = derivation::argv("/trusted/nix", drv, mode).unwrap();
+    // Independent wire fixture: exercise the public gate without importing its
+    // crate-private command normalization helpers.
+    let settings = [
+        ("accept-flake-config", "false"),
+        ("pure-eval", "true"),
+        ("allow-import-from-derivation", "false"),
+        ("builders", ""),
+        ("build-hook", ""),
+        ("max-jobs", "1"),
+    ];
+    let settings_digest = hex::encode(sha2::Sha256::digest(serde_json::to_vec(&settings).unwrap()));
+    let mut argv = vec![
+        "/trusted/nix".to_owned(),
+        "--extra-experimental-features".into(),
+        "nix-command flakes".into(),
+    ];
+    for (name, value) in settings {
+        argv.extend(["--option".into(), name.into(), value.into()]);
+    }
+    argv.extend(
+        [
+            "--log-format",
+            "internal-json",
+            "build",
+            "--no-link",
+            "--json",
+            "--print-build-logs",
+        ]
+        .map(str::to_owned),
+    );
+    assert!(matches!(mode, "rebuild" | "reused"));
+    if mode == "rebuild" {
+        argv.extend(["--option", "substitute", "false", "--rebuild"].map(str::to_owned));
+    }
+    argv.push(format!("{drv}^*"));
     let expected = s["predicate"]["observed"]["inputs"].clone();
     let p = &mut s["predicate"];
     p["observed"]["checks"][CHECK]["command"] = json!(argv);
@@ -6212,14 +6245,11 @@ fn selective_nix_statement(f: &Fixture, mode: &str, v2: bool) -> Value {
         ("nix_derivation", drv.into()),
         ("nix_execution", mode.into()),
         ("nix_command_mode", mode.into()),
-        (
-            "nix_settings_sha256",
-            derivation::settings_digest().unwrap(),
-        ),
+        ("nix_settings_sha256", settings_digest.clone()),
         ("nix_daemon_policy_sha256", "c".repeat(64)),
         (
             "nix_command_sha256",
-            derivation::command_digest(&argv).unwrap(),
+            hex::encode(sha2::Sha256::digest(serde_json::to_vec(&argv).unwrap())),
         ),
         ("nix_outputs_sha256", "e".repeat(64)),
         ("nix_store", "daemon".into()),
@@ -6259,7 +6289,7 @@ fn selective_nix_statement(f: &Fixture, mode: &str, v2: bool) -> Value {
         }
         p["reuse_key"] = json!({
             "version":1,"check":CHECK,"nix_derivation":drv,"expected_inputs":expected,
-            "nix_settings_sha256":derivation::settings_digest().unwrap(),
+            "nix_settings_sha256":settings_digest,
             "nix_daemon_policy_sha256":"c".repeat(64),
             "producer":{"executable_sha256":"a".repeat(64),"system":mergemaster_evidence::gate::config::current_system()}
         });
