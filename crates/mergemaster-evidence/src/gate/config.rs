@@ -1,4 +1,5 @@
 //! Version-one, BASE-owned policy and object-only input binding.
+//! Optional reuse authority is parsed separately; selective reuse remains disabled.
 use super::git::{blob_digests, git, text, validate_blobs};
 use anyhow::{Context, Result, ensure};
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -62,6 +63,7 @@ pub(crate) struct Producer {
 pub(crate) enum ProducerFlavor {
     Nix,
     Release,
+    V2Service,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -141,6 +143,22 @@ pub fn producer_digest(
     }
 }
 
+/// Reuse-only authorization; unlike v1 reporting, a signed system is required.
+/// The caller must supply the measured executable digest, not a wrapper assertion.
+pub fn reuse_producer_authorized(
+    manifest: Option<&ProducerManifest>,
+    executable_sha256: &str,
+    signed_system: Option<&str>,
+) -> bool {
+    manifest.is_some_and(|manifest| {
+        manifest.producers.iter().any(|producer| {
+            producer.flavor == ProducerFlavor::V2Service
+                && producer.executable_sha256 == executable_sha256
+                && Some(producer.system.as_str()) == signed_system
+        })
+    })
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Policy {
@@ -154,6 +172,9 @@ pub struct Policy {
     #[serde(default)]
     pub bootstrap_paths: Vec<String>,
     pub lanes: BTreeMap<String, Lane>,
+    /// Parsed BASE authorization only. No gate decision consumes it; reuse is disabled.
+    #[serde(skip)]
+    pub reuse_authority: ReuseAuthority,
 }
 
 #[derive(Debug, Deserialize)]
@@ -594,10 +615,8 @@ pub fn load(repo: &Path, base: &str) -> Result<Config> {
         Err(error) if error.is::<MissingConfig>() => None,
         Err(error) => return Err(error),
     };
-    let mut policy: Policy = decode(
-        &config_blob(repo, base, ".mergemaster/lanes.json")?,
-        "lanes policy",
-    )?;
+    let mut policy = decode_policy(&config_blob(repo, base, ".mergemaster/lanes.json")?)
+        .context("invalid lanes policy")?;
     if let Some(repository) = &policy.repository {
         crate::evidence::validate_repository(repository)?;
     }
@@ -1054,4 +1073,567 @@ pub fn expected_inputs(
         );
     }
     Ok(inputs)
+}
+
+/// Optional authorization is isolated from both v1 validation and lane hashing.
+#[derive(Debug, Default)]
+pub enum ReuseAuthority {
+    #[default]
+    Absent,
+    Valid(ReusePolicy),
+    Invalid(String),
+}
+
+#[derive(Debug)]
+pub struct ReusePolicy {
+    pub authorities: Vec<ReuseKeyAuthority>,
+    pub lanes: BTreeMap<String, LaneReuse>,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum ReuseRole {
+    V2ServiceIssuer,
+    DaemonPolicyReceipt,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReuseKeyAuthority {
+    pub key_id: String,
+    pub public_key: String,
+    pub principal: String,
+    pub role: ReuseRole,
+    pub repository: String,
+    pub endpoint_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LaneReuse {
+    pub version: u32,
+    pub origin_profile: String,
+    pub platform: String,
+}
+
+// Retain raw members (including duplicates) until ordinary v1 fields reach
+// their original typed decoder. Value would silently erase duplicate members.
+#[derive(Default)]
+struct PolicyObject(Vec<(String, Box<serde_json::value::RawValue>)>);
+
+impl<'de> Deserialize<'de> for PolicyObject {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor;
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = PolicyObject;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("a policy object")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<Self::Value, A::Error> {
+                let mut fields = Vec::new();
+                while let Some(field) = map.next_entry()? {
+                    fields.push(field);
+                }
+                Ok(PolicyObject(fields))
+            }
+        }
+        deserializer.deserialize_map(Visitor)
+    }
+}
+
+impl Serialize for PolicyObject {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(self.0.len()))?;
+        for (name, value) in &self.0 {
+            map.serialize_entry(name, value)?;
+        }
+        map.end()
+    }
+}
+
+impl PolicyObject {
+    fn take_extension(
+        &mut self,
+        name: &str,
+        invalid: &mut Option<String>,
+    ) -> Option<Box<serde_json::value::RawValue>> {
+        let mut result = None;
+        self.0.retain_mut(|(key, value)| {
+            if key != name {
+                return true;
+            }
+            // Swap rather than copy potentially large untrusted extension bytes.
+            let mut taken = serde_json::value::RawValue::NULL.to_owned();
+            std::mem::swap(value, &mut taken);
+            if result.replace(taken).is_some() {
+                *invalid = Some(format!("duplicate {name}"));
+            }
+            false
+        });
+        result
+    }
+}
+
+fn raw_object(object: &PolicyObject) -> Result<Box<serde_json::value::RawValue>> {
+    Ok(serde_json::value::to_raw_value(object)?)
+}
+
+fn decode_policy(bytes: &[u8]) -> Result<Policy> {
+    let mut object: PolicyObject = serde_json::from_slice(bytes)?;
+    let mut invalid = None;
+    let authorities = object.take_extension("reuse_authorities", &mut invalid);
+    let mut lane_reuse = BTreeMap::new();
+    // Do not select HEAD/worktree policy or alter ordinary duplicate-field errors.
+    for (name, value) in &mut object.0 {
+        if name == "lanes" {
+            let mut lanes: PolicyObject = serde_json::from_str(value.get())?;
+            for (check, value) in &mut lanes.0 {
+                lane_reuse.remove(check);
+                let mut lane: PolicyObject = serde_json::from_str(value.get())?;
+                if let Some(reuse) = lane.take_extension("reuse", &mut invalid) {
+                    lane_reuse.insert(check.clone(), reuse);
+                }
+                *value = raw_object(&lane)?;
+            }
+            *value = raw_object(&lanes)?;
+        }
+    }
+    let mut policy: Policy = serde_json::from_str(raw_object(&object)?.get())?;
+    policy.reuse_authority = if authorities.is_none() && lane_reuse.is_empty() && invalid.is_none()
+    {
+        ReuseAuthority::Absent
+    } else {
+        let parsed = (|| -> Result<ReusePolicy> {
+            ensure!(invalid.is_none(), "{}", invalid.as_deref().unwrap_or(""));
+            let authorities: Vec<ReuseKeyAuthority> = serde_json::from_str(
+                authorities
+                    .as_ref()
+                    .context("missing reuse_authorities")?
+                    .get(),
+            )?;
+            let mut lanes = BTreeMap::new();
+            for (check, raw) in lane_reuse {
+                let reuse: LaneReuse = serde_json::from_str(raw.get())?;
+                let lane = policy.lanes.get(&check).context("unknown reuse lane")?;
+                ensure!(
+                    reuse.version == 1
+                        && reuse.origin_profile == "same_repository_pr"
+                        && reuse.platform == "linux"
+                        && lane
+                            .nix_check
+                            .as_ref()
+                            .is_some_and(|nix| nix.required == "any")
+                        && lane.max_age_seconds.is_some_and(|age| {
+                            age > 0
+                                && i64::try_from(age)
+                                    .ok()
+                                    .and_then(chrono::TimeDelta::try_seconds)
+                                    .is_some()
+                        }),
+                    "invalid reuse lane {check}: requires any and positive representable age"
+                );
+                lanes.insert(check, reuse);
+            }
+            validate_reuse_authorities(&authorities, policy.repository.as_deref())?;
+            ensure!(!lanes.is_empty(), "missing lane reuse opt-in");
+            Ok(ReusePolicy { authorities, lanes })
+        })();
+        match parsed {
+            Ok(reuse) => ReuseAuthority::Valid(reuse),
+            Err(error) => ReuseAuthority::Invalid(error.to_string()),
+        }
+    };
+    Ok(policy)
+}
+
+fn validate_reuse_authorities(
+    authorities: &[ReuseKeyAuthority],
+    repository: Option<&str>,
+) -> Result<()> {
+    let repository = repository.context("reuse requires a policy repository")?;
+    let mut keys = BTreeSet::new();
+    let mut roles = BTreeSet::new();
+    for authority in authorities {
+        ensure!(
+            authority.repository == repository
+                && nonempty(&authority.endpoint_id)
+                && authority
+                    .principal
+                    .split_once('/')
+                    .is_some_and(|(level, name)| {
+                        matches!(level, "agent" | "host")
+                            && !name.is_empty()
+                            && name
+                                .bytes()
+                                .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
+                    }),
+            "invalid reuse authority repository, endpoint or principal"
+        );
+        let encoded = authority
+            .public_key
+            .strip_prefix("ssh-ed25519 ")
+            .context("reuse requires one Ed25519 key without options or comment")?;
+        let decoded = STANDARD
+            .decode(encoded)
+            .context("invalid reuse key encoding")?;
+        ensure!(
+            decoded.len() == 51
+                && decoded[..4] == [0, 0, 0, 11]
+                && &decoded[4..15] == b"ssh-ed25519"
+                && decoded[15..19] == [0, 0, 0, 32]
+                && STANDARD.encode(&decoded) == encoded,
+            "invalid reuse Ed25519 public key"
+        );
+        let fingerprint = format!(
+            "SHA256:{}",
+            base64::engine::general_purpose::STANDARD_NO_PAD.encode(Sha256::digest(&decoded))
+        );
+        ensure!(
+            authority.key_id == fingerprint,
+            "reuse key fingerprint mismatch"
+        );
+        ensure!(
+            keys.insert(&authority.key_id),
+            "duplicate reuse key or cross-role key"
+        );
+        roles.insert(&authority.role);
+    }
+    ensure!(
+        roles.len() == 2,
+        "reuse requires issuer and receipt authorities"
+    );
+    Ok(())
+}
+
+#[cfg(test)]
+mod reuse_policy_tests {
+    use super::*;
+    use serde_json::{Value, json};
+
+    fn authority(byte: u8, role: &str, principal: &str) -> Value {
+        let mut blob = b"\0\0\0\x0bssh-ed25519\0\0\0\x20".to_vec();
+        blob.extend([byte; 32]);
+        json!({
+            "key_id": format!("SHA256:{}", base64::engine::general_purpose::STANDARD_NO_PAD
+                .encode(Sha256::digest(&blob))),
+            "public_key": format!("ssh-ed25519 {}", STANDARD.encode(blob)),
+            "principal": principal, "role": role,
+            "repository": "example/project", "endpoint_id": format!("endpoint:{byte}")
+        })
+    }
+
+    fn policy() -> Value {
+        json!({
+            "version": 1, "repository": "example/project",
+            "pull_request": {"same_repository": true, "authors": {"mode": "none"},
+                "base_relation": "ancestor"},
+            "protected_paths": [],
+            "reuse_authorities": [
+                authority(1, "v2_service_issuer", "agent/service"),
+                authority(2, "daemon_policy_receipt", "host/broker")
+            ],
+            "lanes": {"format": {
+                "argv": ["/trusted/nix"], "definition_paths": ["tools"],
+                "trust_levels": ["agent"], "mode": "required_evidence",
+                "events": ["pull_request"],
+                "environment": {"manifest": ".mergemaster/environment.json", "paths": ["tools"]},
+                "protected_edits": "reject", "remediation_argv": ["retry"],
+                "nix_check": {"attribute": "checks.x86_64-linux.format", "required": "any"},
+                "max_age_seconds": 86400,
+                "reuse": {"version": 1, "origin_profile": "same_repository_pr", "platform": "linux"}
+            }}
+        })
+    }
+
+    fn parse(value: &Value) -> Policy {
+        decode_policy(&serde_json::to_vec(value).unwrap()).unwrap()
+    }
+
+    fn assert_invalid(value: &Value) {
+        match parse(value).reuse_authority {
+            ReuseAuthority::Invalid(reason) => assert!(!reason.is_empty()),
+            other => panic!("expected Invalid, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reuse_authority_is_strict_and_all_or_nothing() {
+        assert!(matches!(
+            parse(&policy()).reuse_authority,
+            ReuseAuthority::Valid(_)
+        ));
+        for case in [
+            "null",
+            "unknown",
+            "role",
+            "fingerprint",
+            "duplicate",
+            "cross_role",
+            "repository",
+            "no_repository",
+            "endpoint",
+            "comment",
+            "options",
+            "missing_role",
+            "missing_authorities",
+            "missing_lane",
+            "lane_null",
+            "lane_unknown",
+            "version",
+            "origin",
+            "platform",
+            "fresh",
+            "not_nix",
+        ] {
+            let mut value = policy();
+            match case {
+                "null" => value["reuse_authorities"] = Value::Null,
+                "unknown" => value["reuse_authorities"][0]["extra"] = json!(true),
+                "role" => value["reuse_authorities"][0]["role"] = json!("agent"),
+                "fingerprint" => value["reuse_authorities"][0]["key_id"] = json!("SHA256:wrong"),
+                "duplicate" | "cross_role" => {
+                    value["reuse_authorities"][1] = value["reuse_authorities"][0].clone();
+                    if case == "cross_role" {
+                        value["reuse_authorities"][1]["role"] = json!("daemon_policy_receipt");
+                    }
+                }
+                "repository" => {
+                    value["reuse_authorities"][0]["repository"] = json!("other/project")
+                }
+                "no_repository" => {
+                    value.as_object_mut().unwrap().remove("repository");
+                }
+                "endpoint" => value["reuse_authorities"][0]["endpoint_id"] = json!(""),
+                "comment" | "options" => {
+                    let key = value["reuse_authorities"][0]["public_key"]
+                        .as_str()
+                        .unwrap();
+                    value["reuse_authorities"][0]["public_key"] = json!(if case == "comment" {
+                        format!("{key} comment")
+                    } else {
+                        format!("restrict {key}")
+                    });
+                }
+                "missing_role" => {
+                    value["reuse_authorities"].as_array_mut().unwrap().pop();
+                }
+                "missing_authorities" => {
+                    value.as_object_mut().unwrap().remove("reuse_authorities");
+                }
+                "missing_lane" => {
+                    value["lanes"]["format"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("reuse");
+                }
+                "lane_null" => value["lanes"]["format"]["reuse"] = Value::Null,
+                "lane_unknown" => value["lanes"]["format"]["reuse"]["extra"] = json!(true),
+                "version" => value["lanes"]["format"]["reuse"]["version"] = json!(2),
+                "origin" => value["lanes"]["format"]["reuse"]["origin_profile"] = json!("local"),
+                "platform" => value["lanes"]["format"]["reuse"]["platform"] = json!("darwin"),
+                "fresh" => value["lanes"]["format"]["nix_check"]["required"] = json!("fresh"),
+                "not_nix" => {
+                    value["lanes"]["format"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("nix_check");
+                }
+                _ => unreachable!(),
+            }
+            assert_invalid(&value);
+        }
+    }
+
+    #[test]
+    fn reuse_principal_pins_one_known_level_and_exact_name() {
+        for principal in ["agent/service", "host/broker", "agent/service-1_2.example"] {
+            let mut value = policy();
+            value["reuse_authorities"][0]["principal"] = json!(principal);
+            let ReuseAuthority::Valid(parsed) = parse(&value).reuse_authority else {
+                panic!("valid principal refused");
+            };
+            assert_eq!(parsed.authorities[0].principal, principal);
+        }
+        for principal in [
+            "fleet/service",
+            "human/service",
+            "agent/",
+            "/service",
+            "agent/*",
+            "agent/a,agent/b",
+            "agent/a/b",
+            "agent/a b",
+            "agent/a\n",
+            "agent/[a]",
+        ] {
+            let mut value = policy();
+            value["reuse_authorities"][0]["principal"] = json!(principal);
+            assert_invalid(&value);
+        }
+    }
+
+    #[test]
+    fn reuse_age_must_be_positive_finite() {
+        for age in [None, Some(0), Some(u64::MAX), Some(i64::MAX as u64)] {
+            let mut value = policy();
+            if let Some(age) = age {
+                value["lanes"]["format"]["max_age_seconds"] = json!(age);
+            } else {
+                value["lanes"]["format"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("max_age_seconds");
+            }
+            assert_invalid(&value);
+        }
+        let mut null_age = policy();
+        null_age["lanes"]["format"]["max_age_seconds"] = Value::Null;
+        assert_invalid(&null_age);
+        for age in [1, 86400] {
+            let mut value = policy();
+            value["lanes"]["format"]["max_age_seconds"] = json!(age);
+            assert!(matches!(
+                parse(&value).reuse_authority,
+                ReuseAuthority::Valid(_)
+            ));
+        }
+        // Existing integer-field errors are not downgraded into optional extension refusal.
+        for age in ["-1", "1.5", "1e100", "\"86400\""] {
+            let raw = policy().to_string().replace(
+                "\"max_age_seconds\":86400",
+                &format!("\"max_age_seconds\":{age}"),
+            );
+            assert!(decode_policy(raw.as_bytes()).is_err());
+        }
+    }
+
+    #[test]
+    fn reuse_extensions_do_not_change_lane_tuple_or_hash() {
+        let extended = policy();
+        let mut legacy = extended.clone();
+        legacy.as_object_mut().unwrap().remove("reuse_authorities");
+        legacy["lanes"]["format"]
+            .as_object_mut()
+            .unwrap()
+            .remove("reuse");
+        let old = parse(&legacy);
+        let new = parse(&extended);
+        assert!(matches!(old.reuse_authority, ReuseAuthority::Absent));
+        let old_lane = &old.lanes["format"];
+        let new_lane = &new.lanes["format"];
+        assert_eq!(
+            serde_json::to_vec(old_lane).unwrap(),
+            serde_json::to_vec(new_lane).unwrap()
+        );
+        let files = vec![("tools/check", "100755", "a".repeat(64))];
+        assert_eq!(
+            hash(&(1, "format", old_lane, &files)).unwrap(),
+            hash(&(1, "format", new_lane, &files)).unwrap()
+        );
+    }
+
+    #[test]
+    fn reuse_duplicate_members_refuse_without_relaxing_ordinary_fields() {
+        let raw = policy().to_string();
+        for (from, to) in [
+            (
+                "\"reuse_authorities\":",
+                "\"reuse_authorities\":[],\"reuse_authorities\":",
+            ),
+            ("\"reuse\":", "\"reuse\":{},\"reuse\":"),
+            ("\"key_id\":", "\"key_id\":\"ignored\",\"key_id\":"),
+            (
+                "\"platform\":\"linux\"",
+                "\"platform\":\"linux\",\"platform\":\"linux\"",
+            ),
+        ] {
+            let policy = decode_policy(raw.replace(from, to).as_bytes()).unwrap();
+            assert!(matches!(policy.reuse_authority, ReuseAuthority::Invalid(_)));
+        }
+        for raw in [
+            raw.replace("\"version\":1", "\"version\":1,\"version\":1"),
+            raw.replace(
+                "\"protected_paths\":[]",
+                "\"protected_paths\":[],\"extra\":true",
+            ),
+            raw.replace("\"argv\":", "\"extra\":true,\"argv\":"),
+        ] {
+            assert!(decode_policy(raw.as_bytes()).is_err());
+        }
+    }
+
+    fn manifest(flavor: &str) -> ProducerManifest {
+        let value = json!({"version": 1, "producers": [{
+            "executable_sha256": "c".repeat(64), "system": "x86_64-linux", "flavor": flavor,
+            "provenance": {"mergemaster_revision": "a".repeat(40), "package": "service"}
+        }]});
+        let manifest: ProducerManifest = serde_json::from_value(value).unwrap();
+        manifest.validate().unwrap();
+        manifest
+    }
+
+    #[test]
+    fn v1_keys_cannot_authorize_v2() {
+        // Ordinary key/level membership is never consulted by the reuse-only matcher.
+        let mut value = policy();
+        value.as_object_mut().unwrap().remove("reuse_authorities");
+        value["lanes"]["format"]
+            .as_object_mut()
+            .unwrap()
+            .remove("reuse");
+        assert!(matches!(
+            parse(&value).reuse_authority,
+            ReuseAuthority::Absent
+        ));
+        for flavor in ["nix", "release"] {
+            let manifest = manifest(flavor);
+            assert!(!reuse_producer_authorized(
+                Some(&manifest),
+                &"c".repeat(64),
+                Some("x86_64-linux")
+            ));
+            let inputs = BTreeMap::from([("wrapper_sha256".into(), "c".repeat(64))]);
+            assert_eq!(
+                producer_digest(Some(&manifest), &inputs),
+                ProducerDigest::Listed
+            );
+        }
+    }
+
+    #[test]
+    fn reuse_manifest_requires_signed_system_and_current_listing() {
+        let mut manifest = manifest("v2_service");
+        assert!(reuse_producer_authorized(
+            Some(&manifest),
+            &"c".repeat(64),
+            Some("x86_64-linux")
+        ));
+        for system in [None, Some("aarch64-linux"), Some("")] {
+            assert!(!reuse_producer_authorized(
+                Some(&manifest),
+                &"c".repeat(64),
+                system
+            ));
+        }
+        assert!(!reuse_producer_authorized(
+            Some(&manifest),
+            &"d".repeat(64),
+            Some("x86_64-linux")
+        ));
+        assert!(!reuse_producer_authorized(
+            None,
+            &"c".repeat(64),
+            Some("x86_64-linux")
+        ));
+        manifest.producers.clear();
+        assert!(!reuse_producer_authorized(
+            Some(&manifest),
+            &"c".repeat(64),
+            Some("x86_64-linux")
+        ));
+    }
 }
