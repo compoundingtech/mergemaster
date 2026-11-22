@@ -491,8 +491,19 @@ mod tests {
     }
 
     fn fixture_tool(path: &Path, mode: u32) -> Result<()> {
-        fs::write(path, "#!/bin/sh\n")?;
-        fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+        assert!(
+            std::process::Command::new("/bin/sh")
+                .args([
+                    "-c",
+                    "printf '%s' \"$1\" > \"$2\" && chmod \"$3\" \"$2\"",
+                    "sh",
+                    "#!/bin/sh\n",
+                ])
+                .arg(path)
+                .arg(format!("{mode:o}"))
+                .status()?
+                .success()
+        );
         Ok(())
     }
 

@@ -12,6 +12,23 @@ use std::{
     process::{Command, Stdio},
 };
 
+// Keep executable write descriptors out of this multithreaded test process.
+fn write_executable(path: &Path, content: &str) {
+    assert!(
+        Command::new("/bin/sh")
+            .args([
+                "-c",
+                "printf '%s' \"$1\" > \"$2\" && chmod 755 \"$2\"",
+                "sh",
+                content,
+            ])
+            .arg(path)
+            .status()
+            .unwrap()
+            .success()
+    );
+}
+
 /// The evidence API also invokes Git in this process. Run the entire test in a child with
 /// explicit tools and private home/state instead of changing the parallel harness's environment.
 fn isolated(test: &str) -> bool {
@@ -31,7 +48,7 @@ fn isolated(test: &str) -> bool {
     for path in [&tools, &home, &state, &config, &tmp] {
         std::fs::create_dir(path).unwrap();
     }
-    for program in ["git", "ssh-keygen", "python3", "timeout"] {
+    for program in ["git", "ssh-keygen", "python3", "timeout", "chmod"] {
         let real = std::env::split_paths(&std::env::var_os("PATH").unwrap())
             .filter(|directory| !directory.join("st3-recorder.json").exists())
             .filter_map(|directory| std::fs::canonicalize(directory.join(program)).ok())
@@ -424,7 +441,6 @@ fn protected_ci_cli_fetches_selectors_and_exports_verified_objects_without_a_key
     }
     use base64::Engine as _;
     use sha2::{Digest, Sha256};
-    use std::os::unix::fs::PermissionsExt as _;
     let root = tempfile::tempdir().unwrap();
     let caller = root.path().join("caller");
     let private = root.path().join("profile");
@@ -577,9 +593,9 @@ fn protected_ci_cli_fetches_selectors_and_exports_verified_objects_without_a_key
         .map(|directory| directory.join("python3"))
         .find(|path| path.is_file())
         .expect("the isolated harness supplies python3 on PATH");
-    std::fs::write(
+    write_executable(
         &gh,
-        format!(
+        &format!(
             "#!{}\n{}",
             python.display(),
             r#"import os, pathlib, sys
@@ -596,15 +612,13 @@ files = {'actions/runs/123/attempts/2':'run.json',
 sys.stdout.buffer.write((pathlib.Path(os.environ['FIXTURE_API']) / files[suffix]).read_bytes())
 "#
         ),
-    )
-    .unwrap();
-    std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).unwrap();
+    );
     let real_git = std::env::var_os("ST3_GIT_EVIDENCE_REAL_GIT")
         .expect("the isolated harness supplies the genuine Git executable");
     let installed_git = tools.join("git");
-    std::fs::write(
+    write_executable(
         &installed_git,
-        format!(
+        &format!(
             "#!{}\n{}",
             python.display(),
             r#"import os, sys
@@ -616,9 +630,7 @@ if 'fetch' in args:
 os.execv(os.environ['FIXTURE_REAL_GIT'],[os.environ['FIXTURE_REAL_GIT'],*args])
 "#
         ),
-    )
-    .unwrap();
-    std::fs::set_permissions(&installed_git, std::fs::Permissions::from_mode(0o755)).unwrap();
+    );
     let observe_request = |attempt: &str, artifact: &str, extra: &[&str]| {
         let mut paths = vec![tools.clone()];
         paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap()));

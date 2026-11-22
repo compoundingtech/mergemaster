@@ -3,7 +3,7 @@
 mod pinned_python;
 
 use serde_json::{Value, json};
-use std::{fs, os::unix::fs::PermissionsExt, path::Path, process::Command};
+use std::{fs, path::Path, process::Command};
 
 fn fixture() -> Value {
     serde_json::from_str(include_str!("../../../tests/fixtures/oracle/slo.json")).unwrap()
@@ -18,16 +18,23 @@ fn native(id: &str) -> (std::process::Output, Vec<u64>) {
         .unwrap();
     let root = tempfile::tempdir().unwrap();
     let gh = root.path().join("gh");
-    fs::write(
-        &gh,
-        format!(
-            "#!{}\n{}",
-            Path::new(pinned_python::command().get_program()).display(),
-            fixture["gh_shim"].as_str().unwrap()
-        ),
-    )
-    .unwrap();
-    fs::set_permissions(&gh, fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(
+        Command::new("/bin/sh")
+            .args([
+                "-c",
+                "printf '%s' \"$1\" > \"$2\" && chmod 700 \"$2\"",
+                "sh",
+            ])
+            .arg(format!(
+                "#!{}\n{}",
+                Path::new(pinned_python::command().get_program()).display(),
+                fixture["gh_shim"].as_str().unwrap()
+            ))
+            .arg(&gh)
+            .status()
+            .unwrap()
+            .success()
+    );
     let api = root.path().join("api.json");
     fs::write(&api, case["api"].to_string()).unwrap();
     let calls = root.path().join("calls");

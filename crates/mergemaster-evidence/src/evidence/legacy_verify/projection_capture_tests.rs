@@ -3,20 +3,26 @@ use serde_json::Value;
 use std::process::Stdio;
 #[test]
 fn record_subject_cap_preserves_ordinary_absence_but_aborts_overflow() {
-    use std::os::unix::fs::PermissionsExt;
     let root = tempfile::tempdir().unwrap();
     let shim = root.path().join("git");
     for (size, status) in [(128, 0), (129, 0), (0, 7)] {
         let python = crate::pinned_python::command();
-        std::fs::write(
-            &shim,
-            format!(
-                "#!{}\nimport os,sys\nos.write(1,b'x'*{size});sys.exit({status})\n",
-                python.get_program().to_str().unwrap()
-            ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(
+            Command::new("/bin/sh")
+                .args([
+                    "-c",
+                    "printf '%s' \"$1\" > \"$2\" && chmod 700 \"$2\"",
+                    "sh",
+                ])
+                .arg(format!(
+                    "#!{}\nimport os,sys\nos.write(1,b'x'*{size});sys.exit({status})\n",
+                    python.get_program().to_str().unwrap()
+                ))
+                .arg(&shim)
+                .status()
+                .unwrap()
+                .success()
+        );
         let oracle = crate::pinned_python::command().args(["-c", "import os,runpy,sys;m=runpy.run_path(os.environ['MERGEMASTER_PYTHON_ORACLE']+'/scripts/evidence-verify')\ntry: print(len(m['git']('repo','rev-parse','subject^{tree}')))\nexcept m['Failure']: print('absent')"]).env("PATH", root.path()).output().unwrap();
         assert!(oracle.status.success());
         assert_eq!(

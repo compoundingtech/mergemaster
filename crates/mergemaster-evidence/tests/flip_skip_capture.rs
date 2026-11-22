@@ -115,8 +115,19 @@ impl Fixture {
             .unwrap();
         for name in ["git", "gh"] {
             let executable = bin.join(name);
-            fs::write(&executable, format!("#!{}\n{SHIM}", shell.display())).unwrap();
-            fs::set_permissions(executable, fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(
+                Command::new("/bin/sh")
+                    .args([
+                        "-c",
+                        "printf '%s' \"$1\" > \"$2\" && chmod 755 \"$2\"",
+                        "sh",
+                    ])
+                    .arg(format!("#!{}\n{SHIM}", shell.display()))
+                    .arg(&executable)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
         }
         Self {
             _temp: temp,

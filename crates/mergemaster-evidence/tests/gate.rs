@@ -14,6 +14,23 @@ use std::{
 const CHECK: &str = "graph-full-check";
 const PRINCIPAL: &str = "agent/fixture";
 
+// Keep executable write descriptors out of this multithreaded test process.
+fn write_executable(path: &Path, content: &str) {
+    assert!(
+        Command::new("/bin/sh")
+            .args([
+                "-c",
+                "printf '%s' \"$1\" > \"$2\" && chmod 755 \"$2\"",
+                "sh",
+                content,
+            ])
+            .arg(path)
+            .status()
+            .unwrap()
+            .success()
+    );
+}
+
 // Nix sandboxes have neither /usr/bin/env nor an ambient interpreter path.
 fn python_executable() -> String {
     std::env::split_paths(&std::env::var_os("PATH").unwrap())
@@ -271,13 +288,12 @@ impl Fixture {
     }
 
     fn live_api(&self, head: &str, base: &str) {
-        use std::os::unix::fs::PermissionsExt;
         let bin = self.root.path().join("bin");
         fs::create_dir_all(&bin).unwrap();
         let script = bin.join("gh");
-        fs::write(
+        write_executable(
             &script,
-            format!(
+            &format!(
                 r#"#!{python}
 import json, os, pathlib, sys
 root = pathlib.Path(os.environ["HOME"])
@@ -290,9 +306,7 @@ print((root / name).read_text())
 "#,
                 python = python_executable()
             ),
-        )
-        .unwrap();
-        fs::set_permissions(script, fs::Permissions::from_mode(0o755)).unwrap();
+        );
         fs::write(
             self.root.path().join("live-pull"),
             json!({
@@ -3815,7 +3829,6 @@ fn live_github_recheck_precedes_all_decision_outputs() {
 
 #[test]
 fn concurrent_local_head_and_base_movements_cannot_publish_decisions() {
-    use std::os::unix::fs::PermissionsExt;
     for evidence in [false, true] {
         for reference in ["HEAD", "refs/heads/gate-base"] {
             let f = Fixture::new();
@@ -3836,9 +3849,9 @@ fn concurrent_local_head_and_base_movements_cannot_publish_decisions() {
             let bin = f.root.path().join("bin");
             fs::create_dir_all(&bin).unwrap();
             let script = bin.join("git");
-            fs::write(
+            write_executable(
                 &script,
-                format!(
+                &format!(
                     r#"#!{python}
 import subprocess, sys
 git = {real_git:?}
@@ -3855,9 +3868,7 @@ raise SystemExit(subprocess.run([git] + args).returncode)
                         &f.head
                     }
                 ),
-            )
-            .unwrap();
-            fs::set_permissions(script, fs::Permissions::from_mode(0o755)).unwrap();
+            );
             let outputs = f.root.path().join("outputs");
             let result = f.gate(&["--github-output", outputs.to_str().unwrap()]);
             assert!(!result.status.success(), "{evidence}/{reference}");
