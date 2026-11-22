@@ -6170,8 +6170,7 @@ fn selective_reuse_fixture(authority: &str) -> Fixture {
     policy["lanes"][CHECK]["events"] = json!(["pull_request", "push", "queue", "merge_group"]);
     // Source changes make distinct trees without changing the lane's input closure.
     policy["lanes"][CHECK]["environment"]["paths"] = json!(["tools"]);
-    policy["lanes"][CHECK]["nix_check"] =
-        json!({"attribute":"checks.x86_64-linux.fixture","required":"any"});
+    policy["lanes"][CHECK]["nix_check"] = json!({"attribute":format!("checks.{}.fixture", mergemaster_evidence::gate::config::current_system()),"required":"any"});
     policy["lanes"][CHECK]["max_age_seconds"] = json!(86400);
     if authority != "absent" {
         policy["reuse_authorities"] = if authority == "malformed" {
@@ -6186,7 +6185,8 @@ fn selective_reuse_fixture(authority: &str) -> Fixture {
     let mut manifest = producer_manifest();
     manifest["producers"][0]["flavor"] = json!("v2_service");
     manifest["producers"][0]["executable_sha256"] = json!("a".repeat(64));
-    manifest["producers"][0]["system"] = json!("x86_64-linux");
+    manifest["producers"][0]["system"] =
+        json!(mergemaster_evidence::gate::config::current_system());
     f.write(".mergemaster/producers.json", manifest.to_string());
     f.base = f.commit("BASE-only selective reuse test authority");
     f.write("source.txt", "root execution\n");
@@ -6205,7 +6205,10 @@ fn selective_nix_statement(f: &Fixture, mode: &str, v2: bool) -> Value {
     p["observed"]["checks"][CHECK]["command"] = json!(argv);
     for (name, value) in [
         ("wrapper_sha256", "a".repeat(64)),
-        ("system", "x86_64-linux".into()),
+        (
+            "system",
+            mergemaster_evidence::gate::config::current_system(),
+        ),
         ("nix_derivation", drv.into()),
         ("nix_execution", mode.into()),
         ("nix_command_mode", mode.into()),
@@ -6258,7 +6261,7 @@ fn selective_nix_statement(f: &Fixture, mode: &str, v2: bool) -> Value {
             "version":1,"check":CHECK,"nix_derivation":drv,"expected_inputs":expected,
             "nix_settings_sha256":derivation::settings_digest().unwrap(),
             "nix_daemon_policy_sha256":"c".repeat(64),
-            "producer":{"executable_sha256":"a".repeat(64),"system":"x86_64-linux"}
+            "producer":{"executable_sha256":"a".repeat(64),"system":mergemaster_evidence::gate::config::current_system()}
         });
         // Opaque test bytes, not a broker protocol or a receipt-verification mock.
         p["daemon_policy_receipt"] = json!({"opaque_test_value":"receipt contract undefined"});

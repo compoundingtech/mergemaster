@@ -32,7 +32,7 @@ impl FixturePair {
         git.write(".mergemaster/lanes.json", policy.to_string());
         let mut root = git.statement();
         git.write(".mergemaster/producers.json", json!({"version":1,"producers":[{
-            "executable_sha256":root["predicate"]["producer_sha256"],"flavor":"v2_service","system":"x86_64-linux",
+            "executable_sha256":root["predicate"]["producer_sha256"],"flavor":"v2_service","system":config::current_system(),
             "provenance":{"mergemaster_revision":"a".repeat(40),"package":"test-service"}
         }]}).to_string());
         git.write("source", "main moved\n");
@@ -67,6 +67,7 @@ impl FixturePair {
             p["observed_at"] = json!((now - Duration::seconds(60)).to_rfc3339());
             p["attested_at"] = json!((now - Duration::seconds(5)).to_rfc3339());
             p["reuse_key"]["expected_inputs"] = json!(expected);
+            p["reuse_key"]["producer"]["system"] = json!(config::current_system());
             p["reuse_key"]["nix_derivation"] = json!(drv);
             p["reuse_key"]["nix_settings_sha256"] = json!(derivation::settings_digest().unwrap());
             p["observed"]["checks"]["format"]["command"] = json!(argv);
@@ -444,7 +445,7 @@ fn producer_and_outputs_must_match_current_base() {
     }
     let mut current = f.current();
     let extra = serde_json::from_value(json!({
-        "executable_sha256":"f".repeat(64),"flavor":"v2_service","system":"x86_64-linux",
+        "executable_sha256":"f".repeat(64),"flavor":"v2_service","system":config::current_system(),
         "provenance":{"mergemaster_revision":"a".repeat(40),"package":"other-service"}
     }))
     .unwrap();
