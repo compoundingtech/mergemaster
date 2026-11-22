@@ -42,8 +42,8 @@ cargo run -- evidence --help
 ### Buck2 workspace lane
 
 The Buck2 lane consumes Fractal's `mkConsumerBuckRoot` layout and effect-utils
-published product `c80f2fe59a0954890d9021589b327e754e465006` rules, capabilities
-and Cargo projector (source `b452abc050c020edb60497625ac226615d2ec0e6`).
+published product `ed928d6f7dd0f1a210ff04eb6d8932c896c1a34a` rules, capabilities
+and Cargo projector (source `531281f919c327e8a5e18ec04e869509e76932a2`).
 It generates unit and integration harnesses for every Cargo workspace member,
 including newly discovered integration tests, rather than maintaining a test list.
 Native Rust compilation uses the production flake's compiler; the provider's
@@ -57,13 +57,15 @@ nix develop .#buck2-evidence -c bun scripts/buck2-parity.ts tmp/buck2-evidence
 nix develop .#buck2-evidence -c bash scripts/buck2-timing tmp/buck2-evidence
 ```
 
-**Not yet a passing adoption:** the pinned projector requires inherited workspace
-versions/editions and lacks repository-layout resource staging. Package-local
-versions remain independent; existing tests read repository-level fixtures/scripts,
-and the reconciler includes `iac/consumers.json` in production. Manifest lint
+**Not yet a passing adoption:** repository-layout resource staging is still missing.
+Package-local versions/editions and implicit workspace membership are admitted;
+existing tests read repository-level fixtures/scripts, and the reconciler includes
+`iac/consumers.json` in production. Manifest lint
 projection also needs support to preserve the reconciler's unsafe-code prohibition.
 The lane fails rather than omitting targets or declaring partial parity.
-Vendored AWS-LC builds through the shared native toolchain; unresolved fixup errors stay enabled.
+Vendored `aws-lc-sys` builds through the shared native toolchain, but its metadata
+is not yet forwarded to the dependent `aws-lc-rs` build script (`DEP_AWS_LC_*`).
+Unresolved fixup errors stay enabled.
 Doctests are not supported by the shared projector; the inventory comparison
 refuses any Cargo doctests missing from Buck.
 

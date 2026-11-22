@@ -3,8 +3,8 @@
 
   # Preserve the frozen Python oracle while Buck uses its provider's own toolchain.
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/4ba99f3209788ed04f01af38f77ddb803ad6ec63";
-  # Published products for source b452abc050c020edb60497625ac226615d2ec0e6.
-  inputs.effect-utils.url = "github:overengineeringstudio/effect-utils/c80f2fe59a0954890d9021589b327e754e465006";
+  # Published products for source 531281f919c327e8a5e18ec04e869509e76932a2.
+  inputs.effect-utils.url = "github:overengineeringstudio/effect-utils/ed928d6f7dd0f1a210ff04eb6d8932c896c1a34a";
   inputs.fractal-fixture = {
     url = "git+https://github.com/compoundingtech/fractal?rev=787e8ed592dff34d2bdc2a2b0b584482da567e7f&shallow=1";
     flake = false;
