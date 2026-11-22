@@ -1966,13 +1966,12 @@ class StTest(unittest.TestCase):
         step = (ROOT / '.github/workflows/workspace-ci.ts').read_text().split('export const megarepoApplyStep', 1)[1].split('} as const', 1)[0]
         self.assertIn('python3 scripts/prepare-pnpm-source-inputs.py apply', step)
         # CI delegates to the shared preparer. Compare its actual argv, not the old inline shell spelling.
-        import ast
-        source = ast.parse((ROOT / 'scripts/prepare-pnpm-source-inputs.py').read_text())
-        apply = next(node for node in ast.walk(source) if isinstance(node, ast.Call)
-                     and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name)
-                     and node.func.value.id == 'subprocess' and node.func.attr == 'run')
-        ci = eval(compile(ast.Expression(apply.args[0]), '<megarepo argv>', 'eval'), {'revision': rev})
-        self.assertEqual(ci, ['nix', *command[1:], '--lock-sync', 'off'])
+        import runpy
+        prepare = runpy.run_path(str(ROOT / 'scripts/prepare-pnpm-source-inputs.py'))['prepare']
+        with mock.patch('subprocess.run') as run, mock.patch('shutil.which', return_value='nix'):
+            prepare(directory, 'apply')
+        run.assert_called_once_with(['nix', *command[1:], '--lock-sync', 'off'],
+                                    cwd=directory, check=True)
         (directory / 'flake.lock').write_text(json.dumps({'nodes': {'effect-utils': {'locked': {'rev': 'main; rm -rf /'}}}}))
         with self.assertRaises(ValueError):
             st_test.members_command(directory)
@@ -4675,6 +4674,93 @@ if os.environ.get('CI_TEST_FLAKY'):
     # As scripts/ci-nextest-flaky after the tests stage: the tests that passed only on a retry, one per line.
     open(os.environ['CI_TEST_FLAKY'], 'w').write(os.environ['FAKE_GATE_FLAKY'] + ' unit_one\\n' if os.environ.get('FAKE_GATE_FLAKY') else '')
 """
+
+
+class VerifierBatch(unittest.TestCase):
+    """--status asks the native verifier every question in one --batch, without hiding batch failures."""
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp(dir=PRIVATE_TMPDIR))
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.alone = self.dir / 'alone'
+        st_test.VERIFIER_ANSWERS.clear()
+        self.addCleanup(st_test.VERIFIER_ANSWERS.clear)
+
+    def verifier(self, batch):
+        """An executable native-boundary stub that records any run outside --batch."""
+        path = self.dir / 'evidence-verify'
+        path.write_text(f'''#!{sys.executable}
+import subprocess, sys
+assert sys.argv.pop(1) == 'legacy-evidence-verify'
+if sys.argv[1:] == ['--batch']:
+    sys.exit(subprocess.run(['sh', '-c', {batch!r}]).returncode)
+open({str(self.alone)!r}, 'a').write(' '.join(sys.argv[1:]) + '\\n')
+print('{{"satisfied": true, "kind": "wrapper", "record": "{'0' * 40}"}}')
+''')
+        path.chmod(0o755)
+        return str(path)
+
+    def commands(self, verifier, *checks):
+        return [[verifier, 'legacy-evidence-verify', '--check', check] for check in checks]
+
+    def runs_alone(self):
+        return self.alone.read_text().splitlines() if self.alone.exists() else []
+
+    def test_a_batch_that_fails_or_answers_in_another_shape_is_every_answer_and_nothing_is_asked_alone(self):
+        for batch in ('echo boom >&2; exit 1', 'echo not json', 'echo \'[{"exit": 0, "stdout": "", "stderr": ""}]\'',
+                      'echo \'[{"exit": "0", "stdout": "", "stderr": ""}, {"exit": 0, "stdout": "", "stderr": ""}]\''):
+            with self.subTest(batch=batch):
+                commands = self.commands(self.verifier(batch), 'a', 'b')
+                st_test.ask_verifier_batch(commands[0][0], commands)
+                for command in commands:
+                    done = st_test.run_verifier(command)
+                    self.assertEqual(done.returncode, 2)
+                    self.assertIn("the verifier's --batch failed", done.stderr)
+                self.assertEqual(self.runs_alone(), [])
+
+    def test_a_check_reads_a_failed_batch_as_a_verifier_that_gave_no_answer(self):
+        verifier = self.verifier('echo boom >&2; exit 1')
+        with mock.patch.object(st_test, 'own_levels', return_value=(None, [])):
+            commands = [st_test.verifier_command(verifier, '.', 'f' * 40, check, 'HEAD', None)[0] for check in ('a', 'b')]
+            st_test.ask_verifier_batch(verifier, commands)
+            covered, why = st_test.covered(verifier, '.', 'f' * 40, 'a', 'HEAD', None)
+        self.assertEqual((covered, why), (False, "verifier gave no answer: the verifier's --batch failed: boom"))
+        self.assertEqual(self.runs_alone(), [])
+
+    def test_a_failed_batch_leaves_every_crate_uncovered_with_no_run_per_crate(self):
+        verifier = self.verifier('echo boom >&2; exit 1')
+        members = st_test.members_verify_command(verifier, '.', 'f' * 40, 'HEAD', 'org/repo', None)
+        st_test.ask_verifier_batch(verifier, [members, *self.commands(verifier, 'a')])
+        missing, have = st_test.uncovered_crates(verifier, '.', 'f' * 40, 'HEAD', 'org/repo', None, {'one': 'k1', 'two': 'k2'})
+        self.assertEqual((missing, have), ([('one', "the verifier's --batch failed: boom"), ('two', "the verifier's --batch failed: boom")], 0))
+        self.assertEqual(self.runs_alone(), [])
+
+    def test_a_single_question_runs_without_a_batch(self):
+        commands = self.commands(self.verifier('exit 99'), 'a')
+        st_test.ask_verifier_batch(commands[0][0], commands)
+        self.assertEqual(st_test.VERIFIER_ANSWERS, {})
+        self.assertEqual(st_test.run_verifier(commands[0]).returncode, 0)
+        self.assertEqual(self.runs_alone(), ['--check a'])
+
+    def test_native_batch_receives_only_verifier_argument_arrays(self):
+        commands = self.commands('mergemaster', 'a', 'b')
+        answers = [{'exit': 0, 'stdout': '{}', 'stderr': ''}] * 2
+        done = subprocess.CompletedProcess([], 0, json.dumps(answers) + '\n', '')
+        with mock.patch.object(st_test.subprocess, 'run', return_value=done) as run:
+            st_test.ask_verifier_batch('mergemaster', commands)
+        run.assert_called_once_with(['mergemaster', 'legacy-evidence-verify', '--batch'],
+                                    input=json.dumps([['--check', 'a'], ['--check', 'b']]),
+                                    capture_output=True, text=True)
+
+    def test_each_batch_answer_is_handed_out_once(self):
+        answers = json.dumps([{'exit': 1, 'stdout': '{"reason": "no_record"}', 'stderr': ''}, {'exit': 0, 'stdout': '{}', 'stderr': 'x'}])
+        commands = self.commands(self.verifier(f"cat >/dev/null; echo '{answers}'"), 'a', 'b')
+        st_test.ask_verifier_batch(commands[0][0], commands)
+        self.assertEqual([(done.returncode, done.stdout, done.stderr) for done in map(st_test.run_verifier, commands)],
+                         [(1, '{"reason": "no_record"}', ''), (0, '{}', 'x')])
+        self.assertEqual(self.runs_alone(), [])
+        self.assertEqual(st_test.run_verifier(commands[0]).returncode, 0)  # asked again: a run of its own
+        self.assertEqual(self.runs_alone(), ['--check a'])
 
 
 class HandOver(unittest.TestCase):

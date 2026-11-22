@@ -152,13 +152,13 @@
 # scripts/evidence_test_support.py: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/evidence_test_support.py 3590f507364ac813bed170e490149c25561fa2d5 9f60e5e6b4b07959045f402c45231f3770788652
 # scripts/fractal-test-test: wave-2 cutover: verifier and crate keys via mergemaster binary
-# local-patch scripts/fractal-test-test decb42b9d442807c9601b473c190b3743b24c4c0 12014bbbbaa7862020ba008a32fd61a6e4409fd1
+# local-patch scripts/fractal-test-test decb42b9d442807c9601b473c190b3743b24c4c0 eb65d28c0a284cf52ea9f51dfe2b57fb5c7b13fd
 # scripts/lane-definition-closure: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/lane-definition-closure 492b3741b117092395855d9790dc96e6ce3612e6 df4cd022958b56316698ea7ca05225686329c69f
 # scripts/lane-definition-closure-test: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/lane-definition-closure-test 635945d2a01f18e9c4716c50a2eb9803896cbb08 c1c8dca332d47fe5b6bc7d75c3d773f650d4f9d8
 # scripts/st-test: wave-2 cutover: verifier and crate keys via mergemaster binary
-# local-patch scripts/st-test 087ae7d9f3d1106a38eedc1e911caeeaf46a96ae d66a994038209900223ed3b62078e4e587a55405
+# local-patch scripts/st-test 087ae7d9f3d1106a38eedc1e911caeeaf46a96ae 99e6626136f5a741c25836a4d0203a66b5920774
 # resync-blob scripts/evidence-sign ea0ab64b5efc631c624cc974208bf05234839433
 # resync-blob scripts/evidence-sign-hardening-test 7da656fdc8f2b4b499fa099c93efa34884434004
 # Intentional local divergence for external Fractal consumers (see mergemaster#141):
@@ -192,10 +192,10 @@
 # assertion pins the refusal rather than treating the streams as equivalent.
 # Keygen caller adoption (LOCAL_PATCHES in tests/oracle_scripts.py lists only these two):
 # evidence-prepush remediation text names the native command; its self-test
-# asserts the new instruction. Runtime signing and suppression remain unchanged.
+# asserts the new instruction. Accepted hosted-proof policy also skips local signing.
 # Remove these exceptions when the independent oracle includes native keygen.
-# local-patch scripts/evidence-prepush 9c5dd848149ef8a4d1387eb0459cbbf21d38deea 4da13cad8a0a918caf7ea0da578f0c23a565239a
-# local-patch scripts/evidence-prepush-test e6c6b5187e39e59cd533ff1768d6ab2b68efecfa 542165b8183c31b98dcaac7d02351b1367a9dfd9
+# local-patch scripts/evidence-prepush 9c5dd848149ef8a4d1387eb0459cbbf21d38deea aa16e4dc66a65b000c757464347a10a6da1c7da0
+# local-patch scripts/evidence-prepush-test e6c6b5187e39e59cd533ff1768d6ab2b68efecfa 1eec5c07e0e50b5a4b7d128ff0e0cb882bf92ca4
 # Keygen assertions now live in crates/mergemaster-evidence/tests/keygen.rs.
 # tests/fixtures/oracle/keygen.json freezes host/agent provisioning and reuse
 # streams using a deliberately public fixed test key and explicit home template;
@@ -520,10 +520,13 @@ path	source_blob	mergemaster_blob
 # The existing oracle comparison still guards this unchanged path; no exception is added.
 # Adapted native-boundary callers are not byte mirrors: R3 carries the checkout
 # assertion (#6309), gate-slot scope (#6345), and Fractal command renames as local patches.
-# Remaining port follow-ups (#443): evidence-prepush / evidence-prepush-test hosted-proof
-# policy and content-guard assertions; st-test / fractal-test-test multi-check
-# verifier batching (#5552). Removed evidence-verify / its test need native batch parity
-# review (#5552); gpg program pins (#6427) already landed in mergemaster#140.
+# Completed #443 caller ports: st-test / fractal-test-test verifier batching
+# (c8b5a3fc, #5552), adapted to the native --batch argv-array/result-array contract
+# landed in mergemaster#445; input-contract assertions from 862b6305 are included.
+# Completed #443 hosted-proof policy and fail-safe lookup handling in evidence-prepush
+# and its test (bca82aa3, 1475f902, eb79c0a7). Content-guard assertions from
+# 3fb5a932 / 9078c7f2 remain held back with the installer (item 4) above.
+# gpg program pins (#6427) already landed in mergemaster#140.
 # Intended divergence: native ci-evidence-source accepts push events whose `after`
 # equals the tested source (fractal#6924, mergemaster#444); the pinned Python oracle refuses push.
 # Blob table source column is TARGET; applied column is current retained bytes.
@@ -564,8 +567,8 @@ scripts/evidence-log-watch.service	7c4788a1b61ee42ad2982c7a8928b2df42b04b72	7562
 scripts/evidence-log-watch.timer	41c8efa9dd7f5455731d16ab88c1bc93cb22cde1	41c8efa9dd7f5455731d16ab88c1bc93cb22cde1
 scripts/evidence-log.service	341638d61c71d41358e2b147d141ce76b6d6c06e	341638d61c71d41358e2b147d141ce76b6d6c06e
 scripts/evidence-log.timer	e9b26cff3fba565520f2fad40c34a317116dd5d2	e9b26cff3fba565520f2fad40c34a317116dd5d2
-scripts/evidence-prepush	77f82ecfab6f47b046285509ec92d3522c15eaab	4da13cad8a0a918caf7ea0da578f0c23a565239a
-scripts/evidence-prepush-test	fea7352c3cf92153b4dcad329c55e389d74f7768	542165b8183c31b98dcaac7d02351b1367a9dfd9
+scripts/evidence-prepush	77f82ecfab6f47b046285509ec92d3522c15eaab	aa16e4dc66a65b000c757464347a10a6da1c7da0
+scripts/evidence-prepush-test	fea7352c3cf92153b4dcad329c55e389d74f7768	1eec5c07e0e50b5a4b7d128ff0e0cb882bf92ca4
 scripts/evidence-presign-heavy.service	9493d90603e6b2dc988cabe397f2fc070e8e7d3a	9493d90603e6b2dc988cabe397f2fc070e8e7d3a
 scripts/evidence-presign-heavy.timer	0083a632e9111face5cb7de88e5f184fb9038245	0083a632e9111face5cb7de88e5f184fb9038245
 scripts/evidence-presign-light.service	cd01904660f1f684447a87152de3ca8ba2cda634	cd01904660f1f684447a87152de3ca8ba2cda634
@@ -590,8 +593,8 @@ scripts/evidence_test_support.py	3590f507364ac813bed170e490149c25561fa2d5	9f60e5
 scripts/fractal-test	08a31a9ab85b195c71387a8021cc85d383de75e8	08a31a9ab85b195c71387a8021cc85d383de75e8
 scripts/fractal-test-report	52ebcb098a323b013eba5b136457393ef88e2951	5bc77bf53ec47d0e580d5e4c26e20cb24a0b3f16
 scripts/fractal-test-report-test	b0dc50163986760343d7eb67c701cb4b775e9945	616e9248c0a584b40590a7682242df337f7dbf93
-scripts/fractal-test-test	8990abbdbba9f1512c3c5c26aefbdf733a9049b0	12014bbbbaa7862020ba008a32fd61a6e4409fd1
+scripts/fractal-test-test	8990abbdbba9f1512c3c5c26aefbdf733a9049b0	eb65d28c0a284cf52ea9f51dfe2b57fb5c7b13fd
 scripts/install-git-hooks	fb96c104faa11c4a7042c905da60bcc430dac37e	5655c13c85772ff65aa7aecfd78326ffd033cd10
 scripts/lane-definition-closure	5a844628e821bb51e6ab3fc2b38088a37c3c47c4	df4cd022958b56316698ea7ca05225686329c69f
 scripts/lane-definition-closure-test	635945d2a01f18e9c4716c50a2eb9803896cbb08	c1c8dca332d47fe5b6bc7d75c3d773f650d4f9d8
-scripts/st-test	c36005b84b3f4e3aa6fe244e2541dfda9dac0e5c	d66a994038209900223ed3b62078e4e587a55405
+scripts/st-test	c36005b84b3f4e3aa6fe244e2541dfda9dac0e5c	99e6626136f5a741c25836a4d0203a66b5920774
