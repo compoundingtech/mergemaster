@@ -377,7 +377,7 @@ Rejected: accepting either wrapper or predicate hash; reusing caller-wrapper mea
 
 Extend existing `.mergemaster/lanes.json` version 1 with optional top-level `reuse_authorities` (array) and optional per-lane `reuse` object. Do not add a global enabled flag. Existing lane `max_age_seconds` remains the **only** age authority.
 
-Each authority entry has exactly `key_id: string`, `public_key: string` (one OpenSSH public key, no options/comment), `role: "v2_service_issuer" | "daemon_policy_receipt"`, `repository: string`, `endpoint_id: string` (nonempty opaque reviewed identity, exact comparison, no URL normalization). Enforce fingerprint/public-key consistency, unique key IDs, repository equality with policy, and different keys across roles. `endpoint_id` is the signed service/broker identity, not an unauthenticated transport locator. No wildcards or implicit repository/endpoint scope.
+Each authority entry has exactly `key_id: string`, `public_key: string` (one OpenSSH public key, no options/comment), `principal: string` (exactly one full principal, for example `agent/<service>`; no wildcards, patterns or lists), `role: "v2_service_issuer" | "daemon_policy_receipt"`, `repository: string`, `endpoint_id: string` (nonempty opaque reviewed identity, exact comparison, no URL normalization). Enforce fingerprint/public-key consistency, unique key IDs, repository equality with policy, and different keys across roles. The principal must be well formed (`level/name`), and its level prefix must be an existing evidence trust level; BASE therefore caps the trust level that a key can claim. `endpoint_id` is the signed service/broker identity, not an unauthenticated transport locator. No wildcards or implicit repository/endpoint scope.
 
 Lane `reuse` has exactly `{ "version": 1, "origin_profile": "same_repository_pr", "platform": "linux" }`. Its enclosing map key is the lane identifier, and the existing lane declares `max_age_seconds: positive representable u64` and `nix_check.required: "any"`. Require a matching BASE producer manifest and both authority roles/profile before even considering reuse. Broker profile enrollment details are **broker-owned, TBD**, not an implicit default Linux policy.
 
@@ -392,9 +392,9 @@ Rejected: a new reuse.json (needless competing authority/document), duplicate ma
 
 ### 9.4 Q4 — Note signature fingerprint and issuer binding
 
-Retain SSH-signed Git commits. `issuer.key_id` is exactly the OpenSSH SHA256 public-key fingerprint (`SHA256:` plus canonical unpadded base64 SHA-256 of the SSH public-key blob). Require it to equal the actual verified commit key fingerprint **and** the fingerprint recomputed from the selected current BASE public key. Require verified SSH principal equal `predicate.signer`; independently check allowed level and `v2_service_issuer` role/repository/`issuer.service_id == authority.endpoint_id`.
+Retain SSH-signed Git commits. `issuer.key_id` is exactly the OpenSSH SHA256 public-key fingerprint (`SHA256:` plus canonical unpadded base64 SHA-256 of the SSH public-key blob). Require it to equal the actual verified commit key fingerprint **and** the fingerprint recomputed from the selected current BASE public key. Require the verified SSH principal **and** `predicate.signer` to each equal the selected entry's BASE-pinned `principal`; refuse otherwise. The trust level is derived only from that pinned principal (the existing `signer.split('/')[0]` lane check, `src/gate.rs:1227–1235`), so a note cannot choose its own level. Independently check the lane's allowed levels and the `v2_service_issuer` role/repository/`issuer.service_id == authority.endpoint_id`.
 
-Construct the v2 worker's allowed-signers file from that single selected BASE issuer entry and exact signed principal; verify the commit, then return `{ "version": 2, "record": <ID>, "statement": <strict v2>, "verified_signer": <principal>, "verified_key_id": <fingerprint> }` through the sanitized parent/child interface. Verify actual fingerprint using Git's `%GF` result; empty/unavailable/noncanonical output refuses. A build/platform lacking reliable fingerprint reporting is unsupported for v2, not silently principal-only. No caller-selected key file grants authority; the parent supplies BASE material. Do not pass v2 through recursive v1 `re_attests` verification.
+Construct the v2 worker's allowed-signers file with exactly one line, built only from the selected BASE entry's `principal` and `public_key`, never from a principal claimed by the note. This mirrors v1, where BASE `.st/evidence-keys` binds each principal to its key (`src/gate/config.rs:787–830`). Verify the commit, then return `{ "version": 2, "record": <ID>, "statement": <strict v2>, "verified_signer": <principal>, "verified_key_id": <fingerprint> }` through the sanitized parent/child interface. Verify actual fingerprint using Git's `%GF` result; empty/unavailable/noncanonical output refuses. A build/platform lacking reliable fingerprint reporting is unsupported for v2, not silently principal-only. No caller-selected key file grants authority; the parent supplies BASE material. Do not pass v2 through recursive v1 `re_attests` verification.
 
 Rationale: current worker accepts a supplied BASE-created keys file (`src/gate.rs:45–60,914–935`); verifier checks `%GS` and principal but not scoped issuer fingerprint (`src/evidence/mod.rs:683–733`); sanitization is `src/gate/git.rs:16–54`. Design 110–124,220–245 explicitly requires scoped service roles and noninterchangeable keys.
 Rejected: principal/level alone, trusting the signed key ID without crypto binding, trusting a matching key from any scope, v1 key fallback, ambient allowed-signers configuration. Receipt crypto/domain separation is not decided here.
@@ -447,7 +447,7 @@ Fresh root (the ordered maps below are presentation only; equality is structural
   "subject":[{"name":"C_ROOT","digest":{"gitTree":"T_ROOT"}}],
   "predicateType":"https://compounding.tech/fractal/evidence/gate/v2",
   "predicate":{
-    "schema_version":2,"change_id":"pr-41","signer":"host/service","tier":"full",
+    "schema_version":2,"change_id":"pr-41","signer":"agent/test-evidence-service","tier":"full",
     "issuer":{"key_id":"SHA256:TEST_SERVICE_FINGERPRINT","service_id":"service:linux-v1"},
     "producer_sha256":"H_PRODUCER","observed_at":"2026-11-22T10:00:00Z","attested_at":"2026-11-22T10:00:00Z",
     "origin":{"class":"same_repository_pr","repository":"example/project","source_repository":"example/project","subject_head":"C_ROOT","accepted_base":"C_OLD_BASE","event_kind":"pull_request","pull_request":{"number":41,"head":"C_ROOT","base_ref":"main"}},
@@ -464,7 +464,7 @@ Rebind (argv follows `src/evidence/derivation.rs:11–18,24–33,245–268`; dig
   "subject":[{"name":"C_REBIND","digest":{"gitTree":"T_REBIND"}}],
   "predicateType":"https://compounding.tech/fractal/evidence/gate/v2",
   "predicate":{
-    "schema_version":2,"change_id":"pr-41","signer":"host/service","tier":"full",
+    "schema_version":2,"change_id":"pr-41","signer":"agent/test-evidence-service","tier":"full",
     "issuer":{"key_id":"SHA256:TEST_SERVICE_FINGERPRINT","service_id":"service:linux-v1"},
     "producer_sha256":"H_PRODUCER","observed_at":"2026-11-22T10:00:00Z","attested_at":"2026-11-22T11:00:00Z","reused_from":"R_ROOT_NOTE",
     "origin":{"class":"same_repository_pr","repository":"example/project","source_repository":"example/project","subject_head":"C_REBIND","accepted_base":"C_NEW_BASE","event_kind":"pull_request","pull_request":{"number":41,"head":"C_REBIND","base_ref":"main"}},
@@ -478,8 +478,8 @@ BASE policy fragment (insert into otherwise complete existing policy; not a new 
 ```json
 {
   "reuse_authorities":[
-    {"key_id":"SHA256:TEST_SERVICE_FINGERPRINT","public_key":"ssh-ed25519 TEST_SERVICE_KEY","role":"v2_service_issuer","repository":"example/project","endpoint_id":"service:linux-v1"},
-    {"key_id":"SHA256:TEST_BROKER_FINGERPRINT","public_key":"ssh-ed25519 TEST_BROKER_KEY","role":"daemon_policy_receipt","repository":"example/project","endpoint_id":"broker:linux-v1"}
+    {"key_id":"SHA256:TEST_SERVICE_FINGERPRINT","public_key":"ssh-ed25519 TEST_SERVICE_KEY","principal":"agent/test-evidence-service","role":"v2_service_issuer","repository":"example/project","endpoint_id":"service:linux-v1"},
+    {"key_id":"SHA256:TEST_BROKER_FINGERPRINT","public_key":"ssh-ed25519 TEST_BROKER_KEY","principal":"host/test-daemon-broker","role":"daemon_policy_receipt","repository":"example/project","endpoint_id":"broker:linux-v1"}
   ],
   "lanes":{"format":{"max_age_seconds":86400,"nix_check":{"attribute":"checks.x86_64-linux.format","required":"any"},"reuse":{"version":1,"origin_profile":"same_repository_pr","platform":"linux"}}}
 }
