@@ -976,9 +976,11 @@ fn compute(
         let statement = match evidence::verified::worker_statement(&output.stdout, &id)? {
             evidence::verified::WorkerStatement::Legacy(statement) => *statement,
             evidence::verified::WorkerStatement::Selective(diagnostic) => {
-                // An unavailable/disabled note is never a trusted attempt,
-                // timestamp or failure in the legacy selection algorithm.
+                // Preserve the legacy worker rejection without admitting a
+                // trusted timestamp or failure into candidate selection.
                 reuse_attempt.get_or_insert(diagnostic);
+                decision.reason = "untrusted_signer";
+                decision.outcome = "rejected";
                 continue;
             }
         };

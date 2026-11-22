@@ -135,7 +135,7 @@ impl<'de> Deserialize<'de> for SelectiveReuse {
 
 pub(super) fn attempt<R: v2::Receipt>(
     repo: &Path,
-    id: &str,
+    input: verified::CandidateNote<'_>,
     current: &Config,
     check: &str,
     context: Option<&AuthenticatedPrCandidate<'_>>,
@@ -149,7 +149,7 @@ pub(super) fn attempt<R: v2::Receipt>(
         return SelectiveReuse::refusal(Reason::LaneIneligible);
     }
     let candidate =
-        match verified::candidate_with_receipt::<R>(repo, id, &current.policy.reuse_authority) {
+        match verified::candidate_with_receipt::<R>(repo, input, &current.policy.reuse_authority) {
             Ok(candidate) => candidate,
             Err(error) => {
                 // Production retains the sealed decoder's early stop: no signature

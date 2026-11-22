@@ -6313,7 +6313,8 @@ fn assert_production_reuse_disabled(decision: &Value) {
         })
     );
     assert_ne!(decision["decision"], "skip", "{decision}");
-    assert_eq!(decision["reason"], "no_record", "{decision}");
+    assert_eq!(decision["reason"], "untrusted_signer", "{decision}");
+    assert_eq!(decision["outcome"], "rejected", "{decision}");
     assert!(decision["record"].is_null());
     assert!(decision["observed_at"].is_null());
 }
@@ -6334,7 +6335,7 @@ fn production_selective_reuse_stays_disabled_with_complete_fixtures() {
         )
         .is_empty()
     );
-    let baseline = f.decision(&[]);
+    let mut baseline = f.decision(&[]);
     assert!(baseline.get("selective_reuse").is_none());
     f.note(&candidate, &f.key, "tree");
     let allowed = format!(
@@ -6355,6 +6356,8 @@ fn production_selective_reuse_stays_disabled_with_complete_fixtures() {
     let output = f.root.path().join("selective-github-output");
     let decision = f.decision(&["--github-output", output.to_str().unwrap()]);
     assert_production_reuse_disabled(&decision);
+    baseline["reason"] = json!("untrusted_signer");
+    baseline["outcome"] = json!("rejected");
     assert_eq!(
         legacy_decision_fields(decision),
         legacy_decision_fields(baseline)
@@ -6362,6 +6365,7 @@ fn production_selective_reuse_stays_disabled_with_complete_fixtures() {
     let output = fs::read_to_string(output).unwrap();
     assert!(output.contains("skip=false\n"));
     assert!(output.contains("refuse=true\n"));
+    assert!(output.contains("refusal=untrusted_signer\n"));
 }
 
 #[test]
@@ -6404,7 +6408,8 @@ fn missing_or_malformed_reuse_authority_preserves_legacy_gate() {
             let (_, candidate) = selective_reuse_pair(&mut f);
             let v2_record = f.note(&candidate, &f.key, "tree");
             let refused = f.decision(&[]);
-            assert_eq!(refused["reason"], "no_record");
+            assert_eq!(refused["reason"], "untrusted_signer");
+            assert_eq!(refused["outcome"], "rejected");
             assert_eq!(
                 refused["selective_reuse"],
                 json!({
@@ -6480,12 +6485,16 @@ fn fork_push_local_queue_and_merge_group_cannot_reuse() {
             "merge_group" => merge_group_decision(&f, &merge_group_event(&f), &[]),
             _ => f.decision(&[]),
         };
-        let baseline = decide();
+        let mut baseline = decide();
         f.note(&candidate, &f.key, "tree");
         let after = decide();
         assert_ne!(after["decision"], "skip", "{origin}: {after}");
         assert_ne!(after["selective_reuse"]["status"], "validated");
         assert!(after["selective_reuse"].get("root_record").is_none());
+        if baseline["reason"] == "no_record" {
+            baseline["reason"] = json!("untrusted_signer");
+            baseline["outcome"] = json!("rejected");
+        }
         assert_eq!(
             legacy_decision_fields(after),
             legacy_decision_fields(baseline),
@@ -6665,7 +6674,7 @@ fn production_v2_objects_stay_disabled_and_caller_keys_grant_no_authority() {
     assert!(String::from_utf8_lossy(&worker.stderr).contains("current BASE authority"));
     let decision = f.decision(&[]);
     assert_eq!(decision["decision"], "refuse");
-    assert_eq!(decision["reason"], "no_record");
+    assert_eq!(decision["reason"], "untrusted_signer");
     assert_production_reuse_disabled(&decision);
 }
 

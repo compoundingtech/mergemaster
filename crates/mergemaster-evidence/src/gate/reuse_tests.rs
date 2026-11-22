@@ -742,7 +742,7 @@ impl FixturePair {
         let diagnostic = if production {
             attempt::<v2::DaemonPolicyReceipt>(
                 self.git.root.path(),
-                &candidate_id,
+                verified::load_candidate(self.git.root.path(), &candidate_id).unwrap(),
                 &self.config,
                 "format",
                 None,
@@ -752,7 +752,7 @@ impl FixturePair {
         } else {
             attempt::<Value>(
                 self.git.root.path(),
-                &candidate_id,
+                verified::load_candidate(self.git.root.path(), &candidate_id).unwrap(),
                 &self.config,
                 "format",
                 authenticated.then_some(&context),
@@ -811,4 +811,44 @@ fn selective_worker_diagnostics_are_map_only_and_string_enum_only() {
     }
     assert!(serde_json::from_str::<SelectiveReuse>(
         r#"{"version":1,"status":"disabled","reason":"receipt_contract_undefined","reason":"selective_reuse_disabled"}"#).is_err());
+}
+
+#[test]
+fn bounded_candidate_load_precedes_base_authority_reads() {
+    let f = FixturePair::new();
+    let mut oversized = f.candidate.clone();
+    oversized["predicate"]["daemon_policy_receipt"] = json!("x".repeat(v2::MAX_NOTE_BYTES));
+    let record = f.git.raw_note(
+        &serde_json::to_vec(&oversized).unwrap(),
+        &f.tree,
+        &[&f.head],
+        &f.git.key,
+    );
+    assert!(matches!(
+        verified::load_candidate(f.git.root.path(), &record),
+        Err(verified::Refusal::Oversized)
+    ));
+    let mut args = super::super::VerifyArgs {
+        repo: f.git.root.path().to_owned(),
+        record,
+        keys: f.git.root.path().join("unused-keys"),
+        base: Some("0".repeat(40)),
+        check: Some("format".into()),
+    };
+    // This BASE is missing: loading it first would return an error, not a
+    // bounded-load diagnostic. The same worker still errors on a valid object.
+    let diagnostic = serde_json::to_value(worker(&args).unwrap()).unwrap();
+    assert_eq!(
+        diagnostic,
+        json!({
+            "version":1,"status":"refused","reason":"reuse_candidate_unverified"
+        })
+    );
+    args.record = f.git.raw_note(
+        &serde_json::to_vec(&f.root).unwrap(),
+        &f.git.tree,
+        &[&f.git.head],
+        &f.git.key,
+    );
+    assert!(worker(&args).is_err());
 }

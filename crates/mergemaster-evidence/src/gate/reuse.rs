@@ -16,6 +16,14 @@ use orchestration::attempt;
 
 pub(super) fn worker(args: &super::VerifyArgs) -> anyhow::Result<SelectiveReuse> {
     use anyhow::Context;
+    let candidate = match crate::evidence::verified::load_candidate(&args.repo, &args.record) {
+        Ok(candidate) => candidate,
+        Err(_) => {
+            return Ok(SelectiveReuse::refusal(
+                orchestration::Reason::CandidateUnverified,
+            ));
+        }
+    };
     let base = args
         .base
         .as_deref()
@@ -24,7 +32,7 @@ pub(super) fn worker(args: &super::VerifyArgs) -> anyhow::Result<SelectiveReuse>
     let check = args.check.as_deref().context("v2 worker requires a lane")?;
     Ok(attempt::<v2::DaemonPolicyReceipt>(
         &args.repo,
-        &args.record,
+        candidate,
         &current,
         check,
         None,

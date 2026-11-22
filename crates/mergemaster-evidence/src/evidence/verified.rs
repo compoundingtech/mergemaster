@@ -249,12 +249,24 @@ fn verify_v2<R: v2::Receipt>(
     })
 }
 
+/// Bounded object/layout input, loaded before reading BASE authority.
+pub(crate) struct CandidateNote<'a> {
+    id: &'a str,
+    note: Note,
+}
+pub(crate) fn load_candidate<'a>(repo: &Path, id: &'a str) -> LoadResult<CandidateNote<'a>> {
+    Ok(CandidateNote {
+        id,
+        note: note(repo, id)?,
+    })
+}
+
 pub(crate) fn candidate_with_receipt<R: v2::Receipt>(
     repo: &Path,
-    id: &str,
+    candidate: CandidateNote<'_>,
     authority: &ReuseAuthority,
 ) -> LoadResult<VerifiedRecord<R>> {
-    verify_v2(repo, id, note(repo, id)?, authority)
+    verify_v2(repo, candidate.id, candidate.note, authority)
 }
 
 /// The caller supplies the current BASE policy, never historical root policy.
