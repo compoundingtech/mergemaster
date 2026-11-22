@@ -30,6 +30,7 @@
     ".github/workflows",
     "AGENTS.md",
     "CLAUDE.md",
+    "claude-channel",
     "clients",
     "docs/st3/action-coverage.json",
     "docs/st3/actor-contract.json",
@@ -44,6 +45,7 @@
     "examples/fractal",
     "fixtures",
     "packages/fractal/fixtures/daily-review.kdl",
+    "packages/fractal/fixtures/escalation.kdl",
     "packages/fractal/fixtures/pr-landing.kdl",
     "packages/fractal/fixtures/upstream-repin.kdl",
     "scripts",
@@ -56,6 +58,7 @@
     "crates/fractal-daemon/fixtures/native-records/codex.jsonl",
     "crates/fractal-daemon/fixtures/native-records/omp-parity.jsonl",
     "crates/fractal-daemon/fixtures/native-records/schema-conformance.jsonl",
+    "docs/st3/client-v0/fixtures/capabilities.json",
     "docs/st3/client-v0/schemas/client-v0.schema.json",
     "docs/st3/client-v0/schemas/operations.json",
     "docs/st3/client-v0/schemas/quota-source-v1.schema.json",
@@ -66,8 +69,11 @@
   "fractal-api-core": {
    "extra": [
     ".github/workflows/fleet.yml",
+    "apps/ios/fixtures/observation-minute.json",
     "claude-channel",
-    "scripts/ci-test-paths.rs"
+    "fixtures/objective-native-rows.json",
+    "scripts/ci-test-paths.rs",
+    "slo"
    ]
   },
   "fractal-api-mailbox": {
@@ -129,6 +135,7 @@
   },
   "fractal-conversation-ui": {
    "extra": [
+    "fixtures/clients/ask-markdown.json",
     "fixtures/clients/conversation-style.json",
     "fixtures/clients/transcripts/claude-skill.json",
     "fixtures/clients/transcripts/claude.expected.json",
@@ -162,6 +169,7 @@
   },
   "fractal-delivery-base": {
    "extra": [
+    "fixtures/clients/ask-markdown.json",
     "scripts/ci-test-paths.rs"
    ]
   },
@@ -170,6 +178,7 @@
     "claude-channel/.claude-plugin/marketplace.json",
     "claude-channel/plugins/st2-channel/.claude-plugin/plugin.json",
     "claude-channel/plugins/st2-channel/.mcp.json",
+    "docs/st3/client-v0/fixtures/response-evidence.json",
     "plugins/claude/.claude-plugin/marketplace.json",
     "plugins/claude/st-channel/.claude-plugin/plugin.json",
     "plugins/claude/st-channel/.mcp.json",
@@ -234,11 +243,19 @@
     ".config",
     ".github/workflows/fleet.yml",
     ".st/evidence-policy.json",
+    "claude-channel",
     "crates/fractal-daemon/hooks/claude-observe.sh",
     "crates/fractal-daemon/hooks/claude-statusline.sh",
     "crates/fractal-daemon/hooks/omp-channel.ts",
     "crates/fractal-daemon/hooks/pi-channel.ts",
+    "fixtures/objective-native-rows.json",
+    "slo/fractal-ci.kdl",
     "slo/objectives.kdl"
+   ]
+  },
+  "fractal-mac-custody": {
+   "extra": [
+    "scripts/ci-test-paths.rs"
    ]
   },
   "fractal-migrate": {
@@ -249,6 +266,7 @@
   },
   "fractal-missions": {
    "extra": [
+    "crates/fractal-attention/src/store/attention.rs",
     "crates/fractal-daemon/tests/fixtures/pre-diet-store.sqlite3.gz",
     "examples/fractal/custom-review.json",
     "scripts/ci-test-paths.rs"

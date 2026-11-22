@@ -11,7 +11,7 @@ import sys
 # merge-pr is covered by test-merge-pr.py, not by the legacy byte/mode oracle.
 EXEMPT = {"PROVENANCE", "test-scripts", "merge-pr"}
 ORIGINAL = "e2721e52463428b4ff655addee129cecd2839763"
-TARGET = "787e8ed592dff34d2bdc2a2b0b584482da567e7f"
+TARGET = "2846d1bb73c5a62d9ec9420cf382bde84c7223c1"
 LOCAL_PATCHES = {"scripts/ci-signed-tree", "scripts/ci-signed-tree-test",
                  "scripts/ci-evidence-gate", "scripts/ci-evidence-gate-test",
                  "scripts/evidence-prepush", "scripts/evidence-prepush-test",

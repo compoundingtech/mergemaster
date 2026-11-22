@@ -42,16 +42,16 @@
     "fractal-fixture": {
       "flake": false,
       "locked": {
-        "lastModified": 1794333982,
-        "narHash": "sha256-EYnLgrxDCQXThOybpPxr2okTy7BpcHkzjLvBsaAZ+vM=",
+        "lastModified": 1795344311,
+        "narHash": "sha256-TbTF+CQG07n6Uf8R9MKmMLeW1ySm1tzEd1dqDlqOL7c=",
         "ref": "refs/heads/main",
-        "rev": "787e8ed592dff34d2bdc2a2b0b584482da567e7f",
+        "rev": "2846d1bb73c5a62d9ec9420cf382bde84c7223c1",
         "shallow": true,
         "type": "git",
         "url": "https://github.com/compoundingtech/fractal"
       },
       "original": {
-        "rev": "787e8ed592dff34d2bdc2a2b0b584482da567e7f",
+        "rev": "2846d1bb73c5a62d9ec9420cf382bde84c7223c1",
         "shallow": true,
         "type": "git",
         "url": "https://github.com/compoundingtech/fractal"

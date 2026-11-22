@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Validate and render source-pinned release upgrade-impact notes."""
 import argparse
+import io
 import json
 import math
 from pathlib import Path
@@ -53,6 +54,35 @@ def resolve(repo, ref):
 
 def source_text(repo, source, path):
     return subprocess.check_output(['git', 'show', f'{source}:{path}'], cwd=repo, text=True)
+
+
+def fragment_texts(repo, source):
+    entries = subprocess.check_output(
+        ['git', 'ls-tree', '-r', '-z', source, '--', FRAGMENTS], cwd=repo)
+    blobs = []
+    for entry in entries.split(b'\0'):
+        if not entry:
+            continue
+        metadata, path = entry.split(b'\t', 1)
+        if path.startswith(FRAGMENTS.encode()) and path.endswith(b'.json'):
+            blobs.append((path.decode(), metadata.split()[2]))
+    # communicate() drains stdout while writing requests, so neither pipe can
+    # deadlock when a tree has more fragments than fit in a pipe buffer.
+    output = subprocess.check_output(
+        ['git', 'cat-file', '--batch'], cwd=repo,
+        input=b''.join(oid + b'\n' for _, oid in blobs))
+    stream = io.BytesIO(output)
+    for path, oid in blobs:
+        header = stream.readline().split()
+        if len(header) != 3 or header[0] != oid or header[1] != b'blob':
+            raise ImpactError(f'{path}: missing fragment blob')
+        size = int(header[2])
+        content = stream.read(size)
+        if len(content) != size or stream.read(1) != b'\n':
+            raise ImpactError(f'{path}: incomplete fragment blob')
+        # Match subprocess text=True decoding and universal-newline handling.
+        with io.TextIOWrapper(io.BytesIO(content)) as text_stream:
+            yield path, text_stream.read()
 
 
 def text(value, label):
@@ -142,12 +172,10 @@ def collect(repo, since, source):
         raise ImpactError('previous release source must be an ancestor of the candidate')
     commits = git(repo, 'rev-list', '--first-parent', '--reverse', f'{since}..{source}').splitlines()
     # Read the final candidate tree: uncommitted edits and a newer checkout never alter notes.
-    paths = [path for path in git(repo, 'ls-tree', '-r', '--name-only', source, '--', FRAGMENTS).splitlines()
-             if path.startswith(FRAGMENTS) and path.endswith('.json')]
     fragments = {}
-    for path in paths:
+    for path, content in fragment_texts(repo, source):
         try:
-            fragment = json.loads(source_text(repo, source, path))
+            fragment = json.loads(content)
         except json.JSONDecodeError as error:
             raise ImpactError(f'{path}: invalid JSON: {error}') from error
         validate(fragment, path)
@@ -191,18 +219,15 @@ def collect(repo, since, source):
 def check_pull_request(repo, base, source, pr_number=None, queue_ref=None):
     """Check the effective merge tree, independently of the unreleased main backlog.
 
-    Each new first-parent PR merge in a queue group needs a fresh fragment. Existing
-    fragments are immutable; a later correction or backfill gets its own file.
+    Each new first-parent PR merge in a queue group needs a fresh fragment. Valid
+    existing fragments are immutable; corrections or backfills get their own file.
+    An inherited invalid fragment may only be modified into a valid fragment.
+    Deletion remains forbidden, and repairs still require a fresh PR fragment.
     No event identity means strict local validation without a rollout exemption.
     """
     base, source = resolve(repo, base), resolve(repo, source)
     if subprocess.run(['git', 'merge-base', '--is-ancestor', base, source], cwd=repo).returncode:
         raise ImpactError('PR/queue base must be an ancestor of the effective merge source')
-    changes = git(repo, 'diff', '--no-renames', '--name-status', base, source, '--', FRAGMENTS).splitlines()
-    for change in changes:
-        status, path = change.split('\t', 1)
-        if path.endswith('.json') and status != 'A':
-            raise ImpactError(f'{path}: existing fragments are immutable; add a new fragment for corrections')
     commits = git(repo, 'rev-list', '--first-parent', '--reverse', f'{base}..{source}').splitlines()
     if not commits:
         raise ImpactError('no integrated change to classify')
@@ -214,6 +239,27 @@ def check_pull_request(repo, base, source, pr_number=None, queue_ref=None):
         queue_number = int(match[1])
     coverage, exemptions, version_changes = {}, {}, []
     for commit in commits:
+        # Each integrated member inherits its own first-parent tree, not the
+        # queue group's original base. A repaired note becomes immutable.
+        parent = f'{commit}^1'
+        changes = git(repo, 'diff', '--no-renames', '--name-status', parent, commit, '--', FRAGMENTS).splitlines()
+        for change in changes:
+            status, path = change.split('\t', 1)
+            if not path.endswith('.json') or status == 'A':
+                continue
+            if status == 'M':
+                try:
+                    validate(json.loads(source_text(repo, parent, path)), path)
+                except (json.JSONDecodeError, ImpactError):
+                    # Only invalid bytes inherited from this member's base are
+                    # repairable, including for an adoption-exempt PR.
+                    try:
+                        repaired = json.loads(source_text(repo, commit, path))
+                    except json.JSONDecodeError as error:
+                        raise ImpactError(f'{path}: invalid JSON: {error}') from error
+                    validate(repaired, path)
+                    continue
+            raise ImpactError(f'{path}: existing fragments are immutable; add a new fragment for corrections')
         number = pr_number
         if queue_number is not None:
             subject = git(repo, 'show', '-s', '--format=%s', commit)

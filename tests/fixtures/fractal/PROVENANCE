@@ -1,5 +1,5 @@
 Source: https://github.com/compoundingtech/fractal
-Commit: e2721e52463428b4ff655addee129cecd2839763
+Commit: 2846d1bb73c5a62d9ec9420cf382bde84c7223c1
 
 Committed fixtures are limited to policy, directly used non-moving scripts,
 wrapper-note testdata, and the documentation section used by evidence-flip-ready.
@@ -8,7 +8,7 @@ Wave 2 removes the rust-test-keys fixture; callers use the provisioned mergemast
 binary, and differential tests use MERGEMASTER_PYTHON_KEYS_ORACLE only.
 
 Tree-shaped source witnesses are supplied by the non-flake fractal-fixture input:
-github:compoundingtech/fractal/e2721e52463428b4ff655addee129cecd2839763
+git+https://github.com/compoundingtech/fractal?rev=2846d1bb73c5a62d9ec9420cf382bde84c7223c1&shallow=1
 The development shell exports its immutable source as MERGEMASTER_FRACTAL_FIXTURE.
 tests/prepare-fractal-fixture.py selects original ci-script-tests sparse inputs,
 lane definition paths, the real web subtree and original directory witnesses.
@@ -24,20 +24,20 @@ original_path	source_git_blob	committed_git_blob	scope
 .st/evidence-log-key	c5be5611cd6de87069e964654137491eca23607e	c5be5611cd6de87069e964654137491eca23607e	whole file, unchanged
 .st/evidence-policy.json	70d16599973f2f3716ab0a6861642c99de2b1ca5	70d16599973f2f3716ab0a6861642c99de2b1ca5	whole file, unchanged
 .st/evidence-retention.json	ac4185232d1c284da670d823dffa5dd15d7bb562	ac4185232d1c284da670d823dffa5dd15d7bb562	whole file, unchanged
-.st/evidence-signed-only.json	fbce342caef91682a5e8920d93ded66fad896d62	fbce342caef91682a5e8920d93ded66fad896d62	whole file, unchanged
-.st/evidence-skip-policy.json	8da8120337d0c8ba61f5fccc01c26ade5ae087e6	8da8120337d0c8ba61f5fccc01c26ade5ae087e6	whole file, unchanged
+.st/evidence-signed-only.json	f6f32f5e5cdfa0d7402e3d2f0297fbf5d333e278	f6f32f5e5cdfa0d7402e3d2f0297fbf5d333e278	whole file, unchanged
+.st/evidence-skip-policy.json	e6d0e3dabc4ba8d23f7a48f8b1834e3e0d0eb2a9	e6d0e3dabc4ba8d23f7a48f8b1834e3e0d0eb2a9	whole file, unchanged
 .st/module-layers.json	67e6719353223f27f33e281e1bb6a8f8129c1ea4	67e6719353223f27f33e281e1bb6a8f8129c1ea4	whole file, unchanged
-.st/required-lanes.json	c30dd4ac71e75877d551b1b8317e4b11359369e0	c30dd4ac71e75877d551b1b8317e4b11359369e0	whole file, unchanged
+.st/required-lanes.json	e84092f1573e9337cba75242fb4b322bcc1dcc09	e84092f1573e9337cba75242fb4b322bcc1dcc09	whole file, unchanged
 .st/review-harness.json	f0e9fe7719c765b68a86f67ff7f946fef4a6ea20	f0e9fe7719c765b68a86f67ff7f946fef4a6ea20	whole file, unchanged
 .st/review-risk.json	04f32729c5468b667621a7d6166ede7528a39ea4	04f32729c5468b667621a7d6166ede7528a39ea4	whole file, unchanged
 .st/review-verdict.schema.json	ccb12968780bd2cf7944b2e708c12b71c13bcf24	ccb12968780bd2cf7944b2e708c12b71c13bcf24	whole file, unchanged
 .st/risky-classes.json	00ad0f1dac43ab1b81dd5ea0477abd36ea088172	00ad0f1dac43ab1b81dd5ea0477abd36ea088172	whole file, unchanged
-.st/rust-test-inputs.json	43b975c0b5b480a4ce8259b9f45e325f56c428a4	43b975c0b5b480a4ce8259b9f45e325f56c428a4	whole file, unchanged
-docs/st3/gate-evidence.md	af6ba06767879c3120b4be53f793ab8bd404246f	78ba80b82d85b3e7a321a957591276a0eff4f7c2	lines 1426-1442 (Which checks skip today)
-scripts/ci-fractal-web-changes	db9514980d3ec39e810aac2149338ba161c8048e	db9514980d3ec39e810aac2149338ba161c8048e	whole file, unchanged
-scripts/ci-local	108e0ae275075b70a8324e1d3bc25c3f4a436b24	108e0ae275075b70a8324e1d3bc25c3f4a436b24	whole file, unchanged
+.st/rust-test-inputs.json	599c0c54e06c0043189087718d239b9e23270ded	599c0c54e06c0043189087718d239b9e23270ded	whole file, unchanged
+docs/st3/gate-evidence.md	47d112fc1d985c76fee489bca1b188f77f3b411f	78ba80b82d85b3e7a321a957591276a0eff4f7c2	lines 1450-1466 (Which checks skip today)
+scripts/ci-fractal-web-changes	358547a6008a2b4cd6aeb34a89e9c3db1c844856	358547a6008a2b4cd6aeb34a89e9c3db1c844856	whole file, unchanged
+scripts/ci-local	56a68663f280ca052eb139d08a03ac26884f5182	56a68663f280ca052eb139d08a03ac26884f5182	whole file, unchanged
 scripts/ci-rust-test-result	467ff766935a16aa7997fe5fbe78ef110623131e	467ff766935a16aa7997fe5fbe78ef110623131e	whole file, unchanged
-scripts/release_notes.py	059da5a93e3b421f323ab70c7bfd9acd34aa26fc	059da5a93e3b421f323ab70c7bfd9acd34aa26fc	whole file, unchanged
+scripts/release_notes.py	29788f794f53e8b5c0f6f1cec9f7032ee533e0d0	29788f794f53e8b5c0f6f1cec9f7032ee533e0d0	whole file, unchanged
 scripts/testdata/evidence/wrapper-note/allowed-signers	5d556da48d6acfb78f5e4aea9468b6f7bb0b3a2b	5d556da48d6acfb78f5e4aea9468b6f7bb0b3a2b	whole file, unchanged
 scripts/testdata/evidence/wrapper-note/expected.json	972f3525b2fb3db3c90803505b93a691092e1e1f	972f3525b2fb3db3c90803505b93a691092e1e1f	whole file, unchanged
 scripts/testdata/evidence/wrapper-note/record.pack.base64	6ec56312444157b54e302300b68509ba18a67fe3	6ec56312444157b54e302300b68509ba18a67fe3	whole file, unchanged

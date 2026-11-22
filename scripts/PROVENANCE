@@ -1,5 +1,5 @@
 # Source: compoundingtech/fractal
-# Commit: e83871ec919f95b3b3e2a9a1cd211c2ac37babda
+# Commit: 2846d1bb73c5a62d9ec9420cf382bde84c7223c1
 # Scripts copied as-is except the documented upstream patches below; Git blob SHA-1 hashes (not file SHA-1 hashes).
 # Repository-owned scripts/merge-pr is not copied from Fractal and has no legacy
 # oracle counterpart. It is explicitly exempt from the byte/mode oracle guard;
@@ -106,17 +106,17 @@
 # Pending fields remain null until actual execution. The ci-signed-tree witness
 # compares upstream Python with the local Python adapter's native-binary transport;
 # its registry names signed_tree_local_patch_preserves_binary_transport_bytes.
-# R2 resync exception; exit: https://github.com/compoundingtech/mergemaster/issues/115
-# The original extraction Commit above is historical; this resync starts at the current fixture revision.
+# R3 resync exception; exit: https://github.com/compoundingtech/mergemaster/issues/115
+# ORIGINAL remains the independent Python oracle baseline; TARGET names the current Fractal fixture.
 # Pending requires oracle bytes; the target fixture activates exact upstream bytes and modes.
 # resync-original e2721e52463428b4ff655addee129cecd2839763
-# resync-rev 787e8ed592dff34d2bdc2a2b0b584482da567e7f
+# resync-rev 2846d1bb73c5a62d9ec9420cf382bde84c7223c1
 # scripts/ci-evidence-gate: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/ci-evidence-gate 2952f89514a584465a428017b3f3e8ea043f41b2 b9754da6ff9acac41a99acea6d8de21b9da7bdb3
 # scripts/ci-evidence-gate-test: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/ci-evidence-gate-test 38a34e7d48ed407b428f739c0f3d38b151fced59 8d067c117994b9b286dcba8bb413baea47d5cf00
 # scripts/ci-evidence-observe: wave-2 cutover: verifier and crate keys via mergemaster binary
-# local-patch scripts/ci-evidence-observe af65b642fbb0e55b1dece0b5ce3a4e9e7b3f6966 1002d8647154b1f527f8b40bccd68eb12158136c
+# local-patch scripts/ci-evidence-observe af65b642fbb0e55b1dece0b5ce3a4e9e7b3f6966 473fc6a18f7e4a83d035d18c8fae069cd26a2577
 # scripts/ci-evidence-observe-test: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/ci-evidence-observe-test b4ee80c442d4ea718b512ba81d644a96f2f8553a 43c7719483888691f42acef74b48b4a0c8fb1348
 # scripts/ci-evidence-shadow: wave-2 cutover: verifier and crate keys via mergemaster binary
@@ -126,7 +126,7 @@
 # scripts/ci-evidence-signing: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/ci-evidence-signing b57b9d0d9badd16e3d7edf45b3bccd0632361e02 5490f6f3d5c24d44398f6ca315419e123f016d4d
 # scripts/ci-evidence-signing-test: wave-2 cutover: verifier and crate keys via mergemaster binary
-# local-patch scripts/ci-evidence-signing-test cd72694762e05984446ce19ad167df112bbbc441 d53a784727e9a0c99c8b2b15f76b2d5919130ab3
+# local-patch scripts/ci-evidence-signing-test cd72694762e05984446ce19ad167df112bbbc441 e42f13a6810dc5e52e36a51d3a07ffce2f47e05d
 # scripts/ci-signed-tree: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/ci-signed-tree 77a560621f8182d2ca19f622782ff24c95e7d514 d18c3452dfb2a3c79089fa739c135090ab734245
 # scripts/ci-signed-tree-test: wave-2 cutover: verifier and crate keys via mergemaster binary
@@ -134,9 +134,9 @@
 # scripts/evidence-gc: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/evidence-gc 1340a798f6bda78ad6319352fabd8de2050312f9 5ecbfa8fde5d00bf24514a7dc84c3d17bf9fa628
 # scripts/evidence-gc-test: wave-2 cutover: verifier and crate keys via mergemaster binary
-# local-patch scripts/evidence-gc-test 3c7482d742f104780158789154491d290ab7a693 c24ccca34dfc0a69e3e00674c0b3ab568f941f7f
+# local-patch scripts/evidence-gc-test 3c7482d742f104780158789154491d290ab7a693 ffde136ec7cbd6996c6d89a9a63eb3bd8ce8731f
 # scripts/evidence-gc-timer: wave-2 cutover: verifier and crate keys via mergemaster binary
-# local-patch scripts/evidence-gc-timer dd5781ab377653d43b1cfda67a46e897ec0e51d8 f3f7e9a064a6b8e2cc505ab67a83a2725593b746
+# local-patch scripts/evidence-gc-timer dd5781ab377653d43b1cfda67a46e897ec0e51d8 e3583d2eef8a9c6a1c801294d1d15837503e9038
 # scripts/evidence-lane-trace: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/evidence-lane-trace 6c2d2cfbe25c23e04f9685bbb5e394812444d2e2 cd47d3c9ef16448b0af6c7f04ffc2f39563f3b29
 # scripts/evidence-lane-trace-test: wave-2 cutover: verifier and crate keys via mergemaster binary
@@ -152,13 +152,13 @@
 # scripts/evidence_test_support.py: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/evidence_test_support.py 3590f507364ac813bed170e490149c25561fa2d5 9f60e5e6b4b07959045f402c45231f3770788652
 # scripts/fractal-test-test: wave-2 cutover: verifier and crate keys via mergemaster binary
-# local-patch scripts/fractal-test-test decb42b9d442807c9601b473c190b3743b24c4c0 83a79a82cc02f2f6db2cb14e1e07ddda48e05b32
+# local-patch scripts/fractal-test-test decb42b9d442807c9601b473c190b3743b24c4c0 12014bbbbaa7862020ba008a32fd61a6e4409fd1
 # scripts/lane-definition-closure: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/lane-definition-closure 492b3741b117092395855d9790dc96e6ce3612e6 df4cd022958b56316698ea7ca05225686329c69f
 # scripts/lane-definition-closure-test: wave-2 cutover: verifier and crate keys via mergemaster binary
 # local-patch scripts/lane-definition-closure-test 635945d2a01f18e9c4716c50a2eb9803896cbb08 c1c8dca332d47fe5b6bc7d75c3d773f650d4f9d8
 # scripts/st-test: wave-2 cutover: verifier and crate keys via mergemaster binary
-# local-patch scripts/st-test 087ae7d9f3d1106a38eedc1e911caeeaf46a96ae b7bb9af2218171134cebc815c451d63b15183a5a
+# local-patch scripts/st-test 087ae7d9f3d1106a38eedc1e911caeeaf46a96ae d66a994038209900223ed3b62078e4e587a55405
 # resync-blob scripts/evidence-sign ea0ab64b5efc631c624cc974208bf05234839433
 # resync-blob scripts/evidence-sign-hardening-test 7da656fdc8f2b4b499fa099c93efa34884434004
 # Intentional local divergence for external Fractal consumers (see mergemaster#141):
@@ -514,70 +514,83 @@
 # Applied hunks SHA256: 057c7db10dbcb2a1e7b721ffd6b0b7b67bace2aa6b111be70b8997c4b3bc8b94
 # Conflict resolutions: none; obsolete preferred passes are excluded before validation.
 path	source_blob	mergemaster_blob
-scripts/ci-evidence-gate	4400fdf73ad4d572e1437286c1088965e1de964c	4400fdf73ad4d572e1437286c1088965e1de964c
-scripts/ci-evidence-gate-test	9927e0b3d6e095f8d7c1e8485cb441fa178caeb1	9927e0b3d6e095f8d7c1e8485cb441fa178caeb1
-scripts/ci-evidence-observe	af65b642fbb0e55b1dece0b5ce3a4e9e7b3f6966	af65b642fbb0e55b1dece0b5ce3a4e9e7b3f6966
-scripts/ci-evidence-observe-test	b4ee80c442d4ea718b512ba81d644a96f2f8553a	b4ee80c442d4ea718b512ba81d644a96f2f8553a
+# R3 held-back installer: scripts/install-git-hooks stays at 787e8ed5 bytes.
+# Upstream 9078c7f2, 3fb5a932 and afaf9439 now require scripts/check-public-repo,
+# a new Python script that mergemaster does not take; explicit port follow-up.
+# The existing oracle comparison still guards this unchanged path; no exception is added.
+# Adapted native-boundary callers are not byte mirrors: R3 carries the checkout
+# assertion (#6309), gate-slot scope (#6345), and Fractal command renames as local patches.
+# Remaining port follow-ups: evidence-prepush / evidence-prepush-test hosted-proof
+# policy and content-guard assertions; st-test / fractal-test-test multi-check
+# verifier batching (#5552); removed ci-evidence-source / its test push-event
+# handling (#6924). Removed evidence-verify / its test need native batch parity
+# review (#5552); gpg program pins (#6427) already landed in mergemaster#140.
+# Blob table source column is TARGET; applied column is current retained bytes.
+# Removed paths retain their historical applied blob as tombstone evidence.
+scripts/ci-evidence-gate	2952f89514a584465a428017b3f3e8ea043f41b2	b9754da6ff9acac41a99acea6d8de21b9da7bdb3
+scripts/ci-evidence-gate-test	38a34e7d48ed407b428f739c0f3d38b151fced59	8d067c117994b9b286dcba8bb413baea47d5cf00
+scripts/ci-evidence-observe	8cf6d95d994751210433c9cfc26c47e31f62623a	473fc6a18f7e4a83d035d18c8fae069cd26a2577
+scripts/ci-evidence-observe-test	b4ee80c442d4ea718b512ba81d644a96f2f8553a	43c7719483888691f42acef74b48b4a0c8fb1348
 scripts/ci-evidence-presign-notice	0664161b622b9711716f81a2caaccbf3ce9db199	0664161b622b9711716f81a2caaccbf3ce9db199
 scripts/ci-evidence-presign-notice-test	0137fa857c0c7ca9e17563e15909c73f818058a0	0137fa857c0c7ca9e17563e15909c73f818058a0
-scripts/ci-evidence-shadow	6870054380ea2777b624f66d26e2adc933b137c0	6870054380ea2777b624f66d26e2adc933b137c0
-scripts/ci-evidence-shadow-test	d7bdd51372b5d7aef04ece64cc918430d88d0e6a	d7bdd51372b5d7aef04ece64cc918430d88d0e6a
-scripts/ci-evidence-signing	b57b9d0d9badd16e3d7edf45b3bccd0632361e02	b57b9d0d9badd16e3d7edf45b3bccd0632361e02
-scripts/ci-evidence-signing-test	cd72694762e05984446ce19ad167df112bbbc441	cd72694762e05984446ce19ad167df112bbbc441
+scripts/ci-evidence-shadow	6870054380ea2777b624f66d26e2adc933b137c0	d575e96b908703e6de4ac8c71f92b01c9841b7e1
+scripts/ci-evidence-shadow-test	d7bdd51372b5d7aef04ece64cc918430d88d0e6a	0fc6e0e4170fb646ff5d9c08d07c6a96e3d385be
+scripts/ci-evidence-signing	b57b9d0d9badd16e3d7edf45b3bccd0632361e02	5490f6f3d5c24d44398f6ca315419e123f016d4d
+scripts/ci-evidence-signing-test	b8b48837940fe3ed8e2fa260136a87340928435f	e42f13a6810dc5e52e36a51d3a07ffce2f47e05d
 scripts/ci-evidence-slo	8009b173d74522847dd27f6c77091faf6756e9f5	8009b173d74522847dd27f6c77091faf6756e9f5
 scripts/ci-evidence-slo-test	eb3b138cb5b605da1a330475b0383889fd256ccd	eb3b138cb5b605da1a330475b0383889fd256ccd
-scripts/ci-evidence-source	bc2c6547366bf804397959045c78f50f4484a767	bc2c6547366bf804397959045c78f50f4484a767
-scripts/ci-evidence-source-test	b75b580fd63ae46ba22e24227599e0fc2a7d9053	b75b580fd63ae46ba22e24227599e0fc2a7d9053
-scripts/ci-signed-tree	0939b74bdc4c18220001cb2f6c2d613c0a187fc3	2bdd0922a31a6dad544bf6826666efeec68a3466
-scripts/ci-signed-tree-test	078b3eb80da7cbfdcc1e3a592bc25498ff4a4cba	9b1877c7407fe1128620fb94e376b66a7fcca8d2
-scripts/evidence-flip-ready	65b40aed05785194e50784e3f540d9cb46a98687	37b23f2d03576ae06850f7bf76165bc752f4f206
-scripts/evidence-flip-ready-test	ef720b5192db3870db404c29ab8a927f8bef3568	675ec53a5a480ed75cafdc9f9350199524540848
-scripts/evidence-gc	a314f2d603337539e9ccb42e9afad86943018995	a314f2d603337539e9ccb42e9afad86943018995
-scripts/evidence-gc-test	d8b4b2c709b2b56824b4ce00b360352da3fc6da8	d8b4b2c709b2b56824b4ce00b360352da3fc6da8
-scripts/evidence-gc-timer	6a34d078be82be20c19d9131851d447e33fca698	6a34d078be82be20c19d9131851d447e33fca698
+scripts/ci-evidence-source	170e742e1c40a1c61d238abf496225fd469218d5	bc2c6547366bf804397959045c78f50f4484a767
+scripts/ci-evidence-source-test	81a094cd659980547e89cf3fbd80fc4e36a348aa	b75b580fd63ae46ba22e24227599e0fc2a7d9053
+scripts/ci-signed-tree	77a560621f8182d2ca19f622782ff24c95e7d514	d18c3452dfb2a3c79089fa739c135090ab734245
+scripts/ci-signed-tree-test	91612975e7ae383ca5c55b94a19af20b0b1c7df2	3017df66139c11b20ffb2d87bddc403d8efbabfa
+scripts/evidence-flip-ready	ce94216c0435711419e1b2bc5acc996e2ac926b9	37b23f2d03576ae06850f7bf76165bc752f4f206
+scripts/evidence-flip-ready-test	16e505355c4092c880c3f5e283baa8c0996cea4b	675ec53a5a480ed75cafdc9f9350199524540848
+scripts/evidence-gc	1340a798f6bda78ad6319352fabd8de2050312f9	5ecbfa8fde5d00bf24514a7dc84c3d17bf9fa628
+scripts/evidence-gc-test	b54965c1e1c750e3aff860445aaf9e3f20e040d5	ffde136ec7cbd6996c6d89a9a63eb3bd8ce8731f
+scripts/evidence-gc-timer	6e7cf7e6264637f3dca78f2d31a8afccf74133f6	e3583d2eef8a9c6a1c801294d1d15837503e9038
 scripts/evidence-gc.service	9b2fb097ba22c1c29df4b92eea55809206306e66	9b2fb097ba22c1c29df4b92eea55809206306e66
 scripts/evidence-gc.timer	84b67b72b59c94182180910d2ba1ceaa34dd1450	84b67b72b59c94182180910d2ba1ceaa34dd1450
 scripts/evidence-keygen	80ca855789c68da714288a8402a204b1a53201d2	80ca855789c68da714288a8402a204b1a53201d2
 scripts/evidence-keygen-test	2bd53be3a65dec4b6a20ff30745c36f60d758267	2bd53be3a65dec4b6a20ff30745c36f60d758267
-scripts/evidence-lane-trace	6c2d2cfbe25c23e04f9685bbb5e394812444d2e2	6c2d2cfbe25c23e04f9685bbb5e394812444d2e2
-scripts/evidence-lane-trace-test	7d60bf21e21098f3c0510a4bc43c0bef2da236e3	7d60bf21e21098f3c0510a4bc43c0bef2da236e3
-scripts/evidence-log	3fd406e4ea7fbbb3a339aa8031b6ec855687b5e5	3fd406e4ea7fbbb3a339aa8031b6ec855687b5e5
-scripts/evidence-log-test	b651cc58f646979ab933823dfe9ddd79992516d7	b651cc58f646979ab933823dfe9ddd79992516d7
-scripts/evidence-log-timer	82318fb33c7fdc836f528965f789939527a7691c	82318fb33c7fdc836f528965f789939527a7691c
-scripts/evidence-log-watch	9c0c8c0254a78f403a625f87e2bf5602527d305e	9c0c8c0254a78f403a625f87e2bf5602527d305e
-scripts/evidence-log-watch-test	bea122d3c0f0afdebf225683929b8a6bdac95429	bea122d3c0f0afdebf225683929b8a6bdac95429
-scripts/evidence-log-watch.service	7c4788a1b61ee42ad2982c7a8928b2df42b04b72	7c4788a1b61ee42ad2982c7a8928b2df42b04b72
+scripts/evidence-lane-trace	6c2d2cfbe25c23e04f9685bbb5e394812444d2e2	cd47d3c9ef16448b0af6c7f04ffc2f39563f3b29
+scripts/evidence-lane-trace-test	7d60bf21e21098f3c0510a4bc43c0bef2da236e3	36bf8d07d3bcf3b7f87c48b4702f58ddcfb5de82
+scripts/evidence-log	73e22e8252a1ceab4eba0324a0063c97f1d75b18	07b6e4cc9d67d137003ed35b4e8726fedf9d14f8
+scripts/evidence-log-test	746aa09bc2363c2d57523220c084fb6a4e34ef66	e053f492378da5590e603c65495624ad81bbd369
+scripts/evidence-log-timer	85ffab484040914c4ae14f72b86cc70c97b7e358	77c4661b073547dd6362e7dd0704a2499bf0b4e9
+scripts/evidence-log-watch	f580ed13fe4f8130ec936dfeefb64f6c3b97b2f1	9c0c8c0254a78f403a625f87e2bf5602527d305e
+scripts/evidence-log-watch-test	e29deab9f1bfdfa27989e618de577e5f748871e4	bea122d3c0f0afdebf225683929b8a6bdac95429
+scripts/evidence-log-watch.service	7c4788a1b61ee42ad2982c7a8928b2df42b04b72	7562865e2448b7420f49e4fe2afca8290bc73fb4
 scripts/evidence-log-watch.timer	41c8efa9dd7f5455731d16ab88c1bc93cb22cde1	41c8efa9dd7f5455731d16ab88c1bc93cb22cde1
-scripts/evidence-log.service	371be3f50e3720a29d8cd4b77e70d65798df9151	371be3f50e3720a29d8cd4b77e70d65798df9151
+scripts/evidence-log.service	341638d61c71d41358e2b147d141ce76b6d6c06e	341638d61c71d41358e2b147d141ce76b6d6c06e
 scripts/evidence-log.timer	e9b26cff3fba565520f2fad40c34a317116dd5d2	e9b26cff3fba565520f2fad40c34a317116dd5d2
-scripts/evidence-prepush	9c5dd848149ef8a4d1387eb0459cbbf21d38deea	9c5dd848149ef8a4d1387eb0459cbbf21d38deea
-scripts/evidence-prepush-test	e6c6b5187e39e59cd533ff1768d6ab2b68efecfa	e6c6b5187e39e59cd533ff1768d6ab2b68efecfa
+scripts/evidence-prepush	77f82ecfab6f47b046285509ec92d3522c15eaab	4da13cad8a0a918caf7ea0da578f0c23a565239a
+scripts/evidence-prepush-test	fea7352c3cf92153b4dcad329c55e389d74f7768	542165b8183c31b98dcaac7d02351b1367a9dfd9
 scripts/evidence-presign-heavy.service	9493d90603e6b2dc988cabe397f2fc070e8e7d3a	9493d90603e6b2dc988cabe397f2fc070e8e7d3a
 scripts/evidence-presign-heavy.timer	0083a632e9111face5cb7de88e5f184fb9038245	0083a632e9111face5cb7de88e5f184fb9038245
 scripts/evidence-presign-light.service	cd01904660f1f684447a87152de3ca8ba2cda634	cd01904660f1f684447a87152de3ca8ba2cda634
 scripts/evidence-presign-light.timer	4795f6bf604c52acd646f049c6344d308ae444ba	4795f6bf604c52acd646f049c6344d308ae444ba
 scripts/evidence-presign-timer	f6516fbf4591e8b4c0936ea01896f4c15134731e	f6516fbf4591e8b4c0936ea01896f4c15134731e
-scripts/evidence-presign-worker	0858654e187096b0cc290c84d52c5fc5e7a5b2a0	0858654e187096b0cc290c84d52c5fc5e7a5b2a0
+scripts/evidence-presign-worker	d68abbd4351ee70449a517e2c9566b54239e34be	d68abbd4351ee70449a517e2c9566b54239e34be
 scripts/evidence-presign-worker-test	31f6ca85782fa90f5720f3858f7b6eb1717d71cd	31f6ca85782fa90f5720f3858f7b6eb1717d71cd
 scripts/evidence-publish	0efd11de304b592cf11434c91eebde906ef2b2c6	0efd11de304b592cf11434c91eebde906ef2b2c6
-scripts/evidence-publish-test	37f7aa321d295bb0ba5ca73f4b8c5a8f3ee2902f	37f7aa321d295bb0ba5ca73f4b8c5a8f3ee2902f
+scripts/evidence-publish-test	37f7aa321d295bb0ba5ca73f4b8c5a8f3ee2902f	7132c879f151437851e386fd483e8e9bd17c9706
 scripts/evidence-queue-observe.service	37ee44071a4b1ea0b3023adad595213c3800c32f	37ee44071a4b1ea0b3023adad595213c3800c32f
 scripts/evidence-queue-observe.timer	c1fa77e16737fb86a254400939eb9ecaca50bdc8	c1fa77e16737fb86a254400939eb9ecaca50bdc8
 scripts/evidence-queue-seed.service	a59a963bee72542fffec00b84d7fe2ebc171a56f	a59a963bee72542fffec00b84d7fe2ebc171a56f
 scripts/evidence-queue-seed.timer	7c2536239366beea9b90836b9079303c1567b75e	7c2536239366beea9b90836b9079303c1567b75e
 scripts/evidence-queue-sign.service	9442031d4f2b00bade3e88ffe3f76bbb4402d846	9442031d4f2b00bade3e88ffe3f76bbb4402d846
 scripts/evidence-queue-sign.timer	8a88a2e59bf3cb486dad993b243d64abbc70e48f	8a88a2e59bf3cb486dad993b243d64abbc70e48f
-scripts/evidence-queue-signer	d6c73063e8921af6856a9e54d27bdabefa59b2ea	d6c73063e8921af6856a9e54d27bdabefa59b2ea
-scripts/evidence-queue-signer-test	7cfa75c893987215d9a37fa4a682d7c5cc82cbdb	7cfa75c893987215d9a37fa4a682d7c5cc82cbdb
+scripts/evidence-queue-signer	0be3140016868d1e383d9c301c1e229066c6dd22	0be3140016868d1e383d9c301c1e229066c6dd22
+scripts/evidence-queue-signer-test	e5c8a3c7cc59e4bf6343a9f5a8601e5ba45cbc43	e5c8a3c7cc59e4bf6343a9f5a8601e5ba45cbc43
 scripts/evidence-queue-timer	94a172a62c24c00f368d673166475da2291596c4	94a172a62c24c00f368d673166475da2291596c4
-scripts/evidence-skip-report	c7d43b6b813b79b283c0b77f8689ecffc0b1e9a5	c7d43b6b813b79b283c0b77f8689ecffc0b1e9a5
-scripts/evidence-skip-report-test	49c58386ec3312a18b623b29936b1f7ea80d9f88	49c58386ec3312a18b623b29936b1f7ea80d9f88
-scripts/evidence_test_support.py	3590f507364ac813bed170e490149c25561fa2d5	3590f507364ac813bed170e490149c25561fa2d5
+scripts/evidence-skip-report	2bdb6c3ebee8bb381c93c736cc99c22cbb82c0b3	c7d43b6b813b79b283c0b77f8689ecffc0b1e9a5
+scripts/evidence-skip-report-test	2d51833fa53146709634090bd75ebf8dc4a91c50	49c58386ec3312a18b623b29936b1f7ea80d9f88
+scripts/evidence_test_support.py	3590f507364ac813bed170e490149c25561fa2d5	9f60e5e6b4b07959045f402c45231f3770788652
 scripts/fractal-test	08a31a9ab85b195c71387a8021cc85d383de75e8	08a31a9ab85b195c71387a8021cc85d383de75e8
-scripts/fractal-test-report	5bc77bf53ec47d0e580d5e4c26e20cb24a0b3f16	5bc77bf53ec47d0e580d5e4c26e20cb24a0b3f16
-scripts/fractal-test-report-test	616e9248c0a584b40590a7682242df337f7dbf93	616e9248c0a584b40590a7682242df337f7dbf93
-scripts/fractal-test-test	608abec5c3044afa1066e39b4ff703be5249b20d	64512b587397413f98c5614c7745cc11f472b891
-scripts/install-git-hooks	5655c13c85772ff65aa7aecfd78326ffd033cd10	5655c13c85772ff65aa7aecfd78326ffd033cd10
-scripts/lane-definition-closure	cee51d7d65d375eb6f5559b403e5acc4eb2f7f5c	cee51d7d65d375eb6f5559b403e5acc4eb2f7f5c
-scripts/lane-definition-closure-test	8ac1eca3d95a681667134167883606fddb73dc58	8ac1eca3d95a681667134167883606fddb73dc58
-scripts/st-test	eb8f6c8b7dc1b58096595330d2ebfe6368973400	8321d0230d9c748d114f8a0261408554d062abd8
+scripts/fractal-test-report	52ebcb098a323b013eba5b136457393ef88e2951	5bc77bf53ec47d0e580d5e4c26e20cb24a0b3f16
+scripts/fractal-test-report-test	b0dc50163986760343d7eb67c701cb4b775e9945	616e9248c0a584b40590a7682242df337f7dbf93
+scripts/fractal-test-test	8990abbdbba9f1512c3c5c26aefbdf733a9049b0	12014bbbbaa7862020ba008a32fd61a6e4409fd1
+scripts/install-git-hooks	fb96c104faa11c4a7042c905da60bcc430dac37e	5655c13c85772ff65aa7aecfd78326ffd033cd10
+scripts/lane-definition-closure	5a844628e821bb51e6ab3fc2b38088a37c3c47c4	df4cd022958b56316698ea7ca05225686329c69f
+scripts/lane-definition-closure-test	635945d2a01f18e9c4716c50a2eb9803896cbb08	c1c8dca332d47fe5b6bc7d75c3d773f650d4f9d8
+scripts/st-test	c36005b84b3f4e3aa6fe244e2541dfda9dac0e5c	d66a994038209900223ed3b62078e4e587a55405

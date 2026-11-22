@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Resync mirrored Fractal fixtures and provenance to `2846d1bb`, carry checkout/gate-slot and command-name fixes across native adapters, and document held-back installer and native port follow-ups.
+
 - Resolve wrapper and queue-binding review follow-ups: cover signer refusal with broken stdin, refusal followed by signal death, SIGXCPU and SIGALRM; document retry/publication and hung-signer limitations; restrict authority-bearing policy paths to ASCII with typed errors while preserving Unicode alias protection for changed paths, and clarify generated-path consumer responsibilities.
 - Isolate native `legacy-wrap` publication in a fresh bare repository with strict pack validation, validate literal GitHub remote URLs (or caller-explicit credential-free absolute local paths), refuse checkout-configured local destinations that could execute receive hooks, ignore push URLs and checkout/caller transport configuration, and scope the environment-only token header to the validated HTTPS URL. Strip caller `GIT_CONFIG_*` overrides from lane/signer children; document the intentional Python divergence and signal-cleanup limitation.
 - Update local `st-test` publication fixtures to pass trusted credential-free absolute destinations explicitly, capture native wrapper diagnostics, distinguish wrapper refusals from the caller's own retry publication, and verify that checkout push URLs cannot redirect explicit publication.
