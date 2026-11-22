@@ -2,7 +2,6 @@
 use crate::gate::git::deadline::GitChild;
 use anyhow::{Context, Result, ensure};
 use chrono::{DateTime, Utc};
-use clap::Args;
 #[path = "log_watch_state.rs"]
 mod state;
 pub use state::{MAX_STATE_DEPTH, State};
@@ -16,20 +15,13 @@ use std::{
 
 const LOG: &str = "refs/evidence-log/main";
 const SEEN: &str = "refs/evidence-log/watched";
-#[derive(Args)]
 pub struct LogWatchArgs {
-    #[arg(long)]
-    remote: String,
-    #[arg(long)]
-    state: PathBuf,
-    #[arg(long)]
-    notify: String,
-    #[arg(long, default_value_t = 360, allow_negative_numbers = true)]
-    max_age: i64,
-    #[arg(long, default_value_t = 3600, allow_negative_numbers = true)]
-    repeat: i64,
-    #[arg(long, allow_negative_numbers = true)]
-    now: Option<f64>,
+    pub(super) remote: String,
+    pub(super) state: PathBuf,
+    pub(super) notify: String,
+    pub(super) max_age: i64,
+    pub(super) repeat: i64,
+    pub(super) now: Option<f64>,
 }
 fn capture(command: &mut Command) -> io::Result<Output> {
     GitChild::capture(command, None, Duration::from_secs(120))

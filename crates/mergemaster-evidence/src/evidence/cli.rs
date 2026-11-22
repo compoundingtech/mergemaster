@@ -4,6 +4,8 @@ use crate::cli_println as println;
 use super::*;
 use clap::{Args, Subcommand};
 
+#[path = "account_watch_args.rs"]
+mod account_watch_args;
 #[path = "flip_skip_args.rs"]
 mod flip_skip_args;
 
@@ -16,7 +18,11 @@ pub struct EvidenceArgs {
 #[derive(Subcommand)]
 pub enum EvidenceCommand {
     /// Provision this account's signing key and print its public enrollment line.
-    Keygen(super::keygen::KeygenArgs),
+    #[command(disable_help_flag = true)]
+    Keygen {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        argv: Vec<String>,
+    },
     /// Evaluate the 24-hour evidence skip trigger; optionally propose ready flips.
     #[command(disable_help_flag = true)]
     FlipReady {
@@ -29,7 +35,11 @@ pub enum EvidenceCommand {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         argv: Vec<String>,
     },
-    LogWatch(super::log_watch::LogWatchArgs),
+    #[command(disable_help_flag = true)]
+    LogWatch {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        argv: Vec<String>,
+    },
     RunnerReport(super::runner_report::RunnerReportArgs),
     /// Explain which signable gates ran without a pre-signed note; never fails.
     PresignNotice,
@@ -111,7 +121,14 @@ pub enum EvidenceCommand {
 
 pub fn run(args: EvidenceArgs) -> Result<()> {
     let value = match args.command {
-        EvidenceCommand::Keygen(args) => return super::keygen::run_keygen(args),
+        EvidenceCommand::Keygen { argv } => {
+            let argv = flip_skip_args::process_argv("keygen", argv);
+            let args = match account_watch_args::keygen(&argv) {
+                Ok(args) => args,
+                Err(exit) => return flip_skip_args::finish(exit),
+            };
+            return super::keygen::run_keygen(args);
+        }
         EvidenceCommand::FlipReady { argv } => {
             let argv = flip_skip_args::process_argv("flip-ready", argv);
             let args = match flip_skip_args::flip(&argv) {
@@ -136,7 +153,14 @@ pub fn run(args: EvidenceArgs) -> Result<()> {
             }
             return Ok(());
         }
-        EvidenceCommand::LogWatch(args) => return super::log_watch::run(args),
+        EvidenceCommand::LogWatch { argv } => {
+            let argv = flip_skip_args::process_argv("log-watch", argv);
+            let args = match account_watch_args::log_watch(&argv) {
+                Ok(args) => args,
+                Err(exit) => return flip_skip_args::finish(exit),
+            };
+            return super::log_watch::run(args);
+        }
         EvidenceCommand::RunnerReport(args) => return super::runner_report::run(args),
         EvidenceCommand::PresignNotice => {
             super::presign_notice::run();
