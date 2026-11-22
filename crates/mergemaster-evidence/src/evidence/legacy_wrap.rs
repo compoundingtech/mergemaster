@@ -416,6 +416,7 @@ fn signer_launch(encoded: &str) -> Result<Command> {
     let mut launch = Command::new(program);
     launch.args(&argv[1..]).stdin(Stdio::piped());
     scrub_publication_environment(&mut launch);
+    launch.env_remove("GH_TOKEN").env_remove("GITHUB_TOKEN");
     for (key, _) in std::env::vars_os() {
         let name = key.to_string_lossy();
         if name.starts_with("LD_")

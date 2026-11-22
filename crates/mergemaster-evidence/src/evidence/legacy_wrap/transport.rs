@@ -102,6 +102,8 @@ fn git_command(
         if !name.as_encoded_bytes().starts_with(b"GIT_")
             && name != OsStr::new("EVIDENCE_PUSH_TOKEN")
             && name != OsStr::new("EVIDENCE_SIGNER")
+            && (!publication
+                || (name != OsStr::new("GH_TOKEN") && name != OsStr::new("GITHUB_TOKEN")))
         {
             command.env(name, value);
         }
@@ -661,6 +663,8 @@ mod tests {
             ("GIT_SSH_COMMAND", "/evil"),
             ("GIT_ASKPASS", "/evil"),
             ("EVIDENCE_PUSH_TOKEN", "secret"),
+            ("GH_TOKEN", "github-cli-secret"),
+            ("GITHUB_TOKEN", "github-actions-secret"),
         ]);
         for publication in [false, true] {
             let command = git_command(&["status"], &env, &[], publication);
@@ -678,6 +682,13 @@ mod tests {
                 "EVIDENCE_PUSH_TOKEN",
             ] {
                 assert!(!actual.contains_key(OsStr::new(name)), "{name}");
+            }
+            for name in ["GH_TOKEN", "GITHUB_TOKEN"] {
+                assert_eq!(
+                    actual.contains_key(OsStr::new(name)),
+                    !publication,
+                    "{name}"
+                );
             }
             if publication {
                 assert_eq!(actual[OsStr::new("GIT_CONFIG_GLOBAL")], "/dev/null");
