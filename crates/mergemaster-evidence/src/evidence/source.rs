@@ -238,6 +238,13 @@ fn change_identity(
             identity.extend(number.iter().map(|point| char::from(*point as u8)));
             Ok(identity)
         }
+        "push" => {
+            ensure!(
+                event_text_is(event_get(event, Some(event.root()), "after")?, source),
+                "ValueError: mismatched push identity"
+            );
+            Ok(format!("github:{repository}@{source}"))
+        }
         "workflow_dispatch" => Ok(format!("github:{repository}@{source}")),
         _ => bail!("ValueError: unsupported workflow event"),
     }

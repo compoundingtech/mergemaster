@@ -97,6 +97,9 @@ impl Fixture {
             "merge_group" => {
                 json!({"repository":{"full_name":"example/project"},"merge_group":{"head_sha":self.source,"head_ref":format!("refs/heads/gh-readonly-queue/main/pr-7-{}",self.source)}})
             }
+            "push" => {
+                json!({"repository":{"full_name":"example/project"},"ref":"refs/heads/main","before":self.base,"after":self.source})
+            }
             _ => {
                 json!({"repository":{"full_name":"example/project"},"number":7,"pull_request":{"number":7,"head":{"sha":self.author}}})
             }
@@ -300,6 +303,44 @@ fn source_shallow_pack_oracle_and_version_two_contract() {
         assert!(summary.contains("neither check success nor signing trust"));
     }
 }
+#[test]
+fn source_push_identity_names_the_pushed_commit_and_retains_its_tree() {
+    let f = Fixture::new();
+    let temp = f.root.path().join("push");
+    let native = f.success(&f.repo, &temp, "push");
+    assert_eq!(native, receipt(&temp));
+    assert_eq!(native["source"], f.source);
+    assert_eq!(native["tree"], f.tree);
+    assert_eq!(
+        native["change_id"],
+        format!("github:example/project@{}", f.source)
+    );
+    let imported = f.root.path().join("push-import");
+    objects(&temp.join("ci-evidence-source/source.pack"), &imported);
+    assert_eq!(
+        git(&imported, &["rev-parse", &format!("{}^{{tree}}", f.source)]),
+        f.tree
+    );
+    for (index, after) in [json!(f.base), json!("0".repeat(40)), Value::Null]
+        .into_iter()
+        .enumerate()
+    {
+        let temp = f.root.path().join(format!("push-mismatch-{index}"));
+        let mut command = f.command(&f.repo, &temp, "push");
+        let mut event = f.event("push");
+        event["after"] = after;
+        fs::write(temp.join("event.json"), serde_json::to_vec(&event).unwrap()).unwrap();
+        let out = command.output().unwrap();
+        assert!(!out.status.success());
+        assert!(
+            String::from_utf8_lossy(&out.stderr)
+                .lines()
+                .any(|line| line == "ValueError: mismatched push identity")
+        );
+        assert!(!temp.join("ci-evidence-source").exists());
+    }
+}
+
 #[test]
 fn source_event_bytes_match_frozen_cpython_identity_and_errors() {
     // Generated with CPython 3.14.7 json.loads(bytes) and the independently pinned
