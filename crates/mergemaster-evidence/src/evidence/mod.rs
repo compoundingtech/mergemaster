@@ -44,6 +44,7 @@ pub mod source;
 #[cfg(test)]
 mod tests;
 pub mod v2;
+pub mod verified;
 pub mod workspace;
 
 pub const NOTES_PREFIX: &str = "refs/notes/evidence/";

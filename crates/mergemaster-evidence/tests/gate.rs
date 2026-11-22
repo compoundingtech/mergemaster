@@ -6136,3 +6136,104 @@ fn mergemaster_bin() -> std::path::PathBuf {
             .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
     )
 }
+
+#[test]
+fn production_v2_objects_stay_disabled_and_caller_keys_grant_no_authority() {
+    use base64::{
+        Engine,
+        engine::general_purpose::{STANDARD, STANDARD_NO_PAD},
+    };
+    let mut f = Fixture::with_repository(Some("fixture/repo"));
+    let entry = |key: &Path, role: &str, principal: &str, endpoint: &str| {
+        let public = fs::read_to_string(key.with_extension("pub")).unwrap();
+        let parts: Vec<_> = public.split_whitespace().collect();
+        json!({
+            "key_id": format!("SHA256:{}", STANDARD_NO_PAD.encode(sha2::Sha256::digest(STANDARD.decode(parts[1]).unwrap()))),
+            "public_key": format!("{} {}", parts[0], parts[1]), "principal": principal,
+            "role": role, "repository": "fixture/repo", "endpoint_id": endpoint
+        })
+    };
+    let issuer = entry(&f.key, "v2_service_issuer", PRINCIPAL, "service:fixture");
+    let broker = entry(
+        &f.stranger,
+        "daemon_policy_receipt",
+        "host/broker",
+        "broker:fixture",
+    );
+    let mut policy = Fixture::policy("required_evidence");
+    policy["repository"] = json!("fixture/repo");
+    policy["reuse_authorities"] = json!([issuer, broker]);
+    policy["lanes"][CHECK]["nix_check"] =
+        json!({"attribute":"checks.x86_64-linux.fixture","required":"any"});
+    policy["lanes"][CHECK]["max_age_seconds"] = json!(86400);
+    policy["lanes"][CHECK]["reuse"] =
+        json!({"version":1,"origin_profile":"same_repository_pr","platform":"linux"});
+    f.write(".mergemaster/lanes.json", policy.to_string());
+    f.write(
+        ".mergemaster/producers.json",
+        json!({"version":1,"producers":[{
+            "executable_sha256":"a".repeat(64),"flavor":"v2_service","system":"x86_64-linux",
+            "provenance":{"mergemaster_revision":"a".repeat(40),"package":"fixture"}
+        }]})
+        .to_string(),
+    );
+    f.base = f.commit("BASE v2 test authority");
+    f.write("source.txt", "v2 candidate\n");
+    f.refresh_head();
+    let mut s = f.statement();
+    let config = load(&f.repo, &f.base).unwrap();
+    assert!(matches!(
+        config.policy.reuse_authority,
+        mergemaster_evidence::gate::config::ReuseAuthority::Valid(_)
+    ));
+    let expected = expected_inputs(
+        &f.repo,
+        &f.head,
+        CHECK,
+        &config.policy.lanes[CHECK],
+        &config.environment,
+        &config.environment_bytes,
+    )
+    .unwrap();
+    s["repository"] = json!("fixture/repo");
+    s["predicateType"] = json!(mergemaster_evidence::evidence::v2::PREDICATE_TYPE);
+    let p = s["predicate"].as_object_mut().unwrap();
+    p.remove("re_attests");
+    p.insert("schema_version".into(), json!(2));
+    p.insert("attested_at".into(), p["observed_at"].clone());
+    p.insert(
+        "issuer".into(),
+        json!({"key_id":issuer["key_id"],"service_id":"service:fixture"}),
+    );
+    p.insert("origin".into(), json!({
+        "class":"same_repository_pr","repository":"fixture/repo","source_repository":"fixture/repo",
+        "subject_head":f.head,"accepted_base":f.base,"event_kind":"pull_request",
+        "pull_request":{"number":41,"head":f.head,"base_ref":"main"}
+    }));
+    p.insert("reuse_key".into(), json!({
+        "version":1,"check":CHECK,"nix_derivation":"/nix/store/fixture.drv","expected_inputs":expected,
+        "nix_settings_sha256":"b".repeat(64),"nix_daemon_policy_sha256":"c".repeat(64),
+        "producer":{"executable_sha256":"a".repeat(64),"system":"x86_64-linux"}
+    }));
+    // Broker contract is intentionally absent: no fake receipt can enable admission.
+    p.insert("daemon_policy_receipt".into(), Value::Null);
+    p["observed"]["runner"] = json!("nix");
+    p["observed"]["inputs"]["wrapper_sha256"] = json!("a".repeat(64));
+    p["observed"]["inputs"]["system"] = json!("x86_64-linux");
+    p["observed"]["inputs"]["nix_execution"] = json!("rebuild");
+    p["observed"]["inputs"]["nix_command_mode"] = json!("rebuild");
+    let record = f.note(&s, &f.key, "legacy");
+    let worker = f
+        .command(mergemaster_bin())
+        .args(["gate-verify-record", "--repo"])
+        .arg(&f.repo)
+        .args(["--record", &record, "--keys"])
+        .arg(f.repo.join(".mergemaster/evidence-keys"))
+        .output()
+        .unwrap();
+    assert!(!worker.status.success());
+    assert!(String::from_utf8_lossy(&worker.stderr).contains("current BASE authority"));
+    let decision = f.decision(&[]);
+    assert_eq!(decision["decision"], "refuse");
+    assert_eq!(decision["reason"], "untrusted_signer");
+}
