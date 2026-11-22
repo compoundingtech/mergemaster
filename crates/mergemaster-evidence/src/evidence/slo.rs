@@ -664,14 +664,26 @@ fn text_report(report: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
 
     #[test]
     fn log_capture_deadline_is_an_error_not_an_empty_log() {
         let root = tempfile::tempdir().unwrap();
         let gh = root.path().join("gh");
-        std::fs::write(&gh, "#!/bin/sh\nexec sleep 2\n").unwrap();
-        std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o700)).unwrap();
+        // Keep executable write descriptors out of this multithreaded test process:
+        // a concurrently forked child could retain one until exec and cause ETXTBSY.
+        assert!(
+            Command::new("/bin/sh")
+                .args([
+                    "-c",
+                    "printf '%s' \"$1\" > \"$2\" && chmod 700 \"$2\"",
+                    "sh",
+                    "#!/bin/sh\nexec sleep 2\n",
+                ])
+                .arg(&gh)
+                .status()
+                .unwrap()
+                .success()
+        );
         let error = log_with(
             gh.as_os_str(),
             &json!({"id": 11}),

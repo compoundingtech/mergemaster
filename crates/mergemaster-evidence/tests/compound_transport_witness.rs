@@ -102,13 +102,16 @@ print(json.dumps(dict(result=result,records=records)))
     assert_eq!(python["result"]["decided_by"], python["records"][0]);
     // The gate re-execs itself for signature verification. Use the production CLI,
     // not libtest, whose argument parser would turn every record into untrusted_signer.
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_mergemaster"))
-        .current_dir(repo)
-        .args([
-            "gate", "--check", "check", "--base", base, "--head", head, "--format", "json",
-        ])
-        .output()
-        .unwrap();
+    let output = std::process::Command::new(
+        std::env::var_os("CARGO_BIN_EXE_mergemaster")
+            .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+    )
+    .current_dir(repo)
+    .args([
+        "gate", "--check", "check", "--base", base, "--head", head, "--format", "json",
+    ])
+    .output()
+    .unwrap();
     assert!(
         output.status.success(),
         "{}",

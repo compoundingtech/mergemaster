@@ -6,7 +6,10 @@ use std::{fs, os::unix::fs::PermissionsExt, process::Command};
 
 #[test]
 fn presign_notice_frozen_stdout_summary_annotation_and_never_fails() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let root = std::path::PathBuf::from(
+        std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set at test runtime"),
+    )
+    .join("../..");
     let fixture: Value = serde_json::from_slice(
         &fs::read(root.join("tests/fixtures/oracle/presign-notice.json")).unwrap(),
     )
@@ -22,7 +25,7 @@ fn presign_notice_frozen_stdout_summary_annotation_and_never_fails() {
         }
         let summary = temporary.path().join("summary");
         fs::write(&summary, case["summary_initial"].as_str().unwrap()).unwrap();
-        let mut command = Command::new(env!("CARGO_BIN_EXE_mergemaster"));
+        let mut command = Command::new(mergemaster_bin());
         command
             .args(["evidence", "presign-notice"])
             .current_dir(temporary.path())
@@ -116,7 +119,7 @@ fn real_git_notice(repo: &std::path::Path, bin: &std::path::Path, revision: &str
         assert!(done.stderr.is_empty(), "{:?}", done.stderr);
         (done.stdout, fs::read(summary).unwrap())
     };
-    let mut native = Command::new(env!("CARGO_BIN_EXE_mergemaster"));
+    let mut native = Command::new(mergemaster_bin());
     native.args(["evidence", "presign-notice"]);
     let observed = run(native);
     let source = std::env::var_os("MERGEMASTER_PYTHON_ORACLE")
@@ -183,4 +186,11 @@ fn presign_notice_real_git_layout_history_and_unreadable_objects() {
         real_git_notice(&repo, &bin, "missing-revision"),
         "evidence-presign-notice: cannot inspect lane definition at missing-revi; nothing to say\n"
     );
+}
+
+fn mergemaster_bin() -> std::path::PathBuf {
+    std::path::PathBuf::from(
+        std::env::var_os("CARGO_BIN_EXE_mergemaster")
+            .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+    )
 }

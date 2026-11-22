@@ -88,11 +88,14 @@ print(json.dumps(cases))
     let cases: Vec<Case> = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(cases.len(), 101);
     for case in cases {
-        let actual = Command::new(env!("CARGO_BIN_EXE_mergemaster"))
-            .arg("legacy-rust-test-keys")
-            .args(&case.argv)
-            .output()
-            .unwrap();
+        let actual = Command::new(
+            std::env::var_os("CARGO_BIN_EXE_mergemaster")
+                .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+        )
+        .arg("legacy-rust-test-keys")
+        .args(&case.argv)
+        .output()
+        .unwrap();
         if case.traceback {
             assert_eq!(actual.status.code(), Some(i32::from(case.code)));
             assert_eq!(actual.stdout, case.stdout.as_bytes());

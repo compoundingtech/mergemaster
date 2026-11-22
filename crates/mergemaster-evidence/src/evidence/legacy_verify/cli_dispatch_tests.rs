@@ -6,8 +6,8 @@ pub(crate) fn compare(rows: Vec<Row>, phase: &str) {
         std::fs::write(root.path().join("argv"), serde_json::to_vec(&argv).unwrap()).unwrap();
         let temporary = root.path().join("temporary");
         std::fs::create_dir(&temporary).unwrap();
-        let binary = option_env!("CARGO_BIN_EXE_mergemaster");
-        let mut command = if let Some(binary) = binary {
+        let binary = std::env::var_os("CARGO_BIN_EXE_mergemaster");
+        let mut command = if let Some(binary) = &binary {
             use std::os::unix::ffi::OsStringExt;
             let mut command = Command::new(binary);
             command
