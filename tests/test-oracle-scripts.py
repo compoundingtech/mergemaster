@@ -21,6 +21,7 @@ class FixtureProvenance(unittest.TestCase):
                 ("PROVENANCE", "original_path\tsource_git_blob\tcommitted_git_blob\tscope"),
                 ("infrastructure-PROVENANCE", "original_path\tgit_blob_sha1")):
             lines = (directory / name).read_text().splitlines()
+            self.assertIn(f"Commit: {TARGET}", lines, name)
             self.assertIn(header, lines, name)
             rows = lines[lines.index(header) + 1:]
             self.assertTrue(rows, name)
@@ -35,6 +36,10 @@ class FixtureProvenance(unittest.TestCase):
                         self.fail(f"{path}: recorded={recorded}, actual=<missing>")
                     self.assertEqual(recorded, actual,
                                      f"{path}: recorded={recorded}, actual={actual}")
+                    if len(fields) == 4:
+                        committed = blob((directory / path).read_bytes())
+                        self.assertEqual(fields[2], committed,
+                                         f"{path}: committed={fields[2]}, actual={committed}")
 
 
 class WitnessEnvironment(unittest.TestCase):

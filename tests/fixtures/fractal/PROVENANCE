@@ -1,5 +1,6 @@
 Source: https://github.com/compoundingtech/fractal
-Commit: e2721e52463428b4ff655addee129cecd2839763
+Commit: 787e8ed592dff34d2bdc2a2b0b584482da567e7f
+Original sync: e2721e52463428b4ff655addee129cecd2839763
 
 Committed fixtures are limited to policy, directly used non-moving scripts,
 wrapper-note testdata, and the documentation section used by evidence-flip-ready.
@@ -8,7 +9,7 @@ Wave 2 removes the rust-test-keys fixture; callers use the provisioned mergemast
 binary, and differential tests use MERGEMASTER_PYTHON_KEYS_ORACLE only.
 
 Tree-shaped source witnesses are supplied by the non-flake fractal-fixture input:
-github:compoundingtech/fractal/e2721e52463428b4ff655addee129cecd2839763
+github:compoundingtech/fractal/787e8ed592dff34d2bdc2a2b0b584482da567e7f
 The development shell exports its immutable source as MERGEMASTER_FRACTAL_FIXTURE.
 tests/prepare-fractal-fixture.py selects original ci-script-tests sparse inputs,
 lane definition paths, the real web subtree and original directory witnesses.
