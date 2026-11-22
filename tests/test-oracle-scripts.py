@@ -11,6 +11,8 @@ from oracle_scripts import EXEMPT, MANIFEST, ORIGINAL, TARGET, blob, check, migr
 from oracle_witnesses import test_environment
 
 
+# Preflight runs without Nix; checks.oracle-scripts always exports the fixture.
+@unittest.skipUnless(os.environ.get("MERGEMASTER_FRACTAL_FIXTURE"), "needs MERGEMASTER_FRACTAL_FIXTURE")
 class FixtureProvenance(unittest.TestCase):
     def test_source_blobs_match_pinned_fractal(self):
         fixture = Path(os.environ["MERGEMASTER_FRACTAL_FIXTURE"])
