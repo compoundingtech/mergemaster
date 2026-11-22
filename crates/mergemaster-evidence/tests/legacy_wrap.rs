@@ -47,6 +47,7 @@ parity! {
     publication_ignores_pushurl_and_rejects_untrusted_fetch_url => "pushurl",
     publication_transfers_subject_history_from_safe_checkout_alternates => "publication-history",
     shallow_publication_preserves_boundary_and_refuses_empty_destination => "publication-shallow",
+    checkout_ref_cannot_override_signed_publication_record => "publication-ref-target",
     dirty_or_mutating_commands_never_sign => "dirty",
     aggregate_nix_runner_reaches_real_signer_validation => "nix",
     signer_clock_and_tool_execution_ignore_hostile_checkout_configuration => "security",
@@ -544,6 +545,14 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
                             shutil.rmtree(target)
                         shutil.move(str(entry), target)
                 (objects / 'info/alternates').write_text(str(donor / 'objects') + '\n')
+                unrelated = root / 'mismatched-graph.git'
+                init(unrelated, bare=True)
+                empty_tree = git(unrelated, 'mktree', data=b'').decode().strip()
+                unrelated_commit = git(unrelated, 'commit-tree', empty_tree, data=b'unrelated graph\n').decode().strip()
+                git(unrelated, 'update-ref', 'refs/heads/unrelated', unrelated_commit)
+                git(unrelated, 'commit-graph', 'write', '--reachable')
+                shutil.copyfile(unrelated / 'objects/info/commit-graph', donor / 'objects/info/commit-graph')
+                (donor / 'objects/info/alternates').write_text(str(unrelated / 'objects') + '\n')
                 marker = root / 'alternate-config-or-hook-executed'
                 hooks = donor / 'hooks'
                 executable(hooks / 'pre-push', '#!/bin/sh\ntouch ' + shlex.quote(str(marker)) + '\n')
@@ -562,8 +571,31 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
             assert text(sink, 'rev-parse', commit + '^') == parent
             assert text(sink, 'cat-file', '-t', parent) == 'commit'
             assert text(sink, 'rev-parse', value['tag']) == value['record']
+            metadata_off = ['-c', 'core.commitGraph=false', '-c', 'core.multiPackIndex=false',
+                            '-c', 'pack.useBitmaps=false', '-c', 'pack.useBitmapBoundaryTraversal=false']
+            expected_objects = set(text(repo, *metadata_off, 'rev-list', '--objects', '--no-object-names', value['record']).splitlines())
+            received_objects = set(text(sink, *metadata_off, 'cat-file', '--batch-all-objects', '--batch-check=%(objectname)').splitlines())
+            assert received_objects == expected_objects, (received_objects - expected_objects, expected_objects - received_objects)
             if hostile:
                 assert not marker.exists()
+    elif group == 'publication-ref-target':
+        sink = root / 'ref-target.git'
+        init(sink, bare=True)
+        unrelated_tree = git(repo, 'mktree', data=b'').decode().strip()
+        unrelated = git(repo, 'commit-tree', unrelated_tree, data=b'unrelated checkout object\n').decode().strip()
+        proxy = ('import json,subprocess,sys; '
+                 'r=subprocess.run(' + repr(native_sign) + ',input=sys.stdin.buffer.read(),capture_output=True); '
+                 'r.check_returncode(); answer=json.loads(r.stdout); '
+                 'ref="refs/tags/evidence/"+answer["tree"]+"/"+answer["record"]; '
+                 'subprocess.run(' + repr([real_git, '-c', 'core.hooksPath=/dev/null', '-C', str(repo), 'update-ref']) +
+                 '+[ref,' + repr(unrelated) + '],check=True); sys.stdout.buffer.write(r.stdout)')
+        done = invoke(True, ['sh', '-c', 'exit 3'], ['--push', str(sink)],
+                      signer=[sys.executable, '-I', '-c', proxy])
+        assert done.returncode == 1 and b'checkout publication ref' in done.stderr, done.stderr
+        assert b'not signed record' in done.stderr, done.stderr
+        assert unrelated.encode() in done.stderr
+        assert refs(sink) == b''
+        assert run(['git', '-C', sink, 'cat-file', '-e', unrelated]).returncode != 0
     elif group == 'publication-shallow':
         (repo / 'a').write_text('two\n')
         git(repo, 'commit', '-qam', 'subject boundary')

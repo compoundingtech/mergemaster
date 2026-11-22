@@ -5,8 +5,8 @@ use indexmap::IndexMap;
 use std::{
     collections::BTreeMap,
     ffi::{OsStr, OsString},
-    io::{self, Write},
-    os::unix::ffi::OsStringExt,
+    io::{self, Read, Write},
+    os::unix::{ffi::OsStringExt, fs::OpenOptionsExt},
     process::{Command, Output, Stdio},
     time::Duration,
 };
@@ -113,7 +113,18 @@ fn git_command(
             .env("GIT_CONFIG_SYSTEM", "/dev/null")
             .env("GIT_NO_LAZY_FETCH", "1")
             .env("GIT_ALLOW_PROTOCOL", "https:ssh:file");
-        command.args(["-c", "http.followRedirects=false"]);
+        command.args([
+            "-c",
+            "http.followRedirects=false",
+            "-c",
+            "core.commitGraph=false",
+            "-c",
+            "core.multiPackIndex=false",
+            "-c",
+            "pack.useBitmaps=false",
+            "-c",
+            "pack.useBitmapBoundaryTraversal=false",
+        ]);
     }
     command
         .env("GIT_NO_REPLACE_OBJECTS", "1")
@@ -269,6 +280,8 @@ enum PublicationObjectsError {
     InvalidPackOrMissingObjects(String),
     MissingHistory(String),
     InvalidShallowBoundary,
+    ShallowBoundaryRead(io::Error),
+    ShallowBoundaryTooLarge,
 }
 
 impl std::fmt::Display for PublicationObjectsError {
@@ -290,11 +303,37 @@ impl std::fmt::Display for PublicationObjectsError {
             Self::InvalidShallowBoundary => {
                 f.write_str("checkout shallow boundary must contain only 40- or 64-hex object IDs")
             }
+            Self::ShallowBoundaryRead(error) => write!(
+                f,
+                "reading checkout shallow boundary without following symlinks failed: {error}"
+            ),
+            Self::ShallowBoundaryTooLarge => {
+                f.write_str("checkout shallow boundary exceeds the 1 MiB limit")
+            }
         }
     }
 }
 
 impl std::error::Error for PublicationObjectsError {}
+
+#[derive(Debug)]
+struct PublicationRefMismatch {
+    name: String,
+    expected: String,
+    actual: String,
+}
+
+impl std::fmt::Display for PublicationRefMismatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "checkout publication ref {} points at {}, not signed record {}",
+            self.name, self.actual, self.expected
+        )
+    }
+}
+
+impl std::error::Error for PublicationRefMismatch {}
 
 fn alternate_path(objects: &std::path::Path) -> String {
     use std::fmt::Write as _;
@@ -320,7 +359,8 @@ fn publication_repository(
     directory: &std::path::Path,
     pack: &[u8],
     objects: &std::path::Path,
-    refs: &[(String, String)],
+    refs: &[String],
+    record: &str,
     environ: &Environment,
 ) -> Result<()> {
     if !objects.is_absolute() || !objects.is_dir() {
@@ -332,14 +372,39 @@ fn publication_repository(
     if !done.status.success() {
         bail!("initializing isolated publication repository failed");
     }
-    // Alternates expose content-addressed objects only, never repository config
-    // or hooks. Quote the path using Git's C-style alternate-path syntax.
+    // Objects are read through the alternate; traversal metadata is disabled
+    // for publication. Quote the path using Git's C-style alternate-path syntax.
     std::fs::write(
         directory.join("objects/info/alternates"),
         alternate_path(objects),
     )?;
-    match std::fs::read(objects.with_file_name("shallow")) {
-        Ok(shallow) => {
+    const MAX_SHALLOW_BYTES: u64 = 1024 * 1024;
+    match std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(objects.with_file_name("shallow"))
+    {
+        Ok(file) => {
+            let metadata = file
+                .metadata()
+                .map_err(PublicationObjectsError::ShallowBoundaryRead)?;
+            if !metadata.is_file() {
+                return Err(PublicationObjectsError::ShallowBoundaryRead(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "not a regular file",
+                ))
+                .into());
+            }
+            if metadata.len() > MAX_SHALLOW_BYTES {
+                return Err(PublicationObjectsError::ShallowBoundaryTooLarge.into());
+            }
+            let mut shallow = Vec::with_capacity(metadata.len() as usize);
+            file.take(MAX_SHALLOW_BYTES + 1)
+                .read_to_end(&mut shallow)
+                .map_err(PublicationObjectsError::ShallowBoundaryRead)?;
+            if shallow.len() as u64 > MAX_SHALLOW_BYTES {
+                return Err(PublicationObjectsError::ShallowBoundaryTooLarge.into());
+            }
             if !shallow.split_inclusive(|byte| *byte == b'\n').all(|line| {
                 let oid = line.strip_suffix(b"\n").unwrap_or(line);
                 matches!(oid.len(), 40 | 64) && oid.iter().all(u8::is_ascii_hexdigit)
@@ -349,7 +414,7 @@ fn publication_repository(
             std::fs::write(directory.join("shallow"), shallow)?;
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
+        Err(error) => return Err(PublicationObjectsError::ShallowBoundaryRead(error).into()),
     }
     let mut import = git_command(&["index-pack", "--strict", "--stdin"], environ, &[], true);
     import.current_dir(directory);
@@ -360,8 +425,8 @@ fn publication_repository(
         )
         .into());
     }
-    for (name, oid) in refs {
-        let mut update = git_command(&["update-ref", name, oid], environ, &[], true);
+    for name in refs {
+        let mut update = git_command(&["update-ref", name, record], environ, &[], true);
         update.current_dir(directory);
         if !capture(&mut update, None)?.status.success() {
             bail!("preparing isolated publication ref failed");
@@ -373,21 +438,31 @@ fn publication_repository(
 pub(super) fn push_refs(
     remote: &str,
     refs: &[String],
+    record: &str,
     pack: &[u8],
     secrets: &Redactor,
 ) -> Result<()> {
     let result = (|| {
         let url = publication_url(remote, !secrets.token.is_empty())?;
-        let resolved = refs
-            .iter()
-            .map(|name| {
-                let done = git(&["rev-parse", "--verify", name], None)?;
-                Ok((
-                    name.clone(),
-                    String::from_utf8(done.stdout)?.trim().to_owned(),
-                ))
-            })
-            .collect::<Result<Vec<_>>>()?;
+        for name in refs {
+            let done = git(
+                &["for-each-ref", "--format=%(refname) %(objectname)", name],
+                None,
+            )?;
+            for line in String::from_utf8(done.stdout)?.lines() {
+                if let Some((found, actual)) = line.split_once(' ')
+                    && found == name
+                    && actual != record
+                {
+                    return Err(PublicationRefMismatch {
+                        name: name.clone(),
+                        expected: record.to_owned(),
+                        actual: actual.to_owned(),
+                    }
+                    .into());
+                }
+            }
+        }
         let mut common = git(
             &["rev-parse", "--path-format=absolute", "--git-common-dir"],
             None,
@@ -401,7 +476,7 @@ pub(super) fn push_refs(
         let repository = tempfile::Builder::new()
             .prefix("evidence-push-")
             .tempdir()?;
-        publication_repository(repository.path(), pack, &objects, &resolved, &environ)?;
+        publication_repository(repository.path(), pack, &objects, refs, record, &environ)?;
         let extra = token_environment(&secrets.token, &url);
         push_with(
             &url,
@@ -607,6 +682,18 @@ mod tests {
             if publication {
                 assert_eq!(actual[OsStr::new("GIT_CONFIG_GLOBAL")], "/dev/null");
                 assert_eq!(actual[OsStr::new("GIT_CONFIG_NOSYSTEM")], "1");
+                let args: Vec<_> = command.get_args().collect();
+                for setting in [
+                    "core.commitGraph=false",
+                    "core.multiPackIndex=false",
+                    "pack.useBitmaps=false",
+                    "pack.useBitmapBoundaryTraversal=false",
+                ] {
+                    assert!(
+                        args.windows(2)
+                            .any(|pair| pair[0] == "-c" && pair[1] == setting)
+                    );
+                }
             } else {
                 assert!(!actual.contains_key(OsStr::new("GIT_CONFIG_GLOBAL")));
             }
@@ -799,7 +886,8 @@ mod tests {
             &isolated,
             &pack.stdout,
             &repo.join(".git/objects"),
-            &[("refs/tags/evidence/test".into(), oid.into())],
+            &["refs/tags/evidence/test".into()],
+            oid,
             &hostile_env,
         )
         .unwrap();
@@ -895,6 +983,7 @@ mod tests {
             b"",
             &objects,
             &[],
+            "",
             &std::env::vars_os().collect(),
         )
         .unwrap_err();
@@ -902,6 +991,54 @@ mod tests {
             error.downcast_ref::<PublicationObjectsError>(),
             Some(PublicationObjectsError::InvalidShallowBoundary)
         ));
+    }
+
+    #[test]
+    fn shallow_boundary_symlinks_and_oversized_files_are_refused() {
+        let tmp = tempfile::tempdir().unwrap();
+        let common = tmp.path().join("source.git");
+        let objects = common.join("objects");
+        std::fs::create_dir_all(&objects).unwrap();
+        let real = tmp.path().join("boundary");
+        std::fs::write(&real, format!("{}\n", "a".repeat(40))).unwrap();
+        let shallow = common.join("shallow");
+        std::os::unix::fs::symlink(&real, &shallow).unwrap();
+        for oversized in [false, true] {
+            if oversized {
+                std::fs::remove_file(&shallow).unwrap();
+                std::fs::File::create(&shallow)
+                    .unwrap()
+                    .set_len(1024 * 1024 + 1)
+                    .unwrap();
+            }
+            let isolated = tmp.path().join(if oversized {
+                "large.git"
+            } else {
+                "symlink.git"
+            });
+            std::fs::create_dir(&isolated).unwrap();
+            let error = publication_repository(
+                &isolated,
+                b"",
+                &objects,
+                &[],
+                "",
+                &std::env::vars_os().collect(),
+            )
+            .unwrap_err();
+            if oversized {
+                assert!(matches!(
+                    error.downcast_ref::<PublicationObjectsError>(),
+                    Some(PublicationObjectsError::ShallowBoundaryTooLarge)
+                ));
+            } else {
+                assert!(matches!(
+                    error.downcast_ref::<PublicationObjectsError>(),
+                    Some(PublicationObjectsError::ShallowBoundaryRead(_))
+                ));
+            }
+            assert!(!isolated.join("shallow").exists());
+        }
     }
 
     #[test]
@@ -981,7 +1118,8 @@ mod tests {
             &isolated,
             &pack.stdout,
             &source.join("objects"),
-            &[("refs/notes/evidence/test".into(), record.into())],
+            &["refs/notes/evidence/test".into()],
+            record,
             &env,
         )
         .unwrap();
