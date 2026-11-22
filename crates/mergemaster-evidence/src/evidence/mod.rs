@@ -43,6 +43,7 @@ pub mod slo;
 pub mod source;
 #[cfg(test)]
 mod tests;
+pub mod v2;
 pub mod workspace;
 
 pub const NOTES_PREFIX: &str = "refs/notes/evidence/";
@@ -630,6 +631,44 @@ fn write_observation(repo: &Path, statement: &Statement, ssh_key: Option<&Path>)
     Ok(signed)
 }
 
+/// Dispatch before the legacy decoder; v2 can never fall back to v1.
+fn decode_statement(bytes: &[u8]) -> Result<Statement> {
+    struct Format;
+    impl<'de> serde::de::Visitor<'de> for Format {
+        type Value = bool;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("an evidence object")
+        }
+        fn visit_map<M: serde::de::MapAccess<'de>>(
+            self,
+            mut map: M,
+        ) -> std::result::Result<bool, M::Error> {
+            let mut version = None;
+            while let Some(key) = map.next_key::<String>()? {
+                if key == "predicateType" {
+                    if version.is_some() {
+                        return Err(serde::de::Error::duplicate_field("predicateType"));
+                    }
+                    version = Some(map.next_value::<String>()? == v2::PREDICATE_TYPE);
+                } else {
+                    map.next_value::<serde::de::IgnoredAny>()?;
+                }
+            }
+            Ok(matches!(version, Some(true)))
+        }
+    }
+    let mut probe = serde_json::Deserializer::from_slice(bytes);
+    if matches!(
+        serde::Deserializer::deserialize_map(&mut probe, Format),
+        Ok(true)
+    ) && probe.end().is_ok()
+    {
+        v2::decode(bytes)?;
+        bail!("v2 evidence is disabled");
+    }
+    serde_json::from_slice(bytes).context("decode evidence statement")
+}
+
 /// Read the sole note from an immutable signed observation commit. No trust is implied.
 pub fn show(repo: &Path, id: &str) -> Result<Statement> {
     show_with_subject(repo, id, SubjectPresence::Required).map(|(statement, _)| statement)
@@ -659,9 +698,7 @@ fn show_with_subject(
     );
     oid(path)?;
     oid(parts[2])?;
-    let statement: Statement =
-        serde_json::from_slice(&git(repo, &["cat-file", "blob", parts[2]], None)?)
-            .context("decode evidence statement")?;
+    let statement = decode_statement(&git(repo, &["cat-file", "blob", parts[2]], None)?)?;
     let (tree, binding) = statement.validate_with_subject(repo, presence)?;
     ensure!(tree == path, "note attached to wrong tree");
     let raw = git_text(repo, &["cat-file", "commit", id], None)?;
