@@ -12,7 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from evidence_test_support import clean_loader_environment, tool_path  # noqa: E402
 clean_loader_environment()
 ROOT = Path(__file__).resolve().parent.parent
-PUBLISH, WRAP, SIGN = ROOT / 'scripts/evidence-publish', ROOT / 'scripts/evidence-wrap', ROOT / 'scripts/evidence-sign'
+PUBLISH = ROOT / 'scripts/evidence-publish'
+MERGEMASTER = os.environ.get('MERGEMASTER_BIN', 'mergemaster')
 ENV = dict(os.environ, GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_SYSTEM='/dev/null', LC_ALL='C',
            GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@example.invalid', GIT_COMMITTER_NAME='t', GIT_COMMITTER_EMAIL='t@example.invalid')
 
@@ -63,8 +64,8 @@ with tempfile.TemporaryDirectory() as directory:
         facts.write_text(json.dumps({'command': ['bash', 'scripts/ci-linux', 'tests'], 'exit_code': exit_code,
                                      'output_sha256': '3' * 64, 'inputs': {'stage': check, **(more or {})}}))
         out = out or tmp / 'notes' / who
-        done = subprocess.run([sys.executable, str(WRAP), '--check', check, '--toolchain-sha256', '1' * 64, '--signer',
-                               json.dumps([sys.executable, str(SIGN)]), '--aggregate', str(facts), '--out', str(out)],
+        done = subprocess.run([MERGEMASTER, 'evidence', 'legacy-wrap', '--check', check, '--toolchain-sha256', '1' * 64, '--signer',
+                               json.dumps([MERGEMASTER, 'evidence', 'legacy-sign']), '--aggregate', str(facts), '--out', str(out)],
                               cwd=cwd, capture_output=True, env=dict(ENV, HOME=str(homes[who])))
         assert done.returncode == exit_code, done.stderr.decode()
         return out

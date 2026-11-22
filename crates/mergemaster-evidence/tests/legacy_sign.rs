@@ -75,6 +75,11 @@ fn group_7_loader_tripwire_precedes_configuration_and_allows_library_path() {
     replay("loader");
 }
 
+#[test]
+fn direct_signer_request_and_nix_contracts_preserve_every_legacy_assertion() {
+    replay("contract");
+}
+
 const DRIVER: &str = r#"
 import base64, hashlib, importlib.machinery, importlib.util, json, os, pathlib, shutil, subprocess, sys, tempfile
 
@@ -238,6 +243,123 @@ with tempfile.TemporaryDirectory() as directory:
             accepted = invoke(native, home, repo, b'{}', {'LD_LIBRARY_PATH': '/nonexistent-legacy-sign-library-path'})
             assert 'evidence-sign.json' in refusal(accepted), accepted.stderr
             assert b'scrub' not in accepted.stderr
+
+    elif group == 'contract':
+        lock = b'{"nodes":{}}\n'
+        (repo / 'flake.lock').write_bytes(lock)
+        git(repo, 'add', '.')
+        git(repo, 'commit', '-qm', 'direct signer contracts')
+        commit = git(repo, 'rev-parse', 'HEAD').decode().strip()
+        tree = git(repo, 'rev-parse', 'HEAD^{tree}').decode().strip()
+        request = dict(commit=commit, check='linux-gate', command=['true'], exit_code=0,
+                       output_sha256='0'*64, change_id='local:x',
+                       inputs=dict(flake_lock_sha256=hashlib.sha256(lock).hexdigest(),
+                                   toolchain_sha256='d'*64, wrapper_sha256='1'*64,
+                                   system='x86_64-linux', attempt='1'))
+        def check_request(value, accepted=True):
+            statements = []
+            for native in (False, True):
+                done = invoke(native, home, repo, json.dumps(value).encode())
+                if not accepted:
+                    refusal(done)
+                    continue
+                packet = json.loads(good(done))
+                pack = base64.b64decode(packet['object_pack_base64'], validate=True)
+                git(repo, 'index-pack', '--stdin', data=pack)
+                statement = json.loads(git(repo, 'show', packet['record'] + ':' + tree))
+                producer = hashlib.sha256(binary.read_bytes() if native else script.read_bytes()).hexdigest()
+                assert statement['predicate']['producer_sha256'] == producer
+                assert statement['predicate']['observed']['inputs'] == value['inputs']
+                assert statement['predicate']['observed']['checks'][value['check']] == {
+                    'command': value['command'], 'exit_code': value['exit_code'],
+                    'output_sha256': value['output_sha256']}
+                statements.append(statement)
+            return statements
+        assert all(s['predicate']['observed']['runner'] == 'wrapper' for s in check_request(request))
+        check_request(dict(request, inputs=dict(request['inputs'], run_id='123', event_name='merge_group')))
+        for label, bad in {
+            'extra key': dict(request, tier='full'),
+            'wrong flake.lock hash': dict(request, inputs=dict(request['inputs'], flake_lock_sha256='2'*64)),
+            'unknown commit': dict(request, commit='f'*40),
+            'bad output digest': dict(request, output_sha256='zz'),
+            'empty command': dict(request, command=[]),
+            'badly named extra input': dict(request, inputs=dict(request['inputs'], **{'Bad-Name':'x'})),
+            'missing required input': dict(request, inputs={k:v for k,v in request['inputs'].items() if k != 'toolchain_sha256'}),
+            'empty extra input': dict(request, inputs=dict(request['inputs'], run_id='')),
+            'check name with a slash': dict(request, check='a/b'),
+        }.items():
+            check_request(bad, False)
+        drv = '/nix/store/wndx1738rbbrs30ap8l6ma5nkxgcjb89-genie-freshness-0.1.0.drv'
+        out = '/nix/store/hh43mxh295bdyfb96mx8qp37ii3dkzx0-genie-freshness-0.1.0'
+        nix_inputs = dict(drv_path=drv, out_path=out,
+                          nar_hash='sha256-d6xi4mKdjkX2JFicDIv5niSzpyI0m/Hnm8GGAIU04kY=',
+                          nar_size='112', references='-', cache_hit='false',
+                          nix_signatures='test-nix-evidence-1:' + 'A'*86 + '==',
+                          nix_key_id='test-nix-evidence-1', nix_unsigned='false')
+        nix = dict(request, check='genie-freshness', runner='nix',
+                   command=['nix', 'build', '.#checks.x86_64-linux.genie-freshness'],
+                   inputs=dict(request['inputs'], **nix_inputs))
+        assert all(s['predicate']['observed']['runner'] == 'nix' for s in check_request(nix))
+        check_request(dict(nix, inputs=dict(nix['inputs'], nix_signatures='none', nix_key_id='none', nix_unsigned='true')))
+        references = '/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-a,/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-b'
+        check_request(dict(nix, inputs=dict(nix['inputs'], references=references)))
+        check_request(dict(nix, exit_code=1, inputs=dict(request['inputs'], drv_path=drv)))
+        for changes in (
+            dict(drv_path=out),
+            dict(out_path='/nix/store/hh43mxh295bdyfb96mx8qp37ii3dkzx0-other-0.1.0'),
+            dict(out_path='/tmp/evil-genie-freshness-0.1.0'),
+            dict(nar_hash='sha256:0ip26j2h11n1kgkz36rl4akv694yz65hr72q4kv4b3lxcbi65b3p'),
+            dict(nar_size='12 bytes'), dict(references=','.join(reversed(references.split(',')))),
+            dict(references='/etc/passwd'), dict(cache_hit='yes'), dict(nix_signatures='AAAA'),
+            dict(nix_unsigned='true'), dict(nix_key_id='someone-else'),
+        ):
+            check_request(dict(nix, inputs=dict(nix['inputs'], **changes)), False)
+        for bad in (
+            dict(request, runner='sekrets'), dict(nix, command=['sh', '-c', 'true']),
+            dict(nix, check='other'),
+            dict(nix, command=['nix', 'build', '.#checks.x/../genie-freshness']),
+            dict(nix, exit_code=1),
+            dict(nix, inputs={k:v for k,v in nix['inputs'].items() if k != 'out_path'}),
+        ):
+            check_request(bad, False)
+        with tempfile.TemporaryDirectory(dir='/tmp') as writable:
+            for name in ('git', 'ssh-keygen'):
+                (pathlib.Path(writable) / name).symlink_to(shutil.which(name, path=tool_path))
+            config_path.write_text(json.dumps(dict(config, path=writable)))
+            for native in (False, True):
+                done = invoke(native, home, repo, json.dumps(request).encode(),
+                              {'RUNNER_TEMP': None, 'GITHUB_WORKSPACE': None, 'TMPDIR': None})
+                assert 'where code under test can write' in refusal(done), done.stderr
+        config_path.write_text(json.dumps(config))
+        # Exercise the signer directly: a wrapper's own Git setup must not mask
+        # hostile caller PATH/configuration before the request reaches signing.
+        marker = root / 'hostile-program-ran'
+        shims = root / 'shims'
+        shims.mkdir()
+        for name in ('git', 'ssh-keygen', 'git-upload-pack', 'sh-evil'):
+            program = shims / name
+            program.write_text('#!/bin/sh\ntouch ' + str(marker) + '\nexit 1\n')
+            program.chmod(0o755)
+        hooks = root / 'hooks'
+        hooks.mkdir()
+        hook = hooks / 'reference-transaction'
+        hook.write_text('#!/bin/sh\ntouch ' + str(marker) + '\n')
+        hook.chmod(0o755)
+        settings = {'core.fsmonitor': str(shims / 'sh-evil'), 'core.hooksPath': str(hooks),
+                    'core.pager': str(shims / 'sh-evil'), 'uploadpack.packObjectsHook': str(shims / 'sh-evil'),
+                    'core.sshCommand': str(shims / 'sh-evil'), 'gpg.ssh.program': str(shims / 'ssh-keygen')}
+        for name, value in settings.items():
+            git(repo, 'config', name, value)
+        config_path.write_text(json.dumps({k:v for k,v in config.items() if k != 'test_clock'}))
+        for native in (False, True):
+            done = invoke(native, home, repo, json.dumps(request).encode(), dict(
+                PATH=str(shims) + ':' + env['PATH'], EVIDENCE_SIGN_NOW='1999-01-01T00:00:00Z',
+                GIT_DIR=str(root / 'elsewhere'), GIT_CONFIG_COUNT='1',
+                GIT_CONFIG_KEY_0='gpg.ssh.program', GIT_CONFIG_VALUE_0=str(shims / 'ssh-keygen')))
+            packet = json.loads(good(done))
+            statement = json.loads(git(scratch, 'show', packet['record'] + ':' + tree))
+            assert statement['predicate']['observed_at'] != '1999-01-01T00:00:00Z'
+            assert not marker.exists(), 'caller PATH, environment or checkout program ran'
 
     elif group in ('signing', 'signing-inf', 'signing-nan', 'signing-infinity', 'signing-surrogate'):
         lock = b'{"nodes":{},"root":"root","version":7}\n'

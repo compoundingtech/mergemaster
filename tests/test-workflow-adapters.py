@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render extracted adapters; retain parity except trusted native notice/source/verifier cutovers."""
+"""Render extracted adapters; retain parity except trusted native notice/source/verifier/signing cutovers."""
 import difflib
 import hashlib
 import json
@@ -139,7 +139,27 @@ def shadow_migration(actual, expected, notice_script):
         'BASE_SHA': '${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha || github.sha }}',
         'GH_TOKEN': '${{ github.token }}',
     }
-    assert actual_job == expected_job, 'Signing job metadata, permissions or non-shadow steps changed'
+    provisioning = notice_script.split('\ngit fetch', 1)[0]
+    for name in ('Sign the linux-gate note', 'Sign the fractal-web note'):
+        signing_step, = [step for step in actual_job[key]['steps'] if step.get('name') == name]
+        old_step, = [step for step in expected_job[key]['steps'] if step.get('name') == name]
+        signing_script = signing_step.pop('run').rstrip('\n')
+        old_signing_script = old_step.pop('run').rstrip('\n')
+        signing_env = signing_step['env']
+        assert signing_env.pop('BASE_SHA') == '${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha || github.sha }}'
+        assert signing_env.pop('GH_TOKEN') == '${{ github.token }}'
+        if not signing_env:
+            signing_step.pop('env')
+        assert signing_step == old_step, 'Signing step changed beyond native tool provisioning'
+        old_wrap = 'python3 "$RUNNER_TEMP/evidence-base/scripts/evidence-wrap"'
+        old_signer = """'["python3","'"$RUNNER_TEMP"'/evidence-base/scripts/evidence-sign"]'"""
+        assert old_signing_script.count(old_wrap) == old_signing_script.count(old_signer) == 1
+        new_signer = '''"$(jq -cn --arg binary "$MERGEMASTER" '[$binary,"evidence","legacy-sign"]')"'''
+        expected_signing_script = old_signing_script.replace(old_wrap, '"$MERGEMASTER" evidence legacy-wrap')
+        expected_signing_script = expected_signing_script.replace(old_signer, new_signer)
+        assert signing_script == provisioning + '\nprovision_evidence_tool || exit 1\n' + expected_signing_script, \
+            'Signing invocation/base selection/fallback changed'
+    assert actual_job == expected_job, 'Signing job metadata, permissions or unrelated steps changed'
     assert actual_step['continue-on-error'] == 'true'
     provisioning, body = script.split('\nshadow=', 1)
     assert provisioning == notice_script.split('\ngit fetch', 1)[0]
@@ -376,7 +396,7 @@ with tempfile.TemporaryDirectory(prefix='workflow-adapters-', dir=ROOT / 'tmp') 
             baseline[name].decode().splitlines(keepends=True),
             comparable.decode().splitlines(keepends=True),
             fromfile=f'consumer-generator/{name}', tofile=f'adapter-generator/{name}'))
-        print(f'{name}.yml: generator parity YES (notice/source/verifier native cutovers only)')
+        print(f'{name}.yml: generator parity YES (notice/source/verifier/signing native cutovers only)')
         expected = (FIXTURE / f'.github/workflows/{name}.yml').read_bytes()
         if name == 'fleet':
             actual_jobs = job_blocks(actual.decode())
@@ -410,7 +430,7 @@ with tempfile.TemporaryDirectory(prefix='workflow-adapters-', dir=ROOT / 'tmp') 
             assert actual == expected, ''.join(difflib.unified_diff(
                 expected.decode().splitlines(keepends=True), actual.decode().splitlines(keepends=True),
                 fromfile=f'pinned/{name}', tofile=f'rendered/{name}'))
-        print(f'{name}.yml: pinned evidence parity YES (notice/source/verifier native cutovers only)')
+        print(f'{name}.yml: pinned evidence parity YES (notice/source/verifier/signing native cutovers only)')
     print('Workflow adapter strict typecheck and golden test passed')
 
 subprocess.run(['python3', str(ROOT / 'tests/test-generic-evidence.py')], check=True)

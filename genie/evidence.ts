@@ -1,5 +1,5 @@
 // Workflow adapters moved from compoundingtech/fractal e83871ec919f95b3b3e2a9a1cd211c2ac37babda.
-// Policy, event selection and lane wiring remain consumer-owned. Tools still come from BASE.
+// Policy, event selection and lane wiring remain consumer-owned. Scripts and the native tool pin come from BASE.
 export type WorkflowValue = string | number | boolean | undefined | readonly WorkflowValue[] | { readonly [key: string]: WorkflowValue }
 export type WorkflowObject = { readonly [key: string]: WorkflowValue }
 export interface Actions {
@@ -239,14 +239,20 @@ python3 "$RUNNER_TEMP/evidence-base/scripts/ci-evidence-signing" configure | tee
           id: 'sign',
           if: "${{ steps.configure.outcome == 'success' }}",
           'continue-on-error': true,
-          run: `helper="$RUNNER_TEMP/evidence-base/scripts/ci-evidence-signing"
+          env: {
+            BASE_SHA: '${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha || github.sha }}',
+            GH_TOKEN: '${{ github.token }}',
+          },
+          run: `${provisionEvidenceTool}
+provision_evidence_tool || exit 1
+helper="$RUNNER_TEMP/evidence-base/scripts/ci-evidence-signing"
 python3 "$helper" once linux-gate
 python3 "$helper" aggregate "$RUNNER_TEMP/gate-facts.json"
 home=$(tail -n 1 "$RUNNER_TEMP/evidence-signer-home")
-HOME="$home" python3 "$RUNNER_TEMP/evidence-base/scripts/evidence-wrap" --check linux-gate \\
+HOME="$home" "$MERGEMASTER" evidence legacy-wrap --check linux-gate \\
   --aggregate "$RUNNER_TEMP/gate-facts.json" --attempt "$GITHUB_RUN_ATTEMPT" \\
   --change-id "github:$GITHUB_REPOSITORY@$GITHUB_SHA" --toolchain-sha256 "$(printf 'github-hosted|%s' "\${ImageVersion:-unknown}" | sha256sum | cut -d' ' -f1)" \\
-  --signer '["python3","'"$RUNNER_TEMP"'/evidence-base/scripts/evidence-sign"]' --out "$RUNNER_TEMP/evidence-notes/gate"`,
+  --signer "$(jq -cn --arg binary "$MERGEMASTER" '[$binary,"evidence","legacy-sign"]')" --out "$RUNNER_TEMP/evidence-notes/gate"`,
         },
         // The fractal-web check's one whole-check note, from the lane's jobs in this run: refused when the lane did not run,
         // when any execution shard was skipped, failed or was cancelled, or when its evidence gate skipped it. Signed here
@@ -256,17 +262,23 @@ HOME="$home" python3 "$RUNNER_TEMP/evidence-base/scripts/evidence-wrap" --check 
           id: 'sign-fractal-web',
           if: "${{ steps.configure.outcome == 'success' }}",
           'continue-on-error': true,
-          env: webNoteEnv,
+          env: {
+            ...webNoteEnv,
+            BASE_SHA: '${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha || github.sha }}',
+            GH_TOKEN: '${{ github.token }}',
+          },
           // A base whose helper predates the whole-check note would sign the linux-gate shape under this name: skip it.
-          run: `helper="$RUNNER_TEMP/evidence-base/scripts/ci-evidence-signing"
+          run: `${provisionEvidenceTool}
+provision_evidence_tool || exit 1
+helper="$RUNNER_TEMP/evidence-base/scripts/ci-evidence-signing"
 grep -q fractal_web_aggregate "$helper" || { echo "no fractal-web aggregate in the base commit's signing helper; not signed"; exit 1; }
 python3 "$helper" once fractal-web
 python3 "$helper" aggregate "$RUNNER_TEMP/fractal-web-facts.json"
 home=$(tail -n 1 "$RUNNER_TEMP/evidence-signer-home")
-HOME="$home" python3 "$RUNNER_TEMP/evidence-base/scripts/evidence-wrap" --check fractal-web \\
+HOME="$home" "$MERGEMASTER" evidence legacy-wrap --check fractal-web \\
   --aggregate "$RUNNER_TEMP/fractal-web-facts.json" --attempt "$GITHUB_RUN_ATTEMPT" \\
   --change-id "github:$GITHUB_REPOSITORY@$GITHUB_SHA" --toolchain-sha256 "$(printf 'github-hosted|%s' "\${ImageVersion:-unknown}" | sha256sum | cut -d' ' -f1)" \\
-  --signer '["python3","'"$RUNNER_TEMP"'/evidence-base/scripts/evidence-sign"]' --out "$RUNNER_TEMP/evidence-notes/fractal-web"`,
+  --signer "$(jq -cn --arg binary "$MERGEMASTER" '[$binary,"evidence","legacy-sign"]')" --out "$RUNNER_TEMP/evidence-notes/fractal-web"`,
         },
         // The stage jobs' signed notes, written as packs by each stage's own signing steps. Collected and published
         // whenever the key is configured, whether or not the aggregate signed: a stage note stands on its own (its

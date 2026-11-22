@@ -7,7 +7,7 @@
   scripts/fractal-test --status [--base origin/main]
 
 For every check that has a local command (the table below: the whole per-PR suite; run `scripts/fractal-test --push origin` on the head
-you mark ready, and --all, accepted, means the same) it runs that command once, on the tree the pull request will be tested as, through scripts/evidence-wrap, and the signer records the exit code and the digest of
+you mark ready, and --all, accepted, means the same) it runs that command once, on the tree the pull request will be tested as, through mergemaster evidence legacy-wrap, and the signer records the exit code and the digest of
 the output it measured under this host's key (scripts/evidence-keygen). A failing run is recorded too. It then
 asks the verifier, from the accepted base, whether the tree is now covered, and prints one line per check.
 
@@ -33,8 +33,8 @@ has a megarepo.lock, its members are materialized under repos/ first, with the c
 (`mr apply`, from the flake's effect-utils pin), because both lanes read repos/effect-utils and their dev shells no longer
 create it.
 
-evidence-wrap and evidence-sign come from the accepted base, not from the change under test. Verification and crate keys use the pinned
-mergemaster binary (MERGEMASTER_BIN, or mergemaster on PATH), with configuration selected from the accepted base.
+Wrapping, signing, verification and crate keys use the same pinned mergemaster binary
+(MERGEMASTER_BIN, or mergemaster on PATH), with configuration selected from the accepted base.
 Commands that call cargo reach the build admission shim on PATH like any other cargo; nothing here knows about
 admission. With --push the signed notes are pushed to REMOTE after they verify, with the identity git uses for REMOTE
 (or EVIDENCE_PUSH_TOKEN if set), as refs/tags/evidence/<tree>/<record> and refs/notes/evidence/<tree>/<record> (see
@@ -47,7 +47,7 @@ With --out DIR every selected, relevant check is measured again, including alrea
 DIR/<record>.pack and DIR/<record>.json instead of importing notes or pushing. DIR is resolved from the caller's working directory
 before entering a clean worktree. --out and --push are incompatible; --seed --out exports without its usual implicit push.
 Success means the checks passed and their packs were exported, not that the verifier counts them as covered: publication and
-verification of the exported records are the publisher's responsibility. Lane-edit refusals and irrelevant checks still do not sign.
+verification of the exported records are the publisher's responsibility. Irrelevant checks do not sign.
 
 It runs `nix develop` and `pnpm install` from the tree under test, on this machine, as this user, with the host's
 signing key within reach: code in that tree runs here. That is the cooperative trust of docs/st3/gate-evidence.md
@@ -77,8 +77,7 @@ Exit 0 when every selected check passed and was signed (with --out, exported but
 could not be signed; 2 when it could not start (a refusal: dirty tree, bad argument, or, for the whole suite, a branch whose merge with
 the base fails CI's upgrade-impact check: a missing release-notes/NAME.json, which --status shows as a warning); 3 from --status when
 the tree is not covered. A tree that edits
-a check's lane is signed like any other (the note carries the edited lane's digest). The run exits 4 when nothing failed but a check was not signed: only
-against a base whose evidence-wrap still refuses a lane edit (before 2026-10-26) is that check left "not signed" for CI, or rust-tests left a crate unsigned
+a check's lane is signed like any other (the note carries the edited lane's digest). The run exits 4 when nothing failed but rust-tests left a crate unsigned
 because one of its tests passed only on a retry (CI's own per-crate notes refuse such a crate too, so CI runs it; linux-gate still signs and records them
 as flaky_tests).
 """
@@ -189,7 +188,6 @@ BASE_BOUND = frozenset({'linux-gate', 'linux-clippy'})  # rust-tests is not: a t
 WEB = 'fractal-web'
 WEB_INPUTS = {'kit_shard_count': '1', 'shard_results': '0=success', 'kit_inputs': 'true', 'kit_play_set': 'all',
               'app_test_set': 'all', 'event_name': 'pull_request'}
-BASE_SCRIPTS = ('evidence-wrap', 'evidence-sign')
 VERIFIER_BINARY = os.environ.get('MERGEMASTER_BIN', 'mergemaster')
 # The checks that build use two cargo targets per pool tree (<pool>/target-N and target-N-fleet-compat, outside the tree), kept between
 # runs, so a run does not start cold: the tree's path is the same every run, so the workspace's own crates rebuild only when they
@@ -1391,12 +1389,6 @@ def run_input_arguments(check, base):
     return ['--run-input', f"kit_inputs={'true' if kit else 'false'}"]
 
 
-def edited_lanes_unsigned(base):
-    """True when the base's evidence-wrap refuses a tree that edits its lane (it lacks SIGNS_LANE_EDITS): only then is a lane edit left to CI."""
-    done = git('show', f'{base}:scripts/evidence-wrap', check=False)
-    return done.returncode != 0 or b'\nSIGNS_LANE_EDITS = True\n' not in done.stdout
-
-
 def lane_names(base):
     """The lanes defined by the accepted base; an absent historical definition names none."""
     blob = config_blob(base, 'required-lanes.json')
@@ -1412,24 +1404,6 @@ def policy_checks(base):
     """The checks named by the accepted base's skip policy."""
     blob = config_blob(base, 'evidence-skip-policy.json')
     return list(json.loads(blob)['checks']) if blob is not None else []
-
-
-def lane_edits(verifier_path, directory, base, check, tree):
-    """The paths of `check`'s lane definition that `tree` changes relative to `base`, the branch point (empty when it changes none). evidence-wrap refuses
-    to sign such a tree; asking first lets the run say so plainly, as "not signed", instead of reporting a failed check."""
-    blob = config_blob(base, 'required-lanes.json')
-    if blob is None:
-        raise Failure(f'no lane file at accepted base {base}')
-    base_tree = text(git('rev-parse', '--verify', '--end-of-options', base + '^{tree}'))
-    done = subprocess.run([verifier_path, 'legacy-evidence-verify-helper', 'lane-definition', '--repo', str(directory),
-                           '--base-tree', base_tree, '--tree', tree, '--check', check],
-                          input=blob.decode(), capture_output=True, text=True)
-    if done.returncode == 3:
-        # Every reason here was a verifier.Failure; the wrapper reports its detail.
-        return []  # evidence-wrap gives the reason
-    if done.returncode:
-        raise Failure(done.stderr.strip() or 'lane-definition helper failed')
-    return json.loads(done.stdout)['changed']
 
 
 def behind(base):
@@ -2619,20 +2593,15 @@ def covered(verifier, directory, tree, check, base, repository, lane_base=None, 
 
 def coverage(args, checks, commit, base_commit, repository, scratch, crates=()):
     """[(check, covered, label, why, crates to run)]: what --status prints for `commit`, judged by the base as it is now, and what a top-up
-    round signs. `crates to run` is the uncovered rust-tests crates (None for any other check). A tree that edits a check's lane counts as
-    covered when the base's wrapper cannot sign it (CI runs that check), and so does the web lane when no web input changed."""
+    round signs. `crates to run` is the uncovered rust-tests crates (None for any other check).
+    The web lane counts as covered when no web input changed."""
     tree = text(git('rev-parse', f'{commit}^{{tree}}'))
     lane_base = branch_point(commit, base_commit)
     verifier = VERIFIER_BINARY
-    lanes, rows = lane_names(base_commit) if edited_lanes_unsigned(base_commit) else set(), []
+    rows = []
     for name in checks:
-        # Against an older base a tree that edits a check's lane cannot be signed (its evidence-wrap refuses it): CI runs that check.
-        # Otherwise a lane edit is signed, and asked about, like any other tree.
-        edits = lane_edits(str(verifier), Path('.'), lane_base, name, tree) if name in lanes else []
         unchanged = web_unchanged(base_commit) if name == WEB else None
-        if edits:
-            rows.append((name, True, 'lane edit: CI runs it', f'this tree edits its lane ({", ".join(edits[:3])})', None))
-        elif name == RUST_TESTS:
+        if name == RUST_TESTS:
             keys, error = crate_keys(base_commit, Path('.'), tree, scratch)
             if not error:
                 keys, error = only_crates(keys, crates)
@@ -2913,15 +2882,16 @@ def sign_jobs():
         return 8
 
 
-def shared_toolchain(wrap_path):
-    """The dev shell digest evidence-wrap would compute for every signature, once; None when it cannot (each wrap then computes its own)."""
+def shared_toolchain():
+    """Compute the native legacy-wrap dev shell digest once for all crate signatures."""
     try:
-        loader = importlib.machinery.SourceFileLoader('evidence_wrap_for_st_test', wrap_path)
-        module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
-        loader.exec_module(module)
-        return module.toolchain_digest(None)
-    except Exception:  # an unreadable script, or nix cannot name the shell: the wrapper reports it for itself
-        return None
+        system = subprocess.run(['nix', 'eval', '--impure', '--raw', '--expr', 'builtins.currentSystem'],
+                                capture_output=True, text=True, check=True).stdout.strip()
+        drv = subprocess.run(['nix', 'eval', '--raw', '--no-update-lock-file', f'.#devShells.{system}.default.drvPath'],
+                             capture_output=True, text=True, check=True).stdout.strip()
+        return hashlib.sha256(drv.encode()).hexdigest() if drv.startswith('/') else None
+    except (OSError, subprocess.CalledProcessError):
+        return None  # the native wrapper reports the failure for itself
 
 
 def filterset_input(selected):
@@ -2952,11 +2922,6 @@ def crate_env_skips(path, crate):
     value = ','.join(sorted({line.strip() for line in lines if line.strip().split(' ', 1)[0] == crate})) or 'none'
     # The signer takes inputs of at most 500 characters, as evidence-wrap --input-file records a longer list.
     return value if len(value) <= 500 else f'{value.count(",") + 1} entries, sha256 {hashlib.sha256(value.encode()).hexdigest()}'
-
-
-def takes_input_files(wrapper):
-    """Whether the base's evidence-wrap records --input-file (older bases' wrappers refuse the flag)."""
-    return '--input-file' in Path(wrapper).read_text()
 
 
 UNCOVERED = 'not signed'  # a crate left for CI (a test passed only on a retry): its row, and the check's unsigned flag
@@ -3028,7 +2993,7 @@ def run_rust_tests(args, directory, tools, scratch, tree, commit, base_commit, l
     rows, failed, signed_count, empty = [], False, 0, []
     signing_from = time.monotonic()
     # The dev shell's digest is the same for every crate: name it once (a nix evaluation of seconds) rather than once per signature.
-    toolchain = args.toolchain_sha256 or shared_toolchain(tools['evidence-wrap'])
+    toolchain = args.toolchain_sha256 or shared_toolchain()
 
     def sign(crate):
         """(row, refspecs): a summary row when the crate was not signed, else None and the refs of its record, which are pushed together
@@ -3043,7 +3008,7 @@ def run_rust_tests(args, directory, tools, scratch, tree, commit, base_commit, l
             # stays uncovered and CI runs it. Not a failure of this run. A test that failed every try is one, whatever else was retried:
             # the crate goes on to its failing record below.
             return (f'rust-tests:{crate}', UNCOVERED, 0, f'{len(flaky)} test(s) passed only on a retry, CI runs it: {name_tests(flaky)}'[:200]), UNCOVERED
-        wrap = [sys.executable, tools['evidence-wrap'], '--check', 'rust-tests', '--attempt', args.attempt,
+        wrap = [VERIFIER_BINARY, 'evidence', 'legacy-wrap', '--check', 'rust-tests', '--attempt', args.attempt,
                 '--signer', signer, '--verifier', tools['evidence-verify'], '--keys-from', base_commit,
                 '--input', f'crate={crate}', '--input', f'source_inputs={keys[crate]}', '--input', f'tests_run={facts["tests_run"]}',
                 '--input', f'tests_ignored={facts["tests_ignored"]}', '--input', f'test_list_sha256={facts["test_list_sha256"]}',
@@ -3782,22 +3747,15 @@ def run_main(argv, cleanup):
             while True:
                 # Use the caller's normal git context, never the key-bearing signer's.
                 hydrate_commit(directory, commit)
-                tools = {}
-                for name in BASE_SCRIPTS:  # from the base as it is now, after any wait for a tree
-                    path = Path(scratch) / name
-                    path.write_bytes(git('show', f'{base_commit}:scripts/{name}').stdout)
-                    path.chmod(0o700)
-                    tools[name] = str(path)
-                tools['evidence-verify'] = VERIFIER_BINARY
+                tools = {'evidence-verify': VERIFIER_BINARY}
                 lag = behind(base_commit)
                 tree = text(git('rev-parse', f'{commit}^{{tree}}', cwd=directory))
                 lane_base = branch_point(commit, base_commit)
                 repository = args.repository or repository_of(remote)
-                # -I: the signer's interpreter reads no PYTHON* variable, user site or current directory (evidence-wrap also drops them).
-                signer = os.environ.get('EVIDENCE_SIGNER') or json.dumps([sys.executable, '-I', tools['evidence-sign']])
+                # Native signing uses the same pinned binary as verification; an explicit transport override wins.
+                signer = os.environ.get('EVIDENCE_SIGNER') or json.dumps([VERIFIER_BINARY, 'evidence', 'legacy-sign'])
                 rows, failed, unsigned = [], False, False
                 lanes = lane_names(base_commit)
-                unsignable = lanes if edited_lanes_unsigned(base_commit) else set()  # lanes whose edits the base's wrapper refuses to sign
                 if target is None and any(name in BUILDS for name in checks):
                     target, target_lock = shared_target(tree_target)  # once: a top-up round builds in the same target, under the same lock
                 warm = target_warm(target) if any(name in BUILDS for name in checks) else None  # before anything builds in it
@@ -3820,9 +3778,6 @@ def run_main(argv, cleanup):
                 web_groups = ProcessGroups()
                 def run_check(name, output=None):
                     """(row, failed, unsigned) for one check; its output goes to `output` (a file) when given, else to this terminal."""
-                    edits = lane_edits(tools['evidence-verify'], directory, lane_base, name, tree) if name in unsignable else []
-                    if edits:
-                        return (name, 'not signed', 0, f'this tree edits its lane ({", ".join(edits[:3])}); CI runs it'), False, True
                     if name == RUST_TESTS:
                         problem = members()
                         if problem:
@@ -3844,11 +3799,10 @@ def run_main(argv, cleanup):
                     problem = members()
                     if problem:
                         return (name, 'NOT RUN', 0, problem), True, False
-                    wrap = [sys.executable, tools['evidence-wrap'], '--check', name, '--attempt', args.attempt,
+                    wrap = [VERIFIER_BINARY, 'evidence', 'legacy-wrap', '--check', name, '--attempt', args.attempt,
                             '--signer', signer, '--verifier', tools['evidence-verify'], '--keys-from', base_commit]
                     if name in lanes:
-                        # The branch point defines this lane: the note carries the digest of its definition, and a tree that edits the lane is not
-                        # signed. It is the base itself when the branch holds the base's tip.
+                        # The branch point defines this lane; edits are signed with the tree's definition digest.
                         wrap += ['--lanes-from', lane_base]
                     if args.toolchain_sha256:
                         wrap += ['--toolchain-sha256', args.toolchain_sha256]
@@ -3885,12 +3839,11 @@ def run_main(argv, cleanup):
                     if name in BUILDS and name not in STAGE_SIGNED:
                         # A test that cannot run on this host (no unprivileged user namespace, say) skips outside CI and writes its id here;
                         # the note records the list as env_skips, so the evidence says which tests did not run on this machine. rust-tests
-                        # reads linux-gate's list for its per-crate records, so it is written even under a base wrapper without --input-file.
+                        # reads linux-gate's list for its per-crate records.
                         skips = env_skips_file(scratch, name)
                         environment['CI_TEST_ENV_SKIPS'] = str(skips)
-                        if takes_input_files(tools['evidence-wrap']):
-                            wrap += ['--input-file', f'env_skips={skips}']
-                    if name == 'linux-gate' and 'tests' in LOCAL[name] and takes_input_files(tools['evidence-wrap']):
+                        wrap += ['--input-file', f'env_skips={skips}']
+                    if name == 'linux-gate' and 'tests' in LOCAL[name]:
                         # The tests that passed only on a retry (scripts/ci-nextest-flaky writes them after the tests stage): the whole-tree note
                         # still signs, as CI's gate counts a retried pass, and records them as flaky_tests so the evidence says so. rust-tests
                         # does not sign a crate with one (run_rust_tests), as CI's own per-crate notes do not.
@@ -3933,7 +3886,7 @@ def run_main(argv, cleanup):
                         environment = report_environment(scratch, environment)
                         wrap += ['--input', f'run_command_sha256={run_sha}']
                     pre_start = None
-                    if streams and takes_input_files(tools['evidence-wrap']):
+                    if streams:
                         # The seconds it waited before ci-local started, recorded in the note: a FIFO the wrapper reads after the check ended,
                         # answered once it does (answer_pre_start).
                         pre_start = pre_start_fifo(Path(scratch) / f'pre-start-{name}.txt')

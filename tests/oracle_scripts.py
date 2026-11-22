@@ -22,7 +22,7 @@ LOCAL_PATCHES = {"scripts/ci-signed-tree", "scripts/ci-signed-tree-test",
                  "scripts/evidence-gc", "scripts/evidence-gc-test", "scripts/evidence-gc-timer",
                  "scripts/evidence-lane-trace", "scripts/evidence-lane-trace-test",
                  "scripts/evidence-log", "scripts/evidence-log-test", "scripts/evidence-log-timer",
-                 "scripts/evidence-publish-test", "scripts/evidence-wrap", "scripts/evidence-wrap-test",
+                 "scripts/evidence-publish-test",
                  "scripts/evidence_test_support.py", "scripts/lane-definition-closure",
                  "scripts/lane-definition-closure-test"}
 MANIFEST = "tests/python-removals.json"
