@@ -1788,6 +1788,97 @@ fn producer_digest_binding_to_base_manifest_is_report_only() {
 }
 
 #[test]
+fn reuse_policy_absent_preserves_v1() {
+    use mergemaster_evidence::gate::config::ReuseAuthority;
+    let f = Fixture::new();
+    assert!(matches!(
+        load(&f.repo, &f.base).unwrap().policy.reuse_authority,
+        ReuseAuthority::Absent
+    ));
+    let record = f.note(&f.statement(), &f.key, "tree");
+    let decision = f.decision(&[]);
+    assert_eq!(decision["record"], record);
+    assert_eq!(decision["reason"], "satisfied");
+    assert_eq!(decision["decision"], "skip");
+}
+
+#[test]
+fn malformed_reuse_authority_refuses_v2() {
+    use mergemaster_evidence::gate::config::ReuseAuthority;
+    let mut f = Fixture::new();
+    let mut policy = Fixture::policy("required_evidence");
+    policy["reuse_authorities"] = json!([{"key_id": "not-an-authority"}]);
+    policy["lanes"][CHECK]["reuse"] =
+        json!({"version": 1, "origin_profile": "same_repository_pr", "platform": "linux"});
+    f.write(".mergemaster/lanes.json", policy.to_string());
+    f.base = f.commit("malformed optional BASE reuse authority");
+    f.refresh_head();
+    match load(&f.repo, &f.base).unwrap().policy.reuse_authority {
+        ReuseAuthority::Invalid(reason) => assert!(!reason.is_empty()),
+        other => panic!("expected Invalid, got {other:?}"),
+    }
+    let record = f.note(&f.statement(), &f.key, "tree");
+    let decision = f.decision(&[]);
+    assert_eq!(decision["record"], record);
+    assert_eq!(decision["reason"], "satisfied");
+    assert_eq!(decision["decision"], "skip");
+}
+
+#[test]
+fn head_policy_cannot_opt_in() {
+    use base64::Engine;
+    use mergemaster_evidence::gate::config::ReuseAuthority;
+    let mut f = Fixture::with_repository(Some("fixture/repo"));
+    let mut policy = Fixture::policy("required_evidence");
+    policy["repository"] = json!("fixture/repo");
+    let authorities: Vec<Value> = [&f.key, &f.stranger]
+        .into_iter()
+        .enumerate()
+        .map(|(index, key)| {
+            let public = fs::read_to_string(key.with_extension("pub")).unwrap();
+            let fields: Vec<_> = public.split_whitespace().collect();
+            let blob = base64::engine::general_purpose::STANDARD
+                .decode(fields[1])
+                .unwrap();
+            json!({
+                "key_id": format!("SHA256:{}", base64::engine::general_purpose::STANDARD_NO_PAD
+                    .encode(sha2::Sha256::digest(blob))),
+                "public_key": format!("{} {}", fields[0], fields[1]),
+                "principal": if index == 0 { "agent/service" } else { "host/broker" },
+                "role": if index == 0 { "v2_service_issuer" } else { "daemon_policy_receipt" },
+                "repository": "fixture/repo", "endpoint_id": format!("endpoint:{index}")
+            })
+        })
+        .collect();
+    policy["reuse_authorities"] = json!(authorities);
+    policy["lanes"][CHECK]["argv"] = json!(["/trusted/nix"]);
+    policy["lanes"][CHECK]["max_age_seconds"] = json!(86400);
+    policy["lanes"][CHECK]["nix_check"] =
+        json!({"attribute": "checks.x86_64-linux.format", "required": "any"});
+    policy["lanes"][CHECK]["reuse"] =
+        json!({"version": 1, "origin_profile": "same_repository_pr", "platform": "linux"});
+    f.write(".mergemaster/lanes.json", policy.to_string());
+    let mut manifest = producer_manifest();
+    manifest["producers"][0]["flavor"] = json!("v2_service");
+    f.write(".mergemaster/producers.json", manifest.to_string());
+    f.refresh_head();
+    assert!(matches!(
+        load(&f.repo, &f.head).unwrap().policy.reuse_authority,
+        ReuseAuthority::Valid(_)
+    ));
+    assert!(matches!(
+        load(&f.repo, &f.base).unwrap().policy.reuse_authority,
+        ReuseAuthority::Absent
+    ));
+    assert!(load(&f.repo, &f.base).unwrap().producers.is_none());
+    let record = f.note(&f.statement(), &f.key, "tree");
+    let decision = f.decision(&[]);
+    // A protected HEAD edit does not become new BASE authority.
+    assert_ne!(decision["reason"], "satisfied");
+    assert_ne!(decision["record"], record);
+}
+
+#[test]
 fn producer_digest_not_applicable_has_a_distinct_wire_value() {
     use mergemaster_evidence::gate::config::ProducerDigest;
 
