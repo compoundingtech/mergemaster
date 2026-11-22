@@ -633,13 +633,35 @@ fn write_observation(repo: &Path, statement: &Statement, ssh_key: Option<&Path>)
 
 /// Dispatch before the legacy decoder; v2 can never fall back to v1.
 fn decode_statement(bytes: &[u8]) -> Result<Statement> {
-    #[derive(Deserialize)]
-    struct Format {
-        #[serde(rename = "predicateType")]
-        predicate_type: String,
+    struct Format;
+    impl<'de> serde::de::Visitor<'de> for Format {
+        type Value = bool;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("an evidence object")
+        }
+        fn visit_map<M: serde::de::MapAccess<'de>>(
+            self,
+            mut map: M,
+        ) -> std::result::Result<bool, M::Error> {
+            let mut version = None;
+            while let Some(key) = map.next_key::<String>()? {
+                if key == "predicateType" {
+                    if version.is_some() {
+                        return Err(serde::de::Error::duplicate_field("predicateType"));
+                    }
+                    version = Some(map.next_value::<String>()? == v2::PREDICATE_TYPE);
+                } else {
+                    map.next_value::<serde::de::IgnoredAny>()?;
+                }
+            }
+            Ok(matches!(version, Some(true)))
+        }
     }
-    if let Ok(format) = serde_json::from_slice::<Format>(bytes)
-        && format.predicate_type == v2::PREDICATE_TYPE
+    let mut probe = serde_json::Deserializer::from_slice(bytes);
+    if matches!(
+        serde::Deserializer::deserialize_map(&mut probe, Format),
+        Ok(true)
+    ) && probe.end().is_ok()
     {
         v2::decode(bytes)?;
         bail!("v2 evidence is disabled");

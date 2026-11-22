@@ -209,6 +209,9 @@ impl<'de> Visitor<'de> for StrictValue {
     }
     fn visit_seq<S: SeqAccess<'de>>(self, mut s: S) -> std::result::Result<Value, S::Error> {
         let mut values = Vec::new();
+        // SeqAccess cannot peek: one excess element is decoded before refusal,
+        // still subject to the note-byte and nesting limits. Map limits above
+        // apply after decoding a key but before decoding its value.
         while let Some(value) = s.next_element_seed(StrictValue(self.0 + 1))? {
             if values.len() >= MAX_LIST_ENTRIES {
                 return Err(de::Error::custom("v2 list limit"));
@@ -797,6 +800,9 @@ mod tests {
             b"null".as_slice(),
             b"{}",
             b"[]",
+            br#"["https://compounding.tech/fractal/evidence/gate/v2"]"#,
+            br#"["https://compounding.tech/fractal/evidence/gate/v2",null]"#,
+            br#""https://compounding.tech/fractal/evidence/gate/v2""#,
             br#"{"predicateType":null}"#,
         ] {
             let old = serde_json::from_slice::<super::super::Statement>(bytes)
@@ -840,5 +846,269 @@ mod tests {
             .remove("daemon_policy_receipt");
         assert!(shape(&value).is_err());
         assert!(decode(&serde_json::to_vec(&value).unwrap()).is_err());
+    }
+    #[test]
+    fn section_9_8_root_and_rebind_golden_vectors() {
+        // Section 9.8 templates, independently expanded rather than derived from
+        // fixture(). Hash placeholders are concrete lowercase digests, argv
+        // hashes cover the full template commands, and receipt null deliberately
+        // remains non-validating until the broker contract is defined.
+        const ROOT: &str = r#"{
+  "_type": "https://in-toto.io/Statement/v1",
+  "repository": "example/project",
+  "subject": [
+    {
+      "name": "2a421650faad64bfe7796a8c3584b99cfe1b2732",
+      "digest": {
+        "gitTree": "abc7198173c93a06e7e13511cc14e87a6f7a7180"
+      }
+    }
+  ],
+  "predicateType": "https://compounding.tech/fractal/evidence/gate/v2",
+  "predicate": {
+    "schema_version": 2,
+    "change_id": "pr-41",
+    "signer": "agent/test-evidence-service",
+    "tier": "full",
+    "issuer": {
+      "key_id": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "service_id": "service:linux-v1"
+    },
+    "producer_sha256": "042a1a517bf7126308d0461f8537b7b146617354e21f0dfa74266f343cfc53da",
+    "observed_at": "2026-11-22T10:00:00Z",
+    "attested_at": "2026-11-22T10:00:00Z",
+    "origin": {
+      "class": "same_repository_pr",
+      "repository": "example/project",
+      "source_repository": "example/project",
+      "subject_head": "2a421650faad64bfe7796a8c3584b99cfe1b2732",
+      "accepted_base": "93624c934226a571324d1be72fbe9d29136b5aa0",
+      "event_kind": "pull_request",
+      "pull_request": {
+        "number": 41,
+        "head": "2a421650faad64bfe7796a8c3584b99cfe1b2732",
+        "base_ref": "main"
+      }
+    },
+    "reuse_key": {
+      "version": 1,
+      "check": "format",
+      "nix_derivation": "/nix/store/00000000000000000000000000000000-format.drv",
+      "expected_inputs": {
+        "environment_sha256": "541814ad8abe278017ca2b85ff93bc4b40f386a936dfe640dbdc554a1d015c29",
+        "toolchain_sha256": "92e17373c4b34698e4ac2ea5f748cb17763b55224f05d0b6c0c162aeef83922b",
+        "lane_definition_sha256": "c0b848127fe1d4f08c041c07b30faef3c9be6a61cb61b982b9915c10e2efdb3d",
+        "system": "x86_64-linux"
+      },
+      "nix_settings_sha256": "8e297dfaaaafc188c770a40769ea5861fae3eb40e64d50bdfb74fb18e740d046",
+      "nix_daemon_policy_sha256": "ae5a9f5c2223e61bcb58c0f67839cacae55e30364de21c76950bbb56ff5b4185",
+      "producer": {
+        "executable_sha256": "042a1a517bf7126308d0461f8537b7b146617354e21f0dfa74266f343cfc53da",
+        "system": "x86_64-linux"
+      }
+    },
+    "daemon_policy_receipt": null,
+    "observed": {
+      "kind": "tests",
+      "runner": "nix",
+      "checks": {
+        "format": {
+          "command": [
+            "/trusted/nix",
+            "--extra-experimental-features",
+            "nix-command flakes",
+            "--option",
+            "accept-flake-config",
+            "false",
+            "--option",
+            "pure-eval",
+            "true",
+            "--option",
+            "allow-import-from-derivation",
+            "false",
+            "--option",
+            "builders",
+            "",
+            "--option",
+            "build-hook",
+            "",
+            "--option",
+            "max-jobs",
+            "1",
+            "--log-format",
+            "internal-json",
+            "build",
+            "--no-link",
+            "--json",
+            "--print-build-logs",
+            "--option",
+            "substitute",
+            "false",
+            "--rebuild",
+            "/nix/store/00000000000000000000000000000000-format.drv^*"
+          ],
+          "exit_code": 0,
+          "output_sha256": "31d166a07280fdd21cbe2df4eba57d1cbf57af9773e41442798ed3a26c47e3fd"
+        }
+      },
+      "inputs": {
+        "environment_sha256": "541814ad8abe278017ca2b85ff93bc4b40f386a936dfe640dbdc554a1d015c29",
+        "toolchain_sha256": "92e17373c4b34698e4ac2ea5f748cb17763b55224f05d0b6c0c162aeef83922b",
+        "lane_definition_sha256": "c0b848127fe1d4f08c041c07b30faef3c9be6a61cb61b982b9915c10e2efdb3d",
+        "system": "x86_64-linux",
+        "wrapper_sha256": "042a1a517bf7126308d0461f8537b7b146617354e21f0dfa74266f343cfc53da",
+        "nix_derivation": "/nix/store/00000000000000000000000000000000-format.drv",
+        "nix_execution": "rebuild",
+        "nix_command_mode": "rebuild",
+        "nix_command_sha256": "341727aa784452e2ef96993c6b06642bc590c336c5c79a80bfec16bc108a9012",
+        "nix_settings_sha256": "8e297dfaaaafc188c770a40769ea5861fae3eb40e64d50bdfb74fb18e740d046",
+        "nix_daemon_policy_sha256": "ae5a9f5c2223e61bcb58c0f67839cacae55e30364de21c76950bbb56ff5b4185",
+        "nix_outputs_sha256": "519ee33ac0aee479d4a9cd544871139c3640752d330815d56295ab653b5e2bf9",
+        "nix_store": "daemon",
+        "nix_daemon_trusted": "true",
+        "workspace_clean": "true",
+        "untracked_files": "false",
+        "attempt": "1"
+      }
+    }
+  }
+}"#;
+        const REBIND: &str = r#"{
+  "_type": "https://in-toto.io/Statement/v1",
+  "repository": "example/project",
+  "subject": [
+    {
+      "name": "158f8ce5975a19312b6c5aec2287781df18ceef5",
+      "digest": {
+        "gitTree": "738b69d430b052fb3af428fb0c50c9c47dca1f93"
+      }
+    }
+  ],
+  "predicateType": "https://compounding.tech/fractal/evidence/gate/v2",
+  "predicate": {
+    "schema_version": 2,
+    "change_id": "pr-41",
+    "signer": "agent/test-evidence-service",
+    "tier": "full",
+    "issuer": {
+      "key_id": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "service_id": "service:linux-v1"
+    },
+    "producer_sha256": "042a1a517bf7126308d0461f8537b7b146617354e21f0dfa74266f343cfc53da",
+    "observed_at": "2026-11-22T10:00:00Z",
+    "attested_at": "2026-11-22T11:00:00Z",
+    "reused_from": "9540f88d2c04f547dd0de6bb79cdf8b7d6a00778",
+    "origin": {
+      "class": "same_repository_pr",
+      "repository": "example/project",
+      "source_repository": "example/project",
+      "subject_head": "158f8ce5975a19312b6c5aec2287781df18ceef5",
+      "accepted_base": "dc247dcda13c9e91176f0ac4ea4ebab94ef8d7cd",
+      "event_kind": "pull_request",
+      "pull_request": {
+        "number": 41,
+        "head": "158f8ce5975a19312b6c5aec2287781df18ceef5",
+        "base_ref": "main"
+      }
+    },
+    "reuse_key": {
+      "version": 1,
+      "check": "format",
+      "nix_derivation": "/nix/store/00000000000000000000000000000000-format.drv",
+      "expected_inputs": {
+        "environment_sha256": "541814ad8abe278017ca2b85ff93bc4b40f386a936dfe640dbdc554a1d015c29",
+        "toolchain_sha256": "92e17373c4b34698e4ac2ea5f748cb17763b55224f05d0b6c0c162aeef83922b",
+        "lane_definition_sha256": "c0b848127fe1d4f08c041c07b30faef3c9be6a61cb61b982b9915c10e2efdb3d",
+        "system": "x86_64-linux"
+      },
+      "nix_settings_sha256": "8e297dfaaaafc188c770a40769ea5861fae3eb40e64d50bdfb74fb18e740d046",
+      "nix_daemon_policy_sha256": "ae5a9f5c2223e61bcb58c0f67839cacae55e30364de21c76950bbb56ff5b4185",
+      "producer": {
+        "executable_sha256": "042a1a517bf7126308d0461f8537b7b146617354e21f0dfa74266f343cfc53da",
+        "system": "x86_64-linux"
+      }
+    },
+    "daemon_policy_receipt": null,
+    "observed": {
+      "kind": "tests",
+      "runner": "nix",
+      "checks": {
+        "format": {
+          "command": [
+            "/trusted/nix",
+            "--extra-experimental-features",
+            "nix-command flakes",
+            "--option",
+            "accept-flake-config",
+            "false",
+            "--option",
+            "pure-eval",
+            "true",
+            "--option",
+            "allow-import-from-derivation",
+            "false",
+            "--option",
+            "builders",
+            "",
+            "--option",
+            "build-hook",
+            "",
+            "--option",
+            "max-jobs",
+            "1",
+            "--log-format",
+            "internal-json",
+            "build",
+            "--no-link",
+            "--json",
+            "--print-build-logs",
+            "/nix/store/00000000000000000000000000000000-format.drv^*"
+          ],
+          "exit_code": 0,
+          "output_sha256": "6eb028d7bc419ff34dafcbe24597ee38895c6b7303c2bc3ba3ce38c15e8dd1aa"
+        }
+      },
+      "inputs": {
+        "environment_sha256": "541814ad8abe278017ca2b85ff93bc4b40f386a936dfe640dbdc554a1d015c29",
+        "toolchain_sha256": "92e17373c4b34698e4ac2ea5f748cb17763b55224f05d0b6c0c162aeef83922b",
+        "lane_definition_sha256": "c0b848127fe1d4f08c041c07b30faef3c9be6a61cb61b982b9915c10e2efdb3d",
+        "system": "x86_64-linux",
+        "wrapper_sha256": "042a1a517bf7126308d0461f8537b7b146617354e21f0dfa74266f343cfc53da",
+        "nix_derivation": "/nix/store/00000000000000000000000000000000-format.drv",
+        "nix_execution": "reused",
+        "nix_command_mode": "reused",
+        "nix_command_sha256": "8b795b5d31c7b3309d9d822040b2cdf5b53c35f70056216a4b1c8357bc1b5de9",
+        "nix_settings_sha256": "8e297dfaaaafc188c770a40769ea5861fae3eb40e64d50bdfb74fb18e740d046",
+        "nix_daemon_policy_sha256": "ae5a9f5c2223e61bcb58c0f67839cacae55e30364de21c76950bbb56ff5b4185",
+        "nix_outputs_sha256": "519ee33ac0aee479d4a9cd544871139c3640752d330815d56295ab653b5e2bf9",
+        "nix_store": "daemon",
+        "nix_daemon_trusted": "true",
+        "workspace_clean": "true",
+        "untracked_files": "false",
+        "attempt": "2"
+      }
+    }
+  }
+}"#;
+        for bytes in [ROOT.as_bytes(), REBIND.as_bytes()] {
+            assert!(decode_shape(bytes).is_ok());
+            assert!(
+                decode(bytes)
+                    .unwrap_err()
+                    .to_string()
+                    .contains(RECEIPT_REFUSAL)
+            );
+            assert!(
+                super::super::decode_statement(bytes)
+                    .unwrap_err()
+                    .to_string()
+                    .contains(RECEIPT_REFUSAL)
+            );
+        }
+        let root = decode_shape(ROOT.as_bytes()).unwrap();
+        let rebind = decode_shape(REBIND.as_bytes()).unwrap();
+        assert!(root.predicate.reused_from.is_none());
+        assert!(rebind.predicate.reused_from.is_some());
+        assert_eq!(root.predicate.observed_at, rebind.predicate.observed_at);
     }
 }
