@@ -23,7 +23,7 @@ def test_environment(artifact, binaries, directory):
 
 
 def cli_cases():
-    """Parser-only probes stop at help, before any repository or account access."""
+    """Parser-only probes stop at help or a guaranteed error, before operations."""
     options = {
         "log-watch": ("--remote", "--rem", "--r", "--now", "--max-age"),
         "keygen": ("--name", "--na", "--h", None, None),
@@ -67,6 +67,20 @@ def cli_cases():
         for label, arguments in probes:
             yield {"id": f"cli-{command}-{label}", "command": command,
                    "argv": [*arguments, "--help"]}
+    verify_probes = [
+        ("target-conflict", ["--tree", "tree", "--revision", "revision"]),
+        ("signer-source-conflict", ["--keys", "keys", "--keys-from", "base"]),
+        ("int-error-before-target-conflict",
+         ["--max-age", "invalid", "--tree", "tree", "--revision", "revision"]),
+        ("int-above-i64", ["--max-age", "9223372036854775808"]),
+        ("int-digit-limit", ["--max-age", "1" * 4301]),
+    ]
+    for label, arguments in verify_probes:
+        yield {"id": f"cli-verify-{label}", "command": "verify",
+               "argv": [*arguments, "--help"]}
+    # Without help or a target, argparse rejects the required group before extras.
+    yield {"id": "cli-verify-required-target-before-extras", "command": "verify",
+           "argv": ["--unknown"]}
 
 
 def cli_source(command, registry):

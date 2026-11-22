@@ -8,7 +8,7 @@ pub enum TextRef<'a> {
     Points(&'a [u32]),
 }
 impl<'a> TextRef<'a> {
-    pub(super) fn split_once(self, separator: &str) -> Option<(Self, Self)> {
+    pub(in crate::evidence) fn split_once(self, separator: &str) -> Option<(Self, Self)> {
         match self {
             Self::Str(text) => text
                 .split_once(separator)
@@ -29,7 +29,7 @@ impl<'a> TextRef<'a> {
             }
         }
     }
-    pub(super) fn strip_prefix(self, prefix: &str) -> Option<Self> {
+    pub(in crate::evidence) fn strip_prefix(self, prefix: &str) -> Option<Self> {
         match self {
             Self::Str(text) => text.strip_prefix(prefix).map(Self::Str),
             Self::Points(points) => self
@@ -37,7 +37,7 @@ impl<'a> TextRef<'a> {
                 .then(|| Self::Points(&points[prefix.chars().count()..])),
         }
     }
-    pub(super) fn starts_with(self, prefix: &str) -> bool {
+    pub(in crate::evidence) fn starts_with(self, prefix: &str) -> bool {
         match self {
             Self::Str(text) => text.starts_with(prefix),
             Self::Points(_) => {
