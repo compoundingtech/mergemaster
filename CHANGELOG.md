@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Port the protected CI observation controller to `mergemaster evidence observe`, preserving full/degraded verification, immutable tag/note publication, skip guards and bounded poll retries; retain the Python leaf and workflow caller until the coordinated wave-4 cutover.
 - Preserve legacy rejected/untrusted-signer output for disabled v2 notes, and enforce bounded candidate object/layout loading before reading BASE policy.
 - Derive selective-reuse validation fixture producer systems from the verifier host, keeping signed measurements and BASE producer authority consistent on ARM as well as x86.
 - Add selective-reuse slice 6's disabled gate orchestration and optional provenance diagnostics without changing legacy selection or GitHub outputs. Reuse stays disabled; the external authenticated-origin adapter and broker receipt contract remain prerequisites.

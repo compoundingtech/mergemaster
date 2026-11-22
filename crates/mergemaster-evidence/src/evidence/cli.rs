@@ -51,6 +51,12 @@ pub enum EvidenceCommand {
     },
     /// Retain the effective tested checkout for a later protected observer; never sign.
     Source,
+    /// Verify and publish records returned by the protected CI observer.
+    #[command(disable_help_flag = true)]
+    Observe {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        argv: Vec<String>,
+    },
     /// Run a BASE-declared lane once, sign its observation, and publish its note.
     Wrap(super::generic::WrapArgs),
     /// Sign a wrapper request using explicit account-local configuration.
@@ -184,6 +190,14 @@ pub fn run(args: EvidenceArgs) -> Result<()> {
             return Ok(());
         }
         EvidenceCommand::Source => return super::source::run(),
+        EvidenceCommand::Observe { argv } => {
+            let argv = flip_skip_args::process_argv("observe", argv);
+            let code = super::observe::run(&argv)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+            return Ok(());
+        }
         EvidenceCommand::Wrap(args) => {
             let code = super::generic::run_wrap(&args)?;
             if code != 0 {
