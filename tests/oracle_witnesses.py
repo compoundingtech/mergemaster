@@ -57,7 +57,9 @@ def cli_cases():
             if option is None:
                 continue
             values = [("whitespace", " \t12\n"), ("plus", "+12"), ("underscore", "1_2"),
-                      ("negative", "-12"), ("nan", "nan"), ("inf", "inf"),
+                      ("negative", "-12"), ("negative-exponent", "-1e3"),
+                      ("negative-underscore", "-1_0"), ("negative-dot", "-1."),
+                      ("negative-invalid", "-1x"), ("nan", "nan"), ("inf", "inf"),
                       ("negative-infinity", "-infinity"), ("bad-underscore", "1__2")]
             for label, value in values:
                 probes.append((f"{kind}-{label}", [option, value]))

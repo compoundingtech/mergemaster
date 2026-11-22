@@ -154,12 +154,12 @@ fn negative_number(text: &str) -> bool {
     let Some(body) = text.strip_prefix('-') else {
         return false;
     };
-    let digits = |part: &str| part.chars().all(|c| decimal(u32::from(c)).is_some());
-    if let Some((whole, fraction)) = body.split_once('.') {
-        digits(whole) && !fraction.is_empty() && digits(fraction)
-    } else {
-        !body.is_empty() && digits(body)
-    }
+    // CPython 3.14 classifies by a prefix match, not by numeric validity.
+    body.strip_prefix('.')
+        .unwrap_or(body)
+        .chars()
+        .next()
+        .is_some_and(|c| decimal(u32::from(c)).is_some())
 }
 
 impl Parser {
@@ -573,7 +573,7 @@ mod tests {
         }
         assert!(PARSER.parse(&argv(&["--float", "-infinity"])).is_err());
         assert!(PARSER.parse(&argv(&["--float=-infinity"])).is_ok());
-        assert!(PARSER.parse(&argv(&["--float", "-1e2"])).is_err());
+        assert!(PARSER.parse(&argv(&["--float", "-1e2"])).is_ok());
         assert!(PARSER.parse(&argv(&["--float", "-.5"])).is_ok());
     }
     #[test]

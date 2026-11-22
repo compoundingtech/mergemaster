@@ -4,6 +4,50 @@ use super::super::{
     keygen::KeygenArgs,
     log_watch::LogWatchArgs,
 };
+use std::{
+    ffi::{OsStr, OsString},
+    os::unix::ffi::{OsStrExt, OsStringExt},
+};
+
+// Keep option matching on an injective UTF-8 view, then recover path bytes.
+// Escape the marker itself so a literal private-use character cannot collide
+// with an invalid UTF-8 byte, including in an inline --state=value argument.
+const BYTE_MARKER: char = '\u{e000}';
+fn argument_text(value: &OsStr) -> String {
+    let mut text = String::with_capacity(value.len());
+    for chunk in value.as_bytes().utf8_chunks() {
+        for ch in chunk.valid().chars() {
+            text.push(ch);
+            if ch == BYTE_MARKER {
+                text.push(ch);
+            }
+        }
+        for byte in chunk.invalid() {
+            text.push(BYTE_MARKER);
+            text.push(char::from(*byte));
+        }
+    }
+    text
+}
+fn argument_os(text: String) -> Option<OsString> {
+    if !text.contains(BYTE_MARKER) {
+        return Some(OsString::from(text));
+    }
+    let mut bytes = Vec::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(mut ch) = chars.next() {
+        if ch == BYTE_MARKER {
+            ch = chars.next()?;
+            if ch != BYTE_MARKER {
+                bytes.push(u8::try_from(u32::from(ch)).ok()?);
+                continue;
+            }
+        }
+        let mut encoded = [0; 4];
+        bytes.extend_from_slice(ch.encode_utf8(&mut encoded).as_bytes());
+    }
+    Some(OsString::from_vec(bytes))
+}
 
 const fn option(long: &'static str, metavar: &'static str, help: &'static str) -> OptionSpec {
     OptionSpec {
@@ -121,9 +165,10 @@ pub(super) fn keygen(argv: &[String]) -> Result<KeygenArgs, Exit> {
         home: string(values.remove("--home")),
     })
 }
-pub(super) fn log_watch(argv: &[String]) -> Result<LogWatchArgs, Exit> {
+pub(super) fn log_watch(argv: &[OsString]) -> Result<LogWatchArgs, Exit> {
+    let argv: Vec<_> = argv.iter().map(|arg| argument_text(arg)).collect();
     let mut values = WATCH
-        .parse_required(argv, &["--remote", "--state", "--notify"])
+        .parse_required(&argv, &["--remote", "--state", "--notify"])
         .map_err(|exit| required_usage(&WATCH, WATCH_USAGE, exit))?
         .values;
     let max_age = match values.remove("--max-age") {
@@ -139,12 +184,19 @@ pub(super) fn log_watch(argv: &[String]) -> Result<LogWatchArgs, Exit> {
         Some(Value::Float(value)) => Some(value),
         _ => return Err(WATCH.error("invalid --now type")),
     };
+    let os_value = |value, name| {
+        let text = string(value).ok_or_else(|| WATCH.error(format!("missing {name}")))?;
+        argument_os(text).ok_or_else(|| WATCH.error(format!("invalid {name} encoding")))
+    };
+    let text_value = |value, name| {
+        os_value(value, name)?
+            .into_string()
+            .map_err(|_| WATCH.error(format!("argument {name}: invalid UTF-8 value")))
+    };
     Ok(LogWatchArgs {
-        remote: string(values.remove("--remote")).ok_or_else(|| WATCH.error("missing --remote"))?,
-        state: string(values.remove("--state"))
-            .ok_or_else(|| WATCH.error("missing --state"))?
-            .into(),
-        notify: string(values.remove("--notify")).ok_or_else(|| WATCH.error("missing --notify"))?,
+        remote: text_value(values.remove("--remote"), "--remote")?,
+        state: os_value(values.remove("--state"), "--state")?.into(),
+        notify: text_value(values.remove("--notify"), "--notify")?,
         max_age,
         repeat,
         now,
@@ -157,6 +209,9 @@ mod tests {
 
     fn argv(args: &[&str]) -> Vec<String> {
         args.iter().map(|arg| (*arg).to_owned()).collect()
+    }
+    fn os_argv(args: &[&str]) -> Vec<OsString> {
+        args.iter().map(|arg| OsString::from(*arg)).collect()
     }
 
     #[test]
@@ -185,7 +240,7 @@ mod tests {
 
     #[test]
     fn watch_python_numbers_and_repeats() {
-        let args = log_watch(&argv(&[
+        let args = log_watch(&os_argv(&[
             "--rem",
             "url",
             "--st",
@@ -203,7 +258,7 @@ mod tests {
         assert_eq!(args.max_age, 360);
         assert_eq!(args.repeat, -2);
         assert_eq!(args.now, Some(12.5));
-        let exit = log_watch(&argv(&["--now=wrong"])).err().unwrap();
+        let exit = log_watch(&os_argv(&["--now=wrong"])).err().unwrap();
         assert!(
             exit.stderr
                 .ends_with("argument --now: invalid float value: 'wrong'\n")
@@ -226,7 +281,7 @@ mod tests {
             exit.stderr
                 .ends_with("the following arguments are required: --remote, --state, --notify\n")
         );
-        let exit = log_watch(&argv(&["--unknown", "--help"])).err().unwrap();
+        let exit = log_watch(&os_argv(&["--unknown", "--help"])).err().unwrap();
         assert_eq!(exit.code, 0);
         assert!(exit.stderr.is_empty());
         assert!(exit.stdout.contains("--remote REMOTE --state STATE"));
@@ -234,5 +289,29 @@ mod tests {
         let exit = keygen(&argv(&["--", "--help"])).err().unwrap();
         assert_eq!(exit.code, 2);
         assert!(exit.stdout.is_empty());
+    }
+
+    #[test]
+    fn watch_state_preserves_os_bytes_and_marker_collisions() {
+        for bytes in [
+            b"/tmp/\xff".as_slice(),
+            b"/tmp/\xef\xbf\xbd",
+            b"/tmp/\xee\x80\x80\xc3\xbf",
+            b"/tmp/\xee\x80\x80\xff",
+        ] {
+            for inline in [false, true] {
+                let mut args = os_argv(&["--remote=url", "--notify=[]", "--state=first"]);
+                if inline {
+                    let mut option = b"--st=".to_vec();
+                    option.extend_from_slice(bytes);
+                    args.push(OsString::from_vec(option));
+                } else {
+                    args.push("--st".into());
+                    args.push(OsString::from_vec(bytes.to_vec()));
+                }
+                let parsed = log_watch(&args).ok().unwrap();
+                assert_eq!(parsed.state.as_os_str().as_bytes(), bytes);
+            }
+        }
     }
 }

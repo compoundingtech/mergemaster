@@ -38,7 +38,7 @@ pub enum EvidenceCommand {
     #[command(disable_help_flag = true)]
     LogWatch {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        argv: Vec<String>,
+        argv: Vec<std::ffi::OsString>,
     },
     RunnerReport(super::runner_report::RunnerReportArgs),
     /// Explain which signable gates ran without a pre-signed note; never fails.
@@ -154,7 +154,14 @@ pub fn run(args: EvidenceArgs) -> Result<()> {
             return Ok(());
         }
         EvidenceCommand::LogWatch { argv } => {
-            let argv = flip_skip_args::process_argv("log-watch", argv);
+            let mut raw = std::env::args_os().skip(1);
+            let argv = if raw.next().as_deref() == Some(std::ffi::OsStr::new("evidence"))
+                && raw.next().as_deref() == Some(std::ffi::OsStr::new("log-watch"))
+            {
+                raw.collect()
+            } else {
+                argv
+            };
             let args = match account_watch_args::log_watch(&argv) {
                 Ok(args) => args,
                 Err(exit) => return flip_skip_args::finish(exit),
