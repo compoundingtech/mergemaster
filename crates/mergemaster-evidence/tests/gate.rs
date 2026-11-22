@@ -6602,6 +6602,7 @@ fn production_v2_objects_stay_disabled_and_caller_keys_grant_no_authority() {
     let mut policy = Fixture::policy("required_evidence");
     policy["repository"] = json!("fixture/repo");
     policy["reuse_authorities"] = json!([issuer, broker]);
+    policy["lanes"][CHECK]["argv"] = json!(["/trusted/nix"]);
     policy["lanes"][CHECK]["nix_check"] =
         json!({"attribute":"checks.x86_64-linux.fixture","required":"any"});
     policy["lanes"][CHECK]["max_age_seconds"] = json!(86400);
