@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Refuse legacy evidence verification when a subject-object probe fails operationally or encounters corruption (`subject-probe-failed`); allow absent shallow/partial subjects only on Git's exact stderr-free missing-object result, without lazy fetching. This intentionally diverges from the pinned Python verifier's broad failure-as-absence behavior (#137).
 - Share argparse-compatible token consumption across native evidence reports, log-watch, keygen and evidence-verify: accept unambiguous long-option prefixes, preserve ambiguity diagnostics, and match Python numeric spellings and repeated-option handling. The verifier retains lossless borrowed text, arbitrary-precision integers and provenance-aware diagnostics through the shared core; wrap is unchanged.
 - Preserve CPython 3.14's prefix classification of negative numeric arguments (including exponent/underscore forms and invalid numeric suffixes), and retain exact non-UTF-8 `log-watch --state` path bytes through the shared parser.
 - Resolve wrapper and queue-binding review follow-ups: cover signer refusal with broken stdin, refusal followed by signal death, SIGXCPU and SIGALRM; document retry/publication and hung-signer limitations; restrict authority-bearing policy paths to ASCII with typed errors while preserving Unicode alias protection for changed paths, and clarify generated-path consumer responsibilities.

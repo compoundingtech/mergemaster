@@ -81,7 +81,13 @@ fn isolated(test: &str) -> bool {
         .env("XDG_STATE_HOME", &state)
         .env("XDG_CONFIG_HOME", &config)
         .env("TMPDIR", &tmp);
-    for key in ["CARGO_BIN_EXE_mergemaster", "CARGO_MANIFEST_DIR"] {
+    for key in [
+        "CARGO_BIN_EXE_mergemaster",
+        "CARGO_MANIFEST_DIR",
+        "MERGEMASTER_ORACLE_PYTHON",
+        "MERGEMASTER_PYTHON_ORACLE",
+        "MERGEMASTER_WITNESS_DIRECTORY",
+    ] {
         if let Some(value) = std::env::var_os(key) {
             command.env(key, value);
         }
@@ -1110,4 +1116,131 @@ fn mergemaster_bin() -> std::path::PathBuf {
         std::env::var_os("CARGO_BIN_EXE_mergemaster")
             .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
     )
+}
+
+#[allow(
+    dead_code,
+    reason = "shared witness helpers; this target captures subject failures"
+)]
+#[path = "../src/evidence/legacy_verify/divergence_witnesses.rs"]
+mod subject_witnesses;
+
+#[test]
+fn legacy_subject_probe_distinguishes_absence_from_git_failures() {
+    use mergemaster_evidence::evidence::legacy_verify::records::{
+        read_statement, read_statement_cli,
+    };
+    use serde_json::json;
+    use std::ffi::OsStr;
+
+    if isolated(concat!(
+        module_path!(),
+        "::legacy_subject_probe_distinguishes_absence_from_git_failures"
+    )) {
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    for format in ["sha1", "sha256"] {
+        let repo = root.path().join(format);
+        std::fs::create_dir(&repo).unwrap();
+        git(
+            &repo,
+            &["init", "-q", "--bare", &format!("--object-format={format}")],
+            b"",
+        );
+        let tree = git(&repo, &["mktree"], b"");
+        let commit = |tree: &str, parent: Option<&str>, message: &str| {
+            let parent = parent.map(|p| format!("parent {p}\n")).unwrap_or_default();
+            git(&repo, &["hash-object", "-t", "commit", "-w", "--stdin"],
+                format!("tree {tree}\n{parent}author A <a@b> 1 +0000\ncommitter A <a@b> 1 +0000\n\n{message}\n").as_bytes())
+        };
+        let subject = commit(&tree, None, "subject");
+        let other_blob = git(&repo, &["hash-object", "-w", "--stdin"], b"other");
+        let other_tree = git(
+            &repo,
+            &["mktree"],
+            format!("100644 blob {other_blob}\tfile\n").as_bytes(),
+        );
+        let other = commit(&other_tree, None, "other");
+        let missing = "f".repeat(subject.len());
+        let record = |subject: &str| {
+            let statement = json!({
+                "_type": "https://in-toto.io/Statement/v1",
+                "predicateType": "https://compounding.tech/fractal/evidence/gate/v1",
+                "subject": [{"name": subject, "digest": {"gitTree": tree}}],
+                "predicate": {"schema_version": 1, "change_id": "fixture", "tier": "full",
+                    "signer": null, "observed_at": "2026-01-01T00:00:00Z",
+                    "observed": {"kind": "tests", "runner": "fixture", "checks": {}}}
+            });
+            let blob = git(
+                &repo,
+                &["hash-object", "-w", "--stdin"],
+                &serde_json::to_vec(&statement).unwrap(),
+            );
+            let record_tree = git(
+                &repo,
+                &["mktree"],
+                format!("100644 blob {blob}\t{tree}\n").as_bytes(),
+            );
+            commit(&record_tree, Some(subject), "record")
+        };
+        let matching = record(&subject);
+        let mismatching = record(&other);
+        let absent = record(&missing);
+        // A genuine shallow boundary retains the record but not its parent.
+        std::fs::write(repo.join("shallow"), format!("{absent}\n")).unwrap();
+        let read = |record: &str, cli: bool| {
+            if cli {
+                read_statement_cli(&repo, OsStr::new(record), Some(OsStr::new(&tree)))
+            } else {
+                read_statement(&repo, record, Some(&tree))
+            }
+        };
+        for cli in [false, true] {
+            assert!(read(&matching, cli).unwrap().is_some());
+            assert!(read(&mismatching, cli).unwrap().is_none());
+            assert!(read(&absent, cli).unwrap().is_some());
+        }
+        let object = repo.join("objects").join(&subject[..2]).join(&subject[2..]);
+        std::fs::set_permissions(&object, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let original = std::fs::read(&object).unwrap();
+        for damage in [b"garbled".as_slice(), b"".as_slice()] {
+            std::fs::write(&object, damage).unwrap();
+            for cli in [false, true] {
+                let error = read(&matching, cli).unwrap_err();
+                assert_eq!(error.reason, "subject-probe-failed");
+            }
+            if format == "sha1" && !damage.is_empty() {
+                let python = pinned_python::command()
+                    .args(["-c", "import json,os,runpy,sys;m=runpy.run_path(os.environ['MERGEMASTER_PYTHON_ORACLE']+'/scripts/evidence-verify');print(json.dumps({'accepted':m['read_statement'](*sys.argv[1:]) is not None}))"])
+                    .arg(&repo).arg(&matching).arg(&tree).output().unwrap();
+                assert!(
+                    python.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&python.stderr)
+                );
+                let python: serde_json::Value = serde_json::from_slice(&python.stdout).unwrap();
+                assert_eq!(python, json!({"accepted": true}));
+                subject_witnesses::capture(
+                    "subject-probe-failure-refusal",
+                    json!({"object_format": format, "damage": "garbled loose subject", "record": matching}),
+                    python,
+                    json!({"accepted": false, "reason": read(&matching, true).unwrap_err().reason}),
+                );
+            }
+        }
+        std::fs::write(&object, original).unwrap();
+        // Unavailable alternates are operational failures, not evidence of absence.
+        std::fs::write(
+            repo.join("objects/info/alternates"),
+            format!("{}\n", repo.join("unavailable-objects").display()),
+        )
+        .unwrap();
+        for cli in [false, true] {
+            assert_eq!(
+                read(&absent, cli).unwrap_err().reason,
+                "subject-probe-failed"
+            );
+        }
+    }
 }

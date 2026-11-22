@@ -146,8 +146,8 @@ fn read_with(
         return Ok(None);
     }
     // A missing subject is allowed in shallow/partial stores, never lazily fetched.
-    // Ordinary Git failures mean absent; CLI cap errors and decode errors abort.
-    let present = transport.subject(repo, &format!("{subject}^{{tree}}"))?;
+    // All other Git/process outcomes refuse (intentional Python divergence #137).
+    let present = transport.subject(repo, &subject)?;
     let mismatch = if transport == Transport::Cli {
         present
             .as_deref()

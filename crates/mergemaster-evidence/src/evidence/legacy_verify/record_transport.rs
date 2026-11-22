@@ -4,7 +4,12 @@ use super::{
     projection_capture::{self, ExpectedOutput},
 };
 use crate::evidence::legacy_policy::PolicyError;
-use std::{ffi::OsStr, path::Path, process::Command, time::Duration};
+use std::{
+    ffi::OsStr,
+    path::Path,
+    process::{Command, Stdio},
+    time::Duration,
+};
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Transport {
     Native,
@@ -71,19 +76,44 @@ impl Transport {
             Duration::from_secs(60),
         )
     }
-    pub(super) fn subject(self, repo: &Path, object: &str) -> Result<Option<Vec<u8>>, PolicyError> {
-        let args = [
+    pub(super) fn subject(
+        self,
+        repo: &Path,
+        subject: &str,
+    ) -> Result<Option<Vec<u8>>, PolicyError> {
+        let command = |args: &[&str]| {
+            let mut command = if self == Self::Native {
+                let mut command = crate::gate::git::command(repo);
+                command.args(args);
+                command
+            } else {
+                Self::command(repo, args)?
+            };
+            command.env("GIT_NO_LAZY_FETCH", "1").stdin(Stdio::piped());
+            Ok::<_, PolicyError>(command)
+        };
+        // Probe the literal subject first: rev-parse also fails for present but
+        // corrupt or wrong-type objects, so its status cannot establish absence.
+        let mut probe = command(&["cat-file", "--batch-check=%(objectname)"])?;
+        if !projection_capture::record_subject(&mut probe, subject)? {
+            return Ok(None);
+        }
+        let object = format!("{subject}^{{tree}}");
+        let mut tree = command(&[
             "rev-parse",
             "--verify",
             "--quiet",
             "--end-of-options",
-            object,
-        ];
-        if self == Self::Native {
-            return Ok(crate::gate::git::git_bounded(repo, &args, 128).ok());
-        }
-        let mut command = Self::command(repo, &args)?;
-        command.env("GIT_NO_LAZY_FETCH", "1");
-        projection_capture::record_subject(&mut command)
+            &object,
+        ])?;
+        projection_capture::exchange(
+            &mut tree,
+            b"",
+            "rev-parse",
+            ExpectedOutput::Bytes(128),
+            Duration::from_secs(60),
+        )
+        .map(Some)
+        .map_err(projection_capture::subject_error)
     }
 }

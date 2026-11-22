@@ -326,7 +326,7 @@
   {"path": "tests/fixtures/oracle/policy-header/root-shape/stderr.bin", "wave": "wave-9-python-free", "state": "retained", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "executable": 0},
   {"path": "tests/fixtures/oracle/policy-header/root-shape/stdin.json", "wave": "wave-9-python-free", "state": "retained", "sha256": "1b4fe166926c8a6e3fbad27ca942a851f3c2b17cdf8b88e2c5eb34d4c194298a", "executable": 0},
   {"path": "tests/fixtures/oracle/policy-header/root-shape/stdout.bin", "wave": "wave-9-python-free", "state": "retained", "sha256": "37a4fcd5a6ac5a8e4f94ffebd030033be2bdfc0b3dad05c443ce35c9c2b8b5b6", "executable": 0},
-  {"path": "tests/fixtures/oracle/divergences.json", "wave": "wave-9-python-free", "state": "retained", "sha256": "46ab26548f985ccf37460f8f13cf119b7b50fca7d0d52acb50479d348ab5cc63", "executable": 0},
+  {"path": "tests/fixtures/oracle/divergences.json", "wave": "wave-9-python-free", "state": "retained", "sha256": "4c8b7bee815e49902893ef12c0a5e84fbff8a390f8c6f5c239bc9620a9376e58", "executable": 0},
   {"path": "tests/fixtures/oracle/native-assertions.json", "wave": "wave-9-python-free", "state": "retained", "sha256": "6fc48b091d977376ba6dbc9254b81eb109b7f64c33ddf7aef56550589be2b32d", "executable": 0},
   {"path": "tests/fixtures/oracle/presign-notice.json", "wave": "wave-9-python-free", "state": "retained", "sha256": "78672c1d2b45ea124d600fc36e6f43876cdd0cbbf4a02425b5949c7e45ad4d86", "executable": 0},
   {"path": "tests/fixtures/oracle/scalar/check-names/driver.py", "wave": "wave-9-python-free", "state": "retained", "sha256": "76c3972695f3c6c95628836065a5ac0468f899ba6e0799772a4f16cfbbd7fcfb", "executable": 0},
