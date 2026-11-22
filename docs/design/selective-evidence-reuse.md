@@ -130,6 +130,24 @@ Extend the gate's existing signature worker and object-only input checks
   unequal claim or unapproved origin. Return the cited root ID in the decision.
   No recursive chain traversal or Nix subprocess is needed.
 
+Slice 3 implements bounded immutable object reads, signature-to-issuer binding and
+direct root lookup only; production selective reuse remains disabled. The worker
+loads v2 authority from current BASE, not its legacy caller-supplied keys file.
+Receipt decoding remains sealed pending the broker contract; only unit tests
+substitute receipt input while exercising real Git/SSH verification and lookup.
+V2 note bytes are capped at 128 KiB, notes commits at 16 KiB and notes trees at
+4 KiB; missing dependencies and excess bytes refuse rather than fetch or truncate.
+Version probing reuses the unbounded legacy note reader before applying v2
+limits. Historical v1 notes and worker envelopes retain their uncapped admission
+behavior, and v1 fingerprint metadata is best-effort only; strict fingerprint
+checks remain mandatory for v2. These are conservative gate-local bounds, not an
+agreed broker receipt limit.
+
+Known #447 review exception: an optional extension value that `serde_json`
+cannot materialize (for example `1e400` or nesting beyond its recursion limit)
+is a policy load error, not `ReuseAuthority::Invalid`. Materializable malformed
+extensions still refuse only reuse and preserve legacy policy behavior.
+
 ## 4. Execution-policy closure prerequisite
 
 Replace the proposed asserted `nix_sandbox_sha256` with an authenticated

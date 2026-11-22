@@ -52,10 +52,18 @@ pub struct VerifyArgs {
     pub record: String,
     #[arg(long)]
     pub keys: PathBuf,
+    /// Current immutable BASE; required for scoped v2 issuer authority.
+    #[arg(long)]
+    pub base: Option<String>,
 }
 
 pub fn verify_worker(args: VerifyArgs) -> Result<()> {
-    let statement = evidence::verify_record(&args.repo, &args.record, &args.keys)?;
+    let statement = evidence::verified::verify_record(
+        &args.repo,
+        &args.record,
+        &args.keys,
+        args.base.as_deref(),
+    )?;
     println!("{}", serde_json::to_string(&statement)?);
     Ok(())
 }
@@ -925,14 +933,18 @@ fn compute(
             .arg(&id)
             .arg("--keys")
             .arg(keys.path())
+            .arg("--base")
+            .arg(base)
             .output()?;
         if !output.status.success() {
             decision.reason = "untrusted_signer";
             decision.outcome = "rejected";
             continue;
         }
-        let statement: Statement =
-            serde_json::from_slice(&output.stdout).context("signature worker output")?;
+        let Some(statement) = evidence::verified::legacy_worker_statement(&output.stdout, &id)?
+        else {
+            continue;
+        };
         if let Some(reason) = repository_refusal(
             config.policy.repository.as_deref(),
             statement.repository.as_deref(),
@@ -1493,12 +1505,16 @@ fn compare(repo: &Path, args: &Args, head: &str, decision: &mut Decision) -> Res
             .arg(&id)
             .arg("--keys")
             .arg(keys.path())
+            .arg("--base")
+            .arg(&args.base)
             .output()?;
         if !output.status.success() {
             continue;
         }
-        let statement: Statement =
-            serde_json::from_slice(&output.stdout).context("signature worker output")?;
+        let Some(statement) = evidence::verified::legacy_worker_statement(&output.stdout, &id)?
+        else {
+            continue;
+        };
         if repository_refusal(
             config.policy.repository.as_deref(),
             statement.repository.as_deref(),

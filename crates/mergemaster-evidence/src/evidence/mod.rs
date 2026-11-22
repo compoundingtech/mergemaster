@@ -44,6 +44,7 @@ pub mod source;
 #[cfg(test)]
 mod tests;
 pub mod v2;
+pub mod verified;
 pub mod workspace;
 
 pub const NOTES_PREFIX: &str = "refs/notes/evidence/";
@@ -631,8 +632,9 @@ fn write_observation(repo: &Path, statement: &Statement, ssh_key: Option<&Path>)
     Ok(signed)
 }
 
-/// Dispatch before the legacy decoder; v2 can never fall back to v1.
-fn decode_statement(bytes: &[u8]) -> Result<Statement> {
+// Version probing must not apply v2 size/layout or value-materialization limits
+// to historical v1 statements. The selected decoder remains authoritative.
+fn statement_is_v2(bytes: &[u8]) -> bool {
     struct Format;
     impl<'de> serde::de::Visitor<'de> for Format {
         type Value = bool;
@@ -658,11 +660,15 @@ fn decode_statement(bytes: &[u8]) -> Result<Statement> {
         }
     }
     let mut probe = serde_json::Deserializer::from_slice(bytes);
-    if matches!(
+    matches!(
         serde::Deserializer::deserialize_map(&mut probe, Format),
         Ok(true)
     ) && probe.end().is_ok()
-    {
+}
+
+/// Dispatch before the legacy decoder; v2 can never fall back to v1.
+fn decode_statement(bytes: &[u8]) -> Result<Statement> {
+    if statement_is_v2(bytes) {
         v2::decode(bytes)?;
         bail!("v2 evidence is disabled");
     }
@@ -674,11 +680,13 @@ pub fn show(repo: &Path, id: &str) -> Result<Statement> {
     show_with_subject(repo, id, SubjectPresence::Required).map(|(statement, _)| statement)
 }
 
-fn show_with_subject(
-    repo: &Path,
-    id: &str,
-    presence: SubjectPresence,
-) -> Result<(Statement, SubjectBinding)> {
+/// Version-only dispatch uses precisely the legacy note reader, without v2 caps.
+pub(crate) fn record_is_v2(repo: &Path, id: &str) -> Result<bool> {
+    let (_, bytes) = note_blob(repo, id)?;
+    Ok(statement_is_v2(&bytes))
+}
+
+fn note_blob(repo: &Path, id: &str) -> Result<(String, Vec<u8>)> {
     oid(id)?;
     let entries = git(repo, &["ls-tree", "-r", "-z", id], None)?;
     let entries: Vec<_> = entries
@@ -698,7 +706,19 @@ fn show_with_subject(
     );
     oid(path)?;
     oid(parts[2])?;
-    let statement = decode_statement(&git(repo, &["cat-file", "blob", parts[2]], None)?)?;
+    Ok((
+        path.to_owned(),
+        git(repo, &["cat-file", "blob", parts[2]], None)?,
+    ))
+}
+
+fn show_with_subject(
+    repo: &Path,
+    id: &str,
+    presence: SubjectPresence,
+) -> Result<(Statement, SubjectBinding)> {
+    let (path, bytes) = note_blob(repo, id)?;
+    let statement = decode_statement(&bytes)?;
     let (tree, binding) = statement.validate_with_subject(repo, presence)?;
     ensure!(tree == path, "note attached to wrong tree");
     let raw = git_text(repo, &["cat-file", "commit", id], None)?;

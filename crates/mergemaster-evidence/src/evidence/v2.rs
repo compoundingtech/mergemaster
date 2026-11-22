@@ -3,7 +3,7 @@
 use anyhow::{Context, Result, ensure};
 use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD};
 use serde::{
-    Deserialize,
+    Deserialize, Serialize,
     de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor},
 };
 use serde_json::Value;
@@ -22,10 +22,10 @@ mod sealed {
     impl Receipt for super::DaemonPolicyReceipt {}
 }
 /// Sealed so the receipt cannot be substituted with an accepting type in production.
-pub trait Receipt: sealed::Receipt + serde::de::DeserializeOwned {}
+pub trait Receipt: sealed::Receipt + serde::de::DeserializeOwned + Serialize {}
 impl Receipt for DaemonPolicyReceipt {}
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, bound(deserialize = "R: Receipt"))]
 pub struct Statement<R: Receipt = DaemonPolicyReceipt> {
     #[serde(rename = "_type")]
@@ -36,19 +36,19 @@ pub struct Statement<R: Receipt = DaemonPolicyReceipt> {
     pub predicate_type: String,
     pub predicate: Predicate<R>,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Subject {
     pub name: String,
     pub digest: Digest,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Digest {
     #[serde(rename = "gitTree")]
     pub git_tree: String,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, bound(deserialize = "R: Receipt"))]
 pub struct Predicate<R: Receipt> {
     pub schema_version: u32,
@@ -63,16 +63,20 @@ pub struct Predicate<R: Receipt> {
     pub reuse_key: ReuseKey,
     pub daemon_policy_receipt: R,
     pub observed: Observed,
-    #[serde(default, deserialize_with = "present")]
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub reused_from: Option<String>,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Issuer {
     pub key_id: String,
     pub service_id: String,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Origin {
     pub class: OriginClass,
@@ -81,17 +85,25 @@ pub struct Origin {
     pub subject_head: String,
     pub accepted_base: String,
     pub event_kind: EventKind,
-    #[serde(default, deserialize_with = "present")]
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub pull_request: Option<PullRequest>,
-    #[serde(default, deserialize_with = "present")]
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub train_mapping: Option<TrainMapping>,
 }
 // Deserialize through String rather than serde's externally tagged enum visitor,
 // which would also accept singleton objects after the bounded JSON parse.
 macro_rules! string_enum {
     ($name:ident { $($variant:ident => $value:literal),+ $(,)? }) => {
-        #[derive(Debug, PartialEq, Eq)]
-        pub enum $name { $($variant),+ }
+        #[derive(Debug, PartialEq, Eq, Serialize)]
+        pub enum $name { $(#[serde(rename = $value)] $variant),+ }
         impl<'de> Deserialize<'de> for $name {
             fn deserialize<D: de::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
                 match String::deserialize(d)?.as_str() {
@@ -113,14 +125,14 @@ string_enum!(EventKind {
     Push => "push",
     Local => "local",
 });
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PullRequest {
     pub number: u64,
     pub head: String,
     pub base_ref: String,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TrainMapping {
     pub kind: String,
@@ -129,7 +141,7 @@ pub struct TrainMapping {
     pub pull_request: u64,
     pub pr_head: String,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReuseKey {
     pub version: u32,
@@ -140,13 +152,13 @@ pub struct ReuseKey {
     pub nix_daemon_policy_sha256: String,
     pub producer: Producer,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Producer {
     pub executable_sha256: String,
     pub system: String,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Observed {
     pub kind: String,
@@ -154,7 +166,7 @@ pub struct Observed {
     pub checks: BTreeMap<String, Check>,
     pub inputs: BTreeMap<String, String>,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Check {
     pub command: Vec<String>,
@@ -162,7 +174,7 @@ pub struct Check {
     pub output_sha256: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct DaemonPolicyReceipt {
     _private: (),
 }
@@ -282,7 +294,10 @@ fn check_lists(value: &Value, position: &str) -> Result<()> {
 }
 
 pub fn decode(bytes: &[u8]) -> Result<Statement> {
-    let statement: Statement = serde_json::from_value(parse(bytes)?)?;
+    decode_with_receipt(bytes)
+}
+pub(crate) fn decode_with_receipt<R: Receipt>(bytes: &[u8]) -> Result<Statement<R>> {
+    let statement: Statement<R> = serde_json::from_value(parse(bytes)?)?;
     validate(&statement)?;
     Ok(statement)
 }
@@ -444,7 +459,7 @@ fn validate<R: Receipt>(s: &Statement<R>) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use serde_json::json;
     impl sealed::Receipt for Value {}
@@ -475,11 +490,9 @@ mod tests {
 
     // This entry point exists only in tests and never decodes a broker receipt.
     fn decode_shape(bytes: &[u8]) -> Result<Statement<Value>> {
-        let statement = serde_json::from_value(parse(bytes)?)?;
-        validate(&statement)?;
-        Ok(statement)
+        decode_with_receipt(bytes)
     }
-    fn fixture() -> Value {
+    pub(crate) fn fixture() -> Value {
         let commit = "a".repeat(40);
         let digest = "b".repeat(64);
         json!({
