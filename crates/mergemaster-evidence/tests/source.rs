@@ -342,6 +342,20 @@ fn source_push_identity_names_the_pushed_commit_and_retains_its_tree() {
 }
 
 #[test]
+fn source_unknown_workflow_event_is_refused() {
+    let f = Fixture::new();
+    let temp = f.root.path().join("schedule");
+    let out = f.command(&f.repo, &temp, "schedule").output().unwrap();
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr)
+            .lines()
+            .any(|line| line == "ValueError: unsupported workflow event")
+    );
+    assert!(!temp.join("ci-evidence-source").exists());
+}
+
+#[test]
 fn source_event_bytes_match_frozen_cpython_identity_and_errors() {
     // Generated with CPython 3.14.7 json.loads(bytes) and the independently pinned
     // source.change_identity. Only queue source OIDs are rebound to this repository.
