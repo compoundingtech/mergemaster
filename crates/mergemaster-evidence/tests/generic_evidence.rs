@@ -200,14 +200,14 @@ impl Fixture {
     ) -> Output {
         let signer = signer.unwrap_or_else(|| {
             json!([
-                env!("CARGO_BIN_EXE_mergemaster"),
+                mergemaster_bin(),
                 "evidence",
                 "sign",
                 "--config",
                 self.config
             ])
         });
-        let mut command = self.command(env!("CARGO_BIN_EXE_mergemaster"));
+        let mut command = self.command(mergemaster_bin());
         command
             .args([
                 "evidence", "wrap", "--check", CHECK, "--base", &self.base, "--config",
@@ -224,7 +224,7 @@ impl Fixture {
     }
     fn gate(&self) -> Value {
         let output = self
-            .command(env!("CARGO_BIN_EXE_mergemaster"))
+            .command(mergemaster_bin())
             .args([
                 "gate", "--check", CHECK, "--base", &self.base, "--head", &self.head, "--format",
                 "json",
@@ -432,7 +432,7 @@ fn undeclared_inputs_mutations_and_signer_time_tampering_refuse() {
                 "-c",
                 "printf changed > node_modules/fixture/index.js; exec \"$@\"",
                 "signer",
-                env!("CARGO_BIN_EXE_mergemaster"),
+                mergemaster_bin(),
                 "evidence",
                 "sign",
                 "--config",
@@ -780,7 +780,7 @@ fn preconditions_fail_before_execution() {
             "argv" => argv = Some(vec!["/bin/true".into()]),
             "missing_signer" => {
                 let out = f
-                    .command(env!("CARGO_BIN_EXE_mergemaster"))
+                    .command(mergemaster_bin())
                     .args([
                         "evidence", "wrap", "--check", CHECK, "--base", &f.base, "--config",
                     ])
@@ -836,16 +836,10 @@ fn postconditions_and_signing_or_publication_fail_closed() {
         }
         // The lane inherits the real environment, including account-local dependency setup.
         let signer = signer.unwrap_or_else(|| {
-            json!([
-                env!("CARGO_BIN_EXE_mergemaster"),
-                "evidence",
-                "sign",
-                "--config",
-                f.config
-            ])
+            json!([mergemaster_bin(), "evidence", "sign", "--config", f.config])
         });
         let out = f
-            .command(env!("CARGO_BIN_EXE_mergemaster"))
+            .command(mergemaster_bin())
             .env("TEST_DEPENDENCY", &f.dependency)
             .args([
                 "evidence", "wrap", "--check", CHECK, "--base", &f.base, "--config",
@@ -948,7 +942,7 @@ fn signer_independently_rejects_forged_requests_and_unsafe_configuration() {
         } else {
             serde_json::to_vec(&request).unwrap()
         };
-        let mut command = f.command(env!("CARGO_BIN_EXE_mergemaster"));
+        let mut command = f.command(mergemaster_bin());
         command.args(["evidence", "sign", "--config"]).arg(config);
         if case == "loader" {
             command.env("PYTHONPATH", "/untrusted");
@@ -972,4 +966,11 @@ fn signer_independently_rejects_forged_requests_and_unsafe_configuration() {
         assert!(f.refs().is_empty());
         assert!(!f.counter.exists(), "signer must not execute the lane");
     }
+}
+
+fn mergemaster_bin() -> std::path::PathBuf {
+    std::path::PathBuf::from(
+        std::env::var_os("CARGO_BIN_EXE_mergemaster")
+            .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+    )
 }

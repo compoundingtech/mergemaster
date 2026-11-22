@@ -34,7 +34,7 @@ fn native(id: &str) -> (std::process::Output, Vec<u64>) {
     fs::write(&calls, "").unwrap();
     let mut paths = vec![root.path().to_path_buf()];
     paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap()));
-    let output = Command::new(env!("CARGO_BIN_EXE_mergemaster"))
+    let output = Command::new(mergemaster_bin())
         .args(["evidence", "slo"])
         .args(
             case["argv"]
@@ -220,8 +220,14 @@ spec.loader.exec_module(corpus)
 corpus.replay_slo(pathlib.Path(sys.executable))
 "#,
         ])
-        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
-        .env("MERGEMASTER_BIN", env!("CARGO_BIN_EXE_mergemaster"))
+        .arg(
+            std::path::PathBuf::from(
+                std::env::var_os("CARGO_MANIFEST_DIR")
+                    .expect("CARGO_MANIFEST_DIR is set at test runtime"),
+            )
+            .join("../.."),
+        )
+        .env("MERGEMASTER_BIN", mergemaster_bin())
         .output()
         .unwrap();
     assert!(
@@ -240,4 +246,11 @@ fn rates_round_the_binary_float_without_an_intermediate_rounding() {
         result["checks"][0]["produced_not_verified_rate"],
         json!(0.0187)
     );
+}
+
+fn mergemaster_bin() -> std::path::PathBuf {
+    std::path::PathBuf::from(
+        std::env::var_os("CARGO_BIN_EXE_mergemaster")
+            .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+    )
 }

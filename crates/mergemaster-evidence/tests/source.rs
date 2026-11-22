@@ -106,7 +106,7 @@ impl Fixture {
         fs::create_dir_all(temp).unwrap();
         let event = temp.join("event.json");
         fs::write(&event, serde_json::to_vec(&self.event(kind)).unwrap()).unwrap();
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_mergemaster"));
+        let mut cmd = Command::new(mergemaster_bin());
         cmd.args(["evidence", "source"])
             .current_dir(repo)
             .env("BASE_SHA", &self.base)
@@ -198,7 +198,7 @@ fn source_shallow_pack_oracle_and_version_two_contract() {
                 "github:example/project#7".into()
             }
         );
-        let binary = fs::read(env!("CARGO_BIN_EXE_mergemaster")).unwrap();
+        let binary = fs::read(mergemaster_bin()).unwrap();
         assert_eq!(
             native["tool"]["binary_sha256"],
             hex::encode(Sha256::digest(binary))
@@ -491,4 +491,11 @@ fn source_fixture_ignores_inherited_signing_hooks_and_maintenance() {
         // Fixture Git drops all caller GIT_* selectors, including tracing.
         assert!(!trace.exists());
     }
+}
+
+fn mergemaster_bin() -> std::path::PathBuf {
+    std::path::PathBuf::from(
+        std::env::var_os("CARGO_BIN_EXE_mergemaster")
+            .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+    )
 }

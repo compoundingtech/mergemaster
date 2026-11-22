@@ -311,7 +311,7 @@ print((root / name).read_text())
 
     fn gate(&self, extra: &[&str]) -> Output {
         self.git(&["update-ref", "refs/heads/gate-base", &self.base], b"");
-        let mut command = self.command(env!("CARGO_BIN_EXE_mergemaster"));
+        let mut command = self.command(mergemaster_bin());
         let path = std::env::join_paths(
             std::iter::once(self.root.path().join("bin"))
                 .chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
@@ -2845,7 +2845,7 @@ fn computed_refusal_and_satisfaction_publish_compatible_outputs() {
         assert!(text.contains(field), "{text}");
     }
     let usage = f
-        .command(env!("CARGO_BIN_EXE_mergemaster"))
+        .command(mergemaster_bin())
         .args(["gate", "--check", CHECK])
         .output()
         .unwrap();
@@ -3884,7 +3884,7 @@ fn immutable_ids_alone_are_not_a_local_live_authority() {
         }
         let outputs = f.root.path().join("outputs");
         let result = f
-            .command(env!("CARGO_BIN_EXE_mergemaster"))
+            .command(mergemaster_bin())
             .args([
                 "gate",
                 "--check",
@@ -4276,7 +4276,7 @@ fn inspection_only_missing_subject_never_authorizes_a_gate() {
     )
     .unwrap();
     let shown = f
-        .command(env!("CARGO_BIN_EXE_mergemaster"))
+        .command(mergemaster_bin())
         .args(["evidence", "show", "--repo"])
         .arg(&f.repo)
         .args(["--record", &record])
@@ -6026,4 +6026,11 @@ print(json.dumps(dict(path=os.fsencode(sys.argv[4]).hex(),
             );
         }
     }
+}
+
+fn mergemaster_bin() -> std::path::PathBuf {
+    std::path::PathBuf::from(
+        std::env::var_os("CARGO_BIN_EXE_mergemaster")
+            .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+    )
 }
