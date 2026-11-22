@@ -520,11 +520,12 @@ path	source_blob	mergemaster_blob
 # The existing oracle comparison still guards this unchanged path; no exception is added.
 # Adapted native-boundary callers are not byte mirrors: R3 carries the checkout
 # assertion (#6309), gate-slot scope (#6345), and Fractal command renames as local patches.
-# Remaining port follow-ups: evidence-prepush / evidence-prepush-test hosted-proof
+# Remaining port follow-ups (#443): evidence-prepush / evidence-prepush-test hosted-proof
 # policy and content-guard assertions; st-test / fractal-test-test multi-check
-# verifier batching (#5552); removed ci-evidence-source / its test push-event
-# handling (#6924). Removed evidence-verify / its test need native batch parity
+# verifier batching (#5552). Removed evidence-verify / its test need native batch parity
 # review (#5552); gpg program pins (#6427) already landed in mergemaster#140.
+# Intended divergence: native ci-evidence-source accepts push events whose `after`
+# equals the tested source (fractal#6924, mergemaster#444); the pinned Python oracle refuses push.
 # Blob table source column is TARGET; applied column is current retained bytes.
 # Removed paths retain their historical applied blob as tombstone evidence.
 scripts/ci-evidence-gate	2952f89514a584465a428017b3f3e8ea043f41b2	b9754da6ff9acac41a99acea6d8de21b9da7bdb3
