@@ -1851,6 +1851,10 @@ the summary records `verified=false` and a successful run still exits 0 unless
 - Security divergence: `EVIDENCE_PUSH_TOKEN`, `EVIDENCE_SIGNER` and caller
   `GIT_CONFIG_*` overrides are removed from both lane and signer environments.
   Python forwards them.
+- `GH_TOKEN` and `GITHUB_TOKEN` are removed from the signer and publication Git
+  children. They remain available to the lane command because checks may
+  legitimately use the GitHub API or `gh`; removing them would change the
+  behavior being measured.
 - Security divergence: every wrapper diagnostic redacts both the raw push token
   and its base64 `x-access-token:TOKEN` form, including signer, verifier,
   measurement and publication errors. Python only redacts the raw token in
