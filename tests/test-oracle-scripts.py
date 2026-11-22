@@ -11,6 +11,30 @@ from oracle_scripts import EXEMPT, MANIFEST, ORIGINAL, TARGET, blob, check, migr
 from oracle_witnesses import test_environment
 
 
+class FixtureProvenance(unittest.TestCase):
+    def test_source_blobs_match_pinned_fractal(self):
+        fixture = Path(os.environ["MERGEMASTER_FRACTAL_FIXTURE"])
+        directory = Path(__file__).resolve().parent / "fixtures/fractal"
+        for name, header in (
+                ("PROVENANCE", "original_path\tsource_git_blob\tcommitted_git_blob\tscope"),
+                ("infrastructure-PROVENANCE", "original_path\tgit_blob_sha1")):
+            lines = (directory / name).read_text().splitlines()
+            self.assertIn(header, lines, name)
+            rows = lines[lines.index(header) + 1:]
+            self.assertTrue(rows, name)
+            for row in rows:
+                fields = row.split("\t")
+                self.assertEqual(len(fields), len(header.split("\t")), f"{name}: {row}")
+                path, recorded = fields[:2]
+                with self.subTest(table=name, path=path):
+                    try:
+                        actual = blob((fixture / path).read_bytes())
+                    except FileNotFoundError:
+                        self.fail(f"{path}: recorded={recorded}, actual=<missing>")
+                    self.assertEqual(recorded, actual,
+                                     f"{path}: recorded={recorded}, actual={actual}")
+
+
 class WitnessEnvironment(unittest.TestCase):
     def test_integration_restores_cargo_paths_without_parent_variables(self):
         manifest = Path(__file__).resolve().parent.parent / "crates/mergemaster-evidence/Cargo.toml"

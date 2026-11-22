@@ -97,7 +97,7 @@
   {"path": "tests/fixtures/fractal/.st/review-verdict.schema.json", "wave": "wave-9-python-free", "state": "retained", "sha256": "eace5a3f7903d989bd3ec7d49f9d780c3d14f0c63f6a3cb3756bf4ae59e1c28d", "executable": 0},
   {"path": "tests/fixtures/fractal/.st/risky-classes.json", "wave": "wave-9-python-free", "state": "retained", "sha256": "8df25df750cd8ba77e50bc012d07656614b34553d5f6d75542df6c6d06f8c1c6", "executable": 0},
   {"path": "tests/fixtures/fractal/.st/rust-test-inputs.json", "wave": "wave-9-python-free", "state": "retained", "sha256": "2c8095e62cf7f829d5e46a5e5a4db442630db01a3282417ad40e6edc09eac406", "executable": 0},
-  {"path": "tests/fixtures/fractal/PROVENANCE", "wave": "wave-9-python-free", "state": "retained", "sha256": "388314ac9d55eaff24540e7e71a0dfff2ead1b57e678d32cec64be9efdc3493f", "executable": 0},
+  {"path": "tests/fixtures/fractal/PROVENANCE", "wave": "wave-9-python-free", "state": "retained", "sha256": "5420aff2f6caf268964df4c0c8716f0c6b4561a0129730f1555fcb1a9e40aed6", "executable": 0},
   {"path": "tests/fixtures/fractal/docs/st3/gate-evidence.md", "wave": "wave-9-python-free", "state": "retained", "sha256": "0f3c29c51df0ba63d265ce9fd75cfa77dd3a057d23f7e09323f1334578da716c", "executable": 0},
   {"path": "tests/fixtures/fractal/infrastructure-PROVENANCE", "wave": "wave-9-python-free", "state": "retained", "sha256": "a1819ae59d574b615a2b6aecdde8a557898692d1cbbff971e831ffac6a1274e6", "executable": 0},
   {"path": "tests/fixtures/fractal/scripts/ci-fractal-web-changes", "wave": "wave-7-local-runner", "state": "retained", "sha256": "f0327d7fd19ce62357dd66220e1a0693c10bff63d3fcc6c3b2bbe6467267e23b", "executable": 0},
