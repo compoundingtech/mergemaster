@@ -2,55 +2,72 @@ use super::*;
 use serde_json::Value;
 use std::process::Stdio;
 #[test]
-fn record_subject_cap_preserves_ordinary_absence_but_aborts_overflow() {
-    let root = tempfile::tempdir().unwrap();
-    let shim = root.path().join("git");
-    for (size, status) in [(128, 0), (129, 0), (0, 7)] {
-        let python = crate::pinned_python::command();
-        assert!(
-            Command::new("/bin/sh")
-                .args([
-                    "-c",
-                    "printf '%s' \"$1\" > \"$2\" && chmod 700 \"$2\"",
-                    "sh",
-                ])
-                .arg(format!(
-                    "#!{}\nimport os,sys\nos.write(1,b'x'*{size});sys.exit({status})\n",
-                    python.get_program().to_str().unwrap()
-                ))
-                .arg(&shim)
-                .status()
-                .unwrap()
-                .success()
-        );
-        let oracle = crate::pinned_python::command().args(["-c", "import os,runpy,sys;m=runpy.run_path(os.environ['MERGEMASTER_PYTHON_ORACLE']+'/scripts/evidence-verify')\ntry: print(len(m['git']('repo','rev-parse','subject^{tree}')))\nexcept m['Failure']: print('absent')"]).env("PATH", root.path()).output().unwrap();
-        assert!(oracle.status.success());
-        assert_eq!(
-            String::from_utf8(oracle.stdout).unwrap().trim(),
-            if status == 0 {
-                size.to_string()
-            } else {
-                "absent".into()
-            }
-        );
-        let mut command = Command::new(&shim);
-        command.stdin(Stdio::piped());
-        let result = record_subject(&mut command);
-        if size > 128 {
+fn record_subject_requires_an_exact_missing_result() {
+    let subject = "a".repeat(40);
+    for (stdout, stderr, status, expected) in [
+        (format!("{subject}\n"), "", 0, Some(true)),
+        (
+            format!("{subject}\n"),
+            "ERROR: ld.so: object cannot be preloaded",
+            0,
+            Some(true),
+        ),
+        (format!("{subject} missing\n"), "", 0, Some(false)),
+        (format!("{subject} missing\n"), "corrupt object", 0, None),
+        (String::new(), "", 1, None),
+        (String::new(), "fatal: repository unavailable", 128, None),
+        ("x".repeat(128), "", 0, None),
+        ("x".repeat(129), "", 0, None),
+    ] {
+        let mut command = Command::new("python3");
+        command
+            .args(["-c", "import sys;sys.stdin.buffer.read();sys.stdout.write(sys.argv[1]);sys.stderr.write(sys.argv[2]);sys.exit(int(sys.argv[3]))"])
+            .arg(stdout)
+            .arg(stderr)
+            .arg(status.to_string())
+            .stdin(Stdio::piped());
+        let result = record_subject(&mut command, &subject);
+        if let Some(expected) = expected {
+            assert_eq!(result.unwrap(), expected);
+        } else {
             let error = result.unwrap_err();
-            assert_eq!(error.reason, "error");
-            assert_eq!(error.detail, "Git output exceeds 128 bytes");
+            assert_eq!(error.reason, "subject-probe-failed");
             assert_eq!(
                 error.origin,
                 crate::evidence::legacy_policy::ErrorOrigin::Failure
             );
-        } else {
-            assert_eq!(
-                result.unwrap().map(|v| v.len()),
-                (status == 0).then_some(size)
-            );
         }
     }
+    let error = record_subject(
+        &mut Command::new("/definitely-missing-subject-git"),
+        &subject,
+    )
+    .unwrap_err();
+    assert_eq!(error.reason, "subject-probe-failed");
+    assert!(
+        error
+            .detail
+            .to_string()
+            .contains("No such file or directory")
+    );
+}
+
+#[test]
+fn record_subject_timeout_refuses() {
+    let subject = "a".repeat(40);
+    let mut command = Command::new("python3");
+    command
+        .args(["-c", "import signal;signal.pause()"])
+        .stdin(Stdio::piped());
+    let sink = SubjectCapture {
+        capture: ProjectionCapture::new("cat-file", ExpectedOutput::Bytes(128)),
+        subject: &subject,
+    };
+    let error = collect(&mut command, b"", "cat-file", Duration::ZERO, sink)
+        .map_err(subject_error)
+        .unwrap_err();
+    assert_eq!(error.reason, "subject-probe-failed");
+    assert!(error.detail.to_string().contains("timed out"));
 }
 fn run(
     bytes: &[u8],

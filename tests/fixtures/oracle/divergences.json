@@ -3973,6 +3973,26 @@
   },
   "cases": [
     {
+      "id": "subject-probe-failure-refusal",
+      "capture_test": "legacy_subject_probe_distinguishes_absence_from_git_failures",
+      "capture_target": "git_evidence",
+      "capture_source": "crates/mergemaster-evidence/tests/git_evidence.rs",
+      "contract_reference": "scripts/PROVENANCE:286@3e339c713a990e7f0a4294991899e8aca5f8cadd",
+      "contract_text": "Intentional #137 divergence: only an exact successful, stderr-free literal-object missing result permits an absent subject; all other Git failures refuse with subject-probe-failed. The removed Python verifier's pinned oracle retains broad failure-as-absence behavior.",
+      "review_evidence": {
+        "introducing_commit": null,
+        "mainline_landing_commit": null,
+        "landing_subject": "",
+        "evidence_status": "no-main-pr-found"
+      },
+      "review_status": "review-requested",
+      "review_request": "Issue #137 coordinated post-cutover hardening; independent exact-head GO required.",
+      "execution_status": "pending",
+      "input": null,
+      "python": null,
+      "rust": null
+    },
+    {
       "id": "ci-signed-tree-sibling-verifier",
       "capture_test": "evidence::legacy_verify::transport_witness_tests::signed_tree_local_patch_preserves_binary_transport_bytes",
       "capture_source": "crates/mergemaster-evidence/src/evidence/legacy_verify/transport_witness_tests.rs",
