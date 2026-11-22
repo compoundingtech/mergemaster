@@ -45,6 +45,9 @@ parity! {
     transient_push_refusals_retry_only_pending_refs_with_bound => "retry",
     isolated_transport_ignores_overrides_and_publishes_only_new_refs => "transport",
     publication_ignores_pushurl_and_rejects_untrusted_fetch_url => "pushurl",
+    publication_transfers_subject_history_from_safe_checkout_alternates => "publication-history",
+    shallow_publication_preserves_boundary_and_refuses_empty_destination => "publication-shallow",
+    checkout_ref_cannot_override_signed_publication_record => "publication-ref-target",
     dirty_or_mutating_commands_never_sign => "dirty",
     aggregate_nix_runner_reaches_real_signer_validation => "nix",
     signer_clock_and_tool_execution_ignore_hostile_checkout_configuration => "security",
@@ -521,6 +524,100 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
         for bad in (dict(command=['x'], exit_code=0, output=1, output_sha256='a'*64), dict(command=['x'], exit_code=0, output=1, tier='full'), dict(command=['x'], exit_code=0)):
             stage.write_text(json.dumps(bad))
             refused(flags=['--aggregate', str(stage)], contains=b'--aggregate')
+    elif group == 'publication-history':
+        parent = commit
+        (repo / 'a').write_text('two\n')
+        git(repo, 'commit', '-qam', 'subject with history')
+        commit, tree = text(repo, 'rev-parse', 'HEAD'), text(repo, 'rev-parse', 'HEAD^{tree}')
+        for hostile in (False, True):
+            sink = root / ('history-hostile.git' if hostile else 'history-empty.git')
+            init(sink, bare=True)
+            assert run(['git', '-C', sink, 'cat-file', '-e', commit]).returncode != 0
+            if hostile:
+                donor = root / 'alternate.git'
+                init(donor, bare=True)
+                objects = repo / '.git/objects'
+                for entry in list(objects.iterdir()):
+                    if entry.name != 'info':
+                        target = donor / 'objects' / entry.name
+                        if target.exists():
+                            shutil.rmtree(target)
+                        shutil.move(str(entry), target)
+                (objects / 'info/alternates').write_text(str(donor / 'objects') + '\n')
+                unrelated = root / 'mismatched-graph.git'
+                init(unrelated, bare=True)
+                empty_tree = git(unrelated, 'mktree', data=b'').decode().strip()
+                unrelated_commit = git(unrelated, 'commit-tree', empty_tree, data=b'unrelated graph\n').decode().strip()
+                git(unrelated, 'update-ref', 'refs/heads/unrelated', unrelated_commit)
+                git(unrelated, 'commit-graph', 'write', '--reachable')
+                shutil.copyfile(unrelated / 'objects/info/commit-graph', donor / 'objects/info/commit-graph')
+                (donor / 'objects/info/alternates').write_text(str(unrelated / 'objects') + '\n')
+                marker = root / 'alternate-config-or-hook-executed'
+                hooks = donor / 'hooks'
+                executable(hooks / 'pre-push', '#!/bin/sh\ntouch ' + shlex.quote(str(marker)) + '\n')
+                included = root / 'alternate-hostile.config'
+                included.write_text('[url "ext::touch ' + str(marker) + '"]\n insteadOf = ' + str(sink) + '\n')
+                for repository in (repo, donor):
+                    for name, value in [('core.hooksPath', str(hooks)), ('core.sshCommand', 'touch ' + str(marker)),
+                                        ('include.path', str(included)), ('credential.helper', '!touch ' + str(marker)),
+                                        ('url.ext::touch ' + str(marker) + '.insteadOf', str(sink)),
+                                        ('http.extraheader', 'checkout-secret')]:
+                        git(repository, 'config', name, value)
+            done = invoke(True, ['sh', '-c', 'exit 3'], ['--push', str(sink), '--attempt', '2' if hostile else '1'])
+            assert done.returncode == 3 and result(done)['pushed'], done.stderr
+            value = result(done)
+            assert text(sink, 'rev-parse', value['ref'] + '^') == commit
+            assert text(sink, 'rev-parse', commit + '^') == parent
+            assert text(sink, 'cat-file', '-t', parent) == 'commit'
+            assert text(sink, 'rev-parse', value['tag']) == value['record']
+            metadata_off = ['-c', 'core.commitGraph=false', '-c', 'core.multiPackIndex=false',
+                            '-c', 'pack.useBitmaps=false', '-c', 'pack.useBitmapBoundaryTraversal=false']
+            expected_objects = set(text(repo, *metadata_off, 'rev-list', '--objects', '--no-object-names', value['record']).splitlines())
+            received_objects = set(text(sink, *metadata_off, 'cat-file', '--batch-all-objects', '--batch-check=%(objectname)').splitlines())
+            assert received_objects == expected_objects, (received_objects - expected_objects, expected_objects - received_objects)
+            if hostile:
+                assert not marker.exists()
+    elif group == 'publication-ref-target':
+        sink = root / 'ref-target.git'
+        init(sink, bare=True)
+        unrelated_tree = git(repo, 'mktree', data=b'').decode().strip()
+        unrelated = git(repo, 'commit-tree', unrelated_tree, data=b'unrelated checkout object\n').decode().strip()
+        proxy = ('import json,subprocess,sys; '
+                 'r=subprocess.run(' + repr(native_sign) + ',input=sys.stdin.buffer.read(),capture_output=True); '
+                 'r.check_returncode(); answer=json.loads(r.stdout); '
+                 'ref="refs/tags/evidence/"+answer["tree"]+"/"+answer["record"]; '
+                 'subprocess.run(' + repr([real_git, '-c', 'core.hooksPath=/dev/null', '-C', str(repo), 'update-ref']) +
+                 '+[ref,' + repr(unrelated) + '],check=True); sys.stdout.buffer.write(r.stdout)')
+        done = invoke(True, ['sh', '-c', 'exit 3'], ['--push', str(sink)],
+                      signer=[sys.executable, '-I', '-c', proxy])
+        assert done.returncode == 1 and b'checkout publication ref' in done.stderr, done.stderr
+        assert b'not signed record' in done.stderr, done.stderr
+        assert unrelated.encode() in done.stderr
+        assert refs(sink) == b''
+        assert run(['git', '-C', sink, 'cat-file', '-e', unrelated]).returncode != 0
+    elif group == 'publication-shallow':
+        (repo / 'a').write_text('two\n')
+        git(repo, 'commit', '-qam', 'subject boundary')
+        commit, tree = text(repo, 'rev-parse', 'HEAD'), text(repo, 'rev-parse', 'HEAD^{tree}')
+        checkout = root / 'depth-one'
+        good(run(['git', 'clone', '--depth=1', repo.as_uri(), checkout]))
+        git(checkout, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
+        assert text(checkout, 'rev-parse', '--is-shallow-repository') == 'true'
+        for seeded in (True, False):
+            sink = root / ('boundary-present.git' if seeded else 'boundary-absent.git')
+            init(sink, bare=True)
+            if seeded:
+                # The destination knows the record's parent: the subject boundary.
+                git(repo, 'push', str(sink), commit + ':refs/heads/main')
+            done = invoke(True, ['sh', '-c', 'exit 3'], ['--push', str(sink)], cwd=checkout)
+            if seeded:
+                assert done.returncode == 3 and result(done)['pushed'], done.stderr
+                assert text(sink, 'rev-parse', result(done)['ref'] + '^') == commit
+            else:
+                assert done.returncode == 1, done.stderr
+                assert b'publication requires complete checkout history' in done.stderr, done.stderr
+                assert b'shallow update not allowed' in done.stderr, done.stderr
+                assert refs(sink) == b''
     elif group in ('push', 'retry', 'transport', 'pushurl'):
         sink = root / 'sink.git'
         init(sink, bare=True)

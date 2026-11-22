@@ -3,6 +3,8 @@
 ## Unreleased
 
 - Isolate native `legacy-wrap` publication in a fresh bare repository with strict pack validation, validate literal GitHub remote URLs (or caller-explicit credential-free absolute local paths), refuse checkout-configured local destinations that could execute receive hooks, ignore push URLs and checkout/caller transport configuration, and scope the environment-only token header to the validated HTTPS URL. Strip caller `GIT_CONFIG_*` overrides from lane/signer children; document the intentional Python divergence and signal-cleanup limitation.
+- Fix isolated `legacy-wrap` publication before the branch is pushed: expose the checkout's common object store as a read-only alternate so strict pack validation and evidence pushes can access and transfer subject history. Preserve transport/config isolation and follow object-store alternates only. Copy validated shallow boundaries without a full-history preflight; let push discover unavailable objects and report typed missing-history errors without fetching.
+- Bind every isolated publication ref to the signed record and refuse conflicting checkout ref targets before transport. Disable alternate-store commit-graph, multi-pack-index and bitmap traversal metadata for publication and Git subprocesses; refuse symlinked or oversized shallow-boundary files.
 
 ## [0.14.0] - 2026-11-21
 
