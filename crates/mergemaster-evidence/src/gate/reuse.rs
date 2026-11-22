@@ -1,4 +1,4 @@
-//! Pure selective-reuse validation, not admission. No gate caller is connected.
+//! Pure selective-reuse validation, composed by disabled worker orchestration.
 //! Receipt acceptance and authenticated-context construction have no production
 //! implementation until their independently reviewed adapters exist.
 use super::config::{self, Config, Lane, ReuseAuthority, ReuseKeyAuthority, ReuseRole};
@@ -8,6 +8,30 @@ use crate::evidence::{
 };
 use chrono::{DateTime, Duration, Utc};
 use std::{collections::BTreeMap, fmt};
+
+#[path = "reuse_orchestration.rs"]
+mod orchestration;
+pub use orchestration::SelectiveReuse;
+use orchestration::attempt;
+
+pub(super) fn worker(args: &super::VerifyArgs) -> anyhow::Result<SelectiveReuse> {
+    use anyhow::Context;
+    let base = args
+        .base
+        .as_deref()
+        .context("v2 requires current BASE authority")?;
+    let current = config::load(&args.repo, base)?;
+    let check = args.check.as_deref().context("v2 worker requires a lane")?;
+    Ok(attempt::<v2::DaemonPolicyReceipt>(
+        &args.repo,
+        &args.record,
+        &current,
+        check,
+        None,
+        &ReceiptValidation::contract_undefined(),
+        Utc::now(),
+    ))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refusal {

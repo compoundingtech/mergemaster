@@ -249,12 +249,20 @@ fn verify_v2<R: v2::Receipt>(
     })
 }
 
+pub(crate) fn candidate_with_receipt<R: v2::Receipt>(
+    repo: &Path,
+    id: &str,
+    authority: &ReuseAuthority,
+) -> LoadResult<VerifiedRecord<R>> {
+    verify_v2(repo, id, note(repo, id)?, authority)
+}
+
 /// The caller supplies the current BASE policy, never historical root policy.
 /// No discovery, refs, alias resolution, chain traversal or fetch is performed.
 pub fn load_root(repo: &Path, id: &str, authority: &ReuseAuthority) -> LoadResult<VerifiedRecord> {
     root_with_receipt(repo, id, authority)
 }
-fn root_with_receipt<R: v2::Receipt>(
+pub(crate) fn root_with_receipt<R: v2::Receipt>(
     repo: &Path,
     id: &str,
     authority: &ReuseAuthority,
@@ -295,6 +303,13 @@ pub(crate) fn verify_with_receipt<R: v2::Receipt>(
         let config = config::load(repo, base)?;
         return Ok(verify_v2(repo, id, note, &config.policy.reuse_authority)?);
     }
+    legacy_record(repo, id, keys)
+}
+pub(crate) fn legacy_record<R: v2::Receipt>(
+    repo: &Path,
+    id: &str,
+    keys: &Path,
+) -> Result<VerifiedRecord<R>> {
     let s = super::verify_record(repo, id, keys)?;
     let (signer, key_id) = if s.predicate.tier == super::TrustTier::Degraded {
         (None, None)
@@ -315,6 +330,16 @@ pub(crate) fn verify_with_receipt<R: v2::Receipt>(
 
 /// Legacy selection accepts only v1 worker envelopes. No v2 admission path exists.
 pub(crate) fn legacy_worker_statement(bytes: &[u8], id: &str) -> Result<Option<Statement>> {
+    Ok(match worker_statement(bytes, id)? {
+        WorkerStatement::Legacy(statement) => Some(*statement),
+        WorkerStatement::Selective(_) => None,
+    })
+}
+pub(crate) enum WorkerStatement {
+    Legacy(Box<Statement>),
+    Selective(crate::gate::reuse::SelectiveReuse),
+}
+pub(crate) fn worker_statement(bytes: &[u8], id: &str) -> Result<WorkerStatement> {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Wire {
@@ -323,6 +348,8 @@ pub(crate) fn legacy_worker_statement(bytes: &[u8], id: &str) -> Result<Option<S
         statement: serde_json::Value,
         verified_signer: serde_json::Value,
         verified_key_id: serde_json::Value,
+        #[serde(default)]
+        selective_reuse: Option<crate::gate::reuse::SelectiveReuse>,
     }
     struct MapOnly;
     impl<'de> serde::de::Visitor<'de> for MapOnly {
@@ -348,14 +375,25 @@ pub(crate) fn legacy_worker_statement(bytes: &[u8], id: &str) -> Result<Option<S
                 .all(|value| value.is_null() || value.is_string()),
         "signature worker envelope"
     );
-    // Unconditional production stop, independent of policy, flags and fixtures.
-    // Disabled v2 observations never enter v1 selection or failure shadowing.
     if wire.version == 2 {
-        return Ok(None);
+        ensure!(
+            wire.statement.is_null()
+                && wire.verified_signer.is_null()
+                && wire.verified_key_id.is_null(),
+            "selective worker is not trusted evidence"
+        );
+        return Ok(WorkerStatement::Selective(
+            wire.selective_reuse
+                .context("selective worker diagnostic")?,
+        ));
     }
-    Ok(Some(
+    ensure!(
+        wire.selective_reuse.is_none(),
+        "v1 worker cannot carry selective evidence"
+    );
+    Ok(WorkerStatement::Legacy(Box::new(
         serde_json::from_value(wire.statement).context("signature worker v1 statement")?,
-    ))
+    )))
 }
 
 #[cfg(test)]
