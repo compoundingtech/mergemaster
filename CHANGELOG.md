@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Retain native evidence source receipts and source packs for push events when the payload's `after` commit matches the tested checkout; identify pushes as `github:OWNER/REPO@SOURCE`, never by the previous `before` tip (fractal#6924, #443).
 - Keep native subject-probe refusal details fixed so candidate-controlled Git stderr is never forwarded; CLI diagnostics are unchanged.
 - Refuse legacy evidence verification when a subject-object probe fails operationally or encounters corruption (`subject-probe-failed`); allow absent shallow/partial subjects only on Git's exact stderr-free missing-object result, without lazy fetching. This intentionally diverges from the pinned Python verifier's broad failure-as-absence behavior (#137).
 - Share argparse-compatible token consumption across native evidence reports, log-watch, keygen and evidence-verify: accept unambiguous long-option prefixes, preserve ambiguity diagnostics, and match Python numeric spellings and repeated-option handling. The verifier retains lossless borrowed text, arbitrary-precision integers and provenance-aware diagnostics through the shared core; wrap is unchanged.
