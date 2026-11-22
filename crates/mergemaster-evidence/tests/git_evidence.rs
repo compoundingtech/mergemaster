@@ -7,6 +7,7 @@ use mergemaster_evidence::evidence::{
 use std::{
     collections::{BTreeMap, BTreeSet},
     io::Write,
+    os::unix::fs::PermissionsExt,
     path::Path,
     process::{Command, Stdio},
 };
