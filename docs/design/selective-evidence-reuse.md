@@ -311,20 +311,24 @@ reuse stays disabled; report-only producer manifests remain report-only.
 - Cross-level reuse, rebind chains and pre-v2 root promotion: prohibited,
   rather than compatibility shims.
 
-## 8. Questions for Johannes
+## 8. Decisions by Johannes
 
-1. Approve the initial same-repository-PR-only origin profile and Linux-only
-   daemon profile? Janitor recommends this initial eligibility; other
-   classes/platforms remain ineligible until reviewed.
-2. Which lanes accept the nondeterminism boundary in §4, and what positive
-   finite age should each opt-in declare? Janitor recommends per-lane opt-in,
-   finite `max_age_seconds` and explicit acceptance of that boundary.
-3. Is any root-key-revocation grace needed? Janitor recommends immediate
-   revocation with no grace, including already-issued rebinds. That remains
-   the default; any exception needs separately approved scope and authority.
+1. Eligibility (ask 962b85dc): approved. The initial origin profile is
+   same-repository PRs only, and the daemon profile is Linux only. Other
+   origin classes and platforms stay ineligible until reviewed.
+2. Lanes and age (ask 63dca226): the deterministic dotfiles lanes
+   `checks-registry`, `format`, `nixfmt`, `touched-format-lint` and
+   `nix-eval` opt in, each with `max_age_seconds` 86400 (24 hours). Johannes
+   accepts the §4 nondeterminism boundary for these lanes: reuse proves the
+   same derivation and identical outputs, not a re-observation.
+   `observability-contract` stays fresh-only. Every other lane stays
+   fresh-only until it is separately reviewed.
+3. Root-key revocation (ask a5dad8db): immediate, with no grace. This
+   includes rebinds that were already issued.
 
 Exact level equality plus origin equality and gate-side root verification
 are design requirements, not unresolved weaker-policy alternatives.
+These decisions do not enable reuse: §6 prerequisites still gate every lane.
 
 ## Review response
 
