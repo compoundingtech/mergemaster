@@ -131,6 +131,80 @@ class PublisherTests(unittest.TestCase):
         self.assertEqual(payload['conclusion'], 'success')
         self.assertIn('no fresh test execution', payload['output']['summary'])
 
+    def report_result(self):
+        source = (ROOT / 'genie/generic-evidence.ts').read_text().split(
+            'export const genericEvidenceReport = String.raw`', 1)[1].split('\n`', 1)[0]
+        summary = self.path / 'summary'
+        os.environ['GITHUB_STEP_SUMMARY'] = str(summary)
+        with self.assertRaises(SystemExit) as raised:
+            exec(compile(source, 'report-summary', 'exec'), {})
+        return raised.exception.code, summary.read_text()
+
+    def test_optional_selective_reuse_absence_preserves_legacy_acceptance(self):
+        for outcome in ('satisfied', 'reused'):
+            with self.subTest(outcome=outcome):
+                self.decision.update(outcome=outcome)
+                if outcome == 'reused':
+                    self.decision.update(reason='execution_reused',
+                                         summary='Legacy realization reused; no fresh execution asserted.')
+                self.save_decision()
+                self.ns['finalize']()
+                self.assertEqual(self.posts[-1][0]['conclusion'], 'success')
+                self.assertEqual(self.posts[-1][0]['output']['summary'], self.decision['summary'])
+                code, summary = self.report_result()
+                self.assertEqual(code, 0)
+                self.assertNotIn('selective_reuse', summary)
+
+    def test_selective_reuse_diagnostics_preserve_legacy_fallback_and_provenance(self):
+        for status, reason in (('disabled', 'receipt_contract_undefined'),
+                               ('refused', 'reuse_candidate_unverified')):
+            for root in (None, 'c' * 40):
+                for accepted in (False, True):
+                    with self.subTest(status=status, root=root, accepted=accepted):
+                        diagnostic = dict(version=1, status=status, reason=reason)
+                        if root is not None:
+                            # Consumer-only provenance fixture, not a crypto verification claim.
+                            diagnostic['root_record'] = root
+                        self.decision.update(selective_reuse=diagnostic,
+                                             decision='skip' if accepted else 'run',
+                                             outcome='satisfied' if accepted else 'unavailable')
+                        self.save_decision()
+                        if accepted:
+                            self.ns['finalize']()
+                        else:
+                            with self.assertRaisesRegex(RuntimeError, 'evidence refused'):
+                                self.ns['finalize']()
+                        payload = self.posts[-1][0]
+                        self.assertEqual(payload['conclusion'], 'success' if accepted else 'failure')
+                        self.assertIn(self.decision['summary'], payload['output']['summary'])
+                        self.assertIn('not a fresh execution claim', payload['output']['summary'])
+                        self.assertIn(json.dumps(diagnostic), payload['output']['summary'])
+                        code, summary = self.report_result()
+                        self.assertEqual(code, 0 if accepted else 1)
+                        self.assertIn('not a fresh execution claim', summary)
+                        self.assertIn(reason, summary)
+                        if root is not None:
+                            self.assertIn(root, summary)
+
+    def test_selective_reuse_validated_and_malformed_diagnostics_never_accept(self):
+        valid = dict(version=1, status='disabled', reason='receipt_contract_undefined')
+        invalid = [None, [], 'disabled', {}, {**valid, 'version': True}, {**valid, 'version': 2},
+                   {**valid, 'status': 'validated'}, {**valid, 'status': 'success'},
+                   {**valid, 'status': None}, {**valid, 'status': []},
+                   {**valid, 'reason': 1}, {key: value for key, value in valid.items() if key != 'reason'},
+                   {**valid, 'extra': 'unexpected'}]
+        invalid += [{**valid, 'root_record': root}
+                    for root in (None, 1, [], 'c' * 39, 'C' * 40, 'g' * 40, 'c' * 40 + '\n')]
+        for diagnostic in invalid:
+            with self.subTest(diagnostic=diagnostic):
+                self.decision['selective_reuse'] = diagnostic
+                self.save_decision()
+                with self.assertRaisesRegex(RuntimeError, 'evidence refused'):
+                    self.ns['finalize']()
+                self.assertEqual(self.posts[-1][0]['conclusion'], 'failure')
+                code, _ = self.report_result()
+                self.assertEqual(code, 1)
+
     def test_refusal_preserves_changed_workflow_summary(self):
         self.decision.update(decision='run', outcome='rejected')
         self.save_decision()

@@ -177,6 +177,22 @@ question rather than an implicit system override. The ineffective post-parse
 worker-envelope v2 cap is removed; v1 remains uncapped and v2 object reads retain
 their limits. The gate's unconditional production v2 refusal remains unchanged.
 
+Slice 6 composes the worker and pure validator generically over the sealed receipt
+trait. Production uses `DaemonPolicyReceipt`: it stops with
+`receipt_contract_undefined` during decoding, before signature verification or root
+lookup. Test-only receipt inputs and accepted-proof constructors exercise the same
+orchestration with real Git objects and SSH signatures. Even complete proofs end
+at an unconditional admission refusal; no switch enables reuse.
+
+When no legacy candidate is selected, optional `selective_reuse` diagnostics retain
+the existing scheduling decision and outcome. Legacy successes, failure shadowing,
+timestamps and GitHub outputs are unchanged. The first immutable-ID-ordered v2
+attempt supplies diagnostics, without trusting its timestamp for selection.
+`root_record` appears only after verified direct lookup; sealed production receipts
+therefore never expose one. Consumers reject `validated` and never claim a fresh
+execution from these diagnostics. The external authenticated-origin adapter and
+broker receipt contract remain prerequisites, not functionality implemented here.
+
 ## 4. Execution-policy closure prerequisite
 
 Replace the proposed asserted `nix_sandbox_sha256` with an authenticated

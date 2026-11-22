@@ -687,3 +687,168 @@ fn prepared_single_pr_candidate_requires_exact_ordered_merge_parents() {
         Err(Refusal::CandidateBindingMismatch)
     );
 }
+
+impl FixturePair {
+    fn orchestration(
+        &self,
+        root: &Value,
+        candidate: &Value,
+        production: bool,
+        authenticated: bool,
+    ) -> Value {
+        let root_id = self.git.raw_note(
+            &serde_json::to_vec(root).unwrap(),
+            &self.git.tree,
+            &[&self.git.head],
+            &self.git.key,
+        );
+        let mut candidate = candidate.clone();
+        if candidate["predicate"]["reused_from"] == "LINK_ROOT" {
+            candidate["predicate"]["reused_from"] = json!(root_id);
+        }
+        let candidate_id = self.git.raw_note(
+            &serde_json::to_vec(&candidate).unwrap(),
+            &self.tree,
+            &[&self.head],
+            &self.key,
+        );
+        let context = AuthenticatedPrCandidate {
+            repository: "example/project",
+            source_repository: "example/project",
+            pull_request: self.root["predicate"]["origin"]["pull_request"]["number"]
+                .as_u64()
+                .unwrap(),
+            pr_head: &self.pr_head,
+            base_ref: "main",
+            objects: SubjectObjects {
+                head: &self.head,
+                tree: &self.tree,
+                accepted_base: &self.base,
+                parents: &self.parents,
+            },
+            mapping: CandidateMapping::Direct,
+        };
+        let ReuseAuthority::Valid(authority) = &self.config.policy.reuse_authority else {
+            panic!("fixture");
+        };
+        let broker = authority
+            .authorities
+            .iter()
+            .find(|key| key.role == ReuseRole::DaemonPolicyReceipt)
+            .unwrap();
+        let receipts = ReceiptValidation {
+            result: Ok([broker, broker]),
+        };
+        let diagnostic = if production {
+            attempt::<v2::DaemonPolicyReceipt>(
+                self.git.root.path(),
+                verified::load_candidate(self.git.root.path(), &candidate_id).unwrap(),
+                &self.config,
+                "format",
+                None,
+                &ReceiptValidation::contract_undefined(),
+                self.now,
+            )
+        } else {
+            attempt::<Value>(
+                self.git.root.path(),
+                verified::load_candidate(self.git.root.path(), &candidate_id).unwrap(),
+                &self.config,
+                "format",
+                authenticated.then_some(&context),
+                &receipts,
+                self.now,
+            )
+        };
+        let value = serde_json::to_value(diagnostic).unwrap();
+        if !production && value.get("root_record").is_some() {
+            assert_eq!(value["root_record"], root_id);
+        }
+        value
+    }
+}
+
+#[test]
+fn complete_generic_orchestration_verifies_root_but_never_admits() {
+    let f = FixturePair::new();
+    assert!(f.git.git(&["for-each-ref", "refs/notes/"], b"").is_empty());
+    let value = f.orchestration(&f.root, &f.candidate, false, true);
+    assert_eq!(value["status"], "disabled");
+    assert_eq!(value["reason"], "selective_reuse_disabled");
+    assert!(value["root_record"].as_str().is_some());
+    let production = f.orchestration(&f.root, &f.candidate, true, false);
+    assert_eq!(
+        production,
+        json!({"version":1,"status":"disabled","reason":"receipt_contract_undefined"})
+    );
+    let unavailable = f.orchestration(&f.root, &f.candidate, false, false);
+    assert_eq!(unavailable["reason"], "reuse_origin_unavailable");
+    let mut candidate = f.candidate.clone();
+    candidate["predicate"]["observed"]["inputs"]["attempt"] = json!("0");
+    let refused = f.orchestration(&f.root, &candidate, false, true);
+    assert_eq!(refused["reason"], "reuse_measurement_invalid");
+    assert!(refused.get("root_record").is_some());
+    let mut candidate = f.candidate.clone();
+    candidate["predicate"]["reused_from"] = json!("0".repeat(40));
+    let missing = f.orchestration(&f.root, &candidate, false, true);
+    assert_eq!(missing["reason"], "reuse_source_unavailable");
+    assert!(missing.get("root_record").is_none());
+}
+
+#[test]
+fn selective_worker_diagnostics_are_map_only_and_string_enum_only() {
+    let valid = json!({"version":1,"status":"disabled","reason":"receipt_contract_undefined"});
+    assert!(serde_json::from_value::<SelectiveReuse>(valid.clone()).is_ok());
+    for value in [
+        json!([1, "disabled", "receipt_contract_undefined"]),
+        json!({"version":1,
+        "status":{"disabled":null},"reason":"receipt_contract_undefined"}),
+        json!({"version":1,"status":"disabled","reason":{"receipt_contract_undefined":null}}),
+        json!({"version":1,"status":"validated","reason":"selective_reuse_disabled"}),
+        json!({"version":1,"status":"disabled","reason":"receipt_contract_undefined","root_record":null}),
+    ] {
+        assert!(serde_json::from_value::<SelectiveReuse>(value).is_err());
+    }
+    assert!(serde_json::from_str::<SelectiveReuse>(
+        r#"{"version":1,"status":"disabled","reason":"receipt_contract_undefined","reason":"selective_reuse_disabled"}"#).is_err());
+}
+
+#[test]
+fn bounded_candidate_load_precedes_base_authority_reads() {
+    let f = FixturePair::new();
+    let mut oversized = f.candidate.clone();
+    oversized["predicate"]["daemon_policy_receipt"] = json!("x".repeat(v2::MAX_NOTE_BYTES));
+    let record = f.git.raw_note(
+        &serde_json::to_vec(&oversized).unwrap(),
+        &f.tree,
+        &[&f.head],
+        &f.git.key,
+    );
+    assert!(matches!(
+        verified::load_candidate(f.git.root.path(), &record),
+        Err(verified::Refusal::Oversized)
+    ));
+    let mut args = super::super::VerifyArgs {
+        repo: f.git.root.path().to_owned(),
+        record,
+        keys: f.git.root.path().join("unused-keys"),
+        base: Some("0".repeat(40)),
+        check: Some("format".into()),
+    };
+    // This BASE is missing: loading it first would return an error, not a
+    // bounded-load diagnostic. The same worker still errors on a valid object.
+    let diagnostic = serde_json::to_value(worker(&args).unwrap()).unwrap();
+    assert_eq!(
+        diagnostic,
+        json!({
+            "version":1,"status":"refused","reason":"reuse_candidate_unverified"
+        })
+    );
+    args.record = f.git.raw_note(
+        &serde_json::to_vec(&f.root).unwrap(),
+        &f.git.tree,
+        &[&f.git.head],
+        &f.git.key,
+    );
+    assert!(worker(&args).is_err());
+}

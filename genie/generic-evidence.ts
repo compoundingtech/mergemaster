@@ -158,6 +158,21 @@ def finalize():
                 and decision['base'] == base and decision['head'] == head, 'invalid gate identity')
         require(isinstance(decision['summary'], str) and len(decision['summary']) <= 60000, 'invalid gate summary')
         summary = decision['summary']
+        if 'selective_reuse' in decision:
+            diagnostic = decision['selective_reuse']
+            require(isinstance(diagnostic, dict)
+                    and {'version', 'status', 'reason'} <= diagnostic.keys()
+                    and diagnostic.keys() <= {'version', 'status', 'reason', 'root_record'},
+                    'invalid selective reuse diagnostic')
+            require(type(diagnostic['version']) is int and diagnostic['version'] == 1
+                    and diagnostic['status'] in ('refused', 'disabled')
+                    and isinstance(diagnostic['reason'], str), 'unsupported selective reuse diagnostic')
+            require('root_record' not in diagnostic
+                    or (isinstance(diagnostic['root_record'], str)
+                        and re.fullmatch(r'[0-9a-f]{40}', diagnostic['root_record'])),
+                    'invalid selective reuse root')
+            # Provenance is diagnostic only; never promote it to a successful execution.
+            summary += '\n\nSelective reuse diagnostic (not a fresh execution claim):\n' + json.dumps(diagnostic, ensure_ascii=True)
         require(os.environ.get('GATE_OUTCOME') == 'success' and os.environ.get('GATE_SKIP') == 'true', 'gate did not pass')
         require(os.environ.get('APP_OUTCOME') == 'success', 'App token step did not pass')
         require(decision['decision'] == 'skip' and decision['outcome'] in ('satisfied', 'reused'), 'gate refused')
@@ -260,6 +275,7 @@ export const genericEvidenceReporterJob = ({ check, checkout, runner = 'ubuntu-2
 
 export const genericEvidenceReport = String.raw`import json
 import os
+import re
 from pathlib import Path
 
 success = False
@@ -269,6 +285,17 @@ try:
     assert decision['version'] == 1 and decision['check'] == os.environ['CHECK']
     assert decision['base'] == os.environ['BASE_SHA'] and decision['head'] == os.environ['HEAD_SHA']
     summary = json.dumps(decision, ensure_ascii=True, indent=2)
+    if 'selective_reuse' in decision:
+        diagnostic = decision['selective_reuse']
+        assert isinstance(diagnostic, dict)
+        assert {'version', 'status', 'reason'} <= diagnostic.keys()
+        assert diagnostic.keys() <= {'version', 'status', 'reason', 'root_record'}
+        assert type(diagnostic['version']) is int and diagnostic['version'] == 1
+        assert diagnostic['status'] in ('refused', 'disabled') and isinstance(diagnostic['reason'], str)
+        assert ('root_record' not in diagnostic
+                or (isinstance(diagnostic['root_record'], str)
+                    and re.fullmatch(r'[0-9a-f]{40}', diagnostic['root_record'])))
+        summary += '\n\nSelective reuse provenance is not a fresh execution claim.'
     success = (os.environ['GATE_OUTCOME'] == 'success'
                and decision['decision'] == 'skip' and decision['outcome'] in ('satisfied', 'reused'))
 except (OSError, ValueError, KeyError, AssertionError):

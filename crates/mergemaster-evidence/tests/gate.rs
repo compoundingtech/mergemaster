@@ -6137,6 +6137,475 @@ fn mergemaster_bin() -> std::path::PathBuf {
     )
 }
 
+fn selective_reuse_fixture(authority: &str) -> Fixture {
+    use base64::{
+        Engine,
+        engine::general_purpose::{STANDARD, STANDARD_NO_PAD},
+    };
+    let mut f = Fixture::with_repository(Some("fixture/repo"));
+    let authorities: Vec<_> = [
+        (&f.key, "v2_service_issuer", PRINCIPAL, "service:fixture"),
+        (
+            &f.stranger,
+            "daemon_policy_receipt",
+            "host/broker",
+            "broker:fixture",
+        ),
+    ]
+    .into_iter()
+    .map(|(key, role, principal, endpoint)| {
+        let public = fs::read_to_string(key.with_extension("pub")).unwrap();
+        let fields: Vec<_> = public.split_whitespace().collect();
+        json!({
+            "key_id":format!("SHA256:{}", STANDARD_NO_PAD.encode(
+                sha2::Sha256::digest(STANDARD.decode(fields[1]).unwrap()))),
+            "public_key":format!("{} {}", fields[0], fields[1]),
+            "principal":principal,"role":role,"repository":"fixture/repo","endpoint_id":endpoint
+        })
+    })
+    .collect();
+    let mut policy = Fixture::policy("required_evidence");
+    policy["repository"] = json!("fixture/repo");
+    policy["lanes"][CHECK]["argv"] = json!(["/trusted/nix"]);
+    policy["lanes"][CHECK]["events"] = json!(["pull_request", "push", "queue", "merge_group"]);
+    // Source changes make distinct trees without changing the lane's input closure.
+    policy["lanes"][CHECK]["environment"]["paths"] = json!(["tools"]);
+    policy["lanes"][CHECK]["nix_check"] = json!({"attribute":format!("checks.{}.fixture", mergemaster_evidence::gate::config::current_system()),"required":"any"});
+    policy["lanes"][CHECK]["max_age_seconds"] = json!(86400);
+    if authority != "absent" {
+        policy["reuse_authorities"] = if authority == "malformed" {
+            json!([{"key_id":"invalid"}])
+        } else {
+            json!(authorities)
+        };
+        policy["lanes"][CHECK]["reuse"] =
+            json!({"version":1,"origin_profile":"same_repository_pr","platform":"linux"});
+    }
+    f.write(".mergemaster/lanes.json", policy.to_string());
+    let mut manifest = producer_manifest();
+    manifest["producers"][0]["flavor"] = json!("v2_service");
+    manifest["producers"][0]["executable_sha256"] = json!("a".repeat(64));
+    manifest["producers"][0]["system"] =
+        json!(mergemaster_evidence::gate::config::current_system());
+    f.write(".mergemaster/producers.json", manifest.to_string());
+    f.base = f.commit("BASE-only selective reuse test authority");
+    f.write("source.txt", "root execution\n");
+    f.refresh_head();
+    f
+}
+
+fn selective_nix_statement(f: &Fixture, mode: &str, v2: bool) -> Value {
+    let mut s = f.statement();
+    s["repository"] = json!("fixture/repo");
+    let drv = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-fixture.drv";
+    // Independent wire fixture: exercise the public gate without importing its
+    // crate-private command normalization helpers.
+    let settings = [
+        ("accept-flake-config", "false"),
+        ("pure-eval", "true"),
+        ("allow-import-from-derivation", "false"),
+        ("builders", ""),
+        ("build-hook", ""),
+        ("max-jobs", "1"),
+    ];
+    let settings_digest = hex::encode(sha2::Sha256::digest(serde_json::to_vec(&settings).unwrap()));
+    let mut argv = vec![
+        "/trusted/nix".to_owned(),
+        "--extra-experimental-features".into(),
+        "nix-command flakes".into(),
+    ];
+    for (name, value) in settings {
+        argv.extend(["--option".into(), name.into(), value.into()]);
+    }
+    argv.extend(
+        [
+            "--log-format",
+            "internal-json",
+            "build",
+            "--no-link",
+            "--json",
+            "--print-build-logs",
+        ]
+        .map(str::to_owned),
+    );
+    assert!(matches!(mode, "rebuild" | "reused"));
+    if mode == "rebuild" {
+        argv.extend(["--option", "substitute", "false", "--rebuild"].map(str::to_owned));
+    }
+    argv.push(format!("{drv}^*"));
+    let expected = s["predicate"]["observed"]["inputs"].clone();
+    let p = &mut s["predicate"];
+    p["observed"]["checks"][CHECK]["command"] = json!(argv);
+    for (name, value) in [
+        ("wrapper_sha256", "a".repeat(64)),
+        (
+            "system",
+            mergemaster_evidence::gate::config::current_system(),
+        ),
+        ("nix_derivation", drv.into()),
+        ("nix_execution", mode.into()),
+        ("nix_command_mode", mode.into()),
+        ("nix_settings_sha256", settings_digest.clone()),
+        ("nix_daemon_policy_sha256", "c".repeat(64)),
+        (
+            "nix_command_sha256",
+            hex::encode(sha2::Sha256::digest(serde_json::to_vec(&argv).unwrap())),
+        ),
+        ("nix_outputs_sha256", "e".repeat(64)),
+        ("nix_store", "daemon".into()),
+        ("nix_daemon_trusted", "true".into()),
+    ] {
+        p["observed"]["inputs"][name] = json!(value);
+    }
+    if v2 {
+        use base64::{
+            Engine,
+            engine::general_purpose::{STANDARD, STANDARD_NO_PAD},
+        };
+        let public = fs::read_to_string(f.key.with_extension("pub")).unwrap();
+        let blob = STANDARD
+            .decode(public.split_whitespace().nth(1).unwrap())
+            .unwrap();
+        p.as_object_mut().unwrap().remove("re_attests");
+        p["schema_version"] = json!(2);
+        p["attested_at"] = p["observed_at"].clone();
+        p["issuer"] = json!({
+            "key_id":format!("SHA256:{}", STANDARD_NO_PAD.encode(sha2::Sha256::digest(blob))),
+            "service_id":"service:fixture"
+        });
+        p["origin"] = json!({
+            "class":"same_repository_pr","repository":"fixture/repo","source_repository":"fixture/repo",
+            "subject_head":f.head,"accepted_base":f.base,"event_kind":"pull_request",
+            "pull_request":{"number":41,"head":f.head,"base_ref":"main"}
+        });
+        let mut expected = expected;
+        for name in [
+            "workspace_clean",
+            "untracked_files",
+            "attempt",
+            "wrapper_sha256",
+        ] {
+            expected.as_object_mut().unwrap().remove(name);
+        }
+        p["reuse_key"] = json!({
+            "version":1,"check":CHECK,"nix_derivation":drv,"expected_inputs":expected,
+            "nix_settings_sha256":settings_digest,
+            "nix_daemon_policy_sha256":"c".repeat(64),
+            "producer":{"executable_sha256":"a".repeat(64),"system":mergemaster_evidence::gate::config::current_system()}
+        });
+        // Opaque test bytes, not a broker protocol or a receipt-verification mock.
+        p["daemon_policy_receipt"] = json!({"opaque_test_value":"receipt contract undefined"});
+        p["observed"]["runner"] = json!("nix");
+        s["predicateType"] = json!(mergemaster_evidence::evidence::v2::PREDICATE_TYPE);
+    }
+    s
+}
+
+fn selective_reuse_pair(f: &mut Fixture) -> (String, Value) {
+    let root = selective_nix_statement(f, "rebuild", true);
+    let root_tree = f.tree.clone();
+    let root_record = f.note(&root, &f.key, "tree");
+    // The root stays as a real signed object, without a discovery ref.
+    f.git(
+        &[
+            "update-ref",
+            "-d",
+            &format!("refs/notes/evidence/{root_tree}/{root_record}"),
+        ],
+        b"",
+    );
+    f.write("source.txt", "candidate rebind after main move\n");
+    f.refresh_head();
+    assert_ne!(f.tree, root_tree);
+    let mut candidate = selective_nix_statement(f, "reused", true);
+    candidate["predicate"]["reused_from"] = json!(root_record);
+    candidate["predicate"]["observed_at"] = root["predicate"]["observed_at"].clone();
+    assert_eq!(
+        candidate["predicate"]["reuse_key"],
+        root["predicate"]["reuse_key"]
+    );
+    (root_record, candidate)
+}
+
+fn legacy_decision_fields(mut decision: Value) -> Value {
+    let object = decision.as_object_mut().unwrap();
+    object.remove("age_seconds");
+    object.remove("selective_reuse");
+    decision
+}
+
+fn assert_production_reuse_disabled(decision: &Value) {
+    assert_eq!(decision["version"], 1);
+    assert_eq!(
+        decision["selective_reuse"],
+        json!({
+            "version":1,"status":"disabled","reason":"receipt_contract_undefined"
+        })
+    );
+    assert_ne!(decision["decision"], "skip", "{decision}");
+    assert_eq!(decision["reason"], "untrusted_signer", "{decision}");
+    assert_eq!(decision["outcome"], "rejected", "{decision}");
+    assert!(decision["record"].is_null());
+    assert!(decision["observed_at"].is_null());
+}
+
+#[test]
+fn production_selective_reuse_stays_disabled_with_complete_fixtures() {
+    let mut f = selective_reuse_fixture("valid");
+    let (root, candidate) = selective_reuse_pair(&mut f);
+    assert_eq!(f.git(&["cat-file", "-t", &root], b""), "commit");
+    assert!(
+        f.git(
+            &[
+                "for-each-ref",
+                "--format=%(objectname)",
+                "refs/notes/evidence"
+            ],
+            b""
+        )
+        .is_empty()
+    );
+    let mut baseline = f.decision(&[]);
+    assert!(baseline.get("selective_reuse").is_none());
+    f.note(&candidate, &f.key, "tree");
+    let allowed = format!(
+        "gpg.ssh.allowedSignersFile={}",
+        f.repo.join(".mergemaster/evidence-keys").display()
+    );
+    f.git(
+        &[
+            "-c",
+            "gpg.format=ssh",
+            "-c",
+            &allowed,
+            "verify-commit",
+            &root,
+        ],
+        b"",
+    );
+    let output = f.root.path().join("selective-github-output");
+    let decision = f.decision(&["--github-output", output.to_str().unwrap()]);
+    assert_production_reuse_disabled(&decision);
+    baseline["reason"] = json!("untrusted_signer");
+    baseline["outcome"] = json!("rejected");
+    assert_eq!(
+        legacy_decision_fields(decision),
+        legacy_decision_fields(baseline)
+    );
+    let output = fs::read_to_string(output).unwrap();
+    assert!(output.contains("skip=false\n"));
+    assert!(output.contains("refuse=true\n"));
+    assert!(output.contains("refusal=untrusted_signer\n"));
+}
+
+#[test]
+fn disabled_v2_does_not_shadow_v1_success_or_failure() {
+    for exit_code in [0, 1] {
+        let mut f = selective_reuse_fixture("valid");
+        let (_, candidate) = selective_reuse_pair(&mut f);
+        let mut legacy = selective_nix_statement(&f, "rebuild", false);
+        legacy["predicate"]["observed_at"] =
+            json!((chrono::Utc::now() - chrono::Duration::seconds(60)).to_rfc3339());
+        legacy["predicate"]["observed"]["checks"][CHECK]["exit_code"] = json!(exit_code);
+        let record = f.note(&legacy, &f.key, "tree");
+        let baseline = f.decision(&[]);
+        assert_eq!(baseline["record"], record);
+        assert_eq!(
+            baseline["reason"],
+            if exit_code == 0 {
+                "satisfied"
+            } else {
+                "check_failed"
+            }
+        );
+        f.note(&candidate, &f.key, "legacy");
+        let after = f.decision(&[]);
+        assert!(after.get("selective_reuse").is_none(), "{after}");
+        assert_eq!(after["record"], record);
+        assert_eq!(after["observed_at"], legacy["predicate"]["observed_at"]);
+        assert_eq!(
+            legacy_decision_fields(after),
+            legacy_decision_fields(baseline)
+        );
+    }
+}
+
+#[test]
+fn missing_or_malformed_reuse_authority_preserves_legacy_gate() {
+    for authority in ["absent", "malformed"] {
+        for exit_code in [0, 1] {
+            let mut f = selective_reuse_fixture(authority);
+            let (_, candidate) = selective_reuse_pair(&mut f);
+            let v2_record = f.note(&candidate, &f.key, "tree");
+            let refused = f.decision(&[]);
+            assert_eq!(refused["reason"], "untrusted_signer");
+            assert_eq!(refused["outcome"], "rejected");
+            assert_eq!(
+                refused["selective_reuse"],
+                json!({
+                    "version":1,"status":"refused","reason":"reuse_authority_invalid"
+                })
+            );
+            f.git(
+                &[
+                    "update-ref",
+                    "-d",
+                    &format!("refs/notes/evidence/{}/{v2_record}", f.tree),
+                ],
+                b"",
+            );
+            let mut legacy = selective_nix_statement(&f, "rebuild", false);
+            legacy["predicate"]["observed"]["checks"][CHECK]["exit_code"] = json!(exit_code);
+            let record = f.note(&legacy, &f.key, "tree");
+            let baseline = f.decision(&[]);
+            f.note(&candidate, &f.key, "tree");
+            let after = f.decision(&[]);
+            assert!(
+                after.get("selective_reuse").is_none(),
+                "{authority}: {after}"
+            );
+            assert_eq!(after["record"], record);
+            assert_eq!(after["observed_at"], legacy["predicate"]["observed_at"]);
+            assert_eq!(
+                legacy_decision_fields(after),
+                legacy_decision_fields(baseline)
+            );
+        }
+    }
+}
+
+#[test]
+fn legacy_exact_head_reused_execution_is_unchanged() {
+    let f = selective_reuse_fixture("absent");
+    let statement = selective_nix_statement(&f, "reused", false);
+    let record = f.note(&statement, &f.key, "tree");
+    let decision = f.decision(&[]);
+    assert_eq!(decision["decision"], "skip");
+    assert_eq!(decision["outcome"], "reused");
+    assert_eq!(decision["reason"], "execution_reused");
+    assert_eq!(decision["record"], record);
+    assert_eq!(
+        decision["observed_at"],
+        statement["predicate"]["observed_at"]
+    );
+    assert!(decision.get("selective_reuse").is_none());
+}
+
+#[test]
+fn fork_push_local_queue_and_merge_group_cannot_reuse() {
+    for origin in ["fork", "push", "local", "queue", "merge_group"] {
+        let mut f = selective_reuse_fixture("valid");
+        let (_, mut candidate) = selective_reuse_pair(&mut f);
+        match origin {
+            "fork" => {
+                candidate["predicate"]["origin"]["class"] = json!("fork_pr");
+                candidate["predicate"]["origin"]["source_repository"] = json!("fork/repo");
+            }
+            "push" | "local" => {
+                let o = &mut candidate["predicate"]["origin"];
+                o["class"] = json!(origin);
+                o["event_kind"] = json!(origin);
+                o.as_object_mut().unwrap().remove("pull_request");
+            }
+            _ => {}
+        }
+        let decide = || match origin {
+            "push" => f.push("refs/heads/main", &f.head, &f.head),
+            "queue" => f.decision(&["--event", "queue"]),
+            "merge_group" => merge_group_decision(&f, &merge_group_event(&f), &[]),
+            _ => f.decision(&[]),
+        };
+        let mut baseline = decide();
+        f.note(&candidate, &f.key, "tree");
+        let after = decide();
+        assert_ne!(after["decision"], "skip", "{origin}: {after}");
+        assert_ne!(after["selective_reuse"]["status"], "validated");
+        assert!(after["selective_reuse"].get("root_record").is_none());
+        if baseline["reason"] == "no_record" {
+            baseline["reason"] = json!("untrusted_signer");
+            baseline["outcome"] = json!("rejected");
+        }
+        assert_eq!(
+            legacy_decision_fields(after),
+            legacy_decision_fields(baseline),
+            "{origin}"
+        );
+    }
+}
+
+#[test]
+fn decision_root_provenance_has_no_fresh_execution_claim() {
+    for source in ["unreferenced", "missing", "unverified"] {
+        let mut f = selective_reuse_fixture("valid");
+        let (root, mut candidate) = selective_reuse_pair(&mut f);
+        let cited = match source {
+            "missing" => "f".repeat(40),
+            "unverified" => {
+                let root_statement = selective_nix_statement(&f, "rebuild", true);
+                f.note(&root_statement, &f.stranger, "tree")
+            }
+            _ => root,
+        };
+        candidate["predicate"]["reused_from"] = json!(cited);
+        f.note(&candidate, &f.key, "tree");
+        let decision = f.decision(&[]);
+        // Sealed production decoding refuses before signature/root lookup. Even
+        // a real cited object is not verified provenance or a fresh execution.
+        assert_production_reuse_disabled(&decision);
+        assert!(decision.get("root_record").is_none());
+        assert!(decision["selective_reuse"].get("root_record").is_none());
+        assert!(decision["signer"].is_null());
+        assert!(decision["age_seconds"].is_null());
+    }
+}
+
+#[test]
+fn gate_reuse_validation_never_invokes_nix_or_fetch() {
+    let mut f = selective_reuse_fixture("valid");
+    let (_, candidate) = selective_reuse_pair(&mut f);
+    // Keep an ordinary v1 record: the tripwire must not replace real Git or
+    // SSH verification with a fake successful verifier.
+    let legacy = selective_nix_statement(&f, "rebuild", false);
+    f.note(&candidate, &f.key, "tree");
+    let git = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+        .map(|path| path.join("git"))
+        .find(|path| path.is_file())
+        .unwrap();
+    let bin = f.root.path().join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    write_executable(
+        &bin.join("git"),
+        &format!(
+            "#!/bin/sh\nfor arg do\ncase \"$arg\" in fetch|fetch-pack|clone|ls-remote) echo fetch >> \"$HOME/reuse-tripwire\"; exit 97;; esac\ndone\nexec '{}' \"$@\"\n",
+            git.display()
+        ),
+    );
+    for program in [
+        "nix",
+        "nix-store",
+        "git-remote-http",
+        "git-remote-https",
+        "git-remote-ssh",
+    ] {
+        write_executable(
+            &bin.join(program),
+            "#!/bin/sh\necho forbidden >> \"$HOME/reuse-tripwire\"\nexit 97\n",
+        );
+    }
+    assert_production_reuse_disabled(&f.decision(&[]));
+    let mut missing = candidate.clone();
+    missing["predicate"]["reused_from"] = json!("f".repeat(40));
+    f.note(&missing, &f.key, "tree");
+    assert_production_reuse_disabled(&f.decision(&[]));
+    let record = f.note(&legacy, &f.key, "tree");
+    let decision = f.decision(&[]);
+    assert_eq!(decision["record"], record);
+    assert_eq!(decision["reason"], "satisfied");
+    assert_eq!(decision["decision"], "skip");
+    assert!(decision.get("selective_reuse").is_none());
+    assert!(!f.root.path().join("reuse-tripwire").exists());
+}
+
 #[test]
 fn production_v2_objects_stay_disabled_and_caller_keys_grant_no_authority() {
     use base64::{
@@ -6237,6 +6706,7 @@ fn production_v2_objects_stay_disabled_and_caller_keys_grant_no_authority() {
     let decision = f.decision(&[]);
     assert_eq!(decision["decision"], "refuse");
     assert_eq!(decision["reason"], "untrusted_signer");
+    assert_production_reuse_disabled(&decision);
 }
 
 #[test]

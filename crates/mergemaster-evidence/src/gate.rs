@@ -56,14 +56,36 @@ pub struct VerifyArgs {
     /// Current immutable BASE; required for scoped v2 issuer authority.
     #[arg(long)]
     pub base: Option<String>,
+    #[arg(long)]
+    pub check: Option<String>,
 }
 
 pub fn verify_worker(args: VerifyArgs) -> Result<()> {
-    let statement = evidence::verified::verify_record(
+    if evidence::record_is_v2(&args.repo, &args.record)? {
+        #[derive(Serialize)]
+        struct Refused<'a> {
+            version: u32,
+            record: &'a str,
+            statement: (),
+            verified_signer: (),
+            verified_key_id: (),
+            selective_reuse: reuse::SelectiveReuse,
+        }
+        let reply = Refused {
+            version: 2,
+            record: &args.record,
+            statement: (),
+            verified_signer: (),
+            verified_key_id: (),
+            selective_reuse: reuse::worker(&args)?,
+        };
+        println!("{}", serde_json::to_string(&reply)?);
+        return Ok(());
+    }
+    let statement = evidence::verified::legacy_record::<evidence::v2::DaemonPolicyReceipt>(
         &args.repo,
         &args.record,
         &args.keys,
-        args.base.as_deref(),
     )?;
     println!("{}", serde_json::to_string(&statement)?);
     Ok(())
@@ -92,6 +114,8 @@ pub struct Decision {
     pub input_key_equal: Option<bool>,
     pub compared_record: Option<ComparedRecord>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub selective_reuse: Option<reuse::SelectiveReuse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub repository_refused: Option<usize>,
     pub protected_paths: Vec<String>,
     pub summary: String,
@@ -119,6 +143,7 @@ impl Decision {
         self.outcome = "rejected";
         self.reason = reason;
         self.record = None;
+        self.selective_reuse = None;
         self.summary = summary;
     }
 }
@@ -643,6 +668,7 @@ fn compute(
             lane_definition_sha256: None,
             input_key_equal: None,
             compared_record: None,
+            selective_reuse: None,
             repository_refused: None,
         });
     }
@@ -674,6 +700,7 @@ fn compute(
                 lane_definition_sha256: None,
                 input_key_equal: None,
                 compared_record: None,
+                selective_reuse: None,
                 repository_refused: None,
             });
         }
@@ -706,6 +733,7 @@ fn compute(
         lane_definition_sha256: None,
         input_key_equal: None,
         compared_record: None,
+        selective_reuse: None,
         repository_refused: None,
     };
     if queue {
@@ -897,6 +925,7 @@ fn compute(
     }
     let (records, malformed, other_tree) = records(repo, &decision.tree)?;
     let mut candidates = Vec::new();
+    let mut reuse_attempt = None;
     decision.outcome = "no_note";
     decision.reason = if malformed {
         "invalid_record"
@@ -936,15 +965,24 @@ fn compute(
             .arg(keys.path())
             .arg("--base")
             .arg(base)
+            .arg("--check")
+            .arg(check)
             .output()?;
         if !output.status.success() {
             decision.reason = "untrusted_signer";
             decision.outcome = "rejected";
             continue;
         }
-        let Some(statement) = evidence::verified::legacy_worker_statement(&output.stdout, &id)?
-        else {
-            continue;
+        let statement = match evidence::verified::worker_statement(&output.stdout, &id)? {
+            evidence::verified::WorkerStatement::Legacy(statement) => *statement,
+            evidence::verified::WorkerStatement::Selective(diagnostic) => {
+                // Preserve the legacy worker rejection without admitting a
+                // trusted timestamp or failure into candidate selection.
+                reuse_attempt.get_or_insert(diagnostic);
+                decision.reason = "untrusted_signer";
+                decision.outcome = "rejected";
+                continue;
+            }
         };
         if let Some(reason) = repository_refusal(
             config.policy.repository.as_deref(),
@@ -1071,6 +1109,7 @@ fn compute(
     } else {
         candidates.pop()
     }) else {
+        decision.selective_reuse = reuse_attempt;
         return Ok(decision);
     };
     if selected.is_none()
@@ -1508,6 +1547,8 @@ fn compare(repo: &Path, args: &Args, head: &str, decision: &mut Decision) -> Res
             .arg(keys.path())
             .arg("--base")
             .arg(&args.base)
+            .arg("--check")
+            .arg(&args.check)
             .output()?;
         if !output.status.success() {
             continue;
