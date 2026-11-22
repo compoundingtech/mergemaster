@@ -232,7 +232,7 @@
             noop_test_toolchain(name = "test", visibility = ["PUBLIC"])
             remote_test_execution_toolchain(name = "remote_test_execution", visibility = ["PUBLIC"])
 
-            load(":buck2/resource-exports.bzl", "export_cargo_resources")
+            load("//buck2:resource-exports.bzl", "export_cargo_resources")
             export_cargo_resources()
           '');
           buckShell = {
