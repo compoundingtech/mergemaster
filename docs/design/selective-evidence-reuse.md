@@ -351,18 +351,30 @@ workflow produce/reproduce manifest bytes, including separately verified
 release attestations (`README:707-738,740-762`). They do not authenticate a
 running evidence caller. Do not describe those landed changes as enforcement.
 
+Strict v2 format and gate root validation landed on main, disabled, through
+#448 (`2a3426c8`, v2 types), #447 (`c4a93821`, BASE reuse authority),
+#450 (`c00e63b4`, verified v2 loading/direct root lookup), #451 (`7b437d15`,
+pure validator) and #452 (`4bd95730`, gate orchestration). Code locations below
+refer to `crates/mergemaster-evidence/src/` at `4bd95730`. Production uses only
+the sealed `DaemonPolicyReceipt`, whose decoder refuses every receipt
+(`evidence/v2.rs:19-26,178-185`); v2 therefore fails closed before signature
+verification or root lookup (`evidence/verified.rs:197-204`,
+`gate/reuse.rs:17-41`). V1 decisions and outputs are unchanged, including legacy
+worker rejection and selection (`gate.rs:971-984,1110-1114`).
+
 Required before enabling any lane:
 
 | Capability | Responsible owner | Acceptance boundary |
 |---|---|---|
-| Protected execution/signing service and authenticated origin adapter | Mergemaster evidence/signing owner with host/CI deployment owner | No caller status/digest authority; isolated keys; service measures executing producer and owns root/rebind operation (§3, §5). |
-| Daemon-policy broker, receipt schema and enrolled keys/profile | Nix/host execution owner with security review | Effective policy bound to entire operation; no client-config substitute (§4). |
-| Strict v2 format and gate root validation | Mergemaster evidence/gate owner | Current BASE verification, direct root lookup, finite age, equality checks, origin/receipt validation; no Nix in gate (§3, §5). |
-| Reuse-only manifest enforcement and BASE policy rollout | Mergemaster gate/policy owner | Require manifest plus signed system and listed measured producer for both notes; existing report-only matching alone cannot authorize (§3). Explicit BASE profile/receipt keys and lane opt-in; malformed/absent authority refuses reuse. |
-| Root/receipt object availability | Evidence transport/storage owner | Publish immutable root and receipt bytes with rebind, retain through lane lifetime; gate verifies IDs/signatures, never trusts transport. |
+| Protected execution/signing service and authenticated origin adapter | Owner not yet confirmed; evidence/signing and host/CI deployment ownership needed | Pending: no production authenticated-context constructor; the worker supplies no context (`gate/reuse.rs:33-39,73-100`). Still require no caller status/digest authority, isolated keys, service measurement of the executing producer and ownership of root/rebind operation (§3, §5). |
+| Daemon-policy broker, receipt schema and enrolled keys/profile | Build Capacity broker design; Mergemaster-side verifier is slice 4 | Waiting for Build Capacity's broker design and Q7/Q8 in §9.7. Production receipt decoding and accepted-proof construction remain unavailable (`evidence/v2.rs:178-185`, `gate/reuse.rs:101-117`); effective policy must bind the entire operation, with no client-config substitute (§4). |
+| Strict v2 format and gate root validation | Mergemaster evidence/gate owner | Landed, disabled (#448/#447/#450/#451/#452): strict types, current BASE verification, direct root lookup, finite age and equality/origin checks (`evidence/v2.rs:28-185`, `evidence/verified.rs:197-293`, `gate/reuse.rs:136-269`). Generic orchestration exists; production receipt/origin proofs remain unavailable and admission refuses unconditionally (`gate/reuse_orchestration.rs:136-261`). No Nix in gate (§3, §5). |
+| Reuse-only manifest enforcement and BASE policy rollout | Mergemaster gate/policy owner | Verifier-side enforcement landed, disabled: BASE manifest loading and reuse-only `v2_service`/digest/signed-system authorization (`gate/config.rs:148-159,621-630`), checked for both notes (`gate/reuse.rs:222-234`). BASE profile/receipt-key and lane-opt-in parsing also landed (`gate/config.rs:1271-1369`); absent/malformed authority refuses reuse. Actual service measurement and deployment/enrollment rollout remain prerequisites (§3); legacy report-only matching is unchanged. |
+| Root/receipt object availability | Mergemaster via Git notes; receipt dependency publication/retention awaits broker agreement | Existing immutable note refs (`evidence/mod.rs:845-858`) and bounded `load_candidate`/`load_root` readers exist (`evidence/verified.rs:16-17,88-120,252-293`): note/commit/tree limits are 128 KiB/16 KiB/4 KiB; missing/oversized objects refuse, with no gate fetch. Rebind dependency publication and lifetime retention are not implemented by these readers; receipt embedding/references, packaging and retention await §9.7 Q8. Transport never grants authority. |
 
-No implementation is included here. Until all prerequisites land, selective
-reuse stays disabled; report-only producer manifests remain report-only.
+Disabled verifier foundations are implemented; service, broker and availability
+prerequisites remain. Selective reuse stays disabled until all prerequisites land;
+legacy report-only producer manifests remain report-only.
 
 ## 7. Out of scope
 
