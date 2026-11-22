@@ -1182,7 +1182,22 @@ fn raw_object(object: &PolicyObject) -> Result<Box<serde_json::value::RawValue>>
     Ok(serde_json::value::to_raw_value(object)?)
 }
 
+fn decode_reuse_object<T: serde::de::DeserializeOwned>(raw: &str) -> Result<T> {
+    let object: PolicyObject = serde_json::from_str(raw)?;
+    let mut fields = BTreeSet::new();
+    ensure!(
+        object.0.iter().all(|(name, _)| fields.insert(name)),
+        "duplicate reuse object member"
+    );
+    Ok(serde_json::from_str(raw)?)
+}
+
 fn decode_policy(bytes: &[u8]) -> Result<Policy> {
+    let raw: &serde_json::value::RawValue = serde_json::from_slice(bytes)?;
+    if !raw.get().starts_with('{') {
+        // Legacy derived decoders also accept declaration-order sequences.
+        return Ok(serde_json::from_slice(bytes)?);
+    }
     let mut object: PolicyObject = serde_json::from_slice(bytes)?;
     let mut invalid = None;
     let authorities = object.take_extension("reuse_authorities", &mut invalid);
@@ -1190,12 +1205,34 @@ fn decode_policy(bytes: &[u8]) -> Result<Policy> {
     // Do not select HEAD/worktree policy or alter ordinary duplicate-field errors.
     for (name, value) in &mut object.0 {
         if name == "lanes" {
+            if !value.get().starts_with('{') {
+                continue;
+            }
             let mut lanes: PolicyObject = serde_json::from_str(value.get())?;
+            let mut seen = BTreeSet::new();
+            let mut duplicates = BTreeSet::new();
+            for (check, _) in &lanes.0 {
+                if !seen.insert(check.as_str()) {
+                    duplicates.insert(check.clone());
+                }
+            }
             for (check, value) in &mut lanes.0 {
-                lane_reuse.remove(check);
+                if !value.get().starts_with('{') {
+                    continue;
+                }
                 let mut lane: PolicyObject = serde_json::from_str(value.get())?;
                 if let Some(reuse) = lane.take_extension("reuse", &mut invalid) {
-                    lane_reuse.insert(check.clone(), reuse);
+                    if duplicates.contains(check) {
+                        invalid = Some(format!("duplicate reuse lane {check}"));
+                    }
+                    match decode_reuse_object::<LaneReuse>(reuse.get()) {
+                        Ok(reuse) => {
+                            lane_reuse.insert(check.clone(), reuse);
+                        }
+                        Err(error) => {
+                            invalid.get_or_insert_with(|| error.to_string());
+                        }
+                    }
                 }
                 *value = raw_object(&lane)?;
             }
@@ -1209,15 +1246,18 @@ fn decode_policy(bytes: &[u8]) -> Result<Policy> {
     } else {
         let parsed = (|| -> Result<ReusePolicy> {
             ensure!(invalid.is_none(), "{}", invalid.as_deref().unwrap_or(""));
-            let authorities: Vec<ReuseKeyAuthority> = serde_json::from_str(
+            let raw_authorities: Vec<Box<serde_json::value::RawValue>> = serde_json::from_str(
                 authorities
                     .as_ref()
                     .context("missing reuse_authorities")?
                     .get(),
             )?;
+            let authorities: Vec<ReuseKeyAuthority> = raw_authorities
+                .iter()
+                .map(|raw| decode_reuse_object(raw.get()))
+                .collect::<Result<_>>()?;
             let mut lanes = BTreeMap::new();
-            for (check, raw) in lane_reuse {
-                let reuse: LaneReuse = serde_json::from_str(raw.get())?;
+            for (check, reuse) in lane_reuse {
                 let lane = policy.lanes.get(&check).context("unknown reuse lane")?;
                 ensure!(
                     reuse.version == 1
@@ -1635,5 +1675,100 @@ mod reuse_policy_tests {
             &"c".repeat(64),
             Some("x86_64-linux")
         ));
+    }
+
+    #[test]
+    fn duplicate_reuse_lanes_are_invalid_in_both_orders() {
+        let value = policy();
+        let valid = value["lanes"]["format"].to_string();
+        let mut malformed = value["lanes"]["format"].clone();
+        malformed["reuse"] = Value::Null;
+        let mut ordinary = value["lanes"]["format"].clone();
+        ordinary.as_object_mut().unwrap().remove("reuse");
+        for (first, second) in [
+            (malformed.to_string(), valid.clone()),
+            (valid.clone(), malformed.to_string()),
+            (ordinary.to_string(), valid.clone()),
+            (valid, ordinary.to_string()),
+        ] {
+            let raw = value.to_string().replace(
+                &format!("\"lanes\":{}", value["lanes"]),
+                &format!("\"lanes\":{{\"format\":{first},\"format\":{second}}}"),
+            );
+            match decode_policy(raw.as_bytes()).unwrap().reuse_authority {
+                ReuseAuthority::Invalid(reason) => {
+                    assert!(reason.contains("duplicate reuse lane"), "{reason}");
+                }
+                other => panic!("expected Invalid, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn reuse_structures_require_objects_not_positional_arrays() {
+        let mut value = policy();
+        value["lanes"]["format"]["reuse"] = json!([1, "same_repository_pr", "linux"]);
+        assert_invalid(&value);
+        let mut value = policy();
+        let entry = &value["reuse_authorities"][0];
+        value["reuse_authorities"][0] = json!([
+            entry["key_id"],
+            entry["public_key"],
+            entry["principal"],
+            entry["role"],
+            entry["repository"],
+            entry["endpoint_id"]
+        ]);
+        assert_invalid(&value);
+        let mut value = policy();
+        value["reuse_authorities"] = value["reuse_authorities"][0].clone();
+        assert_invalid(&value);
+    }
+
+    #[test]
+    fn legacy_sequence_form_policies_and_lanes_preserve_typed_decoding() {
+        let mut value = policy();
+        value.as_object_mut().unwrap().remove("reuse_authorities");
+        let lane = &value["lanes"]["format"];
+        let sequence = json!([
+            lane["argv"],
+            false,
+            lane["definition_paths"],
+            lane["trust_levels"],
+            lane["mode"],
+            lane["events"],
+            lane["environment"],
+            lane["protected_edits"],
+            [],
+            [],
+            lane["remediation_argv"],
+            lane["max_age_seconds"],
+            lane["nix_check"],
+            {},
+            []
+        ]);
+        // Establish the old derived Lane accepts this exact representation.
+        let expected: Lane = serde_json::from_value(sequence.clone()).unwrap();
+        value["lanes"]["format"] = sequence;
+        let root_sequence = json!([
+            value["version"],
+            value["repository"],
+            null,
+            value["pull_request"],
+            value["protected_paths"],
+            [],
+            value["lanes"]
+        ]);
+        for value in [value, root_sequence] {
+            let raw = serde_json::to_vec(&value).unwrap();
+            let original: Policy = serde_json::from_slice(&raw).unwrap();
+            let decoded = decode_policy(&raw).unwrap();
+            assert_eq!(format!("{decoded:?}"), format!("{original:?}"));
+            assert!(matches!(decoded.reuse_authority, ReuseAuthority::Absent));
+            assert_eq!(
+                serde_json::to_vec(&decoded.lanes["format"]).unwrap(),
+                serde_json::to_vec(&expected).unwrap()
+            );
+        }
     }
 }
