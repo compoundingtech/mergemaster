@@ -41,14 +41,17 @@ fn compare(command: &str, args: &[&str]) {
         Some(99),
         "nonterminal case {command} {args:?}"
     );
-    let native = Command::new(env!("CARGO_BIN_EXE_mergemaster"))
-        .args(["evidence", command])
-        .args(args)
-        .env("COLUMNS", "80")
-        .env("NO_COLOR", "1")
-        .env_remove("FORCE_COLOR")
-        .output()
-        .unwrap();
+    let native = Command::new(
+        std::env::var_os("CARGO_BIN_EXE_mergemaster")
+            .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+    )
+    .args(["evidence", command])
+    .args(args)
+    .env("COLUMNS", "80")
+    .env("NO_COLOR", "1")
+    .env_remove("FORCE_COLOR")
+    .output()
+    .unwrap();
     same(&program, args, native, python);
 }
 fn same(program: &str, args: &[&str], native: Output, python: Output) {

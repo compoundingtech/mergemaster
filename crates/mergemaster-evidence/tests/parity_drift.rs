@@ -15,7 +15,10 @@ fn python_oracle_parity() {
     let status = pinned_python::command()
         .args(["-B", "-c", DRIVER])
         .arg(root)
-        .arg(env!("CARGO_BIN_EXE_mergemaster"))
+        .arg(
+            std::env::var_os("CARGO_BIN_EXE_mergemaster")
+                .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+        )
         .status()
         .expect("run unchanged Python oracle against Rust");
     assert!(status.success(), "differential suite failed: {status}");

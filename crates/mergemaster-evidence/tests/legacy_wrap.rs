@@ -9,9 +9,15 @@ fn replay(group: &str) {
     let output = pinned_python::command()
         .args(["-B", "-c", DRIVER])
         .arg(group)
-        .arg(env!("CARGO_BIN_EXE_mergemaster"))
+        .arg(
+            std::env::var_os("CARGO_BIN_EXE_mergemaster")
+                .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+        )
         .arg(oracle)
-        .arg(env!("CARGO_MANIFEST_DIR"))
+        .arg(std::path::PathBuf::from(
+            std::env::var_os("CARGO_MANIFEST_DIR")
+                .expect("CARGO_MANIFEST_DIR is set at test runtime"),
+        ))
         .output()
         .expect("launch legacy wrapper parity driver");
     assert!(
@@ -322,6 +328,7 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
         signer = [sys.executable, '-I', '-c', 'import sys; sys.stdin.buffer.read(); ' + dump_code(signer_dump) + '; sys.exit(7)']
         done = invoke(True, [sys.executable, '-I', '-c', dump_code(lane_dump)], signer=signer,
                       extra=dict(EVIDENCE_PUSH_TOKEN='secret-token-xyz', EVIDENCE_SIGNER='private-signer-command', WRAP_CUSTOM_ENV='preserved',
+                                 GH_TOKEN='github-cli-secret', GITHUB_TOKEN='github-actions-secret',
                                  GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='http.extraheader', GIT_CONFIG_VALUE_0='caller-secret',
                                  GIT_CONFIG_GLOBAL=str(root / 'private-config'), GIT_CONFIG_PARAMETERS="'http.extraheader=caller-secret'"))
         assert done.returncode == 1 and b'the signer refused' in done.stderr, done.stderr
@@ -330,6 +337,11 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
             assert 'EVIDENCE_PUSH_TOKEN' not in seen and 'EVIDENCE_SIGNER' not in seen, path
             assert not any(key.startswith('GIT_CONFIG_') for key in seen), seen
             assert seen['WRAP_CUSTOM_ENV'] == 'preserved'
+            if path == signer_dump:
+                assert 'GH_TOKEN' not in seen and 'GITHUB_TOKEN' not in seen, seen
+            else:
+                assert seen['GH_TOKEN'] == 'github-cli-secret'
+                assert seen['GITHUB_TOKEN'] == 'github-actions-secret'
     elif group == 'redaction':
         token = 'secret-token-xyz'
         header = base64.b64encode(('x-access-token:' + token).encode()).decode()

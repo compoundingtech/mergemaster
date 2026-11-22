@@ -192,26 +192,29 @@ esac
         }
     }
     fn run(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_mergemaster"))
-            .args([
-                "evidence",
-                "flip-ready",
-                "--repo",
-                "org/repo",
-                "--cache",
-                self.cache.to_str().unwrap(),
-                "--now",
-                "2026-10-22T12:00:00Z",
-            ])
-            .args(args)
-            .current_dir(&self.root)
-            .env("DATA", &self.data)
-            .env(
-                "PATH",
-                format!("{}:{}", self.bin.display(), std::env::var("PATH").unwrap()),
-            )
-            .output()
-            .unwrap()
+        Command::new(
+            std::env::var_os("CARGO_BIN_EXE_mergemaster")
+                .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+        )
+        .args([
+            "evidence",
+            "flip-ready",
+            "--repo",
+            "org/repo",
+            "--cache",
+            self.cache.to_str().unwrap(),
+            "--now",
+            "2026-10-22T12:00:00Z",
+        ])
+        .args(args)
+        .current_dir(&self.root)
+        .env("DATA", &self.data)
+        .env(
+            "PATH",
+            format!("{}:{}", self.bin.display(), std::env::var("PATH").unwrap()),
+        )
+        .output()
+        .unwrap()
     }
     fn run_python(&self, args: &[&str]) -> Output {
         let source = PathBuf::from(

@@ -200,14 +200,14 @@ impl Fixture {
     ) -> Output {
         let signer = signer.unwrap_or_else(|| {
             json!([
-                env!("CARGO_BIN_EXE_mergemaster"),
+                mergemaster_bin(),
                 "evidence",
                 "sign",
                 "--config",
                 self.config
             ])
         });
-        let mut command = self.command(env!("CARGO_BIN_EXE_mergemaster"));
+        let mut command = self.command(mergemaster_bin());
         command
             .args([
                 "evidence", "wrap", "--check", CHECK, "--base", &self.base, "--config",
@@ -224,7 +224,7 @@ impl Fixture {
     }
     fn gate(&self) -> Value {
         let output = self
-            .command(env!("CARGO_BIN_EXE_mergemaster"))
+            .command(mergemaster_bin())
             .args([
                 "gate", "--check", CHECK, "--base", &self.base, "--head", &self.head, "--format",
                 "json",
@@ -432,7 +432,7 @@ fn undeclared_inputs_mutations_and_signer_time_tampering_refuse() {
                 "-c",
                 "printf changed > node_modules/fixture/index.js; exec \"$@\"",
                 "signer",
-                env!("CARGO_BIN_EXE_mergemaster"),
+                mergemaster_bin(),
                 "evidence",
                 "sign",
                 "--config",
@@ -648,24 +648,26 @@ fn externally_terminated_lanes_are_not_signed_or_stored() {
 }
 
 #[test]
-fn segfault_is_signed_with_signal_exit_code() {
-    let f = Fixture::new(
-        "required_evidence",
-        "ulimit -c 0; printf crashed; kill -SEGV $$",
-    );
-    let output = f.wrap(None, None);
-    assert_eq!(output.status.code(), Some(139));
-    assert_eq!(output.stdout, b"crashed");
-    assert!(!f.refs().is_empty());
-    let record = f.refs();
-    let tree = f.git(&["rev-parse", "HEAD^{tree}"]);
-    let note = f.git(&["show", &format!("{record}:{tree}")]);
-    let statement: Value = serde_json::from_str(&note).unwrap();
-    assert_eq!(
-        statement["predicate"]["observed"]["checks"][CHECK]["exit_code"],
-        139
-    );
-    assert_eq!(f.gate()["decision"], "refuse");
+fn crash_and_resource_limit_signals_are_signed_with_signal_exit_codes() {
+    for (signal, exit_code) in [("SEGV", 139), ("XCPU", 152), ("ALRM", 142)] {
+        let f = Fixture::new(
+            "required_evidence",
+            &format!("ulimit -c 0; printf crashed; kill -{signal} $$"),
+        );
+        let output = f.wrap(None, None);
+        assert_eq!(output.status.code(), Some(exit_code), "{signal}");
+        assert_eq!(output.stdout, b"crashed");
+        let record = f.refs();
+        assert!(!record.is_empty());
+        let tree = f.git(&["rev-parse", "HEAD^{tree}"]);
+        let note = f.git(&["show", &format!("{record}:{tree}")]);
+        let statement: Value = serde_json::from_str(&note).unwrap();
+        assert_eq!(
+            statement["predicate"]["observed"]["checks"][CHECK]["exit_code"],
+            exit_code
+        );
+        assert_eq!(f.gate()["decision"], "refuse");
+    }
 }
 
 #[test]
@@ -721,6 +723,35 @@ fn signer_unavailability_differs_from_explicit_policy_refusal() {
 }
 
 #[test]
+fn signer_refusal_wins_over_broken_stdin_but_not_signal_death() {
+    for (ending, code) in [
+        ("exit 1", 1),
+        ("kill -SEGV $$", 75),
+        ("kill -XCPU $$", 75),
+        ("kill -ALRM $$", 75),
+    ] {
+        // Larger than the stdin pipe: this signer never reads stdin, forcing EPIPE.
+        let f = Fixture::new("required_evidence", "printf '%01048576d' 0");
+        let script = format!(
+            "ulimit -c 0; exec 0<&-; printf 'policy denied\\n'; printf 'policy denied\\n' >&2; {ending}"
+        );
+        let output = f.wrap(Some(json!([f.runtime, "-c", script])), None);
+        assert_eq!(output.status.code(), Some(code), "{ending}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if code == 1 {
+            assert!(stderr.contains("evidence signer refused: policy denied"));
+            assert!(!stderr.contains("infra_unavailable"));
+        } else {
+            assert_eq!(
+                stderr.lines().next(),
+                Some("mergemaster: infra_unavailable class=signer_unavailable")
+            );
+        }
+        assert!(f.refs().is_empty());
+    }
+}
+
+#[test]
 fn preconditions_fail_before_execution() {
     for case in [
         "dirty",
@@ -749,7 +780,7 @@ fn preconditions_fail_before_execution() {
             "argv" => argv = Some(vec!["/bin/true".into()]),
             "missing_signer" => {
                 let out = f
-                    .command(env!("CARGO_BIN_EXE_mergemaster"))
+                    .command(mergemaster_bin())
                     .args([
                         "evidence", "wrap", "--check", CHECK, "--base", &f.base, "--config",
                     ])
@@ -805,16 +836,10 @@ fn postconditions_and_signing_or_publication_fail_closed() {
         }
         // The lane inherits the real environment, including account-local dependency setup.
         let signer = signer.unwrap_or_else(|| {
-            json!([
-                env!("CARGO_BIN_EXE_mergemaster"),
-                "evidence",
-                "sign",
-                "--config",
-                f.config
-            ])
+            json!([mergemaster_bin(), "evidence", "sign", "--config", f.config])
         });
         let out = f
-            .command(env!("CARGO_BIN_EXE_mergemaster"))
+            .command(mergemaster_bin())
             .env("TEST_DEPENDENCY", &f.dependency)
             .args([
                 "evidence", "wrap", "--check", CHECK, "--base", &f.base, "--config",
@@ -917,7 +942,7 @@ fn signer_independently_rejects_forged_requests_and_unsafe_configuration() {
         } else {
             serde_json::to_vec(&request).unwrap()
         };
-        let mut command = f.command(env!("CARGO_BIN_EXE_mergemaster"));
+        let mut command = f.command(mergemaster_bin());
         command.args(["evidence", "sign", "--config"]).arg(config);
         if case == "loader" {
             command.env("PYTHONPATH", "/untrusted");
@@ -941,4 +966,11 @@ fn signer_independently_rejects_forged_requests_and_unsafe_configuration() {
         assert!(f.refs().is_empty());
         assert!(!f.counter.exists(), "signer must not execute the lane");
     }
+}
+
+fn mergemaster_bin() -> std::path::PathBuf {
+    std::path::PathBuf::from(
+        std::env::var_os("CARGO_BIN_EXE_mergemaster")
+            .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+    )
 }

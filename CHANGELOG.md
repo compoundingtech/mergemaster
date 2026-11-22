@@ -2,10 +2,12 @@
 
 ## Unreleased
 
+- Resolve wrapper and queue-binding review follow-ups: cover signer refusal with broken stdin, refusal followed by signal death, SIGXCPU and SIGALRM; document retry/publication and hung-signer limitations; restrict authority-bearing policy paths to ASCII with typed errors while preserving Unicode alias protection for changed paths, and clarify generated-path consumer responsibilities.
 - Isolate native `legacy-wrap` publication in a fresh bare repository with strict pack validation, validate literal GitHub remote URLs (or caller-explicit credential-free absolute local paths), refuse checkout-configured local destinations that could execute receive hooks, ignore push URLs and checkout/caller transport configuration, and scope the environment-only token header to the validated HTTPS URL. Strip caller `GIT_CONFIG_*` overrides from lane/signer children; document the intentional Python divergence and signal-cleanup limitation.
 - Update local `st-test` publication fixtures to pass trusted credential-free absolute destinations explicitly, capture native wrapper diagnostics, distinguish wrapper refusals from the caller's own retry publication, and verify that checkout push URLs cannot redirect explicit publication.
 - Fix isolated `legacy-wrap` publication before the branch is pushed: expose the checkout's common object store as a read-only alternate so strict pack validation and evidence pushes can access and transfer subject history. Preserve transport/config isolation and follow object-store alternates only. Copy validated shallow boundaries without a full-history preflight; let push discover unavailable objects and report typed missing-history errors without fetching.
 - Bind every isolated publication ref to the signed record and refuse conflicting checkout ref targets before transport. Disable alternate-store commit-graph, multi-pack-index and bitmap traversal metadata for publication and Git subprocesses; refuse symlinked or oversized shallow-boundary files.
+- Remove `GH_TOKEN` and `GITHUB_TOKEN` from native `legacy-wrap` signer and publication Git environments while preserving them for checks that need GitHub access. Update wrapper help to name the native commands and describe these credential boundaries.
 
 ## [0.14.0] - 2026-11-21
 

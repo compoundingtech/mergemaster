@@ -128,7 +128,10 @@ impl Fixture {
     }
 
     fn run(&self, command: &str, arm: &str, victim: &str, mode: &str, propose: bool) -> Output {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_mergemaster"));
+        let mut child = Command::new(
+            std::env::var_os("CARGO_BIN_EXE_mergemaster")
+                .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+        );
         child
             .args(["evidence", command, "--repo", "org/repo", "--cache"])
             .arg(&self.cache)

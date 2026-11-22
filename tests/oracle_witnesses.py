@@ -12,6 +12,16 @@ ROOT = Path(__file__).resolve().parent.parent
 REGISTRY = ROOT / "tests/fixtures/oracle/divergences.json"
 
 
+def test_environment(artifact, binaries, directory):
+    """Restore Cargo's runtime variables when launching libtest directly."""
+    environment = dict(os.environ, MERGEMASTER_WITNESS_DIRECTORY=directory,
+                       CARGO_MANIFEST_DIR=str(Path(artifact["manifest_path"]).resolve().parent))
+    environment.pop("CARGO_BIN_EXE_mergemaster", None)
+    if "test" in artifact["target"]["kind"]:
+        environment["CARGO_BIN_EXE_mergemaster"] = binaries["mergemaster"]
+    return environment
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
@@ -45,18 +55,21 @@ def main():
     if compiled.returncode:
         sys.stdout.buffer.write(compiled.stdout)
         return compiled.returncode
-    executables = {message["target"]["name"]: message["executable"]
-                   for line in compiled.stdout.splitlines()
-                   if (message := json.loads(line)).get("reason") == "compiler-artifact"
-                   and message.get("executable") and message["profile"]["test"]
-                   and message["target"]["name"] in targets}
-    assert set(executables) == targets, executables
+    artifacts = [message for line in compiled.stdout.splitlines()
+                 if (message := json.loads(line)).get("reason") == "compiler-artifact"
+                 and message.get("executable")]
+    test_artifacts = {message["target"]["name"]: message for message in artifacts
+                      if message["profile"]["test"] and message["target"]["name"] in targets}
+    binaries = {message["target"]["name"]: message["executable"] for message in artifacts
+                if "bin" in message["target"]["kind"] and not message["profile"]["test"]}
+    assert set(test_artifacts) == targets, test_artifacts
     test_runs = []
     failures = []
     with tempfile.TemporaryDirectory(prefix="mergemaster-witness-") as directory:
-        environment = dict(os.environ, MERGEMASTER_WITNESS_DIRECTORY=directory)
         for target, test in tests:
-            argv = [executables[target], "--exact", test, "--nocapture", "--test-threads=1"]
+            artifact = test_artifacts[target]
+            environment = test_environment(artifact, binaries, directory)
+            argv = [artifact["executable"], "--exact", test, "--nocapture", "--test-threads=1"]
             done = subprocess.run(argv, cwd=ROOT, env=environment, capture_output=True)
             test_runs.append({"argv": argv, "cwd": str(ROOT), "stdin": None,
                               "stdout_hex": done.stdout.hex(), "stderr_hex": done.stderr.hex(),
