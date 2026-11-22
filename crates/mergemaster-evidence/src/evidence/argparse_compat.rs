@@ -2,6 +2,24 @@
 use super::legacy_verify::{python_digits::decimal, python_repr::Repr, value_inputs::TextRef};
 use std::collections::{BTreeMap, BTreeSet};
 
+pub(super) mod consumption;
+
+impl consumption::Options for [OptionSpec] {
+    fn count(&self) -> usize {
+        self.len()
+    }
+    fn option(&self, id: usize) -> consumption::OptionView {
+        let spec = &self[id];
+        consumption::OptionView {
+            long: spec.long,
+            short: spec.short,
+            hidden: spec.hidden,
+            takes_value: spec.takes_value(),
+            help: matches!(spec.action, Action::Help),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 #[serde(untagged)]
 pub(super) enum Value {
@@ -99,13 +117,6 @@ impl OptionSpec {
 fn repr(text: &str) -> Repr<'_> {
     Repr(TextRef::Str(text))
 }
-enum Token<'a> {
-    Value,
-    Separator,
-    Unknown,
-    Option(usize, Option<&'a str>, bool),
-    Ambiguous(Vec<&'static str>),
-}
 pub(super) fn float(text: &str) -> Option<Value> {
     // Python float accepts Unicode decimal digits and digit-separated underscores,
     // but not Rust's broader trim set (notably U+001C through U+001F).
@@ -148,18 +159,6 @@ pub(super) fn integer(text: &str) -> Option<Value> {
         i64::try_from(magnitude).ok()?
     };
     Some(Value::Int(signed))
-}
-
-fn negative_number(text: &str) -> bool {
-    let Some(body) = text.strip_prefix('-') else {
-        return false;
-    };
-    // CPython 3.14 classifies by a prefix match, not by numeric validity.
-    body.strip_prefix('.')
-        .unwrap_or(body)
-        .chars()
-        .next()
-        .is_some_and(|c| decimal(u32::from(c)).is_some())
 }
 
 impl Parser {
@@ -235,51 +234,6 @@ impl Parser {
             stderr: String::new(),
         }
     }
-    fn token<'a>(&self, text: &'a str) -> Token<'a> {
-        if text == "--" {
-            return Token::Separator;
-        }
-        if !text.starts_with('-') || text == "-" {
-            return Token::Value;
-        }
-        let (key, explicit) = text
-            .split_once('=')
-            .map_or((text, None), |(a, b)| (a, Some(b)));
-        if let Some((id, _)) = self
-            .options
-            .iter()
-            .enumerate()
-            .find(|(_, s)| s.long == key || s.short == Some(key))
-        {
-            return Token::Option(id, explicit, false);
-        }
-        if text.starts_with("--") {
-            let mut matches = self
-                .options
-                .iter()
-                .enumerate()
-                .filter(|(_, s)| !s.hidden && s.long.starts_with(key));
-            if let Some((id, first)) = matches.next() {
-                if let Some((_, second)) = matches.next() {
-                    let mut names = vec![first.long, second.long];
-                    names.extend(matches.map(|(_, s)| s.long));
-                    return Token::Ambiguous(names);
-                }
-                return Token::Option(id, explicit, false);
-            }
-        } else if let Some((id, tail)) = self.options.iter().enumerate().find_map(|(id, s)| {
-            s.short
-                .and_then(|short| text.strip_prefix(short))
-                .map(|tail| (id, tail))
-        }) {
-            return Token::Option(id, Some(tail), true);
-        }
-        if negative_number(text) || text.contains(' ') {
-            Token::Value
-        } else {
-            Token::Unknown
-        }
-    }
     /// Preserve Python default types; conversion applies only to supplied values
     /// and to string defaults, never to integer/float/list/bool/None defaults.
     pub fn parse(&self, argv: &[String]) -> Result<Parsed, Exit> {
@@ -300,127 +254,76 @@ impl Parser {
     ) -> Result<(Parsed, Vec<String>), Exit> {
         let mut stored: Vec<(usize, Value)> = Vec::new();
         let mut provided = BTreeSet::new();
-        let mut extras = Vec::new();
-        let mut positionals = Vec::new();
-        let mut positional_closed = false;
-        let mut index = 0;
-        while let Some(arg) = argv.get(index) {
-            match self.token(arg) {
-                Token::Separator => {
-                    if accept_positionals && !positional_closed {
-                        positionals.extend_from_slice(&argv[index + 1..]);
-                    } else {
-                        extras.extend_from_slice(&argv[index..]);
-                    }
-                    break;
-                }
-                Token::Value if accept_positionals && !positional_closed => {
-                    positionals.push(arg.clone());
-                }
-                Token::Value | Token::Unknown => {
-                    if !positionals.is_empty() {
-                        positional_closed = true;
-                    }
-                    extras.push(arg.clone());
-                }
-                Token::Ambiguous(names) => {
+        let consumed = consumption::consume(
+            argv.iter().map(TextRef::from),
+            self.options,
+            accept_positionals,
+            |id, value| {
+                let spec = &self.options[id];
+                provided.insert(spec.long);
+                let TextRef::Str(value) = value else {
+                    return Err(self.error("non-string input at string parser boundary"));
+                };
+                let converted = if !spec.takes_value() {
+                    Value::Bool(true)
+                } else if let Action::Convert { name, parse } = spec.action {
+                    parse(value).ok_or_else(|| {
+                        self.error(format!(
+                            "argument {}: invalid {name} value: {}",
+                            spec.diagnostic(),
+                            repr(value)
+                        ))
+                    })?
+                } else {
+                    Value::String(value.to_owned())
+                };
+                if !spec.choices.is_empty()
+                    && !matches!(&converted, Value::String(v) if spec.choices.contains(&v.as_str()))
+                {
                     return Err(self.error(format!(
-                        "ambiguous option: {arg} could match {}",
-                        names.join(", ")
+                        "argument {}: invalid choice: {} (choose from {})",
+                        spec.diagnostic(),
+                        repr(value),
+                        spec.choices
+                            .iter()
+                            .map(|choice| repr(choice).to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     )));
                 }
-                Token::Option(id, explicit, attached) => {
-                    if !positionals.is_empty() {
-                        positional_closed = true;
-                    }
-                    let spec = &self.options[id];
-                    provided.insert(spec.long);
-                    if !spec.takes_value() {
-                        if let Some(mut value) = explicit {
-                            // Short help clusters queue their actions before the
-                            // unknown suffix; help exits before extras are reported.
-                            if attached && matches!(spec.action, Action::Help) {
-                                let short = spec.short.unwrap_or("").trim_start_matches('-');
-                                loop {
-                                    if value.is_empty() {
-                                        return Err(self.helped());
-                                    }
-                                    if let Some(rest) = value.strip_prefix('=') {
-                                        value = rest;
-                                        break;
-                                    }
-                                    if value.starts_with('-') {
-                                        break;
-                                    }
-                                    if let Some(rest) = value.strip_prefix(short) {
-                                        value = rest;
-                                    } else {
-                                        return Err(self.helped());
-                                    }
-                                }
-                            }
-                            return Err(self.error(format!(
-                                "argument {}: ignored explicit argument {}",
-                                spec.diagnostic(),
-                                repr(value)
-                            )));
-                        }
-                        if matches!(spec.action, Action::Help) {
-                            return Err(self.helped());
-                        }
-                        stored.retain(|(key, _)| *key != id);
-                        stored.push((id, Value::Bool(true)));
-                    } else {
-                        let value = if let Some(value) = explicit {
-                            value
-                        } else {
-                            index += 1;
-                            let Some(value) = argv
-                                .get(index)
-                                .filter(|v| matches!(self.token(v), Token::Value))
-                            else {
-                                return Err(self.error(format!(
-                                    "argument {}: expected one argument",
-                                    spec.diagnostic()
-                                )));
-                            };
-                            value
-                        };
-                        let converted = if let Action::Convert { name, parse } = spec.action {
-                            let Some(converted) = parse(value) else {
-                                return Err(self.error(format!(
-                                    "argument {}: invalid {name} value: {}",
-                                    spec.diagnostic(),
-                                    repr(value)
-                                )));
-                            };
-                            converted
-                        } else {
-                            Value::String(value.to_owned())
-                        };
-                        if !spec.choices.is_empty()
-                            && !matches!(&converted, Value::String(v) if spec.choices.contains(&v.as_str()))
-                        {
-                            return Err(self.error(format!(
-                                "argument {}: invalid choice: {} (choose from {})",
-                                spec.diagnostic(),
-                                repr(value),
-                                spec.choices
-                                    .iter()
-                                    .map(|choice| repr(choice).to_string())
-                                    .collect::<Vec<_>>()
-                                    .join(", ")
-                            )));
-                        }
-                        if !matches!(spec.action, Action::Append) {
-                            stored.retain(|(key, _)| *key != id);
-                        }
-                        stored.push((id, converted));
-                    }
+                if !matches!(spec.action, Action::Append) {
+                    stored.retain(|(key, _)| *key != id);
                 }
-            }
-            index += 1;
-        }
+                stored.push((id, converted));
+                Ok(())
+            },
+        )
+        .map_err(|error| match error {
+            consumption::Error::Ambiguous(argument, ids) => self.error(format!(
+                "ambiguous option: {argument} could match {}",
+                ids.iter()
+                    .map(|id| self.options[*id].long)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )),
+            consumption::Error::ExpectedArgument(id) => self.error(format!(
+                "argument {}: expected one argument",
+                self.options[id].diagnostic()
+            )),
+            consumption::Error::IgnoredExplicit(id, value) => self.error(format!(
+                "argument {}: ignored explicit argument {}",
+                self.options[id].diagnostic(),
+                Repr(value)
+            )),
+            consumption::Error::Conversion(exit) => exit,
+        })?;
+        let consumption::Outcome::Arguments {
+            extras,
+            positionals,
+        } = consumed
+        else {
+            return Err(self.helped());
+        };
         let mut values = BTreeMap::new();
         for spec in self.options {
             if matches!(spec.action, Action::Help) {
@@ -469,9 +372,22 @@ impl Parser {
             )));
         }
         if !extras.is_empty() {
-            return Err(self.error(format!("unrecognized arguments: {}", extras.join(" "))));
+            return Err(self.error(format!(
+                "unrecognized arguments: {}",
+                extras
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            )));
         }
-        Ok((Parsed { values, provided }, positionals))
+        Ok((
+            Parsed { values, provided },
+            positionals
+                .into_iter()
+                .map(|value| value.to_string())
+                .collect(),
+        ))
     }
 }
 /// Append wrapped text after a caller-supplied first-line prefix.
