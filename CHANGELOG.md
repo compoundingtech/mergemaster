@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add native `legacy-evidence-verify --batch`: read JSON argument vectors from stdin and return each run's exit status, stdout and stderr in order, reusing immutable statements and content-keyed signature results within the batch. Invalid input refuses the whole batch; individual failures remain independent. This intentionally extends the pre-batching Python oracle surface (fractal#5552); callers are unchanged.
 - Retain native evidence source receipts and source packs for push events when the payload's `after` commit matches the tested checkout; identify pushes as `github:OWNER/REPO@SOURCE`, never by the previous `before` tip (fractal#6924, #443).
 - Keep native subject-probe refusal details fixed so candidate-controlled Git stderr is never forwarded; CLI diagnostics are unchanged.
 - Refuse legacy evidence verification when a subject-object probe fails operationally or encounters corruption (`subject-probe-failed`); allow absent shallow/partial subjects only on Git's exact stderr-free missing-object result, without lazy fetching. This intentionally diverges from the pinned Python verifier's broad failure-as-absence behavior (#137).

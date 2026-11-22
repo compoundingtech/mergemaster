@@ -7,6 +7,7 @@ use super::{
 use crate::evidence::{legacy_policy::PolicyError, oid};
 use indexmap::{Equivalent, IndexMap};
 use std::{
+    cell::RefCell,
     ffi::{OsStr, OsString},
     path::Path,
     sync::Arc,
@@ -181,6 +182,66 @@ impl Equivalent<OwnedKey> for Key<&OsStr, &str, Option<&str>> {
             && self.tree == key.tree.as_deref()
     }
 }
+thread_local! {
+    static LOADED: RefCell<Option<IndexMap<OwnedKey, Option<Arc<Document>>>>> = const { RefCell::new(None) };
+}
+pub(super) fn batch_memo(active: bool) {
+    LOADED.with(|memo| *memo.borrow_mut() = active.then(IndexMap::new));
+}
+enum Loaded {
+    Parsed(Document),
+    Shared(Arc<Document>),
+}
+impl Loaded {
+    fn ownership_units(&self) -> usize {
+        match self {
+            Self::Parsed(doc) => doc.ownership_units(),
+            Self::Shared(doc) => doc.ownership_units(),
+        }
+    }
+    fn into_shared(self) -> Arc<Document> {
+        match self {
+            Self::Parsed(doc) => Arc::new(doc),
+            Self::Shared(doc) => doc,
+        }
+    }
+}
+fn read_cli_cached(
+    repo: &Path,
+    commit: &str,
+    tree: Option<&str>,
+) -> Result<Option<Loaded>, PolicyError> {
+    let key = Key {
+        repo: repo.as_os_str(),
+        commit,
+        tree,
+    };
+    if let Some(value) = LOADED.with(|memo| {
+        memo.borrow()
+            .as_ref()
+            .and_then(|values| values.get(&key).cloned())
+    }) {
+        return Ok(value.map(Loaded::Shared));
+    }
+    let parsed = read_statement_cli(repo, OsStr::new(commit), tree.map(OsStr::new))?;
+    if LOADED.with(|memo| memo.borrow().is_none()) {
+        return Ok(parsed.map(Loaded::Parsed));
+    }
+    let value = parsed.map(Arc::new);
+    LOADED.with(|memo| {
+        if let Some(values) = memo.borrow_mut().as_mut() {
+            values.insert(
+                Key {
+                    repo: key.repo.to_owned(),
+                    commit: commit.to_owned(),
+                    tree: tree.map(str::to_owned),
+                },
+                value.clone(),
+            );
+        }
+    });
+    Ok(value.map(Loaded::Shared))
+}
 /// Per candidate/check, never a process-global budget.
 pub const MAX_RECORD_UNITS: usize = 4 * 1024 * 1024;
 pub const MAX_RECORD_ENTRIES: usize = 8192;
@@ -256,12 +317,11 @@ impl RecordCache {
         // Refuse an exhausted invocation/entry limit before reading another record.
         self.charge(0, true)?;
         // Failed reads are not inserted, matching assignment only after Python returns.
-        let parsed = read_with(
-            self.transport,
-            repo,
-            OsStr::new(commit),
-            tree.map(OsStr::new),
-        )?;
+        let parsed = if self.transport == Transport::Cli {
+            read_cli_cached(repo, commit, tree)?
+        } else {
+            read_statement(repo, commit, tree)?.map(Loaded::Parsed)
+        };
         let identity = Key {
             repo: key.repo,
             commit,
@@ -271,7 +331,7 @@ impl RecordCache {
         let extra = if parsed.is_some() && retained.is_none() {
             parsed
                 .as_ref()
-                .map_or(0, Document::ownership_units)
+                .map_or(0, Loaded::ownership_units)
                 .saturating_add(Self::key_units(&identity))
         } else {
             0
@@ -279,7 +339,7 @@ impl RecordCache {
         self.charge(Self::key_units(&key).saturating_add(extra), true)?;
         let value = parsed.map(|document| {
             retained.unwrap_or_else(|| {
-                let document = Arc::new(document);
+                let document = document.into_shared();
                 self.documents.insert(
                     OwnedKey {
                         repo: key.repo.to_owned(),

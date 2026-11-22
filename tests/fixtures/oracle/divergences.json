@@ -3973,6 +3973,25 @@
   },
   "cases": [
     {
+      "id": "verifier-multi-check-batch",
+      "capture_test": "evidence::legacy_verify::cli_batch::tests::capture_batch_surface_divergence",
+      "capture_source": "crates/mergemaster-evidence/src/evidence/legacy_verify/cli_batch_tests.rs",
+      "contract_reference": "https://github.com/compoundingtech/fractal/commit/c8b5a3fcac5147606643ee245518fe7c8abbc5a1",
+      "contract_text": "Intentional #443 verifier-only parity with fractal#5552: a leading exact --batch consumes stdin JSON argument vectors and returns ordered exit/stdout/stderr objects, sharing immutable statements and content-keyed signatures only. The pinned pre-5552 oracle has no batch dispatch. Ordinary argparse behavior and all existing CLI probes remain unchanged.",
+      "review_evidence": {
+        "introducing_commit": null,
+        "mainline_landing_commit": null,
+        "landing_subject": "",
+        "evidence_status": "no-main-pr-found"
+      },
+      "review_status": "review-requested",
+      "review_request": "Issue #443 verifier batching parity with upstream #5552; independent exact-head GO required.",
+      "execution_status": "pending",
+      "input": null,
+      "python": null,
+      "rust": null
+    },
+    {
       "id": "subject-probe-failure-refusal",
       "capture_test": "legacy_subject_probe_distinguishes_absence_from_git_failures",
       "capture_target": "git_evidence",
