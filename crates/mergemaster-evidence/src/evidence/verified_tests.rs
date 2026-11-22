@@ -7,17 +7,17 @@ use std::{
     process::{Command, Stdio},
 };
 
-struct Fixture {
-    root: tempfile::TempDir,
-    key: PathBuf,
+pub(crate) struct Fixture {
+    pub(crate) root: tempfile::TempDir,
+    pub(crate) key: PathBuf,
     stranger: PathBuf,
-    base: String,
-    head: String,
-    tree: String,
+    pub(crate) base: String,
+    pub(crate) head: String,
+    pub(crate) tree: String,
     authority: ReuseAuthority,
 }
 impl Fixture {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let root = tempfile::tempdir().unwrap();
         let key = root.path().join("service");
         let stranger = root.path().join("stranger");
@@ -91,7 +91,7 @@ impl Fixture {
         assert!(matches!(f.authority, ReuseAuthority::Valid(_)));
         f
     }
-    fn command(&self, program: &str) -> Command {
+    pub(crate) fn command(&self, program: &str) -> Command {
         let mut command = Command::new(program);
         git::sanitize(&mut command);
         command
@@ -99,7 +99,7 @@ impl Fixture {
             .current_dir(self.root.path());
         command
     }
-    fn git(&self, args: &[&str], input: &[u8]) -> String {
+    pub(crate) fn git(&self, args: &[&str], input: &[u8]) -> String {
         let mut child = self
             .command("git")
             .args([
@@ -125,17 +125,23 @@ impl Fixture {
         );
         String::from_utf8(out.stdout).unwrap().trim().to_owned()
     }
-    fn write(&self, path: &str, value: impl AsRef<[u8]>) {
+    pub(crate) fn write(&self, path: &str, value: impl AsRef<[u8]>) {
         let path = self.root.path().join(path);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, value).unwrap();
     }
-    fn commit(&self, message: &str) -> String {
+    pub(crate) fn commit(&self, message: &str) -> String {
         self.git(&["add", "-A"], b"");
         self.git(&["commit", "-q", "-m", message], b"");
         self.git(&["rev-parse", "HEAD"], b"")
     }
-    fn key_entry(&self, key: &Path, role: &str, principal: &str, endpoint: &str) -> Value {
+    pub(crate) fn key_entry(
+        &self,
+        key: &Path,
+        role: &str,
+        principal: &str,
+        endpoint: &str,
+    ) -> Value {
         let public = fs::read_to_string(key.with_extension("pub")).unwrap();
         let parts: Vec<_> = public.split_whitespace().collect();
         let public = format!("{} {}", parts[0], parts[1]);
@@ -143,7 +149,7 @@ impl Fixture {
         json!({"key_id":format!("SHA256:{}", STANDARD_NO_PAD.encode(digest)), "public_key":public,
             "principal":principal, "role":role, "repository":"example/project", "endpoint_id":endpoint})
     }
-    fn statement(&self) -> Value {
+    pub(crate) fn statement(&self) -> Value {
         let mut s = v2::tests::fixture();
         s["subject"][0]["name"] = json!(self.head);
         s["subject"][0]["digest"]["gitTree"] = json!(self.tree);
@@ -154,7 +160,13 @@ impl Fixture {
         s["predicate"]["issuer"] = json!({"key_id":self.key_entry(&self.key,"v2_service_issuer","agent/service","service:linux-v1")["key_id"],"service_id":"service:linux-v1"});
         s
     }
-    fn raw_note(&self, bytes: &[u8], path: &str, parents: &[&str], key: &Path) -> String {
+    pub(crate) fn raw_note(
+        &self,
+        bytes: &[u8],
+        path: &str,
+        parents: &[&str],
+        key: &Path,
+    ) -> String {
         let blob = self.git(&["hash-object", "-w", "--stdin"], bytes);
         let tree = self.git(
             &["mktree"],

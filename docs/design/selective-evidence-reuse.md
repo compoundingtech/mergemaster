@@ -148,6 +148,35 @@ cannot materialize (for example `1e400` or nesting beyond its recursion limit)
 is a policy load error, not `ReuseAuthority::Invalid`. Materializable malformed
 extensions still refuse only reuse and preserve legacy policy behavior.
 
+Slice 5 adds a pure root/rebind validator, without gate integration or admission.
+It consumes current BASE configuration, the entire shared `expected_inputs`
+result, verified v2 records, actual subject-object facts, an authenticated PR
+context and one decision-time clock. It requires same-PR origin, direct fresh
+roots, exact allowed signer levels, normalized argv and measurements, complete
+key/output equality, current producer/broker authorization and finite lane age.
+Broker-authority snapshots are rechecked under current BASE with no revocation
+grace. Operational log digests, attempts and daemon instances are not reuse keys.
+
+The authenticated-origin adapter is a slice-6 and external prerequisite: the
+trusted GitHub/final-live-recheck path and protected service must supply verified
+PR identity and single-PR train mapping, while an object adapter establishes actual
+commit/tree/ordered parents and historical accepted-BASE commit presence.
+`--event-file` JSON is not that authority. The private-field context and receipt
+result types have no `Deserialize` implementation or production success
+constructor; compile-fail examples guard that boundary. Tests alone construct
+authenticated fixture contexts and accepted broker-authority snapshots, using
+the existing test-only receipt decoder with real Git/SSH for note verification.
+
+The broker receipt protocol, Linux profile enrollment and operation bindings are
+still undefined (§9.7); production receipt input is always
+`ReceiptContractUndefined`. No receipt envelope or authenticated-origin adapter
+is invented here. The pure validator does not select a platform or reimplement
+input hashing: the existing shared helper still chooses the verifier host's
+system, so cross-host expected-input computation remains an integration contract
+question rather than an implicit system override. The ineffective post-parse
+worker-envelope v2 cap is removed; v1 remains uncapped and v2 object reads retain
+their limits. The gate's unconditional production v2 refusal remains unchanged.
+
 ## 4. Execution-policy closure prerequisite
 
 Replace the proposed asserted `nix_sandbox_sha256` with an authenticated

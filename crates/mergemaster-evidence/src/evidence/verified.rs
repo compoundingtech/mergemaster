@@ -282,7 +282,7 @@ pub fn verify_record(
 ) -> Result<VerifiedRecord> {
     verify_with_receipt(repo, id, keys, base)
 }
-fn verify_with_receipt<R: v2::Receipt>(
+pub(crate) fn verify_with_receipt<R: v2::Receipt>(
     repo: &Path,
     id: &str,
     keys: &Path,
@@ -351,10 +351,6 @@ pub(crate) fn legacy_worker_statement(bytes: &[u8], id: &str) -> Result<Option<S
     // Unconditional production stop, independent of policy, flags and fixtures.
     // Disabled v2 observations never enter v1 selection or failure shadowing.
     if wire.version == 2 {
-        ensure!(
-            bytes.len() <= v2::MAX_NOTE_BYTES * 6 + 4096,
-            "signature worker byte limit"
-        );
         return Ok(None);
     }
     Ok(Some(
@@ -364,4 +360,4 @@ pub(crate) fn legacy_worker_statement(bytes: &[u8], id: &str) -> Result<Option<S
 
 #[cfg(test)]
 #[path = "verified_tests.rs"]
-mod tests;
+pub(crate) mod tests;
