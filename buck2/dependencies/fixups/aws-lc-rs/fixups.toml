@@ -1,0 +1,4 @@
+# Consumer addition to effect-utils 9c4ee91c (no upstream fixup for 1.18.1).
+# The pinned build.rs emits cfg checks and propagates aws-lc-sys metadata.
+# This does not bypass or replace aws-lc-sys's native build.
+[buildscript.run]

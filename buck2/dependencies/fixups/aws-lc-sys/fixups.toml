@@ -1,0 +1,7 @@
+# Same native-build pattern as effect-utils 9c4ee91c:rust/third-party/fixups/ring/fixups.toml.
+# Run aws-lc-sys 0.45.0's vendored build, as Cargo does with dontCargoUseSystemLibs.
+# CC/CXX/AR/LD are provided by the shared Rust toolchain from root nixpkgs.
+# The crate archive provides the bundled C/assembly/header sources, not host files.
+[buildscript.run]
+rustc_link_lib = true
+rustc_link_search = true

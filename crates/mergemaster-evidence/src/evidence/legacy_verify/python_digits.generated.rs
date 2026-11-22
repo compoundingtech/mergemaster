@@ -1,6 +1,6 @@
 // Generated; do not edit. Python 3.14.7 / Unicode 16.0.0; generated 2026-11-14.
 // Generator: gen_python_digits.py; regenerate with its documented command.
-// Generator SHA256: 0c2732b3c90d46cda668fe8bf561585b0c8a28c386485d98260a73e773854d14
+// Generator SHA256: 22daa68377ce2401587219a1035ab9afdbb6bc1f3896a7a2d55d3cb8e67f83a1
 // Semantic classification SHA256: 0a8275d8a06ad60e724f94a76a6f432980c05165ff4c91acebff23e927e2af0f
 #[rustfmt::skip]
 const DECIMAL_ZEROS: &[u32] = &[

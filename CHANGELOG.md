@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add a fail-closed Buck2 workspace CI lane using Fractal's shared consumer root and effect-utils' pinned Cargo test-target generator, with complete harness/name parity and engine-cold/warm timing reporters. Adoption remains blocked on shared repository-layout resource staging, manifest lint projection, doctests and aws-lc-sys metadata forwarding to aws-lc-rs; package-local versions/editions and implicit workspace membership are admitted. No Python removal or parity/speedup claim.
 - Add native `legacy-evidence-verify --batch`: read JSON argument vectors from stdin and return each run's exit status, stdout and stderr in order, reusing immutable statements and content-keyed signature results within the batch. Invalid input refuses the whole batch; individual failures remain independent. This intentionally extends the pre-batching Python oracle surface (fractal#5552); callers are unchanged.
 - Retain native evidence source receipts and source packs for push events when the payload's `after` commit matches the tested checkout; identify pushes as `github:OWNER/REPO@SOURCE`, never by the previous `before` tip (fractal#6924, #443).
 - Keep native subject-probe refusal details fixed so candidate-controlled Git stderr is never forwarded; CLI diagnostics are unchanged.

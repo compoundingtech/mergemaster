@@ -39,6 +39,49 @@ cargo test --workspace
 cargo run -- evidence --help
 ```
 
+### Buck2 workspace lane
+
+The Buck2 lane consumes Fractal's `mkConsumerBuckRoot` layout and effect-utils
+published product `6aa1938b54cab9a986d456a074b19f0cc8fe96fe` rules, capabilities
+and Cargo projector (source `c64e2880cd9d6631d75cd5e4bf304a762ea3e50f`).
+It generates unit and integration harnesses for every Cargo workspace member,
+including newly discovered integration tests, rather than maintaining a test list.
+Native Rust compilation uses the production flake's compiler; the provider's
+nixpkgs supplies Buck/Bun tooling. The frozen Python oracle remains unchanged.
+The Buck shells and CI lane are x86_64-linux-only; ARM retains the Cargo and
+oracle checks without pulling Buck's capability closure into its default shell.
+
+```sh
+nix develop .#buck2-evidence -c bash scripts/buck2-prepare
+nix develop .#buck2-evidence -c buck2 build --local-only --num-threads 1 //crates/...
+nix develop .#buck2-evidence -c buck2 test --local-only --num-threads 1 //crates/...
+nix develop .#buck2-evidence -c bun scripts/buck2-parity.ts tmp/buck2-evidence
+nix develop .#buck2-evidence -c bash scripts/buck2-timing tmp/buck2-evidence
+```
+
+**Not yet a passing adoption:** explicit sparse repository-layout resource staging
+is configured through the shared projector. Package-local versions/editions and
+implicit workspace membership are admitted; existing tests read declared
+repository-level fixtures/scripts, and the reconciler includes `iac/consumers.json`
+in production. Manifest lint
+projection also needs support to preserve the reconciler's unsafe-code prohibition.
+The lane fails rather than omitting targets or declaring partial parity.
+Vendored `aws-lc-sys` builds through the shared native toolchain, but its metadata
+is not yet forwarded to the dependent `aws-lc-rs` build script (`DEP_AWS_LC_*`).
+Unresolved fixup errors stay enabled.
+Doctests are not supported by the shared projector; the inventory comparison
+refuses any Cargo doctests missing from Buck.
+
+Parity artifacts contain sorted `(package, harness, test-name)` lists, counts,
+and a multiset diff, including ignored tests. Timing is engine-cold/warm,
+not Nix-provisioning-cold: fresh Cargo target/registry and Buck isolation outputs
+(including downloaded crates), same revision/host/lockfiles/compiler, one job,
+debug information and incremental compilation disabled, no compiler wrappers or
+remote action cache. Nix tools remain realized; OS page caches are not flushed.
+Cargo and Buck have different graph evaluation, feature resolution and
+codegen defaults, so timings must be explained, not judged against a speedup
+threshold. CI retains logs even when preparation fails.
+
 ## Producer receipt verification
 
 `evidence::producer_proof::verify` authenticates a canonical v1 receipt using an

@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+: "${MERGEMASTER_EFFECT_UTILS:?Run inside nix develop .#buck2-evidence}"
+mkdir -p buck2/dependencies/fixups
+# Reuse provider fixups verbatim; consumer additions take precedence.
+for fixup in "$MERGEMASTER_EFFECT_UTILS"/rust/third-party/fixups/*; do
+  name="$(basename "$fixup")"
+  if [ ! -e "buck2/dependencies/fixups/$name" ]; then
+    ln -s "$fixup" "buck2/dependencies/fixups/$name"
+  fi
+done
+bash "$MERGEMASTER_EFFECT_UTILS/scripts/buck2-rust-deps.sh" generate \
+  "$PWD" . buck2/dependencies/BUCK "$(command -v reindeer)" \
+  "$(command -v cargo)" "$(command -v rustc)" "$(command -v bun)" \
+  "$MERGEMASTER_EFFECT_UTILS/scripts/buck2-rust-supply-manifest.ts"
+bun scripts/buck2-project.ts

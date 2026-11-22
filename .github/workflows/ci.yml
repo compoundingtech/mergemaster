@@ -99,6 +99,40 @@ jobs:
           path: ${{ runner.temp }}/graph-full-check-proof.tar.gz
           if-no-files-found: error
 
+  buck2:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: DeterminateSystems/determinate-nix-action@92957199488000b908fdad19f63711000965d8f3 # v3
+      - name: Build, test, inventory and time the entire Rust workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/buck2-evidence"
+          nix develop .#buck2-evidence -c bash -euo pipefail -c '
+            git rev-parse HEAD
+            export CARGO_BUILD_JOBS=1 RUSTC="$MERGEMASTER_RUSTC"
+            unset RUSTC_WRAPPER CARGO_BUILD_RUSTC_WRAPPER
+            bash scripts/buck2-prepare
+            "$BUCK2_BIN" build --local-only --num-threads 1 //crates/...
+            "$BUCK2_BIN" test --local-only --num-threads 1 //crates/...
+            bun scripts/buck2-parity.ts "$RUNNER_TEMP/buck2-evidence"
+            cargo test --locked --workspace --jobs 1
+            bash scripts/buck2-timing "$RUNNER_TEMP/buck2-evidence"
+          ' 2>&1 | tee "$RUNNER_TEMP/buck2-evidence/ci.log"
+      - name: Retain exact-revision Buck and Cargo evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: buck2-foundation-evidence
+          path: |
+            ${{ runner.temp }}/buck2-evidence/*.txt
+            ${{ runner.temp }}/buck2-evidence/*.diff
+            ${{ runner.temp }}/buck2-evidence/*.time
+            ${{ runner.temp }}/buck2-evidence/ci.log
+          if-no-files-found: error
+
   publisher-stack:
     strategy:
       fail-fast: false
