@@ -1,6 +1,6 @@
 //! Compatibility boundary for the pinned fractal-test-report argparse interface.
-use super::legacy_verify::{
-    argparse_int, python_digits::decimal, python_repr::Repr, value_inputs::TextRef,
+use super::argparse_compat::{
+    Action, DefaultValue, Exit, OptionSpec, Parser, Value, float, integer,
 };
 use std::path::PathBuf;
 
@@ -14,15 +14,6 @@ pub(super) struct Options {
     pub files: Vec<PathBuf>,
 }
 
-const FLAGS: [&str; 7] = [
-    "-h",
-    "--help",
-    "--hours",
-    "--since",
-    "--slo-s",
-    "--max-s",
-    "--markdown",
-];
 const USAGE: &str = "usage: fractal-test-report [-h] [--hours HOURS] [--since SINCE]\n                           [--slo-s SLO_S] [--max-s MAX_S] [--markdown]\n                           [RUNS.jsonl ...]\n";
 const HELP: &str = concat!(
     "\nHow long the per-PR suite takes on a dev box: scripts/fractal-test's own run\n",
@@ -48,269 +39,110 @@ fn error(message: impl std::fmt::Display) -> Early {
     )
 }
 
-fn repr(text: &str) -> Repr<'_> {
-    Repr(TextRef::Str(text))
+const fn option(
+    long: &'static str,
+    metavar: Option<&'static str>,
+    action: Action,
+    default: DefaultValue,
+) -> OptionSpec {
+    OptionSpec {
+        long,
+        short: None,
+        metavar,
+        action,
+        choices: &[],
+        help: "",
+        hidden: false,
+        default,
+    }
 }
 
-#[derive(Debug)]
-enum Token<'a> {
-    Argument,
-    Separator,
-    Unknown,
-    Option {
-        flag: &'static str,
-        explicit: Option<&'a str>,
-    },
-    Ambiguous(Vec<&'static str>),
-}
+const PARSER: Parser = Parser {
+    program: "fractal-test-report",
+    description: "",
+    options: &[
+        OptionSpec {
+            short: Some("-h"),
+            ..option("--help", None, Action::Help, DefaultValue::None)
+        },
+        option(
+            "--hours",
+            Some("HOURS"),
+            Action::Convert {
+                name: "float",
+                parse: float,
+            },
+            DefaultValue::Float(24.0),
+        ),
+        option("--since", Some("SINCE"), Action::Store, DefaultValue::None),
+        option(
+            "--slo-s",
+            Some("SLO_S"),
+            Action::Convert {
+                name: "int",
+                parse: integer,
+            },
+            DefaultValue::Int(720),
+        ),
+        option(
+            "--max-s",
+            Some("MAX_S"),
+            Action::Convert {
+                name: "int",
+                parse: integer,
+            },
+            DefaultValue::Int(900),
+        ),
+        option("--markdown", None, Action::Flag, DefaultValue::Bool(false)),
+    ],
+};
 
-// Python 3.14.7 uses the prefix regex r'-\.?\d', not a complete numeric
-// literal, to distinguish option-like tokens from negative positionals.
-fn negative_number(text: &str) -> bool {
-    let Some(body) = text.strip_prefix('-') else {
-        return false;
+fn early(exit: Exit) -> Early {
+    if exit.code == 0 {
+        return (0, format!("{USAGE}{HELP}"), String::new());
+    }
+    // Shared parsing owns diagnostics; keep this command's positional usage
+    // and pinned help layout rather than the optional-only generated layout.
+    let usage = PARSER.usage();
+    let stderr = match exit.stderr.strip_prefix(&usage) {
+        Some(diagnostic) => format!("{USAGE}{diagnostic}"),
+        None => exit.stderr,
     };
-    body.strip_prefix('.')
-        .unwrap_or(body)
-        .chars()
-        .next()
-        .is_some_and(|ch| decimal(u32::from(ch)).is_some())
-}
-
-fn classify(text: &str) -> Token<'_> {
-    if text == "--" {
-        return Token::Separator;
-    }
-    if !text.starts_with('-') || text == "-" {
-        return Token::Argument;
-    }
-    let (key, explicit) = text
-        .split_once('=')
-        .map_or((text, None), |(a, b)| (a, Some(b)));
-    if let Some(flag) = FLAGS.iter().copied().find(|flag| *flag == key) {
-        return Token::Option { flag, explicit };
-    }
-    if text.starts_with("--") {
-        let mut matches = FLAGS.iter().copied().filter(|flag| flag.starts_with(key));
-        if let Some(first) = matches.next() {
-            if let Some(second) = matches.next() {
-                let mut ambiguous = vec![first, second];
-                ambiguous.extend(matches);
-                return Token::Ambiguous(ambiguous);
-            }
-            return Token::Option {
-                flag: first,
-                explicit,
-            };
-        }
-    } else if let Some(tail) = text.strip_prefix("-h") {
-        // Keep the attached tail for cluster validation. An unknown trailing
-        // short flag does not prevent the preceding help action from running.
-        return Token::Option {
-            flag: "-h",
-            explicit: Some(tail),
-        };
-    }
-    if negative_number(text) || text.contains(' ') {
-        Token::Argument
-    } else {
-        Token::Unknown
-    }
-}
-
-// Python numeric constructors allow whitespace and underscores between digits.
-fn numeric_text(text: &str) -> Option<String> {
-    let text = text.trim();
-    let mut result = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    let mut previous_digit = false;
-    while let Some(ch) = chars.next() {
-        if ch == '_' {
-            if !previous_digit
-                || !chars
-                    .peek()
-                    .is_some_and(|c| decimal(u32::from(*c)).is_some())
-            {
-                return None;
-            }
-            previous_digit = false;
-        } else {
-            if let Some(digit) = decimal(u32::from(ch)) {
-                previous_digit = true;
-                result.push(char::from(b'0' + digit));
-            } else {
-                previous_digit = false;
-                result.push(ch);
-            }
-        }
-    }
-    Some(result)
-}
-
-fn float(text: &str) -> Option<f64> {
-    let text = numeric_text(text)?;
-    let lower = text.to_ascii_lowercase();
-    match lower.as_str() {
-        "inf" | "+inf" | "infinity" | "+infinity" => Some(f64::INFINITY),
-        "-inf" | "-infinity" => Some(f64::NEG_INFINITY),
-        "nan" | "+nan" | "-nan" => Some(f64::NAN),
-        _ => text.parse().ok(),
-    }
+    (exit.code, exit.stdout, stderr)
 }
 
 pub(super) fn parse(argv: &[String]) -> Result<Options, Early> {
-    let mut options = Options {
-        hours: 24.0,
-        slo: 720,
-        max: 900,
-        since: None,
-        markdown: false,
-        files: Vec::new(),
+    let (parsed, files) = PARSER.parse_positionals(argv).map_err(early)?;
+    let mut values = parsed.values;
+    let hours = match values.remove("--hours") {
+        Some(Value::Float(value)) => value,
+        _ => return Err(error("invalid --hours type")),
     };
-    let mut extras = Vec::new();
-    let mut positional_used = false;
-    let mut index = 0;
-    while let Some(arg) = argv.get(index) {
-        match classify(arg) {
-            Token::Argument | Token::Separator => {
-                // A nargs='*' positional consumes one contiguous group, not
-                // every positional separated by options (parse_intermixed_args).
-                if positional_used {
-                    extras.push(arg.clone());
-                    if arg == "--" {
-                        extras.extend_from_slice(&argv[index + 1..]);
-                        break;
-                    }
-                    index += 1;
-                    continue;
-                }
-                positional_used = true;
-                let mut separated = false;
-                while let Some(value) = argv.get(index) {
-                    if !separated {
-                        match classify(value) {
-                            Token::Separator => {
-                                separated = true;
-                                index += 1;
-                                continue;
-                            }
-                            Token::Argument => {}
-                            _ => break,
-                        }
-                    }
-                    options.files.push(PathBuf::from(value));
-                    index += 1;
-                }
-            }
-            Token::Unknown => {
-                extras.push(arg.clone());
-                index += 1;
-            }
-            Token::Ambiguous(matches) => {
-                return Err(error(format!(
-                    "ambiguous option: {arg} could match {}",
-                    matches.join(", ")
-                )));
-            }
-            Token::Option { flag, explicit } => {
-                if matches!(flag, "-h" | "--help" | "--markdown") {
-                    if let Some(value) = explicit {
-                        let mut value = value;
-                        if flag == "-h" && !arg.starts_with("-h=") {
-                            loop {
-                                if value.is_empty() {
-                                    return Err((0, format!("{USAGE}{HELP}"), String::new()));
-                                }
-                                if let Some(rest) = value.strip_prefix('=') {
-                                    value = rest;
-                                    break;
-                                }
-                                if value.starts_with('-') {
-                                    break;
-                                }
-                                if let Some(rest) = value.strip_prefix('h') {
-                                    value = rest;
-                                } else {
-                                    // argparse collects the unknown tail as an extra,
-                                    // then runs the preceding help action before
-                                    // reporting leftover arguments.
-                                    return Err((0, format!("{USAGE}{HELP}"), String::new()));
-                                }
-                            }
-                        }
-                        let name = if flag == "--markdown" {
-                            flag
-                        } else {
-                            "-h/--help"
-                        };
-                        return Err(error(format!(
-                            "argument {name}: ignored explicit argument {}",
-                            repr(value)
-                        )));
-                    }
-                    if flag != "--markdown" {
-                        return Err((0, format!("{USAGE}{HELP}"), String::new()));
-                    }
-                    options.markdown = true;
-                    index += 1;
-                    continue;
-                }
-                let value = if let Some(value) = explicit {
-                    value
-                } else {
-                    index += 1;
-                    let Some(value) = argv
-                        .get(index)
-                        .filter(|v| matches!(classify(v), Token::Argument))
-                    else {
-                        return Err(error(format!("argument {flag}: expected one argument")));
-                    };
-                    value
-                };
-                match flag {
-                    "--hours" => {
-                        let Some(number) = float(value) else {
-                            return Err(error(format!(
-                                "argument {flag}: invalid float value: {}",
-                                repr(value)
-                            )));
-                        };
-                        options.hours = number;
-                    }
-                    "--slo-s" | "--max-s" => {
-                        let number = argparse_int::parse(TextRef::Str(value)).ok().and_then(|v| {
-                            if v.negative {
-                                format!("-{}", v.digits).parse::<i64>().ok()
-                            } else {
-                                v.digits.parse::<i64>().ok()
-                            }
-                        });
-                        let Some(number) = number else {
-                            return Err(error(format!(
-                                "argument {flag}: invalid int value: {}",
-                                repr(value)
-                            )));
-                        };
-                        if flag == "--slo-s" {
-                            options.slo = number;
-                        } else {
-                            options.max = number;
-                        }
-                    }
-                    _ => options.since = Some(value.to_owned()),
-                }
-                index += 1;
-            }
-        }
-    }
-    if extras.is_empty() {
-        Ok(options)
-    } else {
-        Err(error(format!(
-            "unrecognized arguments: {}",
-            extras.join(" ")
-        )))
-    }
+    let slo = match values.remove("--slo-s") {
+        Some(Value::Int(value)) => value,
+        _ => return Err(error("invalid --slo-s type")),
+    };
+    let max = match values.remove("--max-s") {
+        Some(Value::Int(value)) => value,
+        _ => return Err(error("invalid --max-s type")),
+    };
+    let since = match values.remove("--since") {
+        Some(Value::None) => None,
+        Some(Value::String(value)) => Some(value),
+        _ => return Err(error("invalid --since type")),
+    };
+    let markdown = match values.remove("--markdown") {
+        Some(Value::Bool(value)) => value,
+        _ => return Err(error("invalid --markdown type")),
+    };
+    Ok(Options {
+        hours,
+        slo,
+        max,
+        since,
+        markdown,
+        files: files.into_iter().map(PathBuf::from).collect(),
+    })
 }
 
 #[cfg(test)]
@@ -408,7 +240,9 @@ print(json.dumps(results))
                     let expected = &case["options"];
                     assert!(!expected.is_null(), "{case}");
                     let hours = expected["hours"].as_str().unwrap();
-                    let expected_hours = float(hours).unwrap();
+                    let Some(super::Value::Float(expected_hours)) = float(hours) else {
+                        panic!("invalid oracle hours: {hours}");
+                    };
                     assert!(
                         options.hours == expected_hours
                             || options.hours.is_nan() && expected_hours.is_nan(),

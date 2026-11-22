@@ -2,11 +2,37 @@
 #[path = "../src/pinned_python.rs"]
 mod pinned_python;
 use serde_json::Value;
-use std::{fs, os::unix::fs::PermissionsExt, process::Command};
+use std::{
+    fs,
+    io::Write,
+    path::Path,
+    process::{Command, Stdio},
+};
+
+// Keep executable write descriptors out of this multithreaded test process. Content goes
+// through stdin because fixture executables may contain NUL bytes, which argv cannot carry.
+fn write_executable(path: &Path, content: &str) {
+    let mut child = Command::new("/bin/sh")
+        .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
+        .arg(path)
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(content.as_bytes())
+        .unwrap();
+    assert!(child.wait().unwrap().success());
+}
 
 #[test]
 fn presign_notice_frozen_stdout_summary_annotation_and_never_fails() {
-    let root = std::path::Path::new(&std::env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../..");
+    let root = std::path::PathBuf::from(
+        std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set at test runtime"),
+    )
+    .join("../..");
     let fixture: Value = serde_json::from_slice(
         &fs::read(root.join("tests/fixtures/oracle/presign-notice.json")).unwrap(),
     )
@@ -17,12 +43,11 @@ fn presign_notice_frozen_stdout_summary_annotation_and_never_fails() {
         fs::create_dir(&bin).unwrap();
         for (name, source) in case["executables"].as_object().unwrap() {
             let path = bin.join(name);
-            fs::write(&path, source.as_str().unwrap()).unwrap();
-            fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+            write_executable(&path, source.as_str().unwrap());
         }
         let summary = temporary.path().join("summary");
         fs::write(&summary, case["summary_initial"].as_str().unwrap()).unwrap();
-        let mut command = Command::new(env!("CARGO_BIN_EXE_mergemaster"));
+        let mut command = Command::new(mergemaster_bin());
         command
             .args(["evidence", "presign-notice"])
             .current_dir(temporary.path())
@@ -116,7 +141,7 @@ fn real_git_notice(repo: &std::path::Path, bin: &std::path::Path, revision: &str
         assert!(done.stderr.is_empty(), "{:?}", done.stderr);
         (done.stdout, fs::read(summary).unwrap())
     };
-    let mut native = Command::new(env!("CARGO_BIN_EXE_mergemaster"));
+    let mut native = Command::new(mergemaster_bin());
     native.args(["evidence", "presign-notice"]);
     let observed = run(native);
     let source = std::env::var_os("MERGEMASTER_PYTHON_ORACLE")
@@ -137,8 +162,7 @@ fn presign_notice_real_git_layout_history_and_unreadable_objects() {
     fs::create_dir(&repo).unwrap();
     fs::create_dir(&bin).unwrap();
     // Only gh is scripted: every config lookup traverses real Git objects.
-    fs::write(bin.join("gh"), "#!/bin/sh\nexit 0\n").unwrap();
-    fs::set_permissions(bin.join("gh"), fs::Permissions::from_mode(0o755)).unwrap();
+    write_executable(&bin.join("gh"), "#!/bin/sh\nexit 0\n");
     git(&repo, &["init", "-q"]);
     fs::create_dir(repo.join(".st")).unwrap();
     fs::create_dir(repo.join(".fractal")).unwrap();
@@ -183,4 +207,11 @@ fn presign_notice_real_git_layout_history_and_unreadable_objects() {
         real_git_notice(&repo, &bin, "missing-revision"),
         "evidence-presign-notice: cannot inspect lane definition at missing-revi; nothing to say\n"
     );
+}
+
+fn mergemaster_bin() -> std::path::PathBuf {
+    std::path::PathBuf::from(
+        std::env::var_os("CARGO_BIN_EXE_mergemaster")
+            .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+    )
 }

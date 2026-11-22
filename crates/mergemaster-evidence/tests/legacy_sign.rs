@@ -2,7 +2,7 @@
 #[path = "../src/pinned_python.rs"]
 mod pinned_python;
 
-use std::{path::Path, process::Command};
+use std::process::Command;
 
 fn replay(group: &str) {
     let oracle = std::env::var_os("MERGEMASTER_PYTHON_ORACLE")
@@ -11,11 +11,17 @@ fn replay(group: &str) {
     let output = command
         .args(["-B", "-c", DRIVER])
         .arg(group)
-        .arg(env!("CARGO_BIN_EXE_mergemaster"))
+        .arg(
+            std::env::var_os("CARGO_BIN_EXE_mergemaster")
+                .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+        )
         .arg(oracle)
         .arg(
-            Path::new(&std::env::var_os("CARGO_MANIFEST_DIR").unwrap())
-                .join("../../tests/fixtures/oracle/request-core/validation/stdout.bin"),
+            std::path::PathBuf::from(
+                std::env::var_os("CARGO_MANIFEST_DIR")
+                    .expect("CARGO_MANIFEST_DIR is set at test runtime"),
+            )
+            .join("../../tests/fixtures/oracle/request-core/validation/stdout.bin"),
         )
         .output()
         .unwrap();

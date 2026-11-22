@@ -257,7 +257,20 @@ pub fn run(argv: impl IntoIterator<Item = OsString>) -> anyhow::Result<Exit> {
         .map(|v| super::cli_adapter::decode(&v))
         .collect();
     let argv: Vec<_> = owned.iter().map(|v| v.borrowed()).collect();
-    let parsed = match super::cli_adapter::prepare(&argv, super::cli_adapter::width())
+    if argv.first().is_some_and(|arg| arg.equals("--batch")) {
+        if argv.len() != 1 {
+            return Ok(super::cli_batch::usage(
+                "--batch takes no other argument: each run's arguments come on standard input",
+            ));
+        }
+        let mut bytes = Vec::new();
+        std::io::Read::read_to_end(&mut std::io::stdin().lock(), &mut bytes)?;
+        return super::cli_batch::run(&bytes);
+    }
+    run_arguments(&argv)
+}
+pub(super) fn run_arguments(argv: &[TextRef<'_>]) -> anyhow::Result<Exit> {
+    let parsed = match super::cli_adapter::prepare(argv, super::cli_adapter::width())
         .map_err(|e| anyhow::anyhow!("legacy argument rendering: {e:?}"))?
     {
         Ok(parsed) => parsed,

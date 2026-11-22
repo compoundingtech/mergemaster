@@ -83,3 +83,48 @@ for spec in ['HEAD',chr(0xdcc3)+chr(0xdca9),'bad\x00spec',chr(0xd800)]:
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn batch_signature_memo_follows_repo_commit_and_both_list_contents() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path().join("absent-repository");
+    let allowed = root.path().join("allowed");
+    let revoked = root.path().join("revoked");
+    let copied = root.path().join("copied");
+    std::fs::write(&allowed, b"trusted").unwrap();
+    std::fs::write(&revoked, b"").unwrap();
+    std::fs::copy(&allowed, &copied).unwrap();
+    let answer = ("G".to_owned(), "machine/fixture".to_owned());
+    {
+        let _memo = super::super::cli_batch::Memo::new();
+        SIGNED.with(|memo| {
+            memo.borrow_mut().as_mut().unwrap().insert(
+                Key {
+                    repo: repo.clone(),
+                    commit: b"record".to_vec(),
+                    allowed: digest(&allowed).unwrap(),
+                    revoked: digest(&revoked).unwrap(),
+                },
+                answer.clone(),
+            );
+        });
+        let query = |repo: &Path, commit: &str, keys: &Path| {
+            signature(repo, TextRef::Str(commit), keys, &revoked)
+        };
+        // The nonexistent repository makes a memo miss observably fail in Git.
+        assert_eq!(query(&repo, "record", &allowed).unwrap(), answer);
+        assert_eq!(query(&repo, "record", &copied).unwrap(), answer);
+        assert!(query(&root.path().join("other"), "record", &allowed).is_err());
+        assert!(query(&repo, "other-record", &allowed).is_err());
+        std::fs::write(&allowed, b"untrusted").unwrap();
+        assert!(query(&repo, "record", &allowed).is_err());
+        std::fs::write(&allowed, b"trusted").unwrap();
+        assert_eq!(query(&repo, "record", &allowed).unwrap(), answer);
+        std::fs::write(&revoked, b"revoked").unwrap();
+        assert!(query(&repo, "record", &allowed).is_err());
+        std::fs::remove_file(&allowed).unwrap();
+        assert!(query(&repo, "record", &allowed).is_err());
+        SIGNED.with(|memo| assert_eq!(memo.borrow().as_ref().unwrap().len(), 1));
+    }
+    SIGNED.with(|memo| assert!(memo.borrow().is_none()));
+}

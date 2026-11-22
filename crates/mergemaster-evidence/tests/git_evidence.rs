@@ -12,6 +12,23 @@ use std::{
     process::{Command, Stdio},
 };
 
+// Keep executable write descriptors out of this multithreaded test process.
+fn write_executable(path: &Path, content: &str) {
+    assert!(
+        Command::new("/bin/sh")
+            .args([
+                "-c",
+                "printf '%s' \"$1\" > \"$2\" && chmod 755 \"$2\"",
+                "sh",
+                content,
+            ])
+            .arg(path)
+            .status()
+            .unwrap()
+            .success()
+    );
+}
+
 /// The evidence API also invokes Git in this process. Run the entire test in a child with
 /// explicit tools and private home/state instead of changing the parallel harness's environment.
 fn isolated(test: &str) -> bool {
@@ -31,7 +48,7 @@ fn isolated(test: &str) -> bool {
     for path in [&tools, &home, &state, &config, &tmp] {
         std::fs::create_dir(path).unwrap();
     }
-    for program in ["git", "ssh-keygen", "python3", "timeout"] {
+    for program in ["git", "ssh-keygen", "python3", "timeout", "chmod"] {
         let real = std::env::split_paths(&std::env::var_os("PATH").unwrap())
             .filter(|directory| !directory.join("st3-recorder.json").exists())
             .filter_map(|directory| std::fs::canonicalize(directory.join(program)).ok())
@@ -50,7 +67,8 @@ fn isolated(test: &str) -> bool {
             });
         std::os::unix::fs::symlink(&real, tools.join(program)).unwrap();
     }
-    let output = Command::new(std::env::current_exe().unwrap())
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command
         .args(["--exact", test, "--nocapture"])
         .env_clear()
         .env(CHILD, test)
@@ -62,9 +80,19 @@ fn isolated(test: &str) -> bool {
         .env("HOME", &home)
         .env("XDG_STATE_HOME", &state)
         .env("XDG_CONFIG_HOME", &config)
-        .env("TMPDIR", &tmp)
-        .output()
-        .unwrap();
+        .env("TMPDIR", &tmp);
+    for key in [
+        "CARGO_BIN_EXE_mergemaster",
+        "CARGO_MANIFEST_DIR",
+        "MERGEMASTER_ORACLE_PYTHON",
+        "MERGEMASTER_PYTHON_ORACLE",
+        "MERGEMASTER_WITNESS_DIRECTORY",
+    ] {
+        if let Some(value) = std::env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    let output = command.output().unwrap();
     assert!(String::from_utf8_lossy(&output.stdout).contains("running 1 test"));
     assert!(
         output.status.success(),
@@ -102,7 +130,7 @@ fn git(repo: &Path, args: &[&str], input: &[u8]) -> String {
 }
 
 fn cli(repo: &Path, args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_mergemaster"))
+    Command::new(mergemaster_bin())
         .arg("evidence")
         .args(args)
         .arg("--repo")
@@ -419,7 +447,6 @@ fn protected_ci_cli_fetches_selectors_and_exports_verified_objects_without_a_key
     }
     use base64::Engine as _;
     use sha2::{Digest, Sha256};
-    use std::os::unix::fs::PermissionsExt as _;
     let root = tempfile::tempdir().unwrap();
     let caller = root.path().join("caller");
     let private = root.path().join("profile");
@@ -572,9 +599,9 @@ fn protected_ci_cli_fetches_selectors_and_exports_verified_objects_without_a_key
         .map(|directory| directory.join("python3"))
         .find(|path| path.is_file())
         .expect("the isolated harness supplies python3 on PATH");
-    std::fs::write(
+    write_executable(
         &gh,
-        format!(
+        &format!(
             "#!{}\n{}",
             python.display(),
             r#"import os, pathlib, sys
@@ -591,15 +618,13 @@ files = {'actions/runs/123/attempts/2':'run.json',
 sys.stdout.buffer.write((pathlib.Path(os.environ['FIXTURE_API']) / files[suffix]).read_bytes())
 "#
         ),
-    )
-    .unwrap();
-    std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).unwrap();
+    );
     let real_git = std::env::var_os("ST3_GIT_EVIDENCE_REAL_GIT")
         .expect("the isolated harness supplies the genuine Git executable");
     let installed_git = tools.join("git");
-    std::fs::write(
+    write_executable(
         &installed_git,
-        format!(
+        &format!(
             "#!{}\n{}",
             python.display(),
             r#"import os, sys
@@ -611,13 +636,11 @@ if 'fetch' in args:
 os.execv(os.environ['FIXTURE_REAL_GIT'],[os.environ['FIXTURE_REAL_GIT'],*args])
 "#
         ),
-    )
-    .unwrap();
-    std::fs::set_permissions(&installed_git, std::fs::Permissions::from_mode(0o755)).unwrap();
+    );
     let observe_request = |attempt: &str, artifact: &str, extra: &[&str]| {
         let mut paths = vec![tools.clone()];
         paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap()));
-        Command::new(env!("CARGO_BIN_EXE_mergemaster"))
+        Command::new(mergemaster_bin())
             .args([
                 "evidence",
                 "observe-ci",
@@ -984,11 +1007,14 @@ fn immutable_wrapper_record_matches_oracle_even_when_shallow() {
         .expect("MERGEMASTER_PYTHON_ORACLE must be set; run tests in nix develop");
     let output = pinned_python::command()
         .args(["-B", "-c", LEGACY_RECORD_DRIVER])
-        .arg(env!("CARGO_BIN_EXE_mergemaster"))
+        .arg(mergemaster_bin())
         .arg(oracle)
         .arg(
-            Path::new(&std::env::var_os("CARGO_MANIFEST_DIR").unwrap())
-                .join("../../tests/fixtures/fractal/scripts/testdata/evidence/wrapper-note"),
+            std::path::PathBuf::from(
+                std::env::var_os("CARGO_MANIFEST_DIR")
+                    .expect("CARGO_MANIFEST_DIR is set at test runtime"),
+            )
+            .join("../../tests/fixtures/fractal/scripts/testdata/evidence/wrapper-note"),
         )
         .output()
         .unwrap();
@@ -1084,3 +1110,150 @@ with tempfile.TemporaryDirectory() as scratch:
         reference.unlink()
     assert not marker.exists(), 'inspection must never lazily fetch absent objects'
 "#;
+
+fn mergemaster_bin() -> std::path::PathBuf {
+    std::path::PathBuf::from(
+        std::env::var_os("CARGO_BIN_EXE_mergemaster")
+            .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+    )
+}
+
+#[allow(
+    dead_code,
+    reason = "shared witness helpers; this target captures subject failures"
+)]
+#[path = "../src/evidence/legacy_verify/divergence_witnesses.rs"]
+mod subject_witnesses;
+
+#[test]
+fn legacy_subject_probe_distinguishes_absence_from_git_failures() {
+    use mergemaster_evidence::evidence::legacy_verify::records::{
+        read_statement, read_statement_cli,
+    };
+    use serde_json::json;
+    use std::ffi::OsStr;
+
+    if isolated(concat!(
+        module_path!(),
+        "::legacy_subject_probe_distinguishes_absence_from_git_failures"
+    )) {
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    for format in ["sha1", "sha256"] {
+        let repo = root.path().join(format);
+        std::fs::create_dir(&repo).unwrap();
+        git(
+            &repo,
+            &["init", "-q", "--bare", &format!("--object-format={format}")],
+            b"",
+        );
+        let tree = git(&repo, &["mktree"], b"");
+        let commit = |tree: &str, parent: Option<&str>, message: &str| {
+            let parent = parent.map(|p| format!("parent {p}\n")).unwrap_or_default();
+            git(&repo, &["hash-object", "-t", "commit", "-w", "--stdin"],
+                format!("tree {tree}\n{parent}author A <a@b> 1 +0000\ncommitter A <a@b> 1 +0000\n\n{message}\n").as_bytes())
+        };
+        let subject = commit(&tree, None, "subject");
+        let other_blob = git(&repo, &["hash-object", "-w", "--stdin"], b"other");
+        let other_tree = git(
+            &repo,
+            &["mktree"],
+            format!("100644 blob {other_blob}\tfile\n").as_bytes(),
+        );
+        let other = commit(&other_tree, None, "other");
+        let missing = "f".repeat(subject.len());
+        let record = |subject: &str| {
+            let statement = json!({
+                "_type": "https://in-toto.io/Statement/v1",
+                "predicateType": "https://compounding.tech/fractal/evidence/gate/v1",
+                "subject": [{"name": subject, "digest": {"gitTree": tree}}],
+                "predicate": {"schema_version": 1, "change_id": "fixture", "tier": "full",
+                    "signer": null, "observed_at": "2026-01-01T00:00:00Z",
+                    "observed": {"kind": "tests", "runner": "fixture", "checks": {}}}
+            });
+            let blob = git(
+                &repo,
+                &["hash-object", "-w", "--stdin"],
+                &serde_json::to_vec(&statement).unwrap(),
+            );
+            let record_tree = git(
+                &repo,
+                &["mktree"],
+                format!("100644 blob {blob}\t{tree}\n").as_bytes(),
+            );
+            commit(&record_tree, Some(subject), "record")
+        };
+        let matching = record(&subject);
+        let mismatching = record(&other);
+        let absent = record(&missing);
+        // A genuine shallow boundary retains the record but not its parent.
+        std::fs::write(repo.join("shallow"), format!("{absent}\n")).unwrap();
+        let read = |record: &str, cli: bool| {
+            if cli {
+                read_statement_cli(&repo, OsStr::new(record), Some(OsStr::new(&tree)))
+            } else {
+                read_statement(&repo, record, Some(&tree))
+            }
+        };
+        for cli in [false, true] {
+            assert!(read(&matching, cli).unwrap().is_some());
+            assert!(read(&mismatching, cli).unwrap().is_none());
+            assert!(read(&absent, cli).unwrap().is_some());
+        }
+        let object = repo.join("objects").join(&subject[..2]).join(&subject[2..]);
+        std::fs::set_permissions(&object, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let original = std::fs::read(&object).unwrap();
+        for damage in [b"garbled".as_slice(), b"".as_slice()] {
+            std::fs::write(&object, damage).unwrap();
+            for cli in [false, true] {
+                let error = read(&matching, cli).unwrap_err();
+                assert_eq!(error.reason, "subject-probe-failed");
+                if cli {
+                    let detail = error.detail.to_string();
+                    assert!(detail.starts_with("git rev-parse: "));
+                    assert!(detail.contains("objects/"));
+                    assert!(detail.contains(if damage.is_empty() {
+                        "is empty"
+                    } else {
+                        "is corrupt"
+                    }));
+                } else {
+                    assert_eq!(error.detail, "Git subject probe failed");
+                }
+            }
+            if format == "sha1" && !damage.is_empty() {
+                let python = pinned_python::command()
+                    .args(["-c", "import json,os,runpy,sys;m=runpy.run_path(os.environ['MERGEMASTER_PYTHON_ORACLE']+'/scripts/evidence-verify');print(json.dumps({'accepted':m['read_statement'](*sys.argv[1:]) is not None}))"])
+                    .arg(&repo).arg(&matching).arg(&tree).output().unwrap();
+                assert!(
+                    python.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&python.stderr)
+                );
+                let python: serde_json::Value = serde_json::from_slice(&python.stdout).unwrap();
+                assert_eq!(python, json!({"accepted": true}));
+                subject_witnesses::capture(
+                    "subject-probe-failure-refusal",
+                    json!({"object_format": format, "damage": "garbled loose subject", "record": matching}),
+                    python,
+                    json!({"accepted": false, "reason": read(&matching, true).unwrap_err().reason}),
+                );
+            }
+        }
+        std::fs::write(&object, original).unwrap();
+        // Unavailable alternates are operational failures, not evidence of absence.
+        std::fs::write(
+            repo.join("objects/info/alternates"),
+            format!("{}\n", repo.join("unavailable-objects").display()),
+        )
+        .unwrap();
+        for cli in [false, true] {
+            let error = read(&absent, cli).unwrap_err();
+            assert_eq!(error.reason, "subject-probe-failed");
+            if !cli {
+                assert_eq!(error.detail, "Git subject probe failed");
+            }
+        }
+    }
+}

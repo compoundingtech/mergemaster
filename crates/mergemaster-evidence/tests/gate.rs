@@ -14,6 +14,23 @@ use std::{
 const CHECK: &str = "graph-full-check";
 const PRINCIPAL: &str = "agent/fixture";
 
+// Keep executable write descriptors out of this multithreaded test process.
+fn write_executable(path: &Path, content: &str) {
+    assert!(
+        Command::new("/bin/sh")
+            .args([
+                "-c",
+                "printf '%s' \"$1\" > \"$2\" && chmod 755 \"$2\"",
+                "sh",
+                content,
+            ])
+            .arg(path)
+            .status()
+            .unwrap()
+            .success()
+    );
+}
+
 // Nix sandboxes have neither /usr/bin/env nor an ambient interpreter path.
 fn python_executable() -> String {
     std::env::split_paths(&std::env::var_os("PATH").unwrap())
@@ -271,13 +288,12 @@ impl Fixture {
     }
 
     fn live_api(&self, head: &str, base: &str) {
-        use std::os::unix::fs::PermissionsExt;
         let bin = self.root.path().join("bin");
         fs::create_dir_all(&bin).unwrap();
         let script = bin.join("gh");
-        fs::write(
+        write_executable(
             &script,
-            format!(
+            &format!(
                 r#"#!{python}
 import json, os, pathlib, sys
 root = pathlib.Path(os.environ["HOME"])
@@ -290,9 +306,7 @@ print((root / name).read_text())
 "#,
                 python = python_executable()
             ),
-        )
-        .unwrap();
-        fs::set_permissions(script, fs::Permissions::from_mode(0o755)).unwrap();
+        );
         fs::write(
             self.root.path().join("live-pull"),
             json!({
@@ -311,7 +325,7 @@ print((root / name).read_text())
 
     fn gate(&self, extra: &[&str]) -> Output {
         self.git(&["update-ref", "refs/heads/gate-base", &self.base], b"");
-        let mut command = self.command(env!("CARGO_BIN_EXE_mergemaster"));
+        let mut command = self.command(mergemaster_bin());
         let path = std::env::join_paths(
             std::iter::once(self.root.path().join("bin"))
                 .chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
@@ -808,10 +822,39 @@ fn queue_generated_paths_refuse_folded_protected_and_bootstrap_overlap() {
         f.write(".mergemaster/lanes.json", policy.to_string());
         f.base = f.commit("overlapping queue policy");
         let error = load(&f.repo, &f.base).unwrap_err();
+        if !generated.is_ascii() {
+            assert!(
+                error.is::<mergemaster_evidence::gate::config::NonAsciiAuthorityPath>(),
+                "{generated}: {error}"
+            );
+            continue;
+        }
         assert!(
             error.to_string().contains("overlaps protected path"),
             "{generated}: {error}"
         );
+    }
+}
+
+#[test]
+fn authority_path_policy_refuses_non_ascii_with_typed_errors() {
+    for field in ["protected_paths", "bootstrap_paths", "generated_paths"] {
+        for path in ["safe/Σ", "safe/ς", "safe/é", "safe／child", "safe/*.é"] {
+            let mut f = Fixture::new();
+            let mut policy = Fixture::policy("required_evidence");
+            if field == "generated_paths" {
+                policy["queue"] = json!({"generated_paths":[path]});
+            } else {
+                policy[field] = json!([path]);
+            }
+            f.write(".mergemaster/lanes.json", policy.to_string());
+            f.base = f.commit("non-ASCII authority path");
+            let error = load(&f.repo, &f.base).unwrap_err();
+            let typed = error
+                .downcast_ref::<mergemaster_evidence::gate::config::NonAsciiAuthorityPath>()
+                .unwrap();
+            assert_eq!(typed.0, path, "{field}");
+        }
     }
 }
 
@@ -2727,11 +2770,15 @@ fn protected_changes_include_both_sides_of_renames() {
         "rename_out",
         "rename_in",
         "component_boundary",
+        "fullwidth_alias",
+        "case_alias",
     ] {
         let mut f = Fixture::new();
         match case {
             "add" => f.write(".github/actions/new/action.yml", "new\n"),
             "edit" => f.write(".github/workflows/evidence.yml", "changed\n"),
+            "fullwidth_alias" => f.write(".ｍｅｒｇｅｍａｓｔｅｒ/x", "protected alias\n"),
+            "case_alias" => f.write(".MERGEMASTER/x", "protected alias\n"),
             "delete" => fs::remove_file(f.repo.join(".github/workflows/evidence.yml")).unwrap(),
             "rename_out" => {
                 fs::rename(
@@ -2812,7 +2859,7 @@ fn computed_refusal_and_satisfaction_publish_compatible_outputs() {
         assert!(text.contains(field), "{text}");
     }
     let usage = f
-        .command(env!("CARGO_BIN_EXE_mergemaster"))
+        .command(mergemaster_bin())
         .args(["gate", "--check", CHECK])
         .output()
         .unwrap();
@@ -3782,7 +3829,6 @@ fn live_github_recheck_precedes_all_decision_outputs() {
 
 #[test]
 fn concurrent_local_head_and_base_movements_cannot_publish_decisions() {
-    use std::os::unix::fs::PermissionsExt;
     for evidence in [false, true] {
         for reference in ["HEAD", "refs/heads/gate-base"] {
             let f = Fixture::new();
@@ -3803,9 +3849,9 @@ fn concurrent_local_head_and_base_movements_cannot_publish_decisions() {
             let bin = f.root.path().join("bin");
             fs::create_dir_all(&bin).unwrap();
             let script = bin.join("git");
-            fs::write(
+            write_executable(
                 &script,
-                format!(
+                &format!(
                     r#"#!{python}
 import subprocess, sys
 git = {real_git:?}
@@ -3822,9 +3868,7 @@ raise SystemExit(subprocess.run([git] + args).returncode)
                         &f.head
                     }
                 ),
-            )
-            .unwrap();
-            fs::set_permissions(script, fs::Permissions::from_mode(0o755)).unwrap();
+            );
             let outputs = f.root.path().join("outputs");
             let result = f.gate(&["--github-output", outputs.to_str().unwrap()]);
             assert!(!result.status.success(), "{evidence}/{reference}");
@@ -3851,7 +3895,7 @@ fn immutable_ids_alone_are_not_a_local_live_authority() {
         }
         let outputs = f.root.path().join("outputs");
         let result = f
-            .command(env!("CARGO_BIN_EXE_mergemaster"))
+            .command(mergemaster_bin())
             .args([
                 "gate",
                 "--check",
@@ -4243,7 +4287,7 @@ fn inspection_only_missing_subject_never_authorizes_a_gate() {
     )
     .unwrap();
     let shown = f
-        .command(env!("CARGO_BIN_EXE_mergemaster"))
+        .command(mergemaster_bin())
         .args(["evidence", "show", "--repo"])
         .arg(&f.repo)
         .args(["--record", &record])
@@ -5993,4 +6037,11 @@ print(json.dumps(dict(path=os.fsencode(sys.argv[4]).hex(),
             );
         }
     }
+}
+
+fn mergemaster_bin() -> std::path::PathBuf {
+    std::path::PathBuf::from(
+        std::env::var_os("CARGO_BIN_EXE_mergemaster")
+            .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+    )
 }

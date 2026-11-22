@@ -3,7 +3,7 @@
 mod pinned_python;
 
 use serde_json::{Value, json};
-use std::{fs, os::unix::fs::PermissionsExt, path::Path, process::Command};
+use std::{fs, path::Path, process::Command};
 
 fn fixture() -> Value {
     serde_json::from_str(include_str!("../../../tests/fixtures/oracle/slo.json")).unwrap()
@@ -18,23 +18,30 @@ fn native(id: &str) -> (std::process::Output, Vec<u64>) {
         .unwrap();
     let root = tempfile::tempdir().unwrap();
     let gh = root.path().join("gh");
-    fs::write(
-        &gh,
-        format!(
-            "#!{}\n{}",
-            Path::new(pinned_python::command().get_program()).display(),
-            fixture["gh_shim"].as_str().unwrap()
-        ),
-    )
-    .unwrap();
-    fs::set_permissions(&gh, fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(
+        Command::new("/bin/sh")
+            .args([
+                "-c",
+                "printf '%s' \"$1\" > \"$2\" && chmod 700 \"$2\"",
+                "sh",
+            ])
+            .arg(format!(
+                "#!{}\n{}",
+                Path::new(pinned_python::command().get_program()).display(),
+                fixture["gh_shim"].as_str().unwrap()
+            ))
+            .arg(&gh)
+            .status()
+            .unwrap()
+            .success()
+    );
     let api = root.path().join("api.json");
     fs::write(&api, case["api"].to_string()).unwrap();
     let calls = root.path().join("calls");
     fs::write(&calls, "").unwrap();
     let mut paths = vec![root.path().to_path_buf()];
     paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap()));
-    let output = Command::new(env!("CARGO_BIN_EXE_mergemaster"))
+    let output = Command::new(mergemaster_bin())
         .args(["evidence", "slo"])
         .args(
             case["argv"]
@@ -220,8 +227,14 @@ spec.loader.exec_module(corpus)
 corpus.replay_slo(pathlib.Path(sys.executable))
 "#,
         ])
-        .arg(Path::new(&std::env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../.."))
-        .env("MERGEMASTER_BIN", env!("CARGO_BIN_EXE_mergemaster"))
+        .arg(
+            std::path::PathBuf::from(
+                std::env::var_os("CARGO_MANIFEST_DIR")
+                    .expect("CARGO_MANIFEST_DIR is set at test runtime"),
+            )
+            .join("../.."),
+        )
+        .env("MERGEMASTER_BIN", mergemaster_bin())
         .output()
         .unwrap();
     assert!(
@@ -240,4 +253,11 @@ fn rates_round_the_binary_float_without_an_intermediate_rounding() {
         result["checks"][0]["produced_not_verified_rate"],
         json!(0.0187)
     );
+}
+
+fn mergemaster_bin() -> std::path::PathBuf {
+    std::path::PathBuf::from(
+        std::env::var_os("CARGO_BIN_EXE_mergemaster")
+            .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+    )
 }

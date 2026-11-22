@@ -2,8 +2,6 @@
 #[path = "../src/pinned_python.rs"]
 mod pinned_python;
 
-use std::path::Path;
-
 const DIFFERENTIAL: &str = r#"
 import copy, datetime, json, os, pathlib, shutil, subprocess, sys, tempfile
 repository, binary, suite = sys.argv[1:]
@@ -134,11 +132,17 @@ else:
 "#;
 
 fn differential(suite: &str) {
-    let root = Path::new(&std::env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../..");
+    let root = std::path::PathBuf::from(
+        std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set at test runtime"),
+    )
+    .join("../..");
     let output = pinned_python::command()
         .args(["-B", "-c", DIFFERENTIAL])
         .arg(root)
-        .arg(env!("CARGO_BIN_EXE_mergemaster"))
+        .arg(
+            std::env::var_os("CARGO_BIN_EXE_mergemaster")
+                .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+        )
         .arg(suite)
         .output()
         .unwrap();

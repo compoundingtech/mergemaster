@@ -124,7 +124,10 @@ impl Watch {
             );
             command
         } else {
-            let mut command = Command::new(env!("CARGO_BIN_EXE_mergemaster"));
+            let mut command = Command::new(
+                std::env::var_os("CARGO_BIN_EXE_mergemaster")
+                    .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+            );
             command.args(["evidence", "log-watch"]);
             command
         };
@@ -162,6 +165,31 @@ impl Watch {
             .map(str::to_owned)
             .collect()
     }
+}
+
+#[test]
+fn log_watch_non_utf8_state_matches_pinned_python() {
+    use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+
+    let watch = Watch::new();
+    watch.publish(T0);
+    let notify = json!([python(), "-c", "pass"]);
+    let mut results = Vec::new();
+    for (oracle, name) in [
+        (false, b"native-\xff".as_slice()),
+        (true, b"oracle-\xff".as_slice()),
+    ] {
+        let state = watch.root.path().join(OsString::from_vec(name.to_vec()));
+        let done = watch
+            .command(T0 + 1, &notify, &watch.remote, &state, oracle)
+            .output()
+            .unwrap();
+        assert!(done.status.success(), "{:?}", done.stderr);
+        let saved: Value =
+            serde_json::from_slice(&fs::read(state.join("watch.json")).unwrap()).unwrap();
+        results.push((done.status.code(), done.stdout, done.stderr, saved));
+    }
+    assert_eq!(results[0], results[1]);
 }
 
 #[test]
@@ -455,7 +483,10 @@ fn log_watch_pinned_python_assertions_and_differential() {
         }
         assert_eq!(results[0], results[1]);
     }
-    let root = Path::new(&std::env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../..");
+    let root = std::path::PathBuf::from(
+        std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set at test runtime"),
+    )
+    .join("../..");
     success(Command::new(python()).args(["-B", "-c", "import sys; sys.path.insert(0, 'tests'); from oracle_corpus import replay_log_watch; from pathlib import Path; replay_log_watch(Path(sys.executable))"]).current_dir(root).output().unwrap());
 }
 

@@ -340,8 +340,19 @@ fn successful_noisy_fsmonitor_matches_projection_oracle() {
     let python = python.trim();
     assert!(Path::new(python).is_absolute());
     let hook = repo.join("monitor.py");
-    std::fs::write(&hook, format!("#!{python}\nimport pathlib,sys\np=pathlib.Path(__file__).with_suffix('.calls')\nwith p.open('ab') as f:f.write(b'x')\nsys.stderr.buffer.write(b'e'*1048577)\nsys.stderr.buffer.flush()\nsys.stdout.buffer.write(b'token\\0')\n")).unwrap();
-    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(
+        Command::new("/bin/sh")
+            .args([
+                "-c",
+                "printf '%s' \"$1\" > \"$2\" && chmod 755 \"$2\"",
+                "sh",
+            ])
+            .arg(format!("#!{python}\nimport pathlib,sys\np=pathlib.Path(__file__).with_suffix('.calls')\nwith p.open('ab') as f:f.write(b'x')\nsys.stderr.buffer.write(b'e'*1048577)\nsys.stderr.buffer.flush()\nsys.stdout.buffer.write(b'token\\0')\n"))
+            .arg(&hook)
+            .status()
+            .unwrap()
+            .success()
+    );
     git(repo, &["config", "core.fsmonitor", hook.to_str().unwrap()]).unwrap();
     let root = std::env::var("MERGEMASTER_PYTHON_ORACLE").unwrap();
     let output = crate::pinned_python::command().args([

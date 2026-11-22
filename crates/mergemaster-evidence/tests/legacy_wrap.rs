@@ -9,9 +9,15 @@ fn replay(group: &str) {
     let output = pinned_python::command()
         .args(["-B", "-c", DRIVER])
         .arg(group)
-        .arg(env!("CARGO_BIN_EXE_mergemaster"))
+        .arg(
+            std::env::var_os("CARGO_BIN_EXE_mergemaster")
+                .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+        )
         .arg(oracle)
-        .arg(std::env::var_os("CARGO_MANIFEST_DIR").unwrap())
+        .arg(std::path::PathBuf::from(
+            std::env::var_os("CARGO_MANIFEST_DIR")
+                .expect("CARGO_MANIFEST_DIR is set at test runtime"),
+        ))
         .output()
         .expect("launch legacy wrapper parity driver");
     assert!(
@@ -43,8 +49,11 @@ parity! {
     aggregate_canonical_output_out_packs_and_dirty_index_rules => "aggregate",
     push_token_is_environment_only_and_failure_still_publishes => "push",
     transient_push_refusals_retry_only_pending_refs_with_bound => "retry",
-    transport_overrides_survive_and_cached_records_are_not_published => "transport",
-    publication_uses_pushurl_not_fetch_url => "pushurl",
+    isolated_transport_ignores_overrides_and_publishes_only_new_refs => "transport",
+    publication_ignores_pushurl_and_rejects_untrusted_fetch_url => "pushurl",
+    publication_transfers_subject_history_from_safe_checkout_alternates => "publication-history",
+    shallow_publication_preserves_boundary_and_refuses_empty_destination => "publication-shallow",
+    checkout_ref_cannot_override_signed_publication_record => "publication-ref-target",
     dirty_or_mutating_commands_never_sign => "dirty",
     aggregate_nix_runner_reaches_real_signer_validation => "nix",
     signer_clock_and_tool_execution_ignore_hostile_checkout_configuration => "security",
@@ -298,7 +307,7 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
         marker = root / 'wrongly-verified'
         verifier = executable(root / 'must-not-verify', '#!/bin/sh\ntouch ' + shlex.quote(str(marker)) + '\nexit 1\n')
         for native in (False, True):
-            done = invoke(native, flags=['--aggregate', str(stage), '--push', 'wide-sink', '--verifier', str(verifier)])
+            done = invoke(native, flags=['--aggregate', str(stage), '--push', str(sink), '--verifier', str(verifier)])
             assert done.returncode == 0, (native, done.stderr)
             packet = result(done)
             assert packet['exit_code'] == 4294967296 and packet['verified'] is False and packet['pushed'] is True, packet
@@ -318,12 +327,21 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
             return 'import os,json,pathlib; pathlib.Path(' + repr(str(path)) + ').write_text(json.dumps(dict(os.environ)))'
         signer = [sys.executable, '-I', '-c', 'import sys; sys.stdin.buffer.read(); ' + dump_code(signer_dump) + '; sys.exit(7)']
         done = invoke(True, [sys.executable, '-I', '-c', dump_code(lane_dump)], signer=signer,
-                      extra=dict(EVIDENCE_PUSH_TOKEN='secret-token-xyz', EVIDENCE_SIGNER='private-signer-command', WRAP_CUSTOM_ENV='preserved'))
+                      extra=dict(EVIDENCE_PUSH_TOKEN='secret-token-xyz', EVIDENCE_SIGNER='private-signer-command', WRAP_CUSTOM_ENV='preserved',
+                                 GH_TOKEN='github-cli-secret', GITHUB_TOKEN='github-actions-secret',
+                                 GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='http.extraheader', GIT_CONFIG_VALUE_0='caller-secret',
+                                 GIT_CONFIG_GLOBAL=str(root / 'private-config'), GIT_CONFIG_PARAMETERS="'http.extraheader=caller-secret'"))
         assert done.returncode == 1 and b'the signer refused' in done.stderr, done.stderr
         for path in (lane_dump, signer_dump):
             seen = json.loads(path.read_bytes())
             assert 'EVIDENCE_PUSH_TOKEN' not in seen and 'EVIDENCE_SIGNER' not in seen, path
+            assert not any(key.startswith('GIT_CONFIG_') for key in seen), seen
             assert seen['WRAP_CUSTOM_ENV'] == 'preserved'
+            if path == signer_dump:
+                assert 'GH_TOKEN' not in seen and 'GITHUB_TOKEN' not in seen, seen
+            else:
+                assert seen['GH_TOKEN'] == 'github-cli-secret'
+                assert seen['GITHUB_TOKEN'] == 'github-actions-secret'
     elif group == 'redaction':
         token = 'secret-token-xyz'
         header = base64.b64encode(('x-access-token:' + token).encode()).decode()
@@ -345,7 +363,7 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
         executable(shim / 'git', '#!/bin/sh\ncase " $* " in *" status "*) printf "%s\\n" ' + shlex.quote(message) + ' >&2; exit 1;; esac\nexec ' + shlex.quote(real_git) + ' "$@"\n')
         redacted(invoke(True, ['true'], extra=extra), 1)
         executable(shim / 'git', '#!/bin/sh\ncase " $* " in *" push "*) printf "%s %s\\n" "$EVIDENCE_PUSH_TOKEN" "$GIT_CONFIG_VALUE_0" >&2; exit 1;; esac\nexec ' + shlex.quote(real_git) + ' "$@"\n')
-        redacted(invoke(True, ['sh', '-c', 'exit 3'], flags=['--push', 'echo-header-sink'], extra=extra), 1)
+        redacted(invoke(True, ['sh', '-c', 'exit 3'], flags=['--push', 'https://github.com/example/repo.git'], extra=extra), 1)
     elif group == 'key-tempfile':
         log = root / 'key-file.json'
         verifier = root / 'inspect-key-file'
@@ -518,6 +536,100 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
         for bad in (dict(command=['x'], exit_code=0, output=1, output_sha256='a'*64), dict(command=['x'], exit_code=0, output=1, tier='full'), dict(command=['x'], exit_code=0)):
             stage.write_text(json.dumps(bad))
             refused(flags=['--aggregate', str(stage)], contains=b'--aggregate')
+    elif group == 'publication-history':
+        parent = commit
+        (repo / 'a').write_text('two\n')
+        git(repo, 'commit', '-qam', 'subject with history')
+        commit, tree = text(repo, 'rev-parse', 'HEAD'), text(repo, 'rev-parse', 'HEAD^{tree}')
+        for hostile in (False, True):
+            sink = root / ('history-hostile.git' if hostile else 'history-empty.git')
+            init(sink, bare=True)
+            assert run(['git', '-C', sink, 'cat-file', '-e', commit]).returncode != 0
+            if hostile:
+                donor = root / 'alternate.git'
+                init(donor, bare=True)
+                objects = repo / '.git/objects'
+                for entry in list(objects.iterdir()):
+                    if entry.name != 'info':
+                        target = donor / 'objects' / entry.name
+                        if target.exists():
+                            shutil.rmtree(target)
+                        shutil.move(str(entry), target)
+                (objects / 'info/alternates').write_text(str(donor / 'objects') + '\n')
+                unrelated = root / 'mismatched-graph.git'
+                init(unrelated, bare=True)
+                empty_tree = git(unrelated, 'mktree', data=b'').decode().strip()
+                unrelated_commit = git(unrelated, 'commit-tree', empty_tree, data=b'unrelated graph\n').decode().strip()
+                git(unrelated, 'update-ref', 'refs/heads/unrelated', unrelated_commit)
+                git(unrelated, 'commit-graph', 'write', '--reachable')
+                shutil.copyfile(unrelated / 'objects/info/commit-graph', donor / 'objects/info/commit-graph')
+                (donor / 'objects/info/alternates').write_text(str(unrelated / 'objects') + '\n')
+                marker = root / 'alternate-config-or-hook-executed'
+                hooks = donor / 'hooks'
+                executable(hooks / 'pre-push', '#!/bin/sh\ntouch ' + shlex.quote(str(marker)) + '\n')
+                included = root / 'alternate-hostile.config'
+                included.write_text('[url "ext::touch ' + str(marker) + '"]\n insteadOf = ' + str(sink) + '\n')
+                for repository in (repo, donor):
+                    for name, value in [('core.hooksPath', str(hooks)), ('core.sshCommand', 'touch ' + str(marker)),
+                                        ('include.path', str(included)), ('credential.helper', '!touch ' + str(marker)),
+                                        ('url.ext::touch ' + str(marker) + '.insteadOf', str(sink)),
+                                        ('http.extraheader', 'checkout-secret')]:
+                        git(repository, 'config', name, value)
+            done = invoke(True, ['sh', '-c', 'exit 3'], ['--push', str(sink), '--attempt', '2' if hostile else '1'])
+            assert done.returncode == 3 and result(done)['pushed'], done.stderr
+            value = result(done)
+            assert text(sink, 'rev-parse', value['ref'] + '^') == commit
+            assert text(sink, 'rev-parse', commit + '^') == parent
+            assert text(sink, 'cat-file', '-t', parent) == 'commit'
+            assert text(sink, 'rev-parse', value['tag']) == value['record']
+            metadata_off = ['-c', 'core.commitGraph=false', '-c', 'core.multiPackIndex=false',
+                            '-c', 'pack.useBitmaps=false', '-c', 'pack.useBitmapBoundaryTraversal=false']
+            expected_objects = set(text(repo, *metadata_off, 'rev-list', '--objects', '--no-object-names', value['record']).splitlines())
+            received_objects = set(text(sink, *metadata_off, 'cat-file', '--batch-all-objects', '--batch-check=%(objectname)').splitlines())
+            assert received_objects == expected_objects, (received_objects - expected_objects, expected_objects - received_objects)
+            if hostile:
+                assert not marker.exists()
+    elif group == 'publication-ref-target':
+        sink = root / 'ref-target.git'
+        init(sink, bare=True)
+        unrelated_tree = git(repo, 'mktree', data=b'').decode().strip()
+        unrelated = git(repo, 'commit-tree', unrelated_tree, data=b'unrelated checkout object\n').decode().strip()
+        proxy = ('import json,subprocess,sys; '
+                 'r=subprocess.run(' + repr(native_sign) + ',input=sys.stdin.buffer.read(),capture_output=True); '
+                 'r.check_returncode(); answer=json.loads(r.stdout); '
+                 'ref="refs/tags/evidence/"+answer["tree"]+"/"+answer["record"]; '
+                 'subprocess.run(' + repr([real_git, '-c', 'core.hooksPath=/dev/null', '-C', str(repo), 'update-ref']) +
+                 '+[ref,' + repr(unrelated) + '],check=True); sys.stdout.buffer.write(r.stdout)')
+        done = invoke(True, ['sh', '-c', 'exit 3'], ['--push', str(sink)],
+                      signer=[sys.executable, '-I', '-c', proxy])
+        assert done.returncode == 1 and b'checkout publication ref' in done.stderr, done.stderr
+        assert b'not signed record' in done.stderr, done.stderr
+        assert unrelated.encode() in done.stderr
+        assert refs(sink) == b''
+        assert run(['git', '-C', sink, 'cat-file', '-e', unrelated]).returncode != 0
+    elif group == 'publication-shallow':
+        (repo / 'a').write_text('two\n')
+        git(repo, 'commit', '-qam', 'subject boundary')
+        commit, tree = text(repo, 'rev-parse', 'HEAD'), text(repo, 'rev-parse', 'HEAD^{tree}')
+        checkout = root / 'depth-one'
+        good(run(['git', 'clone', '--depth=1', repo.as_uri(), checkout]))
+        git(checkout, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
+        assert text(checkout, 'rev-parse', '--is-shallow-repository') == 'true'
+        for seeded in (True, False):
+            sink = root / ('boundary-present.git' if seeded else 'boundary-absent.git')
+            init(sink, bare=True)
+            if seeded:
+                # The destination knows the record's parent: the subject boundary.
+                git(repo, 'push', str(sink), commit + ':refs/heads/main')
+            done = invoke(True, ['sh', '-c', 'exit 3'], ['--push', str(sink)], cwd=checkout)
+            if seeded:
+                assert done.returncode == 3 and result(done)['pushed'], done.stderr
+                assert text(sink, 'rev-parse', result(done)['ref'] + '^') == commit
+            else:
+                assert done.returncode == 1, done.stderr
+                assert b'publication requires complete checkout history' in done.stderr, done.stderr
+                assert b'shallow update not allowed' in done.stderr, done.stderr
+                assert refs(sink) == b''
     elif group in ('push', 'retry', 'transport', 'pushurl'):
         sink = root / 'sink.git'
         init(sink, bare=True)
@@ -526,8 +638,8 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
         shim.mkdir()
         log = root / 'git-log'
         if group == 'push':
-            executable(shim / 'git', '#!/bin/sh\nprintf "ARGV %s\\n" "$*" >> ' + shlex.quote(str(log)) + '\nprintf "ENV %s\\n" "$GIT_CONFIG_VALUE_0" >> ' + shlex.quote(str(log)) + '\nexec ' + shlex.quote(real_git) + ' "$@"\n')
-            values = pair(['sh', '-c', 'exit 3'], ['--push', 'sink'], code=3, extra=dict(EVIDENCE_PUSH_TOKEN='secret-token-xyz', PATH=str(shim) + ':' + env['PATH']))
+            executable(shim / 'git', '#!' + sys.executable + '\nimport os,sys\na=sys.argv[1:]\nwith open(' + repr(str(log)) + ',"a") as f:\n f.write("ARGV "+" ".join(a)+"\\n")\n f.write("ENV "+os.environ.get("GIT_CONFIG_VALUE_0","")+"\\n")\n if "push" in a:\n  f.write("KEY "+os.environ.get("GIT_CONFIG_KEY_0","")+"\\n")\n  f.write("TOKEN "+os.environ.get("EVIDENCE_PUSH_TOKEN","")+"\\n")\nif "push" in a: a[a.index("push")+2]=' + repr(str(sink)) + '\nos.execv(' + repr(real_git) + ',["git",*a])\n')
+            values = pair(['sh', '-c', 'exit 3'], ['--push', 'https://github.com/example/repo.git'], code=3, extra=dict(EVIDENCE_PUSH_TOKEN='secret-token-xyz', PATH=str(shim) + ':' + env['PATH']))
             header = base64.b64encode(b'x-access-token:secret-token-xyz').decode()
             lines = log.read_text().splitlines()
             assert any(header in line for line in lines if line.startswith('ENV '))
@@ -536,16 +648,51 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
                 assert value['pushed'] is True and b'secret-token-xyz' not in done.stderr and header.encode() not in done.stderr
                 for ref in (value['ref'], value['tag']):
                     assert text(sink, 'rev-parse', ref) == value['record']
-            executable(shim / 'git', '#!/bin/sh\ncase " $* " in *" push "*) printf "%s" "$EVIDENCE_PUSH_TOKEN" >&2; exit 1;; esac\nexec ' + shlex.quote(real_git) + ' "$@"\n')
+            log.unlink()
+            marker = root / 'authenticated-hostile-transport-executed'
+            included = root / 'authenticated-include'
+            included.write_text('[url "ext::touch ' + str(marker) + '"]\n insteadOf = https://github.com/\n')
+            for name, value in [('url.ext::touch ' + str(marker) + '.insteadOf', 'https://github.com/'),
+                                ('url.ext::touch ' + str(marker) + '.pushInsteadOf', 'https://github.com/'),
+                                ('remote.sink.pushurl', 'ext::touch ' + str(marker)), ('include.path', str(included)),
+                                ('includeIf.gitdir:' + str(repo) + '/.path', str(included)),
+                                ('credential.helper', '!touch ' + str(marker)), ('core.sshCommand', 'touch ' + str(marker)),
+                                ('http.extraheader', 'checkout-secret')]:
+                git(repo, 'config', name, value)
+            git(repo, 'config', 'remote.sink.url', 'git@github.com:example/repo.git')
+            done = invoke(True, ['sh', '-c', 'exit 3'], ['--push', 'sink', '--attempt', '2'],
+                          dict(EVIDENCE_PUSH_TOKEN='secret-token-xyz', PATH=str(shim)+':'+env['PATH'],
+                               GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='http.extraheader', GIT_CONFIG_VALUE_0='caller-secret'))
+            assert done.returncode == 3 and result(done)['pushed'], done.stderr
+            lines = log.read_text().splitlines()
+            assert [line for line in lines if line.startswith('KEY ')] == ['KEY http.https://github.com/example/repo.git.extraheader'], lines
+            assert [line for line in lines if line.startswith('TOKEN ')] == ['TOKEN '], lines
+            assert any(header in line for line in lines if line.startswith('ENV '))
+            assert not any('secret-token-xyz' in line or header in line for line in lines if line.startswith('ARGV '))
+            assert not marker.exists()
+            executable(shim / 'git', '#!/bin/sh\ncase " $* " in *" push "*) printf "%s %s" "$EVIDENCE_PUSH_TOKEN" "$GIT_CONFIG_VALUE_0" >&2; exit 1;; esac\nexec ' + shlex.quote(real_git) + ' "$@"\n')
             for native in (False, True):
-                done = invoke(native, ['sh', '-c', 'exit 3'], ['--push', 'sink'], dict(EVIDENCE_PUSH_TOKEN='secret-token-xyz', PATH=str(shim)+':'+env['PATH']))
+                done = invoke(native, ['sh', '-c', 'exit 3'], ['--push', 'https://github.com/example/repo.git'], dict(EVIDENCE_PUSH_TOKEN='secret-token-xyz', PATH=str(shim)+':'+env['PATH']))
                 assert done.returncode == 1 and b'push failed' in done.stderr
                 assert b'secret-token-xyz' not in done.stderr and b'***' in done.stderr
         elif group == 'pushurl':
             git(repo, 'remote', 'set-url', 'sink', 'https://unreachable.invalid/fetch.git')
             git(repo, 'remote', 'set-url', '--push', 'sink', sink.as_uri())
-            values = pair(['sh', '-c', 'exit 3'], ['--push', 'sink'], code=3)
-            expected = {value[name] for _, value, _, _ in values for name in ('ref', 'tag')}
+            oracle_done = invoke(False, ['sh', '-c', 'exit 3'], ['--push', 'sink'])
+            assert oracle_done.returncode == 3 and result(oracle_done)['pushed'], oracle_done.stderr
+            native_done = invoke(True, ['sh', '-c', 'exit 3'], ['--push', 'sink'])
+            assert native_done.returncode == 1 and b'publication URL' in native_done.stderr, native_done.stderr
+            git(repo, 'remote', 'set-url', 'sink', str(sink))
+            git(repo, 'remote', 'set-url', '--push', 'sink', 'ext::must-not-run')
+            marker = root / 'checkout-local-receive-hook-executed'
+            executable(sink / 'hooks/pre-receive', '#!/bin/sh\ntouch ' + shlex.quote(str(marker)) + '\n')
+            native_done = invoke(True, ['sh', '-c', 'exit 3'], ['--push', 'sink'])
+            assert native_done.returncode == 1 and b'checkout-configured local publication destination is refused' in native_done.stderr, native_done.stderr
+            assert not marker.exists()
+            (sink / 'hooks/pre-receive').unlink()
+            native_done = invoke(True, ['sh', '-c', 'exit 3'], ['--push', str(sink)])
+            assert native_done.returncode == 3 and result(native_done)['pushed'], native_done.stderr
+            expected = {value[name] for value in (result(oracle_done), result(native_done)) for name in ('ref', 'tag')}
             assert set(text(sink, 'for-each-ref', '--format=%(refname)').splitlines()) == expected
         elif group == 'transport':
             url = 'https://evidence.invalid/owner/repo.git'
@@ -553,24 +700,43 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
             (home / '.gitconfig').write_text('[url "git@invalid.example:"]\n\tinsteadOf = https://evidence.invalid/\n')
             transport = dict(GIT_CONFIG_COUNT='2', GIT_CONFIG_KEY_0='url.' + sink.as_uri() + '.insteadOf', GIT_CONFIG_VALUE_0=url,
                              GIT_CONFIG_KEY_1='protocol.file.allow', GIT_CONFIG_VALUE_1='always')
-            # Publication preserves transport settings. GIT_DIR must stay unset:
-            # the legacy verifier inherits it and would block publication before
-            # transport runs (covered separately by the hostile-state case).
+            # The oracle retains caller transport settings; native deliberately refuses
+            # this non-GitHub URL and later ignores all checkout transport overrides.
             previous = pair(['true'])[0][1]['record']
             git(repo, 'update-ref', '--stdin', data=''.join(f'update refs/tags/evidence/{"a"*40}/cached-{i} {previous}\n' for i in range(2000)).encode())
             expected = set()
             for token in ('', 'secret-token-xyz'):
-                values = pair(['true'], ['--push', 'sink', '--keys', str(allowed), '--input', 'source_inputs=' + tree, '--attempt', '2' if token else '1'], extra=dict(transport, EVIDENCE_PUSH_TOKEN=token))
+                done = invoke(False, ['true'], ['--push', 'sink', '--keys', str(allowed), '--input', 'source_inputs=' + tree, '--attempt', '2' if token else '1'], extra=dict(transport, EVIDENCE_PUSH_TOKEN=token))
+                values = [(done, *inspect(False, done))]
                 for _, value, _, _ in values:
                     assert value['verified'] and value['pushed']
                     expected.update([value['tag'], value['ref'], f'refs/tags/evidence/input/linux-gate/{tree}/{value["record"]}', f'refs/notes/evidence-input/linux-gate/{tree}/{value["record"]}'])
                 assert set(text(sink, 'for-each-ref', '--format=%(refname)').splitlines()) == expected
+            refused_native = invoke(True, ['sh', '-c', 'exit 3'], ['--push', 'sink'], extra=transport)
+            assert refused_native.returncode == 1 and b'publication URL' in refused_native.stderr, refused_native.stderr
+            git(repo, 'remote', 'set-url', 'sink', str(sink))
+            marker = root / 'hostile-transport-executed'
+            included = root / 'hostile-include'
+            included.write_text('[url "ext::touch ' + str(marker) + '"]\n insteadOf = ' + str(sink) + '\n')
+            for name, value in [('url.ext::touch ' + str(marker) + '.insteadOf', str(sink)),
+                                ('url.ext::touch ' + str(marker) + '.pushInsteadOf', str(sink)),
+                                ('remote.sink.pushurl', 'ext::touch ' + str(marker)),
+                                ('include.path', str(included)), ('includeIf.gitdir:' + str(repo) + '/.path', str(included)),
+                                ('credential.helper', '!touch ' + str(marker)), ('core.sshCommand', 'touch ' + str(marker)),
+                                ('http.extraheader', 'checkout-secret'), ('http.https://github.com/example/repo.git.extraheader', 'checkout-secret')]:
+                git(repo, 'config', name, value)
+            native_done = invoke(True, ['sh', '-c', 'exit 3'], ['--push', str(sink), '--attempt', '3', '--input', 'source_inputs=' + tree], extra=transport)
+            assert native_done.returncode == 3 and result(native_done)['pushed'], native_done.stderr
+            value = result(native_done)
+            expected.update([value['tag'], value['ref'], f'refs/tags/evidence/input/linux-gate/{tree}/{value["record"]}', f'refs/notes/evidence-input/linux-gate/{tree}/{value["record"]}'])
+            assert set(text(sink, 'for-each-ref', '--format=%(refname)').splitlines()) == expected
+            assert not marker.exists()
         else:
             executable(shim / 'git', '#!' + sys.executable + '\nimport os,sys\na=sys.argv[1:]\nif "push" in a:\n p=' + repr(str(log)) + '\n with open(p,"a") as f: f.write(" ".join(a)+"\\n")\n n=len(open(p).read().splitlines())\n if n<=int(os.environ.get("FAILS","0")):\n  specs=a[a.index("push")+3:]\n  print("To sink")\n  for spec in specs: print("!\\t"+spec+"\\t[remote rejected] (failed)")\n  print("Done")\n  sys.exit(1)\nos.execv(' + repr(real_git) + ',["git",*a])\n')
             for native in (False, True):
                 for failures in (2, 3):
                     if log.exists(): log.unlink()
-                    done = invoke(native, ['sh', '-c', 'exit 3'], ['--push', 'sink'], dict(PATH=str(shim)+':'+env['PATH'], FAILS=str(failures)))
+                    done = invoke(native, ['sh', '-c', 'exit 3'], ['--push', str(sink)], dict(PATH=str(shim)+':'+env['PATH'], FAILS=str(failures)))
                     assert len(log.read_text().splitlines()) == 3
                     if failures == 2:
                         assert done.returncode == 3 and result(done)['pushed']
@@ -581,7 +747,7 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
                 executable(sink / 'hooks/pre-receive', '#!/bin/sh\nexit 1\n')
                 log.unlink()
                 # A fresh attempt avoids an already-published deterministic ref.
-                done = invoke(native, ['sh', '-c', 'exit 3'], ['--push', 'sink', '--attempt', '9'], dict(PATH=str(shim)+':'+env['PATH'], FAILS='0'))
+                done = invoke(native, ['sh', '-c', 'exit 3'], ['--push', str(sink), '--attempt', '9'], dict(PATH=str(shim)+':'+env['PATH'], FAILS='0'))
                 assert done.returncode == 1 and len(log.read_text().splitlines()) == 1
                 assert b'pre-receive hook declined' in done.stderr and b'pushing them again' not in done.stderr
                 (sink / 'hooks/pre-receive').unlink()
@@ -590,7 +756,7 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
             executable(shim / 'git', '#!' + sys.executable + '\nimport os,sys\na=sys.argv[1:]\nif "push" in a:\n p=' + repr(str(log)) + '\n with open(p,"a") as f: f.write(" ".join(a)+"\\n")\n if len(open(p).read().splitlines())==1:\n  spec=a[-1]\n  print("!\\t"+spec+"\\t[remote rejected] (failed)")\n  sys.exit(1)\nos.execv(' + repr(real_git) + ',["git",*a])\n')
             for native in (False, True):
                 log.unlink()
-                done = invoke(native, ['sh', '-c', 'exit 3'], ['--push', 'sink', '--input', 'source_inputs='+tree], dict(PATH=str(shim)+':'+env['PATH']))
+                done = invoke(native, ['sh', '-c', 'exit 3'], ['--push', str(sink), '--input', 'source_inputs='+tree], dict(PATH=str(shim)+':'+env['PATH']))
                 assert done.returncode == 3 and result(done)['pushed'], done.stderr
                 calls = [shlex.split(line) for line in log.read_text().splitlines()]
                 assert len(calls) == 2
@@ -808,7 +974,7 @@ with tempfile.TemporaryDirectory(dir=scratch_root) as directory:
         expected = json.loads((fixture / 'expected.json').read_bytes())
         imported = root / 'golden.git'
         init(imported, bare=True)
-        git(imported, 'index-pack', '--stdin', data=base64.b64decode((fixture / 'record.pack.base64').read_bytes(), validate=False))
+        git(imported, 'index-pack', '--strict', '--stdin', data=base64.b64decode((fixture / 'record.pack.base64').read_bytes(), validate=False))
         record, tree = expected['record'], expected['tree']
         git(imported, 'update-ref', f'refs/notes/evidence/{tree}/{record}', record)
         for verifier in ([sys.executable, '-I', '-B', verify_script, '--repo', imported, '--tree', tree, '--check', expected['check'], '--keys', fixture / 'allowed-signers'],

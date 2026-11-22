@@ -33,7 +33,10 @@ impl Implementation {
                 command
             }
             Self::Rust => {
-                let mut command = Command::new(env!("CARGO_BIN_EXE_mergemaster"));
+                let mut command = Command::new(
+                    std::env::var_os("CARGO_BIN_EXE_mergemaster")
+                        .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+                );
                 command.args(["evidence", "keygen"]);
                 command
             }
@@ -513,7 +516,11 @@ fn frozen_keygen_recordings_match_pinned_oracle_and_rust() {
                 .command()
                 .args(args)
                 .current_dir(
-                    Path::new(&std::env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../.."),
+                    std::path::PathBuf::from(
+                        std::env::var_os("CARGO_MANIFEST_DIR")
+                            .expect("CARGO_MANIFEST_DIR is set at test runtime"),
+                    )
+                    .join("../.."),
                 )
                 .stdin(Stdio::null())
                 .output()

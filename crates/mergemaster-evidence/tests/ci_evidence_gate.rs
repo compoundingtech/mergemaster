@@ -5,10 +5,16 @@ mod pinned_python;
 fn gate_decisions_match_python_with_real_shallow_repositories() {
     let output = pinned_python::command()
         .args(["-B", "-c", DRIVER])
-        .arg(env!("CARGO_BIN_EXE_mergemaster"))
         .arg(
-            std::path::Path::new(&std::env::var_os("CARGO_MANIFEST_DIR").unwrap())
-                .join("../../scripts/ci-evidence-gate"),
+            std::env::var_os("CARGO_BIN_EXE_mergemaster")
+                .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+        )
+        .arg(
+            std::path::PathBuf::from(
+                std::env::var_os("CARGO_MANIFEST_DIR")
+                    .expect("CARGO_MANIFEST_DIR is set at test runtime"),
+            )
+            .join("../../scripts/ci-evidence-gate"),
         )
         .output()
         .unwrap();

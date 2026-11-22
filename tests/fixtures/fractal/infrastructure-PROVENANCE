@@ -1,5 +1,6 @@
 Source: https://github.com/compoundingtech/fractal
-Commit: e2721e52463428b4ff655addee129cecd2839763
+Commit: 787e8ed592dff34d2bdc2a2b0b584482da567e7f
+Original sync: e2721e52463428b4ff655addee129cecd2839763
 
 Vendored unchanged test infrastructure under tests/fixtures/fractal/scripts/:
 These helpers are test data, not part of the production scripts/ extraction.

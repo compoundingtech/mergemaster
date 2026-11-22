@@ -3,7 +3,6 @@
 mod pinned_python;
 
 use serde_json::Value;
-use std::path::Path;
 
 fn fixture(command: &str) -> Value {
     let bytes = match command {
@@ -15,7 +14,10 @@ fn fixture(command: &str) -> Value {
 }
 
 fn replay(command: &str) {
-    let root = Path::new(&std::env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../..");
+    let root = std::path::PathBuf::from(
+        std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set at test runtime"),
+    )
+    .join("../..");
     let output = pinned_python::command()
         .args([
             "-B",
@@ -23,7 +25,7 @@ fn replay(command: &str) {
             "import runpy,sys; module=runpy.run_path(sys.argv[1]); module['replay_flip_skip'](sys.executable, sys.argv[2], (sys.argv[3],))",
         ])
         .arg(root.join("tests/oracle_corpus.py"))
-        .arg(env!("CARGO_BIN_EXE_mergemaster"))
+        .arg(std::env::var_os("CARGO_BIN_EXE_mergemaster").expect("CARGO_BIN_EXE_mergemaster is set at test runtime"))
         .arg(command)
         .current_dir(&root)
         .output()

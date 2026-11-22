@@ -183,17 +183,60 @@ pub(super) fn record_blob(command: &mut Command) -> Result<Vec<u8>, PolicyError>
         other => process_error(command, "cat-file", timeout, other),
     })?
 }
-/// Only ordinary Git/process failures mean an absent subject; cap failures abort.
-pub(super) fn record_subject(command: &mut Command) -> Result<Option<Vec<u8>>, PolicyError> {
-    let timeout = Duration::from_secs(60);
-    let sink = ProjectionCapture::new("rev-parse", ExpectedOutput::Bytes(128));
-    match GitChild::capture_with_sink(command, Some(b""), timeout, sink) {
-        Ok(result) => Ok(result.ok()),
-        Err(error @ ProcessError::Bytes(_)) => {
-            Err(process_error(command, "rev-parse", timeout, error))
-        }
-        Err(_) => Ok(None),
+pub(super) fn subject_error(error: PolicyError) -> PolicyError {
+    PolicyError {
+        reason: "subject-probe-failed",
+        ..error
     }
+}
+struct SubjectCapture<'a> {
+    capture: ProjectionCapture<'a>,
+    subject: &'a str,
+}
+impl CaptureSink for SubjectCapture<'_> {
+    type Error = ProcessError;
+    type Output = Result<bool, PolicyError>;
+    fn push(&mut self, stream: Stream, bytes: &[u8]) -> Result<(), ProcessError> {
+        self.capture.push(stream, bytes)
+    }
+    fn finish(self, status: ExitStatus) -> Self::Output {
+        // Unavailable alternates can produce a successful "missing" batch row
+        // accompanied by stderr, so absence additionally requires empty stderr.
+        // Presence leads to the stricter tree comparison, so unrelated stderr
+        // (for example loader warnings from the caller environment) is harmless.
+        let noisy = self.capture.overflow || !self.capture.stderr.is_empty();
+        let bytes = self.capture.finish(status).map_err(subject_error)?;
+        if bytes.strip_suffix(b"\n") == Some(self.subject.as_bytes()) {
+            Ok(true)
+        } else if noisy {
+            Err(subject_error(failure("Git subject probe emitted stderr")))
+        } else if bytes.strip_suffix(b" missing\n") == Some(self.subject.as_bytes()) {
+            Ok(false)
+        } else {
+            Err(subject_error(failure(
+                "Git subject probe returned a malformed object result",
+            )))
+        }
+    }
+    fn context(self, error: ProcessError) -> ProcessError {
+        self.capture.context(error)
+    }
+}
+/// Only Git's exact, successful, stderr-free literal-object missing row is absent.
+pub(super) fn record_subject(command: &mut Command, subject: &str) -> Result<bool, PolicyError> {
+    let timeout = Duration::from_secs(60);
+    let sink = SubjectCapture {
+        capture: ProjectionCapture::new("cat-file", ExpectedOutput::Bytes(128)),
+        subject,
+    };
+    collect(
+        command,
+        format!("{subject}\n").as_bytes(),
+        "cat-file",
+        timeout,
+        sink,
+    )
+    .map_err(subject_error)?
 }
 #[path = "projection_refs.rs"]
 mod refs;

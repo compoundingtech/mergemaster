@@ -133,21 +133,24 @@ const PARSER: Parser = Parser {
 
 const DESCRIPTION: &str = r#"Run one check once on this machine and ask the signer to record it as an evidence note.
 
-  scripts/evidence-wrap --check linux-gate [--change-id github:OWNER/REPO#N] [--input NAME=VALUE]... [--input-file NAME=PATH]... [--push origin] -- COMMAND...
+  mergemaster evidence legacy-wrap --check linux-gate [--change-id github:OWNER/REPO#N] [--input NAME=VALUE]... [--input-file NAME=PATH]... [--push origin] -- COMMAND...
 
 Run it from a clean checkout of the exact commit you are about to push. It runs COMMAND once
 (output streams to your terminal), then sends the signer the facts it measured: the commit,
 the command, its exit code, the sha256 of its exact output and an environment fingerprint
-(flake.lock, the dev shell derivation, this script's own bytes, the system, the attempt). The
-signer (scripts/evidence-sign, behind a sekrets grant; this script never sees the key)
+(flake.lock, the dev shell derivation, the running executable's bytes, the system, the attempt).
+The signer (mergemaster evidence legacy-sign, behind a sekrets grant; the wrapper never sees the key)
 recomputes the tree and flake.lock itself and signs. A failing command is recorded too: a
-failure is a record, not a missing record. COMMAND keeps the caller's environment; the signer is
-started without the loader and interpreter variables it refuses (LD_*, DYLD_*, PYTHON*,
-GLIBC_TUNABLES, GCONV_PATH, NLSPATH) and with a fixed PATH.
+failure is a record, not a missing record. COMMAND keeps the caller's environment except
+EVIDENCE_PUSH_TOKEN, EVIDENCE_SIGNER, GIT_CONFIG and GIT_CONFIG_* overrides.
+GH_TOKEN and GITHUB_TOKEN remain available to COMMAND, but are removed from the signer
+and publication Git environments. The signer is also started without the loader and
+interpreter variables it refuses (LD_*, DYLD_*, PYTHON*, GLIBC_TUNABLES, GCONV_PATH,
+NLSPATH) and with a fixed PATH.
 
 The note is imported as refs/tags/evidence/<tree>/<record> in this checkout and, while gates on older bases
 read only notes, as refs/notes/evidence/<tree>/<record> naming the same record. With --push REMOTE both are
-also pushed, after scripts/evidence-verify accepts it. CI finds a note by its tree, so it only helps when the commit you push has the tree CI will test (a branch current with main).
+also pushed, after mergemaster legacy-evidence-verify accepts it. CI finds a note by its tree, so it only helps when the commit you push has the tree CI will test (a branch current with main).
 A ref the remote answers with a bare `(failed)` is pushed again, up to 3 times; a refusal that gives a reason fails at once.
 
 With --aggregate FILE nothing is run: FILE is JSON {"command": [...], "exit_code": N, "output": ANY,
@@ -172,9 +175,9 @@ With --lanes-from BASE the check is held to its lane in .st/required-lanes.json 
 lane's argv, and the note records lane_definition_sha256, the digest of the lane as THIS tree defines it (the base's argv and paths, this
 tree's bytes at those paths). For a tree that leaves the lane alone that is the digest the verifier recomputes from BASE; for a tree that
 edits its lane it is the edited definition's, which only a level whose policy says by_level lane "tree" accepts (our hosts, since
-2026-10-26: a lane edit is signed like any other change). It is the producer half of `evidence-verify --lanes-from`.
+2026-10-26: a lane edit is signed like any other change). It is the producer half of `mergemaster legacy-evidence-verify --lanes-from`.
 
-Take this script from the accepted base (main), not from the change under test.
+Use the trusted native binary pinned by the accepted base (main), not one built from the change under test.
 "#;
 
 fn usage() -> String {
@@ -433,13 +436,14 @@ mod tests {
     use std::path::PathBuf;
 
     // Execute only the pinned parser prefix, never its Git/signing/lane code.
+    // Native description is intentional; argparse independently renders the help.
     // The verifier default/help follows the approved wave-2 native cutover.
     const ORACLE: &str = r#"
 import argparse, ast, json, os, sys
 from pathlib import Path
-source, *argv = sys.argv[1:]
+source, native_description, *argv = sys.argv[1:]
 module = ast.parse(Path(source).read_text(), filename=source)
-__doc__ = ast.get_docstring(module, clean=False)
+__doc__ = native_description
 HERE = Path(source).parent
 DEFAULT_SIGNER = ['st', 'sekrets', '--', 'mergemaster', 'evidence', 'legacy-sign']
 main = next(n for n in module.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
@@ -499,6 +503,25 @@ print(json.dumps(vars(args)))
     ];
 
     #[test]
+    fn help_names_native_commands_and_credential_boundaries() {
+        let exit = parse(&argv(&["--help"])).unwrap_err();
+        assert_eq!(exit.code, 0);
+        for command in [
+            "mergemaster evidence legacy-wrap",
+            "mergemaster evidence legacy-sign",
+            "mergemaster legacy-evidence-verify",
+        ] {
+            assert!(exit.stdout.contains(command), "{}", exit.stdout);
+        }
+        assert!(!exit.stdout.contains("scripts/evidence-"));
+        assert!(
+            exit.stdout
+                .contains("GH_TOKEN and GITHUB_TOKEN remain available to COMMAND")
+        );
+        assert!(exit.stdout.contains("removed from the signer"));
+    }
+
+    #[test]
     fn parser_failures_and_help_match_pinned_oracle() {
         let source = PathBuf::from(std::env::var_os("MERGEMASTER_PYTHON_ORACLE").unwrap())
             .join("scripts/evidence-wrap");
@@ -552,6 +575,7 @@ print(json.dumps(vars(args)))
             let expected = crate::pinned_python::command()
                 .args(["-c", ORACLE])
                 .arg(&source)
+                .arg(DESCRIPTION)
                 .args(*case)
                 .env("COLUMNS", "80")
                 .output()
