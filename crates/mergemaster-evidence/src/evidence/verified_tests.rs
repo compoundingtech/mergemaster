@@ -368,6 +368,29 @@ fn caller_keys_file_cannot_authorize_v2() {
     let keys = f.root.path().join(".mergemaster/evidence-keys");
     let error = verify_record(f.root.path(), &root, &keys, None).unwrap_err();
     assert!(error.to_string().contains("current BASE authority"));
-    // Having a real valid legacy allowed-signers file grants no v2 scoped role.
-    assert!(verify_record(f.root.path(), &root, &keys, Some(&f.base)).is_err());
+    // Receipt substitution gets through shape decoding to the authority step.
+    assert!(verify_with_receipt::<Value>(f.root.path(), &root, &keys, Some(&f.base)).is_ok());
+    let policy_path = f.root.path().join(".mergemaster/lanes.json");
+    let mut policy: Value = serde_json::from_slice(&fs::read(policy_path).unwrap()).unwrap();
+    policy.as_object_mut().unwrap().remove("reuse_authorities");
+    policy["lanes"]["format"]
+        .as_object_mut()
+        .unwrap()
+        .remove("reuse");
+    f.write(".mergemaster/lanes.json", policy.to_string());
+    let without_authority = f.commit("remove current BASE v2 authority");
+    assert!(matches!(
+        config::load(f.root.path(), &without_authority)
+            .unwrap()
+            .policy
+            .reuse_authority,
+        ReuseAuthority::Absent
+    ));
+    // The caller file still contains the real signing key, but cannot grant a role.
+    let error = verify_with_receipt::<Value>(f.root.path(), &root, &keys, Some(&without_authority))
+        .unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<Refusal>(),
+        Some(&Refusal::AuthorityInvalid)
+    );
 }

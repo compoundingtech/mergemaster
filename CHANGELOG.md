@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add selective-reuse slice 3: scoped SSH v2 object verification and direct immutable root lookup; production reuse stays disabled.
+- Preserve legacy v1 admission for large notes/messages and unavailable SSH fingerprint metadata; selective-reuse limits and strict issuer fingerprint checks apply only to v2.
 - Add native `legacy-evidence-verify --batch`: read JSON argument vectors from stdin and return each run's exit status, stdout and stderr in order, reusing immutable statements and content-keyed signature results within the batch. Invalid input refuses the whole batch; individual failures remain independent. This intentionally extends the pre-batching Python oracle surface (fractal#5552); callers are unchanged.
 - Retain native evidence source receipts and source packs for push events when the payload's `after` commit matches the tested checkout; identify pushes as `github:OWNER/REPO@SOURCE`, never by the previous `before` tip (fractal#6924, #443).
 - Keep native subject-probe refusal details fixed so candidate-controlled Git stderr is never forwarded; CLI diagnostics are unchanged.

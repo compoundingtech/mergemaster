@@ -280,8 +280,16 @@ pub fn verify_record(
     keys: &Path,
     base: Option<&str>,
 ) -> Result<VerifiedRecord> {
-    let note = note(repo, id)?;
-    if is_v2(&note.bytes)? {
+    verify_with_receipt(repo, id, keys, base)
+}
+fn verify_with_receipt<R: v2::Receipt>(
+    repo: &Path,
+    id: &str,
+    keys: &Path,
+    base: Option<&str>,
+) -> Result<VerifiedRecord<R>> {
+    if super::record_is_v2(repo, id)? {
+        let note = note(repo, id)?;
         let base = base.context("v2 requires current BASE authority")?;
         ensure!(config::full_commit(base), "v2 requires immutable BASE");
         let config = config::load(repo, base)?;
@@ -291,8 +299,10 @@ pub fn verify_record(
     let (signer, key_id) = if s.predicate.tier == super::TrustTier::Degraded {
         (None, None)
     } else {
-        let (signer, key_id) = signature(repo, id, keys)?;
-        (Some(signer), Some(key_id))
+        // The legacy verifier already proved principal equality. Fingerprint
+        // reporting is optional metadata, never an additional v1 trust check.
+        let key_id = signature(repo, id, keys).ok().map(|(_, key_id)| key_id);
+        (s.predicate.signer.clone(), key_id)
     };
     Ok(VerifiedRecord {
         version: 1,
@@ -327,10 +337,6 @@ pub(crate) fn legacy_worker_statement(bytes: &[u8], id: &str) -> Result<Option<S
             Wire::deserialize(serde::de::value::MapAccessDeserializer::new(map))
         }
     }
-    ensure!(
-        bytes.len() <= v2::MAX_NOTE_BYTES * 6 + 4096,
-        "signature worker byte limit"
-    );
     let mut decoder = serde_json::Deserializer::from_slice(bytes);
     let wire = serde::Deserializer::deserialize_map(&mut decoder, MapOnly)?;
     decoder.end()?;
@@ -345,6 +351,10 @@ pub(crate) fn legacy_worker_statement(bytes: &[u8], id: &str) -> Result<Option<S
     // Unconditional production stop, independent of policy, flags and fixtures.
     // Disabled v2 observations never enter v1 selection or failure shadowing.
     if wire.version == 2 {
+        ensure!(
+            bytes.len() <= v2::MAX_NOTE_BYTES * 6 + 4096,
+            "signature worker byte limit"
+        );
         return Ok(None);
     }
     Ok(Some(

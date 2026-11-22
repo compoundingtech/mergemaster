@@ -6237,3 +6237,115 @@ fn production_v2_objects_stay_disabled_and_caller_keys_grant_no_authority() {
     assert_eq!(decision["decision"], "refuse");
     assert_eq!(decision["reason"], "untrusted_signer");
 }
+
+#[test]
+fn oversized_v1_notes_and_commit_messages_preserve_admission_and_failure_shadowing() {
+    for large_blob in [false, true] {
+        for failed in [false, true] {
+            let f = Fixture::new();
+            let now = chrono::Utc::now();
+            let mut older = f.statement();
+            older["predicate"]["observed_at"] =
+                json!((now - chrono::Duration::minutes(10)).to_rfc3339());
+            f.note(&older, &f.key, "legacy");
+            let mut latest = f.statement();
+            latest["predicate"]["observed_at"] =
+                json!((now - chrono::Duration::minutes(5)).to_rfc3339());
+            latest["predicate"]["observed"]["checks"][CHECK]["exit_code"] =
+                json!(i32::from(failed));
+            if large_blob {
+                // Also exceeds the former v2 worker-envelope cap.
+                latest["predicate"]["observed"]["inputs"]["legacy_extension"] =
+                    json!("x".repeat(1024 * 1024));
+            }
+            let blob = f.git(
+                &["hash-object", "-w", "--stdin"],
+                &serde_json::to_vec(&latest).unwrap(),
+            );
+            let tree = f.git(
+                &["mktree"],
+                format!("100644 blob {blob}\t{}\n", f.tree).as_bytes(),
+            );
+            let signing_key = format!("user.signingKey={}", f.key.display());
+            let message = if large_blob {
+                "legacy note\n".into()
+            } else {
+                "m".repeat(16 * 1024 + 1)
+            };
+            let record = f.git(
+                &[
+                    "-c",
+                    "gpg.format=ssh",
+                    "-c",
+                    "gpg.ssh.program=ssh-keygen",
+                    "-c",
+                    &signing_key,
+                    "commit-tree",
+                    "-S",
+                    &tree,
+                    "-p",
+                    &f.head,
+                ],
+                message.as_bytes(),
+            );
+            f.publish(&record, "legacy");
+            let decision = f.decision(&[]);
+            assert_eq!(
+                decision["decision"],
+                if failed { "refuse" } else { "skip" },
+                "{decision}"
+            );
+            assert_eq!(decision["record"], record, "{decision}");
+        }
+    }
+}
+
+#[test]
+fn missing_or_unexpected_v1_fingerprint_metadata_never_refuses() {
+    for fingerprint in ["", "unavailable"] {
+        let f = Fixture::new();
+        let record = f.note(&f.statement(), &f.key, "legacy");
+        let git = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+            .map(|path| path.join("git"))
+            .find(|path| path.is_absolute() && path.is_file())
+            .unwrap();
+        let bin = f.root.path().join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        // Only the optional metadata request loses fingerprint reporting. Both
+        // verification paths still execute real Git and real SSH verification.
+        write_executable(
+            &bin.join("git"),
+            &format!(
+                "#!{}\nimport os, sys\nargs = [arg.replace('%GF', {}) if arg.startswith('--format=') else arg for arg in sys.argv[1:]]\nos.execv({}, [{}, *args])\n",
+                python_executable(),
+                serde_json::to_string(fingerprint).unwrap(),
+                serde_json::to_string(git.to_str().unwrap()).unwrap(),
+                serde_json::to_string(git.to_str().unwrap()).unwrap(),
+            ),
+        );
+        let path = std::env::join_paths(
+            std::iter::once(bin).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
+        )
+        .unwrap();
+        let output = f
+            .command(mergemaster_bin())
+            .env("PATH", path)
+            .args(["gate-verify-record", "--repo"])
+            .arg(&f.repo)
+            .args(["--record", &record, "--keys"])
+            .arg(f.repo.join(".mergemaster/evidence-keys"))
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let verified: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(verified["verified_signer"], PRINCIPAL);
+        assert!(verified["verified_key_id"].is_null());
+        let decision = f.decision(&[]);
+        assert_eq!(decision["decision"], "skip", "{decision}");
+        assert_eq!(decision["record"], record);
+    }
+}
