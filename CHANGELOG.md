@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add selective-reuse slice 5's pure same-PR equivalence, current-authority and lifetime validator; reuse stays disabled. Broker receipt verification and the slice-6/external authenticated-origin adapter remain prerequisites; event files cannot supply that authority.
 - Add selective-reuse slice 3: scoped SSH v2 object verification and direct immutable root lookup; production reuse stays disabled.
 - Preserve legacy v1 admission for large notes/messages and unavailable SSH fingerprint metadata; selective-reuse limits and strict issuer fingerprint checks apply only to v2.
 - Add native `legacy-evidence-verify --batch`: read JSON argument vectors from stdin and return each run's exit status, stdout and stderr in order, reusing immutable statements and content-keyed signature results within the batch. Invalid input refuses the whole batch; individual failures remain independent. This intentionally extends the pre-batching Python oracle surface (fractal#5552); callers are unchanged.

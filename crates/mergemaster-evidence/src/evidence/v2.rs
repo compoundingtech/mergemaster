@@ -141,7 +141,7 @@ pub struct TrainMapping {
     pub pull_request: u64,
     pub pr_head: String,
 }
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ReuseKey {
     pub version: u32,
@@ -152,7 +152,7 @@ pub struct ReuseKey {
     pub nix_daemon_policy_sha256: String,
     pub producer: Producer,
 }
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Producer {
     pub executable_sha256: String,
@@ -315,7 +315,7 @@ fn nonempty(value: &str) -> Result<()> {
     ensure!(!value.trim().is_empty(), "empty v2 string");
     Ok(())
 }
-fn timestamp(value: &str) -> Result<chrono::DateTime<chrono::FixedOffset>> {
+pub(crate) fn timestamp(value: &str) -> Result<chrono::DateTime<chrono::FixedOffset>> {
     let time = chrono::DateTime::parse_from_rfc3339(value)?;
     ensure!(
         time.offset().local_minus_utc() == 0 && !value.ends_with("-00:00"),

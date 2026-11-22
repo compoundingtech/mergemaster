@@ -2,6 +2,7 @@
 mod approval;
 pub mod config;
 pub mod git;
+pub mod reuse;
 
 use crate::evidence::{self, Fact, Statement, TrustTier};
 use anyhow::{Context, Result, ensure};
