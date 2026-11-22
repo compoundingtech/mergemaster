@@ -8,6 +8,34 @@ import unittest
 from unittest.mock import patch
 
 from oracle_scripts import EXEMPT, MANIFEST, ORIGINAL, TARGET, blob, check, migration, migration_history
+from oracle_witnesses import test_environment
+
+
+class WitnessEnvironment(unittest.TestCase):
+    def test_integration_restores_cargo_paths_without_parent_variables(self):
+        manifest = Path(__file__).resolve().parent.parent / "crates/mergemaster-evidence/Cargo.toml"
+        binary = str(manifest.parent / "custom-build-output/mergemaster")
+        artifact = {"manifest_path": str(manifest), "target": {"kind": ["test"]}}
+        with patch.dict(os.environ, {}, clear=True):
+            environment = test_environment(artifact, {"mergemaster": binary}, "/witnesses")
+        self.assertEqual(environment["CARGO_MANIFEST_DIR"], str(manifest.parent))
+        self.assertEqual(environment["CARGO_BIN_EXE_mergemaster"], binary)
+        self.assertEqual(environment["MERGEMASTER_WITNESS_DIRECTORY"], "/witnesses")
+
+    def test_library_uses_its_manifest_and_omits_inherited_binary(self):
+        manifest = Path(__file__).resolve().parent.parent / "crates/mergemaster-reconciler/Cargo.toml"
+        artifact = {"manifest_path": str(manifest), "target": {"kind": ["lib"]}}
+        with patch.dict(os.environ, {"CARGO_MANIFEST_DIR": "/wrong-crate",
+                                     "CARGO_BIN_EXE_mergemaster": "/wrong-binary"}, clear=True):
+            environment = test_environment(artifact, {}, "/witnesses")
+        self.assertEqual(environment["CARGO_MANIFEST_DIR"], str(manifest.parent))
+        self.assertNotIn("CARGO_BIN_EXE_mergemaster", environment)
+
+    def test_integration_requires_a_reported_binary_not_a_guessed_path(self):
+        artifact = {"manifest_path": __file__, "target": {"kind": ["test"]}}
+        with patch.dict(os.environ, {"MERGEMASTER_BIN": "/unrelated-build"}, clear=True):
+            with self.assertRaises(KeyError):
+                test_environment(artifact, {}, "/witnesses")
 
 
 class ResyncGuard(unittest.TestCase):
