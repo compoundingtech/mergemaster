@@ -1,7 +1,7 @@
 import inventory from './buck2-resources.json'
 
-// Phase-one effect-utils #2761 API. Activate with its published product pin;
-// baked env!("CARGO_MANIFEST_DIR") paths are deliberately not supported.
+// Phase-one effect-utils #2761 API, pinned through flake.lock.
+// Runtime paths use std::env::var_os("CARGO_MANIFEST_DIR"), not baked env! paths.
 const packages: Readonly<Record<string, {
   readonly compileTimeResources: readonly string[]
   readonly runtimeResources: readonly string[]

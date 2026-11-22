@@ -42,8 +42,8 @@ cargo run -- evidence --help
 ### Buck2 workspace lane
 
 The Buck2 lane consumes Fractal's `mkConsumerBuckRoot` layout and effect-utils
-published product `ed928d6f7dd0f1a210ff04eb6d8932c896c1a34a` rules, capabilities
-and Cargo projector (source `531281f919c327e8a5e18ec04e869509e76932a2`).
+published product `6aa1938b54cab9a986d456a074b19f0cc8fe96fe` rules, capabilities
+and Cargo projector (source `c64e2880cd9d6631d75cd5e4bf304a762ea3e50f`).
 It generates unit and integration harnesses for every Cargo workspace member,
 including newly discovered integration tests, rather than maintaining a test list.
 Native Rust compilation uses the production flake's compiler; the provider's
@@ -57,10 +57,11 @@ nix develop .#buck2-evidence -c bun scripts/buck2-parity.ts tmp/buck2-evidence
 nix develop .#buck2-evidence -c bash scripts/buck2-timing tmp/buck2-evidence
 ```
 
-**Not yet a passing adoption:** repository-layout resource staging is still missing.
-Package-local versions/editions and implicit workspace membership are admitted;
-existing tests read repository-level fixtures/scripts, and the reconciler includes
-`iac/consumers.json` in production. Manifest lint
+**Not yet a passing adoption:** explicit sparse repository-layout resource staging
+is configured through the shared projector. Package-local versions/editions and
+implicit workspace membership are admitted; existing tests read declared
+repository-level fixtures/scripts, and the reconciler includes `iac/consumers.json`
+in production. Manifest lint
 projection also needs support to preserve the reconciler's unsafe-code prohibition.
 The lane fails rather than omitting targets or declaring partial parity.
 Vendored `aws-lc-sys` builds through the shared native toolchain, but its metadata
