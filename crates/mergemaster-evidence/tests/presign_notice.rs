@@ -2,23 +2,29 @@
 #[path = "../src/pinned_python.rs"]
 mod pinned_python;
 use serde_json::Value;
-use std::{fs, path::Path, process::Command};
+use std::{
+    fs,
+    io::Write,
+    path::Path,
+    process::{Command, Stdio},
+};
 
-// Keep executable write descriptors out of this multithreaded test process.
+// Keep executable write descriptors out of this multithreaded test process. Content goes
+// through stdin because fixture executables may contain NUL bytes, which argv cannot carry.
 fn write_executable(path: &Path, content: &str) {
-    assert!(
-        Command::new("/bin/sh")
-            .args([
-                "-c",
-                "printf '%s' \"$1\" > \"$2\" && chmod 755 \"$2\"",
-                "sh",
-                content,
-            ])
-            .arg(path)
-            .status()
-            .unwrap()
-            .success()
-    );
+    let mut child = Command::new("/bin/sh")
+        .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
+        .arg(path)
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(content.as_bytes())
+        .unwrap();
+    assert!(child.wait().unwrap().success());
 }
 
 #[test]
