@@ -50,7 +50,8 @@ fn isolated(test: &str) -> bool {
             });
         std::os::unix::fs::symlink(&real, tools.join(program)).unwrap();
     }
-    let output = Command::new(std::env::current_exe().unwrap())
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command
         .args(["--exact", test, "--nocapture"])
         .env_clear()
         .env(CHILD, test)
@@ -62,9 +63,13 @@ fn isolated(test: &str) -> bool {
         .env("HOME", &home)
         .env("XDG_STATE_HOME", &state)
         .env("XDG_CONFIG_HOME", &config)
-        .env("TMPDIR", &tmp)
-        .output()
-        .unwrap();
+        .env("TMPDIR", &tmp);
+    for key in ["CARGO_BIN_EXE_mergemaster", "CARGO_MANIFEST_DIR"] {
+        if let Some(value) = std::env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    let output = command.output().unwrap();
     assert!(String::from_utf8_lossy(&output.stdout).contains("running 1 test"));
     assert!(
         output.status.success(),
