@@ -1642,11 +1642,13 @@ must be a valid literal prefix and SUFFIX must be nonempty and contain no `*`
 or `/`. The `*` matches one or more characters, **including `/`**, so nested
 product JSON files match `nix/buck2-products/product-revs/*.json`. Other `*`
 placements, `**`, `?` and `[` are refused at config load. Paths otherwise use
-the same validation as `protected_paths` and `bootstrap_paths`.
+the same validation as `protected_paths` and `bootstrap_paths`. All three policy
+fields must contain ASCII-only paths; non-ASCII entries are refused with a typed
+`NonAsciiAuthorityPath` error.
 
 Allowlist matching is case-sensitive and byte-exact. Configuration refuses
 overlap in either direction with implicit protected roots, `protected_paths`
-or `bootstrap_paths`, using NFKC/lowercase folding for this denylist comparison.
+or `bootstrap_paths`, comparing ASCII lowercase policy paths.
 For `PREFIX/*SUFFIX`, overlap checks conservatively use PREFIX. Every path
 changed between the merge and projection trees must match a declared entry;
 renames check both old and new paths, and deletes and mode
@@ -1655,6 +1657,13 @@ changes count. Both sides of each change must be regular non-executable files
 symlink and submodule changes are refused, as are replacements of an allowed
 prefix's ancestor. The field does not bypass protected-path or evidence checks and
 does not prove that a producer actually generated the content.
+Only `.mergemaster/`, `.github/workflows/` and `.github/actions/` are protected
+implicitly. Consumers must keep `generated_paths` away from files that are
+executed or interpreted, including `flake.nix`, `.envrc` and similar inputs,
+by choosing narrow entries and explicitly protecting other sensitive paths.
+Changed Git paths remain unrestricted Unicode and retain NFKC/lowercase
+normalization for protected-path checks, so compatibility-spelling aliases
+cannot evade those checks.
 
 The projection parent must itself satisfy the no-member merge rule. More than
 one projection commit, an unbound parent, or a non-generated edit yields
@@ -1950,9 +1959,21 @@ Interrupted runs create neither output refs nor signed notes. SIGPIPE and crash
 signals remain lane failures: a broken pipeline can be a real defect, not
 external cancellation. Signer unavailability creates no usable signed note;
 publication failure occurs **after signing** and can leave an immutable local
-note ref (the remote may also have accepted a push before a timeout). Every retry
-runs the lane and signer again, with no partial-result reuse; a local ref left
-by publication is harmless and is updated if the same record recurs.
+note ref (the remote may also have accepted a push before a timeout). A later
+bulk push can publish a record left locally by a `publish_failed` run. Every
+retry runs the lane and signer again, with no partial-result reuse; updating
+the local ref to the same record is harmless.
+
+A signer refusal is a normal nonzero signer exit, and takes precedence over a
+broken stdin pipe even when the signer never reads its request. Signer stdout
+has no refusal protocol: output followed by signal death remains
+`signer_unavailable`, even if it looks like a complete refusal. A crash can
+truncate output, so the wrapper cannot establish a completed policy decision
+from that output; retrying a real refusal is safe because the signer refuses
+again. Partial or unparseable output followed by signal death is also retryable.
+The v2 wrapper has no signer timeout or signer process-group cleanup. A hung
+signer can therefore hang the wrapper indefinitely; the hung-signer regression
+test is skipped rather than adding a timeout feature as part of this contract.
 
 Consumers should map `75` to their existing temporary not-run path, not to a
 failed check. Queues own bounded retries and parking/pausing; Mergemaster does

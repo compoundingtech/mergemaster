@@ -344,10 +344,33 @@ pub fn validate_path(path: &str) -> Result<()> {
     Ok(())
 }
 
+/// Authority-bearing policy paths have no Unicode spelling aliases.
+#[derive(Debug)]
+pub struct NonAsciiAuthorityPath(pub String);
+
+impl std::fmt::Display for NonAsciiAuthorityPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "authority-bearing repository path must be ASCII: {}",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for NonAsciiAuthorityPath {}
+
+fn validate_authority_path(path: &str) -> Result<()> {
+    if !path.is_ascii() {
+        return Err(NonAsciiAuthorityPath(path.to_owned()).into());
+    }
+    validate_path(path)
+}
+
 /// Generated entries permit only a literal prefix or PREFIX/*SUFFIX. Return
 /// the conservative directory prefix used for protected-path overlap checks.
 fn generated_prefix(pattern: &str) -> Result<&str> {
-    validate_path(pattern)?;
+    validate_authority_path(pattern)?;
     ensure!(
         !pattern.contains(['?', '[']),
         "invalid queue generated path pattern {pattern}"
@@ -614,7 +637,7 @@ pub fn load(repo: &Path, base: &str) -> Result<Config> {
         );
     }
     for path in policy.protected_paths.iter().chain(&policy.bootstrap_paths) {
-        validate_path(path)?;
+        validate_authority_path(path)?;
     }
     if let Some(queue) = &policy.queue {
         ensure!(
@@ -623,14 +646,14 @@ pub fn load(repo: &Path, base: &str) -> Result<Config> {
         );
         for path in &queue.generated_paths {
             let prefix = generated_prefix(path)?;
-            let folded_prefix = super::normalized_path(prefix);
+            let folded_prefix = prefix.to_ascii_lowercase();
             let folded_prefix = folded_prefix.trim_end_matches('/');
             for protected in [".mergemaster/", ".github/workflows/", ".github/actions/"]
                 .into_iter()
                 .chain(policy.protected_paths.iter().map(String::as_str))
                 .chain(policy.bootstrap_paths.iter().map(String::as_str))
             {
-                let folded_protected = super::normalized_path(protected);
+                let folded_protected = protected.to_ascii_lowercase();
                 let folded_protected = folded_protected.trim_end_matches('/');
                 ensure!(
                     !super::component_within(folded_prefix, folded_protected)

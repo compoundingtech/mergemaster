@@ -648,24 +648,26 @@ fn externally_terminated_lanes_are_not_signed_or_stored() {
 }
 
 #[test]
-fn segfault_is_signed_with_signal_exit_code() {
-    let f = Fixture::new(
-        "required_evidence",
-        "ulimit -c 0; printf crashed; kill -SEGV $$",
-    );
-    let output = f.wrap(None, None);
-    assert_eq!(output.status.code(), Some(139));
-    assert_eq!(output.stdout, b"crashed");
-    assert!(!f.refs().is_empty());
-    let record = f.refs();
-    let tree = f.git(&["rev-parse", "HEAD^{tree}"]);
-    let note = f.git(&["show", &format!("{record}:{tree}")]);
-    let statement: Value = serde_json::from_str(&note).unwrap();
-    assert_eq!(
-        statement["predicate"]["observed"]["checks"][CHECK]["exit_code"],
-        139
-    );
-    assert_eq!(f.gate()["decision"], "refuse");
+fn crash_and_resource_limit_signals_are_signed_with_signal_exit_codes() {
+    for (signal, exit_code) in [("SEGV", 139), ("XCPU", 152), ("ALRM", 142)] {
+        let f = Fixture::new(
+            "required_evidence",
+            &format!("ulimit -c 0; printf crashed; kill -{signal} $$"),
+        );
+        let output = f.wrap(None, None);
+        assert_eq!(output.status.code(), Some(exit_code), "{signal}");
+        assert_eq!(output.stdout, b"crashed");
+        let record = f.refs();
+        assert!(!record.is_empty());
+        let tree = f.git(&["rev-parse", "HEAD^{tree}"]);
+        let note = f.git(&["show", &format!("{record}:{tree}")]);
+        let statement: Value = serde_json::from_str(&note).unwrap();
+        assert_eq!(
+            statement["predicate"]["observed"]["checks"][CHECK]["exit_code"],
+            exit_code
+        );
+        assert_eq!(f.gate()["decision"], "refuse");
+    }
 }
 
 #[test]
@@ -713,6 +715,35 @@ fn signer_unavailability_differs_from_explicit_policy_refusal() {
             assert_eq!(output.status.code(), Some(75), "case {case}");
             assert_eq!(
                 String::from_utf8_lossy(&output.stderr).lines().next(),
+                Some("mergemaster: infra_unavailable class=signer_unavailable")
+            );
+        }
+        assert!(f.refs().is_empty());
+    }
+}
+
+#[test]
+fn signer_refusal_wins_over_broken_stdin_but_not_signal_death() {
+    for (ending, code) in [
+        ("exit 1", 1),
+        ("kill -SEGV $$", 75),
+        ("kill -XCPU $$", 75),
+        ("kill -ALRM $$", 75),
+    ] {
+        // Larger than the stdin pipe: this signer never reads stdin, forcing EPIPE.
+        let f = Fixture::new("required_evidence", "printf '%01048576d' 0");
+        let script = format!(
+            "ulimit -c 0; exec 0<&-; printf 'policy denied\\n'; printf 'policy denied\\n' >&2; {ending}"
+        );
+        let output = f.wrap(Some(json!([f.runtime, "-c", script])), None);
+        assert_eq!(output.status.code(), Some(code), "{ending}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if code == 1 {
+            assert!(stderr.contains("evidence signer refused: policy denied"));
+            assert!(!stderr.contains("infra_unavailable"));
+        } else {
+            assert_eq!(
+                stderr.lines().next(),
                 Some("mergemaster: infra_unavailable class=signer_unavailable")
             );
         }
