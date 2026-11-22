@@ -16,6 +16,9 @@ export const cargoProjection = defineCargoBuck2PackageProjection({
   thirdPartyBuckPath: 'buck2/dependencies/BUCK',
   thirdPartyPackage: '//buck2/dependencies',
   buck2LoadLabelPrefix: '@rules//buck2',
-  generatorSourcePaths: ['genie/buck2.ts', 'flake.lock'],
+  generatorSourcePaths: [
+    'genie/buck2.ts', 'genie/buck2-resources.ts', 'genie/buck2-resources.json',
+    'scripts/buck2-project.ts', 'flake.lock',
+  ],
   regenerationCommand: 'nix develop .#buck2-evidence -c bash scripts/buck2-prepare',
 })

@@ -512,7 +512,9 @@ fn frozen_keygen_recordings_match_pinned_oracle_and_rust() {
             let output = implementation
                 .command()
                 .args(args)
-                .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+                .current_dir(
+                    Path::new(&std::env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../.."),
+                )
                 .stdin(Stdio::null())
                 .output()
                 .unwrap();

@@ -395,7 +395,7 @@ fn each_wait_is_its_own_line_over_every_run_in_the_window() {
 fn a_record_st_test_writes_is_one_the_report_reads() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("written/runs.jsonl");
-    let repository = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let repository = Path::new(&std::env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../..");
     let output=pinned_python::command().args(["-B","-c",r#"import importlib.machinery, importlib.util, sys
 loader=importlib.machinery.SourceFileLoader('runner',sys.argv[1]); module=importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name,loader)); loader.exec_module(module)
 module.POOL_SETTINGS['ST_TEST_RUNS']=sys.argv[2]
@@ -421,7 +421,10 @@ fn frozen_cli_bytes_match_the_independent_pinned_python() {
     let output = pinned_python::command()
         .arg("-B")
         .args(["-c", "import runpy, sys; runpy.run_path(sys.argv[1])['replay_runner_report'](sys.executable)"])
-        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/oracle_corpus.py"))
+        .arg(
+            Path::new(&std::env::var_os("CARGO_MANIFEST_DIR").unwrap())
+                .join("../../tests/oracle_corpus.py"),
+        )
         .output()
         .unwrap();
     assert!(

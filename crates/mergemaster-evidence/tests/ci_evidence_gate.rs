@@ -7,7 +7,8 @@ fn gate_decisions_match_python_with_real_shallow_repositories() {
         .args(["-B", "-c", DRIVER])
         .arg(env!("CARGO_BIN_EXE_mergemaster"))
         .arg(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/ci-evidence-gate"),
+            std::path::Path::new(&std::env::var_os("CARGO_MANIFEST_DIR").unwrap())
+                .join("../../scripts/ci-evidence-gate"),
         )
         .output()
         .unwrap();

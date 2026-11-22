@@ -11,7 +11,7 @@ fn replay(group: &str) {
         .arg(group)
         .arg(env!("CARGO_BIN_EXE_mergemaster"))
         .arg(oracle)
-        .arg(env!("CARGO_MANIFEST_DIR"))
+        .arg(std::env::var_os("CARGO_MANIFEST_DIR").unwrap())
         .output()
         .expect("launch legacy wrapper parity driver");
     assert!(

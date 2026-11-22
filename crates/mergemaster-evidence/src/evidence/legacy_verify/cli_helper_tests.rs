@@ -49,8 +49,8 @@ for case in manifest['cases']:
 print(json.dumps(rows))
 "#;
     let root = tempfile::tempdir().unwrap();
-    let fixture =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/oracle/v1");
+    let fixture = std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap())
+        .join("../../tests/fixtures/oracle/v1");
     let output = crate::pinned_python::command()
         .args(["-B", "-c", script])
         .arg(root.path())

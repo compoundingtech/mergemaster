@@ -987,7 +987,7 @@ fn immutable_wrapper_record_matches_oracle_even_when_shallow() {
         .arg(env!("CARGO_BIN_EXE_mergemaster"))
         .arg(oracle)
         .arg(
-            Path::new(env!("CARGO_MANIFEST_DIR"))
+            Path::new(&std::env::var_os("CARGO_MANIFEST_DIR").unwrap())
                 .join("../../tests/fixtures/fractal/scripts/testdata/evidence/wrapper-note"),
         )
         .output()

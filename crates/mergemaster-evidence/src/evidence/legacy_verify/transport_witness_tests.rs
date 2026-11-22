@@ -113,11 +113,8 @@ print(json.dumps(cases))
 #[test]
 fn signed_tree_local_patch_preserves_binary_transport_bytes() {
     let scratch = tempfile::tempdir().unwrap();
-    let local = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap();
+    let manifest = std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    let local = manifest.parent().unwrap().parent().unwrap();
     let output = crate::pinned_python::command().args(["-c", r#"
 import json,os,pathlib,runpy,subprocess,sys
 consumer=pathlib.Path(sys.argv[1]);(consumer/'scripts').mkdir()

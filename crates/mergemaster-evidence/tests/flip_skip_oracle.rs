@@ -15,7 +15,7 @@ fn fixture(command: &str) -> Value {
 }
 
 fn replay(command: &str) {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let root = Path::new(&std::env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../..");
     let output = pinned_python::command()
         .args([
             "-B",

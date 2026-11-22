@@ -60,12 +60,11 @@ mod tests {
     use super::*;
     #[test]
     fn pinned_repr_and_generated_assets_match_exhaustively() {
-        let generator = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/src/evidence/legacy_verify/gen_python_printable.py"
-        );
+        let generator = std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap())
+            .join("src/evidence/legacy_verify/gen_python_printable.py");
         let result = crate::pinned_python::command()
-            .args([generator, "--check"])
+            .arg(generator)
+            .arg("--check")
             .output()
             .unwrap();
         assert!(

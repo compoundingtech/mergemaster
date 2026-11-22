@@ -24,7 +24,7 @@ mod tests {
     use super::*;
     #[test]
     fn every_codepoint_matches_pinned_python_and_generated_assets_are_fresh() {
-        let generator = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        let generator = std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap())
             .join("src/evidence/legacy_verify/gen_python_digits.py");
         let checked = crate::pinned_python::command()
             .arg(generator)

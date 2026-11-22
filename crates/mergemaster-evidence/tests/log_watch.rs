@@ -455,7 +455,7 @@ fn log_watch_pinned_python_assertions_and_differential() {
         }
         assert_eq!(results[0], results[1]);
     }
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let root = Path::new(&std::env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../..");
     success(Command::new(python()).args(["-B", "-c", "import sys; sys.path.insert(0, 'tests'); from oracle_corpus import replay_log_watch; from pathlib import Path; replay_log_watch(Path(sys.executable))"]).current_dir(root).output().unwrap());
 }
 

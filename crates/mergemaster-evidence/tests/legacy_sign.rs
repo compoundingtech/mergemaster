@@ -14,7 +14,7 @@ fn replay(group: &str) {
         .arg(env!("CARGO_BIN_EXE_mergemaster"))
         .arg(oracle)
         .arg(
-            Path::new(env!("CARGO_MANIFEST_DIR"))
+            Path::new(&std::env::var_os("CARGO_MANIFEST_DIR").unwrap())
                 .join("../../tests/fixtures/oracle/request-core/validation/stdout.bin"),
         )
         .output()

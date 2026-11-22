@@ -6,7 +6,7 @@ use std::{fs, os::unix::fs::PermissionsExt, process::Command};
 
 #[test]
 fn presign_notice_frozen_stdout_summary_annotation_and_never_fails() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let root = std::path::Path::new(&std::env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../..");
     let fixture: Value = serde_json::from_slice(
         &fs::read(root.join("tests/fixtures/oracle/presign-notice.json")).unwrap(),
     )

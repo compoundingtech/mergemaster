@@ -46,5 +46,7 @@ elif not path.exists() or path.read_bytes() != expected:
     if path.exists():
         path.chmod(path.stat().st_mode | 0o200)
     path.write_bytes(expected)
-path.chmod(path.stat().st_mode & ~0o222)
+# Skip already read-only files: immutable staged inputs (Buck/Nix store) cannot be chmod-ed.
+if path.stat().st_mode & 0o222:
+    path.chmod(path.stat().st_mode & ~0o222)
 print(f'Python 3.14.7 Unicode 16.0.0: {len(zeros)} decimal zeros, {len(ranges)} digit-only ranges')

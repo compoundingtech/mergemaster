@@ -52,8 +52,8 @@ cases.append(dict(base=base,candidate=str(candidate),judged=judged,calls=len(cal
 print(json.dumps(cases))
 "#;
     let repo = tempfile::tempdir().unwrap();
-    let script_path =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/st-test");
+    let script_path = std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap())
+        .join("../../scripts/st-test");
     let out = crate::pinned_python::command()
         .args(["-c", script])
         .arg(script_path)

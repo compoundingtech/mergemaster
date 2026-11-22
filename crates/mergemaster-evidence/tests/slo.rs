@@ -220,7 +220,7 @@ spec.loader.exec_module(corpus)
 corpus.replay_slo(pathlib.Path(sys.executable))
 "#,
         ])
-        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .arg(Path::new(&std::env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../.."))
         .env("MERGEMASTER_BIN", env!("CARGO_BIN_EXE_mergemaster"))
         .output()
         .unwrap();

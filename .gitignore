@@ -21,3 +21,4 @@
 !/buck2/dependencies/fixups/generic-array/
 !/buck2/dependencies/fixups/aws-lc-rs/
 !/buck2/dependencies/fixups/aws-lc-sys/
+/buck2/resource-exports.bzl

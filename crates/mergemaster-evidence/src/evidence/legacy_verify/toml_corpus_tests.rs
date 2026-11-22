@@ -98,7 +98,8 @@ for raw in samples:
  cases.append(dict(raw=raw,expected=expected))
 print(json.dumps(cases))
 "#;
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let root =
+        std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../..");
     let manifests = [
         std::fs::read_to_string(root.join("Cargo.toml")).unwrap(),
         std::fs::read_to_string(root.join("crates/mergemaster-evidence/Cargo.toml")).unwrap(),
