@@ -43,6 +43,7 @@ pub mod slo;
 pub mod source;
 #[cfg(test)]
 mod tests;
+pub mod v2;
 pub mod workspace;
 
 pub const NOTES_PREFIX: &str = "refs/notes/evidence/";
@@ -630,6 +631,22 @@ fn write_observation(repo: &Path, statement: &Statement, ssh_key: Option<&Path>)
     Ok(signed)
 }
 
+/// Dispatch before the legacy decoder; v2 can never fall back to v1.
+fn decode_statement(bytes: &[u8]) -> Result<Statement> {
+    #[derive(Deserialize)]
+    struct Format {
+        #[serde(rename = "predicateType")]
+        predicate_type: String,
+    }
+    if let Ok(format) = serde_json::from_slice::<Format>(bytes)
+        && format.predicate_type == v2::PREDICATE_TYPE
+    {
+        v2::decode(bytes)?;
+        bail!("v2 evidence is disabled");
+    }
+    serde_json::from_slice(bytes).context("decode evidence statement")
+}
+
 /// Read the sole note from an immutable signed observation commit. No trust is implied.
 pub fn show(repo: &Path, id: &str) -> Result<Statement> {
     show_with_subject(repo, id, SubjectPresence::Required).map(|(statement, _)| statement)
@@ -659,9 +676,7 @@ fn show_with_subject(
     );
     oid(path)?;
     oid(parts[2])?;
-    let statement: Statement =
-        serde_json::from_slice(&git(repo, &["cat-file", "blob", parts[2]], None)?)
-            .context("decode evidence statement")?;
+    let statement = decode_statement(&git(repo, &["cat-file", "blob", parts[2]], None)?)?;
     let (tree, binding) = statement.validate_with_subject(repo, presence)?;
     ensure!(tree == path, "note attached to wrong tree");
     let raw = git_text(repo, &["cat-file", "commit", id], None)?;
