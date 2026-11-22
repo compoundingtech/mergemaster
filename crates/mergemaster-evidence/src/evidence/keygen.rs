@@ -1,6 +1,5 @@
 //! Account-local provisioning; scripts/evidence-keygen is the compatibility oracle.
 use anyhow::{Context, Result, ensure};
-use clap::Args;
 use std::{
     ffi::{CStr, OsStr},
     fs::{self, DirBuilder, FileType, Metadata, OpenOptions},
@@ -13,16 +12,10 @@ use std::{
     process::Command,
 };
 
-#[derive(Args)]
 pub struct KeygenArgs {
-    /// Public alias, never a real host or account name.
-    #[arg(long)]
-    name: String,
-    #[arg(long, default_value = "host", value_parser = ["host", "agent"])]
-    level: String,
-    /// Explicit absolute home override for special accounts and tests.
-    #[arg(long)]
-    home: Option<String>,
+    pub(super) name: String,
+    pub(super) level: String,
+    pub(super) home: Option<String>,
 }
 
 fn require(path: &Path, directory: bool, mode: Option<u32>, uid: u32) -> Result<Option<Metadata>> {

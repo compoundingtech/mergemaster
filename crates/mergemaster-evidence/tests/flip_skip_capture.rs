@@ -115,8 +115,19 @@ impl Fixture {
             .unwrap();
         for name in ["git", "gh"] {
             let executable = bin.join(name);
-            fs::write(&executable, format!("#!{}\n{SHIM}", shell.display())).unwrap();
-            fs::set_permissions(executable, fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(
+                Command::new("/bin/sh")
+                    .args([
+                        "-c",
+                        "printf '%s' \"$1\" > \"$2\" && chmod 755 \"$2\"",
+                        "sh",
+                    ])
+                    .arg(format!("#!{}\n{SHIM}", shell.display()))
+                    .arg(&executable)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
         }
         Self {
             _temp: temp,
@@ -128,7 +139,10 @@ impl Fixture {
     }
 
     fn run(&self, command: &str, arm: &str, victim: &str, mode: &str, propose: bool) -> Output {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_mergemaster"));
+        let mut child = Command::new(
+            std::env::var_os("CARGO_BIN_EXE_mergemaster")
+                .expect("CARGO_BIN_EXE_mergemaster is set at test runtime"),
+        );
         child
             .args(["evidence", command, "--repo", "org/repo", "--cache"])
             .arg(&self.cache)

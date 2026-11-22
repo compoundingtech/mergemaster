@@ -1,4 +1,7 @@
 //! Read-only evidence-gate SLO counters, compatible with the pinned ci-evidence-slo oracle.
+use super::argparse_compat::{
+    Action, DefaultValue, OptionSpec, Parser, Value as ArgumentValue, float,
+};
 use chrono::{DateTime, SecondsFormat, Utc};
 use indexmap::IndexMap;
 use serde_json::{Value, json};
@@ -29,8 +32,71 @@ impl Exit {
     }
 }
 
-fn argument_error(message: &str) -> Exit {
-    Exit::error(2, format!("{USAGE}ci-evidence-slo: error: {message}\n"))
+const fn option(long: &'static str, metavar: Option<&'static str>, action: Action) -> OptionSpec {
+    OptionSpec {
+        long,
+        short: None,
+        metavar,
+        action,
+        choices: &[],
+        help: "",
+        hidden: false,
+        default: DefaultValue::None,
+    }
+}
+fn max_logs(text: &str) -> Option<ArgumentValue> {
+    let number = super::legacy_verify::argparse_int::parse(
+        super::legacy_verify::value_inputs::TextRef::Str(text),
+    )
+    .ok()?;
+    Some(ArgumentValue::String(format!(
+        "{}{}",
+        if number.negative { "-" } else { "" },
+        number.digits
+    )))
+}
+const PARSER: Parser = Parser {
+    program: "ci-evidence-slo",
+    description: "",
+    options: &[
+        OptionSpec {
+            short: Some("-h"),
+            ..option("--help", None, Action::Help)
+        },
+        option("--repository", Some("REPOSITORY"), Action::Store),
+        OptionSpec {
+            default: DefaultValue::Float(24.0),
+            ..option(
+                "--hours",
+                Some("HOURS"),
+                Action::Convert {
+                    name: "float",
+                    parse: float,
+                },
+            )
+        },
+        option("--since", Some("SINCE"), Action::Store),
+        option("--until", Some("UNTIL"), Action::Store),
+        OptionSpec {
+            default: DefaultValue::String("300"),
+            ..option(
+                "--max-logs",
+                Some("MAX_LOGS"),
+                Action::Convert {
+                    name: "int",
+                    parse: max_logs,
+                },
+            )
+        },
+        option("--json", None, Action::Flag),
+    ],
+};
+
+fn string(value: Option<&ArgumentValue>) -> Option<&str> {
+    match value {
+        Some(ArgumentValue::String(value)) => Some(value),
+        _ => None,
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -92,98 +158,34 @@ fn iso(time: Time) -> String {
 
 /// Keep argparse diagnostics at this compatibility boundary; the rest of the CLI uses clap.
 pub fn run(argv: &[String]) -> Exit {
-    let options = [
-        "--repository",
-        "--hours",
-        "--since",
-        "--until",
-        "--max-logs",
-        "--json",
-        "--help",
-    ];
-    let mut values = BTreeMap::new();
-    let mut unknown = Vec::new();
-    let mut i = 0;
-    while i < argv.len() {
-        let (flag, inline) = argv[i]
-            .split_once('=')
-            .map_or((argv[i].as_str(), None), |(k, v)| (k, Some(v)));
-        let matches: Vec<_> = options
-            .iter()
-            .filter(|option| {
-                **option == flag || (flag.starts_with("--") && option.starts_with(flag))
-            })
-            .collect();
-        let flag = if flag == "-h" {
-            "--help"
-        } else if matches.len() == 1 {
-            *matches[0]
-        } else if matches.len() > 1 {
-            return argument_error(&format!(
-                "ambiguous option: {flag} could match {}",
-                matches.iter().map(|s| **s).collect::<Vec<_>>().join(", ")
-            ));
-        } else {
-            unknown.push(argv[i].as_str());
-            i += 1;
-            continue;
-        };
-        if matches!(flag, "--help" | "--json") {
-            if let Some(value) = inline {
-                return argument_error(&format!(
-                    "argument {}: ignored explicit argument '{value}'",
-                    if flag == "--help" { "-h/--help" } else { flag }
-                ));
-            }
-            if flag == "--help" {
-                return Exit {
-                    code: 0,
-                    stdout: format!("{USAGE}{HELP}"),
-                    stderr: String::new(),
-                };
-            }
-            values.insert(flag, "true");
-        } else {
-            let value = if let Some(value) = inline {
-                value
-            } else {
-                i += 1;
-                let Some(value) = argv
-                    .get(i)
-                    .filter(|value| !value.starts_with('-') || value.parse::<f64>().is_ok())
-                else {
-                    return argument_error(&format!("argument {flag}: expected one argument"));
-                };
-                value.as_str()
+    let parsed = match PARSER.parse_required(argv, &["--repository"]) {
+        Ok(parsed) => parsed,
+        Err(exit) => {
+            return Exit {
+                code: if exit.code == 0 { 0 } else { 2 },
+                stdout: if exit.code == 0 {
+                    format!("{USAGE}{HELP}")
+                } else {
+                    exit.stdout
+                },
+                stderr: exit.stderr.replacen(&PARSER.usage(), USAGE, 1),
             };
-            if flag == "--hours" && value.parse::<f64>().is_err() {
-                return argument_error(&format!(
-                    "argument --hours: invalid float value: '{value}'"
-                ));
-            }
-            if flag == "--max-logs" && value.parse::<i128>().is_err() {
-                return argument_error(&format!(
-                    "argument --max-logs: invalid int value: '{value}'"
-                ));
-            }
-            values.insert(flag, value);
         }
-        i += 1;
-    }
-    let Some(repository) = values.get("--repository") else {
-        return argument_error("the following arguments are required: --repository");
     };
-    if !unknown.is_empty() {
-        return argument_error(&format!("unrecognized arguments: {}", unknown.join(" ")));
-    }
-    let hours = values
-        .get("--hours")
-        .and_then(|v| v.parse::<f64>().ok())
-        .unwrap_or(24.0);
-    let max_logs = values
-        .get("--max-logs")
-        .and_then(|v| v.parse::<i128>().ok())
-        .unwrap_or(300);
+    let values = parsed.values;
+    let repository = string(values.get("--repository")).unwrap_or("");
+    let hours = match values.get("--hours") {
+        Some(ArgumentValue::Float(value)) => *value,
+        _ => 24.0,
+    };
+    let max_logs_text = string(values.get("--max-logs")).unwrap_or("300");
+    let max_logs = max_logs_text.parse::<i128>().unwrap_or_else(|_| {
+        if max_logs_text.starts_with('-') {
+            i128::MIN
+        } else {
+            i128::MAX
+        }
+    });
     let parts: Vec<_> = repository.split('/').collect();
     if parts.len() != 2
         || parts.iter().any(|p| {
@@ -197,7 +199,7 @@ pub fn run(argv: &[String]) -> Exit {
     {
         return Exit::error(2, "bad --repository, --hours or --max-logs\n");
     }
-    let until = match values.get("--until") {
+    let until = match string(values.get("--until")) {
         Some(value) => parse_time(value),
         None => Some(Time {
             local: Utc::now(),
@@ -207,7 +209,7 @@ pub fn run(argv: &[String]) -> Exit {
     let Some(until) = until else {
         return Exit::error(2, "bad --since or --until\n");
     };
-    let since = match values.get("--since") {
+    let since = match string(values.get("--since")) {
         Some(value) => parse_time(value),
         None => until
             .local
@@ -245,7 +247,7 @@ pub fn run(argv: &[String]) -> Exit {
     match collect(repository, since, until, max_logs) {
         Ok(mut report) => {
             report["interval"] = json!({"since": since_text, "until": until_text});
-            let stdout = if values.contains_key("--json") {
+            let stdout = if values.get("--json") == Some(&ArgumentValue::Bool(true)) {
                 let mut out = String::new();
                 pretty(&report, 0, &mut out);
                 out.push('\n');
@@ -664,14 +666,26 @@ fn text_report(report: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
 
     #[test]
     fn log_capture_deadline_is_an_error_not_an_empty_log() {
         let root = tempfile::tempdir().unwrap();
         let gh = root.path().join("gh");
-        std::fs::write(&gh, "#!/bin/sh\nexec sleep 2\n").unwrap();
-        std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o700)).unwrap();
+        // Keep executable write descriptors out of this multithreaded test process:
+        // a concurrently forked child could retain one until exec and cause ETXTBSY.
+        assert!(
+            Command::new("/bin/sh")
+                .args([
+                    "-c",
+                    "printf '%s' \"$1\" > \"$2\" && chmod 700 \"$2\"",
+                    "sh",
+                    "#!/bin/sh\nexec sleep 2\n",
+                ])
+                .arg(&gh)
+                .status()
+                .unwrap()
+                .success()
+        );
         let error = log_with(
             gh.as_os_str(),
             &json!({"id": 11}),

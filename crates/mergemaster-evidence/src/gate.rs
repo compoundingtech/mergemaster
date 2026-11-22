@@ -1095,9 +1095,9 @@ fn compute(
     Ok(decision)
 }
 
-fn normalized_path(path: &str) -> String {
-    // NFKC closes compatibility-spelling aliases (including fullwidth dots and
-    // separators); lowercase also covers case-insensitive checkout filesystems.
+fn normalized_changed_path(path: &str) -> String {
+    // Diff paths are not policy: preserve compatibility aliases (including
+    // fullwidth dots/separators) and case-insensitive checkout protection.
     path.nfkc().flat_map(char::to_lowercase).collect()
 }
 
@@ -1124,8 +1124,8 @@ fn component_within(path: &str, prefix: &str) -> bool {
 }
 
 fn matches_path(path: &str, prefix: &str) -> bool {
-    let path = normalized_path(path);
-    let prefix = normalized_path(prefix);
+    let path = normalized_changed_path(path);
+    let prefix = prefix.to_ascii_lowercase();
     let prefix = prefix.trim_end_matches('/');
     component_within(&path, prefix) || component_within(prefix, &path)
 }

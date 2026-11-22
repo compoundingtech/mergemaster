@@ -67,7 +67,7 @@ print(json.dumps(rows))
         .args(["-c", script])
         .arg(root.path())
         .arg(crate::pinned_python::keys_oracle())
-        .arg(option_env!("CARGO_BIN_EXE_mergemaster").unwrap_or(""))
+        .arg(std::env::var_os("CARGO_BIN_EXE_mergemaster").unwrap_or_default())
         .output()
         .unwrap();
     assert!(

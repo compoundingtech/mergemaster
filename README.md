@@ -1642,11 +1642,13 @@ must be a valid literal prefix and SUFFIX must be nonempty and contain no `*`
 or `/`. The `*` matches one or more characters, **including `/`**, so nested
 product JSON files match `nix/buck2-products/product-revs/*.json`. Other `*`
 placements, `**`, `?` and `[` are refused at config load. Paths otherwise use
-the same validation as `protected_paths` and `bootstrap_paths`.
+the same validation as `protected_paths` and `bootstrap_paths`. All three policy
+fields must contain ASCII-only paths; non-ASCII entries are refused with a typed
+`NonAsciiAuthorityPath` error.
 
 Allowlist matching is case-sensitive and byte-exact. Configuration refuses
 overlap in either direction with implicit protected roots, `protected_paths`
-or `bootstrap_paths`, using NFKC/lowercase folding for this denylist comparison.
+or `bootstrap_paths`, comparing ASCII lowercase policy paths.
 For `PREFIX/*SUFFIX`, overlap checks conservatively use PREFIX. Every path
 changed between the merge and projection trees must match a declared entry;
 renames check both old and new paths, and deletes and mode
@@ -1655,6 +1657,13 @@ changes count. Both sides of each change must be regular non-executable files
 symlink and submodule changes are refused, as are replacements of an allowed
 prefix's ancestor. The field does not bypass protected-path or evidence checks and
 does not prove that a producer actually generated the content.
+Only `.mergemaster/`, `.github/workflows/` and `.github/actions/` are protected
+implicitly. Consumers must keep `generated_paths` away from files that are
+executed or interpreted, including `flake.nix`, `.envrc` and similar inputs,
+by choosing narrow entries and explicitly protecting other sensitive paths.
+Changed Git paths remain unrestricted Unicode and retain NFKC/lowercase
+normalization for protected-path checks, so compatibility-spelling aliases
+cannot evade those checks.
 
 The projection parent must itself satisfy the no-member merge rule. More than
 one projection commit, an unbound parent, or a non-generated edit yields
@@ -1774,7 +1783,7 @@ Intentional `legacy-sign` divergences from the pinned Python oracle:
 - Native signing reproduces Python's lone-surrogate escapes byte for byte, but
   the native typed v1 verifier (`evidence verify`) refuses such statements
   (fail-closed), whereas the removed Python `evidence-verify` accepted them.
-  Verifier parity for these statements remains a tracked follow-up.
+  Verifier parity for these statements remains a tracked follow-up (#425).
 - Missing configuration errors name the configuration path without Python's
   `[Errno ...]` text. Malformed configuration types produce normalized
   refusals instead of Python crash tracebacks.
@@ -1792,6 +1801,9 @@ Intentional `legacy-sign` divergences from the pinned Python oracle:
 - If the account has no passwd entry, native emits the normalized refusal
   `evidence-sign refused: Could not determine home directory.` instead of
   Python's uncaught `RuntimeError` traceback; the message itself matches Python.
+- `ssh_key`, `scratch_repo` and a truthy configuration `path` must be plain
+  strings: Python accepts escaped lone surrogates `\udc80`–`\udcff` as raw
+  filesystem bytes via `os.fsencode` surrogateescape; native signing refuses them.
 
 The configuration, signing key and `scratch_repo` are trusted launcher state.
 Neither implementation checks the key's mode, owner or file type, or rejects
@@ -1801,7 +1813,121 @@ Empty `HOME` resolves to `/`; unset `HOME` uses the account database.
 Request and configuration JSON retain Python's non-finite numbers and lone-surrogate
 escapes, including `NaN`/`Infinity` check-key spelling, and its 4300-digit integer limit.
 
-Existing callers and the Python scripts remain unchanged in this signer-only slice.
+`mergemaster evidence legacy-wrap` implements the cooperative v1 wrapper,
+separately from the v2 `evidence wrap` below. It accepts the legacy command,
+aggregate, input/input-file, lane, verification, artifact and publication flags.
+Commands stream their combined stdout/stderr unchanged; passing and failing runs
+produce legacy signed packs. `--out` writes the pack and summary without importing
+or publishing refs; otherwise note/tag and optional source-input indexes are
+created locally, with publication only when `--push REMOTE` is given.
+
+Without `--signer` or a nonempty `EVIDENCE_SIGNER`, the default argv is
+`["st","sekrets","--","mergemaster","evidence","legacy-sign"]`.
+This preserves the secret-manager boundary: the installed sekrets grant must name
+`mergemaster evidence legacy-sign`. That grant belongs to its external owner and
+is not provisioned here. Until it exists, the default fails closed as
+`evidence-wrap: the signer refused: <last 500 characters of sekrets stderr>`
+with exit 1; if `st` is absent, the exact refusal is
+`evidence-wrap: the signer 'st' is not on PATH`.
+Explicit `--signer` and `EVIDENCE_SIGNER` remain JSON argv overrides.
+
+Legacy failure semantics intentionally do **not** use v2's exit-75 infrastructure
+classes. Invalid CLI arguments exit 2. Missing/unavailable signers and explicit
+signer refusals exit 1 without publishing a new note. A completed command's own
+nonzero exit is signed and returned; if that child dies from signal N, its signed
+exit code is `-N` and the POSIX shell observes `256-N`, matching Python.
+An external signal terminating the wrapper itself stops it before signing any
+incomplete run (SIGINT shell status 130); native termination omits Python's
+`KeyboardInterrupt` traceback. A command that actually exits 75 still returns 75,
+but no `infra_unavailable` classification is added in legacy mode.
+
+Intentional `legacy-wrap` divergences from the pinned Python wrapper:
+`wrapper_sha256` measures the running native executable instead of the script,
+as `producer_sha256` does for the native signer. `--verifier` names the trusted
+native `mergemaster` binary (`MERGEMASTER_BIN`, otherwise PATH), using its legacy
+verification and lane-helper subcommands rather than importing Python.
+The native signer's completeness preflight described above also applies.
+Local verification is skipped when the literal verifier path does not exist:
+the summary records `verified=false` and a successful run still exits 0 unless
+`--push` was requested. Supply an existing absolute verifier path to enable it.
+- Each native lane-helper evaluation has a 300-second deadline; the pinned
+  Python imports and evaluates the lane without an overall helper deadline.
+- Aggregate JSON parsing and output encoding have no nesting-depth limit and
+  use iterative traversal. Python raises `RecursionError` at roughly 1,000
+  nested containers instead of accepting these deeper aggregate outputs.
+- Usage and help use a fixed 80-column layout, regardless of `COLUMNS` or
+  terminal width; Python's argparse derives its wrapping from that width.
+- Security divergence: `EVIDENCE_PUSH_TOKEN`, `EVIDENCE_SIGNER` and caller
+  `GIT_CONFIG_*` overrides are removed from both lane and signer environments.
+  Python forwards them.
+- `GH_TOKEN` and `GITHUB_TOKEN` are removed from the signer and publication Git
+  children. They remain available to the lane command because checks may
+  legitimately use the GitHub API or `gh`; removing them would change the
+  behavior being measured.
+- Security divergence: every wrapper diagnostic redacts both the raw push token
+  and its base64 `x-access-token:TOKEN` form, including signer, verifier,
+  measurement and publication errors. Python only redacts the raw token in
+  final push failures.
+- Security divergence: BASE-derived verifier keys use an exclusively created
+  mode-0600 tempfile, removed after verification on success and every error path.
+  Python writes a predictable PID-based path and leaves it behind.
+- Security divergence: publication reads the literal local `remote.REMOTE.url`
+  once, without includes or URL rewriting, rather than honoring `pushurl`.
+  Explicit URLs in `--push` are also validated. Only `https://github.com/OWNER/REPO`
+  (optional `.git`) and GitHub SSH forms are accepted; credentials in URLs,
+  ports, queries, fragments, escapes and other hosts are refused. With a push
+  token, SSH forms become HTTPS. Without a token, SSH stays SSH and absolute
+  local filesystem destinations are also allowed when passed explicitly to `--push`.
+  An explicit local `--push` destination runs that repository's hooks and config
+  as the caller; a checkout-configured local remote is refused.
+- Publication imports the signed pack and requested refs into a fresh bare
+  repository with an empty template, using the checkout object store as a
+  read-only alternate only. Its absolute common object directory must exist;
+  alternate object stores referenced by that store are followed too. Objects are
+  read through the alternate; traversal metadata (commit-graph, multi-pack-index
+  and bitmaps) is disabled for publication, including Git's child processes.
+  Config and hooks are never shared. Every isolated publication ref targets the
+  signed record, not a checkout-provided target; a conflicting checkout ref
+  causes a typed refusal before transport.
+  Strict pack validation is retained without a separate full-history walk.
+  The checkout's shallow file is opened without following symlinks, limited to
+  1 MiB, and copied only after validating every line as a 40- or 64-hex object ID.
+  From a shallow checkout, the destination must
+  already contain the boundary commit.
+  Push discovers unavailable objects; recognized missing-history and shallow
+  refusals become typed publication-object errors retaining redacted Git detail.
+  No automatic fetch is attempted for partial/promisor clones.
+  System/global Git config and caller `GIT_*` overrides are disabled;
+  checkout hooks, includes, credentials, HTTP settings and URL rewrites cannot
+  affect that repository. The token is injected only through environment config
+  as `http.<validated-url>.extraheader`, never an argv or unscoped header.
+  HTTPS redirects are disabled. Python retains the checkout's transport config.
+
+**Legacy-wrap trust model:** apart from the credential/config removals above, the
+caller's environment reaches the lane command. The signer also inherits caller
+state, except for the loader/Python-variable scrub and fixed PATH; it is not an
+environment-isolated boundary. SSH may still use the caller's agent and SSH
+configuration, but never checkout `core.sshCommand`. HTTPS publication requiring
+credentials must supply `EVIDENCE_PUSH_TOKEN`; Git credential helpers are not used.
+The checkout still chooses the GitHub owner/repository: a token may reach any
+GitHub repository it can write to. Fully removing that residual authority requires
+an explicit trusted publication URL supplied by the caller, not checkout state.
+Verifier-key tempfiles and bare publication repositories use RAII cleanup on
+normal returns and errors, not process-terminating signals (including SIGKILL);
+their containing launcher scratch directory must be cleaned after interruption.
+
+Caller inventory for this transport change (GitHub main, 2026-11-21):
+this repo and Fractal `scripts/st-test` (through the `fractal-test` shim), pre-push
+hook and presign worker use `--push REMOTE`/`origin`; presign clones HTTPS GitHub.
+CI exports with `--out` and publishes separately. None of those production callers
+sets a wrapper-specific `pushurl`; transport-override/pushurl uses in wrapper tests
+are intentional Python-only compatibility witnesses now. Fractal's cached-record
+publication in `st-test` is separate and is not hardened by this native-wrapper
+change. Dotfiles' `scripts/mergemaster-landing-evidence` invokes v2 `evidence wrap`,
+not the legacy wrapper; its push-destination validation permits GitHub HTTPS/SSH.
+The dotfiles factory-evidence module has no legacy wrapper invocation.
+
+Existing callers and Python scripts remain unchanged until the separate cutover.
 
 `mergemaster evidence wrap` runs the exact BASE-declared command once, measures
 its inputs before and after execution, signs successes and failures, imports the
@@ -1833,9 +1959,21 @@ Interrupted runs create neither output refs nor signed notes. SIGPIPE and crash
 signals remain lane failures: a broken pipeline can be a real defect, not
 external cancellation. Signer unavailability creates no usable signed note;
 publication failure occurs **after signing** and can leave an immutable local
-note ref (the remote may also have accepted a push before a timeout). Every retry
-runs the lane and signer again, with no partial-result reuse; a local ref left
-by publication is harmless and is updated if the same record recurs.
+note ref (the remote may also have accepted a push before a timeout). A later
+bulk push can publish a record left locally by a `publish_failed` run. Every
+retry runs the lane and signer again, with no partial-result reuse; updating
+the local ref to the same record is harmless.
+
+A signer refusal is a normal nonzero signer exit, and takes precedence over a
+broken stdin pipe even when the signer never reads its request. Signer stdout
+has no refusal protocol: output followed by signal death remains
+`signer_unavailable`, even if it looks like a complete refusal. A crash can
+truncate output, so the wrapper cannot establish a completed policy decision
+from that output; retrying a real refusal is safe because the signer refuses
+again. Partial or unparseable output followed by signal death is also retryable.
+The v2 wrapper has no signer timeout or signer process-group cleanup. A hung
+signer can therefore hang the wrapper indefinitely; the hung-signer regression
+test is skipped rather than adding a timeout feature as part of this contract.
 
 Consumers should map `75` to their existing temporary not-run path, not to a
 failed check. Queues own bounded retries and parking/pausing; Mergemaster does
