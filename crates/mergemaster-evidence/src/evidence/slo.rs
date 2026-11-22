@@ -672,7 +672,7 @@ mod tests {
         // Keep executable write descriptors out of this multithreaded test process:
         // a concurrently forked child could retain one until exec and cause ETXTBSY.
         assert!(
-            Command::new("sh")
+            Command::new("/bin/sh")
                 .args([
                     "-c",
                     "printf '%s' \"$1\" > \"$2\" && chmod 700 \"$2\"",
