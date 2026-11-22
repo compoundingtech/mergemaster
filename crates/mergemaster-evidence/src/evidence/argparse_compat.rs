@@ -258,7 +258,7 @@ impl Parser {
                 .options
                 .iter()
                 .enumerate()
-                .filter(|(_, s)| s.long.starts_with(key));
+                .filter(|(_, s)| !s.hidden && s.long.starts_with(key));
             if let Some((id, first)) = matches.next() {
                 if let Some((_, second)) = matches.next() {
                     let mut names = vec![first.long, second.long];
