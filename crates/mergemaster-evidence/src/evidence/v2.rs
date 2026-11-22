@@ -86,21 +86,33 @@ pub struct Origin {
     #[serde(default, deserialize_with = "present")]
     pub train_mapping: Option<TrainMapping>,
 }
-#[derive(Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum OriginClass {
-    SameRepositoryPr,
-    ForkPr,
-    Push,
-    Local,
+// Deserialize through String rather than serde's externally tagged enum visitor,
+// which would also accept singleton objects after the bounded JSON parse.
+macro_rules! string_enum {
+    ($name:ident { $($variant:ident => $value:literal),+ $(,)? }) => {
+        #[derive(Debug, PartialEq, Eq)]
+        pub enum $name { $($variant),+ }
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D: de::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+                match String::deserialize(d)?.as_str() {
+                    $($value => Ok(Self::$variant),)+
+                    _ => Err(de::Error::custom("invalid v2 enum")),
+                }
+            }
+        }
+    };
 }
-#[derive(Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum EventKind {
-    PullRequest,
-    Push,
-    Local,
-}
+string_enum!(OriginClass {
+    SameRepositoryPr => "same_repository_pr",
+    ForkPr => "fork_pr",
+    Push => "push",
+    Local => "local",
+});
+string_enum!(EventKind {
+    PullRequest => "pull_request",
+    Push => "push",
+    Local => "local",
+});
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PullRequest {
@@ -434,6 +446,29 @@ mod tests {
     use serde_json::json;
     impl sealed::Receipt for Value {}
     impl Receipt for Value {}
+
+    #[test]
+    fn v2_enums_are_string_only() {
+        assert!(shape(&fixture()).is_ok());
+        for (path, variant) in [
+            ("/predicate/origin/class", "same_repository_pr"),
+            ("/predicate/origin/event_kind", "pull_request"),
+        ] {
+            let mut value = fixture();
+            *value.pointer_mut(path).unwrap() = json!({(variant): null});
+            assert!(shape(&value).is_err(), "{path}");
+            *value.pointer_mut(path).unwrap() = json!(variant);
+            assert!(shape(&value).is_ok(), "{path}");
+        }
+        for name in ["same_repository_pr", "fork_pr", "push", "local"] {
+            assert!(serde_json::from_value::<OriginClass>(json!(name)).is_ok());
+            assert!(serde_json::from_value::<OriginClass>(json!({(name): null})).is_err());
+        }
+        for name in ["pull_request", "push", "local"] {
+            assert!(serde_json::from_value::<EventKind>(json!(name)).is_ok());
+            assert!(serde_json::from_value::<EventKind>(json!({(name): null})).is_err());
+        }
+    }
 
     // This entry point exists only in tests and never decodes a broker receipt.
     fn decode_shape(bytes: &[u8]) -> Result<Statement<Value>> {
