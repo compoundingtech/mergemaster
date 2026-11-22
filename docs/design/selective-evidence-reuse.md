@@ -330,6 +330,161 @@ Exact level equality plus origin equality and gate-side root verification
 are design requirements, not unresolved weaker-policy alternatives.
 These decisions do not enable reuse: §6 prerequisites still gate every lane.
 
+## 9. Proposed v2 wire contract (Mergemaster-owned parts)
+
+**Proposal for review, not an approved or implemented contract.** Selective reuse remains unconditionally disabled. Receipt representation/crypto and daemon profile remain broker-owned, TBD; this section cannot activate a lane. Code citations are relative to `crates/mergemaster-evidence/` at main 0b9082ae; design citations refer to this document at c2f9b7f3.
+
+### 9.1 Q1 — Strict statement, origin and reuse-key schema
+
+Keep the existing signed Git-notes commit container and in-toto envelope. Required top-level members: `_type` (literal `https://in-toto.io/Statement/v1`), `repository` (`OWNER/NAME` string), `subject` (one-element array), `predicateType` (literal `https://compounding.tech/fractal/evidence/gate/v2`), `predicate` (object). A subject has exactly `name` (full lowercase 40-hex commit ID) and `digest: {"gitTree": <40-hex tree ID>}`. Preserve sole regular note, actual subject/tree and sole subject-parent checks.
+
+Required predicate members:
+- `schema_version`: integer literal 2; `change_id`: nonempty string; `signer`: nonempty principal string; `tier`: literal `full`.
+- `issuer`: exactly `{ "key_id": <OpenSSH SHA256 fingerprint>, "service_id": <BASE-pinned opaque identity string> }`.
+- `producer_sha256`: lowercase 64-hex executable digest; `observed_at`, `attested_at`: RFC3339 strings denoting UTC instants (issuers emit `Z`; compare parsed instants).
+- `origin`: object described below; `reuse_key`: object described below; `daemon_policy_receipt`: **broker-owned, TBD**.
+- `observed`: existing tests shape: `kind: "tests"`, `runner: "nix"`, `checks` (exactly one entry, keyed by the lane/check name), `inputs` (string-to-string map). Check fields remain `command: string[]`, `exit_code: integer` (must be 0), `output_sha256: <64-hex>`.
+- Optional `reused_from`: full signed notes commit ID; omitted for fresh roots. `re_attests` is not a v2 member and is rejected, including null. Optional members must be omitted, never null.
+
+Strictness: reject unknown members in every structured object, unknown enum/version, duplicate JSON members (including maps), missing fields, nulls, noninteger numbers, malformed identifiers and out-of-bound bytes/depth/counts. `inputs` alone retains extensible string keys; it cannot carry structured authority/provenance. Explicit URI/version dispatch prevents v1/v2 downgrade. Success eligibility additionally validates measurements, commands, timestamps and scope, not merely shape.
+
+`origin` has exactly:
+- `class`: `same_repository_pr | fork_pr | push | local`;
+- `repository`, `source_repository`: literal logical repository strings;
+- `subject_head`, `accepted_base`: full commit IDs;
+- `event_kind`: `pull_request | push | local` (train preparation remains a PR operation, not a merge-group origin);
+- for PR classes only, `pull_request`: `{ "number": positive u64, "head": <live PR-head commit>, "base_ref": <literal branch name> }`;
+- for prepared PR subjects only, `train_mapping`: `{ "kind": "single_pr_merge", "candidate": <subject_head>, "accepted_base": <accepted_base>, "pull_request": <same PR number>, "pr_head": <same pull_request.head> }`.
+Reject PR-only members on push/local and contradictory class/repository/event combinations. Same-repository PR requires both repositories equal the statement repository. `subject_head` equals statement subject; `accepted_base` is a commit. Only `same_repository_pr` qualifies initially.
+
+`reuse_key` has exactly `version: 1`, `check: string`, `nix_derivation: string`, `expected_inputs: {string: string}`, `nix_settings_sha256: <64-hex>`, `nix_daemon_policy_sha256: <64-hex>`, `producer: {"executable_sha256": <64-hex>, "system": string}`. The `expected_inputs` map is the **entire** shared `expected_inputs` result, not a handpicked list; optional workspace entries must match in presence and value. Compare decoded structured values exactly; no extra reuse-key digest/canonical JSON algorithm is introduced. Check consistency against each note's measured inputs and corresponding authenticated receipt. Do not include operation nonce, log digest, attestation time or daemon instance in this key.
+
+Root: omit `reused_from`, require input modes `nix_execution=nix_command_mode=rebuild`. Rebind: require `reused_from`, modes `reused`; root must itself omit both reuse/reattest provenance. Both require equal parsed `observed_at`, same check/key/output digest and exact signer-level equality; check allowed levels independently. Enforce `observed_at <= attested_at <= now+120s` and positive representable BASE lane age for both; rebind cannot renew age. Both note and receipt authorities are checked under current candidate BASE.
+
+Rationale: current strict fields and v1-only validator are `src/evidence/mod.rs:55–121,395–460`; note layout is `:634–680`; shared inputs are `src/gate/config.rs:998–1056`. Design 63–94,110–131,203–225,254–278 requires these extensions, direct fresh roots and exact equality. One check makes operation/receipt/output binding unambiguous.
+Rejected: appending fields to v1; encoding origin/reuse inside opaque inputs; digest-only reuse keys; rebind chains; nullable provenance; multiple independently successful checks sharing one operation receipt. General multi-check v2 observations require a later version, not implicit widening.
+
+### 9.2 Q2 — Producer identity and existing producers.json
+
+Use `predicate.producer_sha256` as the sole authoritative measured **loaded service executable** digest. In v2 require `observed.inputs.wrapper_sha256` to equal it, retaining that existing measured-input name as a consistency binding, not as a second producer identity. `observed.inputs.system` must be present and equal `reuse_key.producer.system`; key executable digest must equal `producer_sha256`. Root/rebind must identify the same digest/system. The service owns measurements; callers cannot choose them.
+
+Extend existing `.mergemaster/producers.json`, keeping version 1 and the existing entry shape, with one new `flavor` enum value `v2_service`. Only an entry with exact `(executable_sha256, system, flavor=v2_service)` authorizes v2. Existing `nix`/`release` entries cannot authorize it. Provenance fields retain existing validation. This is additive for new readers, deliberately rejected by older strict readers if deployed: roll out compatible verifiers/producers tooling first; do not deploy manifest enrollment in this work. No new producer document or implied authorization from `tool-pin.json`.
+
+Rationale: signer self-measurement already exists at `src/evidence/mod.rs:546–589`; manifest shape/flavor validation and report-only wrapper matching are `src/gate/config.rs:43–142`. Existing report-only matching allows absent signed system and ignores flavor: leave that v1 reporting contract unchanged. Design 46–55,73–82,120–124,282–299 requires protected service measurement plus current manifest authorization.
+Rejected: accepting either wrapper or predicate hash; reusing caller-wrapper measurements as service authentication; treating every `nix` producer as an isolated service; adding a parallel executable allowlist. The `v2_service` flavor expresses authorization intent but is not proof of isolation or remote attestation.
+
+### 9.3 Q3 — Extend lane policy, not add a policy document
+
+Extend existing `.mergemaster/lanes.json` version 1 with optional top-level `reuse_authorities` (array) and optional per-lane `reuse` object. Do not add a global enabled flag. Existing lane `max_age_seconds` remains the **only** age authority.
+
+Each authority entry has exactly `key_id: string`, `public_key: string` (one OpenSSH public key, no options/comment), `role: "v2_service_issuer" | "daemon_policy_receipt"`, `repository: string`, `endpoint_id: string` (nonempty opaque reviewed identity, exact comparison, no URL normalization). Enforce fingerprint/public-key consistency, unique key IDs, repository equality with policy, and different keys across roles. `endpoint_id` is the signed service/broker identity, not an unauthenticated transport locator. No wildcards or implicit repository/endpoint scope.
+
+Lane `reuse` has exactly `{ "version": 1, "origin_profile": "same_repository_pr", "platform": "linux" }`. Its enclosing map key is the lane identifier, and the existing lane declares `max_age_seconds: positive representable u64` and `nix_check.required: "any"`. Require a matching BASE producer manifest and both authority roles/profile before even considering reuse. Broker profile enrollment details are **broker-owned, TBD**, not an implicit default Linux policy.
+
+Decode these **new optional extension fields** as an explicit state `Absent | Valid | Invalid(reason)` before typed validation, so malformed new authority never becomes usable and does not weaken or globally replace today's v1 policy validation. Any invalid extension makes selective reuse unavailable for the policy, not partially available for its valid subset. Unknown ordinary policy/lane fields retain today's strict errors. No malformed existing producers/keys/lanes authority is downgraded to optional absence.
+
+Keep `reuse` authorization metadata out of the existing serialized `Lane` execution-definition tuple: use a strict lane wire extension decoded into a separate per-lane authorization map, and preserve the old `Lane` serialization byte-for-byte. This avoids changing v1 `lane_definition_sha256` merely by adding reuse policy. Current BASE checks remain authoritative at each reuse decision; this metadata need not be copied into the reuse key to enforce revocation. `reuse_authorities` likewise is not an executable input. If the reviewed policy changes lane argv/inputs, the existing hash still changes normally.
+
+Absent extension = no reuse. Invalid extension = explicit reuse refusal, with unchanged v1 exact-head behavior. Present complete valid extension still cannot enable production reuse while the unconditional prerequisite stop remains. Future enrollment is limited to the five approved lanes at 86400 seconds; no entries for other lanes, and no actual consumer edits here.
+
+Rationale: strict policy/lane structure and existing age are `src/gate/config.rs:144–219`; BASE load and existing malformed manifest semantics `:588–608`; lane checks `:680–776`; serialized-lane hash `:1041`. Design 15–19,229–245,291–302,316–331 requires explicit reviewed BASE authority/opt-in and finite age, not a new file. This extension is interpretable without changing policy version because absence retains the complete old contract; extension itself is versioned.
+Rejected: a new reuse.json (needless competing authority/document), duplicate max age inside `reuse`, automatic opt-in from `required=any`, hash-changing authorization-only fields, treating malformed extension as an empty allowlist without diagnostics, or rejecting otherwise valid legacy evidence solely because an optional new extension is invalid. Older readers reject enrollment fields; verifier-first rollout is mandatory.
+
+### 9.4 Q4 — Note signature fingerprint and issuer binding
+
+Retain SSH-signed Git commits. `issuer.key_id` is exactly the OpenSSH SHA256 public-key fingerprint (`SHA256:` plus canonical unpadded base64 SHA-256 of the SSH public-key blob). Require it to equal the actual verified commit key fingerprint **and** the fingerprint recomputed from the selected current BASE public key. Require verified SSH principal equal `predicate.signer`; independently check allowed level and `v2_service_issuer` role/repository/`issuer.service_id == authority.endpoint_id`.
+
+Construct the v2 worker's allowed-signers file from that single selected BASE issuer entry and exact signed principal; verify the commit, then return `{ "version": 2, "record": <ID>, "statement": <strict v2>, "verified_signer": <principal>, "verified_key_id": <fingerprint> }` through the sanitized parent/child interface. Verify actual fingerprint using Git's `%GF` result; empty/unavailable/noncanonical output refuses. A build/platform lacking reliable fingerprint reporting is unsupported for v2, not silently principal-only. No caller-selected key file grants authority; the parent supplies BASE material. Do not pass v2 through recursive v1 `re_attests` verification.
+
+Rationale: current worker accepts a supplied BASE-created keys file (`src/gate.rs:45–60,914–935`); verifier checks `%GS` and principal but not scoped issuer fingerprint (`src/evidence/mod.rs:683–733`); sanitization is `src/gate/git.rs:16–54`. Design 110–124,220–245 explicitly requires scoped service roles and noninterchangeable keys.
+Rejected: principal/level alone, trusting the signed key ID without crypto binding, trusting a matching key from any scope, v1 key fallback, ambient allowed-signers configuration. Receipt crypto/domain separation is not decided here.
+
+### 9.5 Q5 — Authenticated candidate context, train mapping and cross-PR scope
+
+Use an internal, non-CLI-constructible `AuthenticatedPrCandidate` with `repository: string`, `pull_request: positive u64`, `pr_head: commit`, `base_ref: string`, `accepted_base: commit`, `subject_head: commit`, `subject_tree: tree`, `source_repository: string`, `mapping: Direct | SinglePrMerge`. Populate it through the existing trusted GitHub/API path and final live recheck, never by merely accepting `--event-file` values. Local refs, push, queue and merge-group contexts cannot construct it. This is an internal type, not a new caller JSON request.
+
+For direct candidates require `subject_head == live PR head` and omitted `origin.train_mapping`. For a train-prepared **single-PR** candidate require the service's signed `train_mapping` tuple above, agreement with authenticated live PR head/number and live accepted BASE, and an actual subject merge commit with exactly the two parents `[accepted_base, pr_head]` in that order. The protected service must authenticate preparation from its trusted event/backend mapping, not caller JSON; its signed origin is the attestation of that mapping. Gate independently verifies the tuple/parents and candidate tree. Final live PR/base changes refuse. Batch trains or another preparation shape are unsupported until an explicit reviewed mapping format exists; no generic ancestry inference substitutes for authentication.
+
+Root origin binds the root's historical subject/BASE/PR identity; current candidate BASE authorizes its issuer, producer and profile. Do **not** require the old root's HEAD/BASE to equal current live HEAD/BASE. Initial scope is **same-PR only**: the root's `origin.pull_request.number` must equal the authenticated candidate PR number, in addition to exact repository and `same_repository_pr` class equality and complete reuse-key/output/level/profile equality. This is the case selective reuse exists for (the same PR re-validated after main moves) and is a strict subset of Johannes's same-repository-PR decision (section 8). The PR number is an origin equality check, not a reuse-key field. Cross-PR reuse within the same repository is a later widening that needs its own recorded decision. All non-PR origin classes remain ineligible.
+
+Rationale: `src/gate.rs:229–301,336–383,418–449` supplies live authenticated repository/PR/head/base checks; `:1384–1418` alone is not a protected origin adapter. Design 203–218 requires trusted adapter, candidate binding and authenticated train mapping, while 120–128,220–225 specifies equality of class/repository rather than PR number. Single-PR prepared mapping preserves that boundary without widening merge-group/batch enforcement (design 304–312).
+Rejected: trusting event JSON/environment or local branch names as signed origin; inferring PR class from a matching checkout; comparing all root/candidate origin fields (old HEAD/BASE must be allowed to differ); automatically admitting batch trains; cross-PR reuse in the initial scope (sound under full key equality, but it widens beyond the case that needs it without a recorded decision).
+
+### 9.6 Q9 — Decision output, refusal and legacy selection
+
+Keep existing decision `version: 1`, `decision`, `outcome`, `reason`, `record` meanings. Add optional `selective_reuse` object, omitted for all legacy-only decisions; exact members: `version: 1`, `status: "validated" | "refused" | "disabled"`, `root_record: full commit ID` (optional; set only after a verified direct root), `reason: string`. It records the selected v2 candidate's result, not discovery hints. `record` remains the candidate note ID, never the root. Do not expose an unverified claimed root through `root_record`.
+
+On future authorized acceptance: `decision=skip`, `outcome=reused`, `reason=selective_reuse_satisfied`, `selective_reuse.status=validated`; summary explicitly says the realization reused an earlier execution. Existing v1 `reason=execution_reused` remains unchanged. While disabled: no production `validated` acceptance; report `selective_reuse_disabled` only when a v2 attempt would otherwise be selected, retain lane-mode `run` versus `refuse`, and never satisfy the lane.
+
+Refusal reasons retain design's `reuse_source_unavailable`, `reuse_source_unverified`, `reuse_source_not_root`, `reuse_lane_ineligible`, `reuse_source_expired`, `reuse_origin_mismatch`, `reuse_producer_unauthorized`, `reuse_daemon_policy_missing`, `reuse_daemon_policy_changed`, `reuse_key_mismatch`, `reuse_outputs_mismatch`; add `reuse_authority_invalid` for malformed extensions and `reuse_candidate_unverified` for candidate signature/role failures. Shape/signature failures are not successful fallback evidence. Transport/authority verification failures are not converted into authorization. The gate does not emit `reuse_impure_derivation` based on local evaluation; only a defined authenticated admission claim can support it.
+
+Keep v1 candidate selection/failure-shadowing byte-for-byte when no admitted v2 candidate participates. Invalid/disabled v2 notes must not shadow a valid v1 success or failure or change its timestamps. If no existing evidence satisfies, retain today's mode-dependent scheduling result and show a typed reuse refusal only as the explanation for the attempted v2 path. Future positive v2 selection must enter the normal trusted success/failure policy only after full root validation, with an explicit selection precedence test matrix before activation.
+
+Rationale: current output schema and refusal helper `src/gate.rs:64–114`; selection/failure shadowing `:959–1069`; final reused output `:1071–1091`; existing exact-head realization reuse `:1315–1324`; consumers accept `satisfied|reused` in `genie/generic-evidence.ts:163,273` (worktree-root path). Design 96–103,125–131,266–270 requires typed refusals, root output and no fresh-run claim. Additive optional output avoids a second decision document or silent legacy semantic changes.
+Rejected: replacing `record` with root ID, reusing `execution_reused` for new provenance guarantees, exposing arbitrary unverified root references as verified provenance, treating a malformed v2 note as a trusted failure, changing existing success to refusal because unrelated disabled evidence exists.
+
+### 9.7 Broker-owner asks — Q7 and Q8 (not resolved here)
+
+`daemon_policy_receipt` fields/envelope are **broker-owned, TBD**. Mergemaster needs these exact agreements before implementing the receipt validator:
+1. Q7: versioned receipt member names/types, signed-byte envelope/algorithm/domain separation and issuer fingerprint encoding; exact bindings for signer nonce, operation ID, authenticated client/service ID, broker endpoint, drv, operation mode/status, output digest, store/instance identity and canonical policy digest.
+2. Q7: how the note references/binds that exact operation, including replay prevention, nonce uniqueness and allowed receipt start/end versus root completion/rebind attestation times; which fields require equality with note claims and which must explicitly stay outside cross-host reuse-key equality.
+3. Q7: policy-generation pinning and transitive-operation coverage claims the receipt authenticates; behavior on reload, child-build policy mismatch and failed operation. Gate cannot reconstruct those host facts from client configuration.
+4. Q8: canonical UTF-8 JSON schema/version for all resolved effective settings, aliases/types/ordered lists/empty values, canonical digest algorithm/encoding, unknown-field behavior and shared valid/invalid golden vectors.
+5. Q8: exact approved Linux profile identifier/version, architectures/features/devices, sandbox/fallback/path restrictions, substituter/key policy, builder/hook/impure restrictions and admissibility attestation fields needed by the gate.
+6. Q8: embedded receipt versus immutable referenced bytes, content-ID/hash domain and dependency packaging/retention; who publishes which objects with each note; missing-object refusal behavior.
+7. Q8: maximum receipt/policy bytes, JSON depth/member/list counts, signature work and operation-time/deadline bounds, with refusal rather than truncation. Mergemaster will separately bound note/worker/object reads.
+
+Design basis: 135–187,229–234,263–265,291–302. No broker defaults, dummy receipt envelope, unsigned fallback or activation are established by this proposal.
+
+### 9.8 Golden-vector JSON templates
+
+These are **wire templates with placeholder tokens**, not cryptographically valid positive acceptance fixtures. Expand `C_*`/`T_*`/`R_*` to full commit/tree/note IDs, `H_*` to lowercase 64-hex digests, fingerprint/key placeholders to real fixture key material, and `D_*` to valid store derivation paths. Receipt null is intentionally non-validating: replace it with the broker-agreed signed receipt. Concrete fixture vectors must use real signatures/objects and the complete shared expected-input map.
+
+Fresh root (the ordered maps below are presentation only; equality is structural):
+```json
+{
+  "_type":"https://in-toto.io/Statement/v1","repository":"example/project",
+  "subject":[{"name":"C_ROOT","digest":{"gitTree":"T_ROOT"}}],
+  "predicateType":"https://compounding.tech/fractal/evidence/gate/v2",
+  "predicate":{
+    "schema_version":2,"change_id":"pr-41","signer":"host/service","tier":"full",
+    "issuer":{"key_id":"SHA256:TEST_SERVICE_FINGERPRINT","service_id":"service:linux-v1"},
+    "producer_sha256":"H_PRODUCER","observed_at":"2026-11-22T10:00:00Z","attested_at":"2026-11-22T10:00:00Z",
+    "origin":{"class":"same_repository_pr","repository":"example/project","source_repository":"example/project","subject_head":"C_ROOT","accepted_base":"C_OLD_BASE","event_kind":"pull_request","pull_request":{"number":41,"head":"C_ROOT","base_ref":"main"}},
+    "reuse_key":{"version":1,"check":"format","nix_derivation":"D_FORMAT","expected_inputs":{"environment_sha256":"H_ENV","toolchain_sha256":"H_TOOL","lane_definition_sha256":"H_LANE","system":"x86_64-linux"},"nix_settings_sha256":"H_SETTINGS","nix_daemon_policy_sha256":"H_POLICY","producer":{"executable_sha256":"H_PRODUCER","system":"x86_64-linux"}},
+    "daemon_policy_receipt":null,
+    "observed":{"kind":"tests","runner":"nix","checks":{"format":{"command":["/trusted/nix","--extra-experimental-features","nix-command flakes","--option","accept-flake-config","false","--option","pure-eval","true","--option","allow-import-from-derivation","false","--option","builders","","--option","build-hook","","--option","max-jobs","1","--log-format","internal-json","build","--no-link","--json","--print-build-logs","--option","substitute","false","--rebuild","D_FORMAT^*"],"exit_code":0,"output_sha256":"H_ROOT_LOG"}},"inputs":{"environment_sha256":"H_ENV","toolchain_sha256":"H_TOOL","lane_definition_sha256":"H_LANE","system":"x86_64-linux","wrapper_sha256":"H_PRODUCER","nix_derivation":"D_FORMAT","nix_execution":"rebuild","nix_command_mode":"rebuild","nix_command_sha256":"H_ROOT_ARGV","nix_settings_sha256":"H_SETTINGS","nix_daemon_policy_sha256":"H_POLICY","nix_outputs_sha256":"H_OUTPUTS","nix_store":"daemon","nix_daemon_trusted":"true","workspace_clean":"true","untracked_files":"false","attempt":"1"}}
+  }
+}
+```
+Rebind (argv follows `src/evidence/derivation.rs:11–18,24–33,245–268`; digests remain placeholders):
+```json
+{
+  "_type":"https://in-toto.io/Statement/v1","repository":"example/project",
+  "subject":[{"name":"C_REBIND","digest":{"gitTree":"T_REBIND"}}],
+  "predicateType":"https://compounding.tech/fractal/evidence/gate/v2",
+  "predicate":{
+    "schema_version":2,"change_id":"pr-41","signer":"host/service","tier":"full",
+    "issuer":{"key_id":"SHA256:TEST_SERVICE_FINGERPRINT","service_id":"service:linux-v1"},
+    "producer_sha256":"H_PRODUCER","observed_at":"2026-11-22T10:00:00Z","attested_at":"2026-11-22T11:00:00Z","reused_from":"R_ROOT_NOTE",
+    "origin":{"class":"same_repository_pr","repository":"example/project","source_repository":"example/project","subject_head":"C_REBIND","accepted_base":"C_NEW_BASE","event_kind":"pull_request","pull_request":{"number":41,"head":"C_REBIND","base_ref":"main"}},
+    "reuse_key":{"version":1,"check":"format","nix_derivation":"D_FORMAT","expected_inputs":{"environment_sha256":"H_ENV","toolchain_sha256":"H_TOOL","lane_definition_sha256":"H_LANE","system":"x86_64-linux"},"nix_settings_sha256":"H_SETTINGS","nix_daemon_policy_sha256":"H_POLICY","producer":{"executable_sha256":"H_PRODUCER","system":"x86_64-linux"}},
+    "daemon_policy_receipt":null,
+    "observed":{"kind":"tests","runner":"nix","checks":{"format":{"command":["/trusted/nix","--extra-experimental-features","nix-command flakes","--option","accept-flake-config","false","--option","pure-eval","true","--option","allow-import-from-derivation","false","--option","builders","","--option","build-hook","","--option","max-jobs","1","--log-format","internal-json","build","--no-link","--json","--print-build-logs","D_FORMAT^*"],"exit_code":0,"output_sha256":"H_REBIND_LOG"}},"inputs":{"environment_sha256":"H_ENV","toolchain_sha256":"H_TOOL","lane_definition_sha256":"H_LANE","system":"x86_64-linux","wrapper_sha256":"H_PRODUCER","nix_derivation":"D_FORMAT","nix_execution":"reused","nix_command_mode":"reused","nix_command_sha256":"H_REBIND_ARGV","nix_settings_sha256":"H_SETTINGS","nix_daemon_policy_sha256":"H_POLICY","nix_outputs_sha256":"H_OUTPUTS","nix_store":"daemon","nix_daemon_trusted":"true","workspace_clean":"true","untracked_files":"false","attempt":"2"}}
+  }
+}
+```
+BASE policy fragment (insert into otherwise complete existing policy; not a new document):
+```json
+{
+  "reuse_authorities":[
+    {"key_id":"SHA256:TEST_SERVICE_FINGERPRINT","public_key":"ssh-ed25519 TEST_SERVICE_KEY","role":"v2_service_issuer","repository":"example/project","endpoint_id":"service:linux-v1"},
+    {"key_id":"SHA256:TEST_BROKER_FINGERPRINT","public_key":"ssh-ed25519 TEST_BROKER_KEY","role":"daemon_policy_receipt","repository":"example/project","endpoint_id":"broker:linux-v1"}
+  ],
+  "lanes":{"format":{"max_age_seconds":86400,"nix_check":{"attribute":"checks.x86_64-linux.format","required":"any"},"reuse":{"version":1,"origin_profile":"same_repository_pr","platform":"linux"}}}
+}
+```
+
 ## Review response
 
 Janitor's conditional GO (message/e1766cf7620a854e) resolves C1/C5/C6 and
