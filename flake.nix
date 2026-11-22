@@ -260,11 +260,11 @@
               ln -sfn ${buckRoot}/.buck2/capabilities .buck2/capabilities
             '';
           };
-        in { default = pkgs.mkShell {
+        in { default = pkgs.mkShell ({
           packages = [
             rustPkgs.cargo rustPkgs.rustc rustPkgs.rustfmt rustPkgs.clippy oraclePython
-          ] ++ buckShell.packages ++ scriptInputs pkgs;
-          inherit (buckShell) BUCK2_BIN MERGEMASTER_BUCK_ROOT shellHook;
+          ] ++ scriptInputs pkgs
+            ++ pkgs.lib.optionals (system == "x86_64-linux") buckShell.packages;
           MERGEMASTER_ORACLE_PYTHON = "${oraclePython}/bin/python3.14";
           MERGEMASTER_PYTHON_KEYS_ORACLE = "${python-keys-oracle}";
           # Copied script tests execute the local Rust-backed evidence gate.
@@ -274,7 +274,10 @@
           MERGEMASTER_FRACTAL_FIXTURE = "${fractal-fixture}";
           MERGEMASTER_PYTHON_ORACLE = "${python-oracle}";
           MERGEMASTER_PYTHON_PARITY_ORACLE = "${python-oracle-parity}";
-        };
+        } // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
+          inherit (buckShell) BUCK2_BIN MERGEMASTER_BUCK_ROOT shellHook;
+        });
+        } // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
           # Resolving Buck2's toolchain must not first build the Cargo application.
           buck2 = pkgs.mkShell buckShell;
           buck2-evidence = pkgs.mkShell (buckShell // {

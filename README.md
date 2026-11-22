@@ -48,6 +48,8 @@ It generates unit and integration harnesses for every Cargo workspace member,
 including newly discovered integration tests, rather than maintaining a test list.
 Native Rust compilation uses the production flake's compiler; the provider's
 nixpkgs supplies Buck/Bun tooling. The frozen Python oracle remains unchanged.
+The Buck shells and CI lane are x86_64-linux-only; ARM retains the Cargo and
+oracle checks without pulling Buck's capability closure into its default shell.
 
 ```sh
 nix develop .#buck2-evidence -c bash scripts/buck2-prepare
