@@ -28,6 +28,8 @@ pub mod legacy_verify;
 pub mod legacy_wrap;
 pub mod log_watch;
 mod nix;
+mod observe;
+mod observe_args;
 pub mod observers;
 pub mod presign_notice;
 pub mod producer_proof;
