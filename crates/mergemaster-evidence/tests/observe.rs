@@ -706,7 +706,22 @@ fn cli_selection_usage_and_metadata_defaults() {
 #[test]
 fn pinned_native_verifier_checks_real_ssh_signatures() {
     let f = Fixture::new();
-    let valid = f.record_kind("full", "linux-gate", true, "observed");
+    let blob = git(&f.source, &["show", &format!("{}:{}", f.full, f.tree)]);
+    let mut body: Value = serde_json::from_str(&blob).unwrap();
+    body["predicate"]["observed"]["runner"] = json!("github:example/repo/actions/runs/7");
+    let valid = f.record_body(&body, true);
+    // Like Python, observe verifies before creating publication refs. The real
+    // verifier needs an existing discovery ref; importing a pack creates none.
+    let seed = |scratch: &str, record: &str| {
+        let repo = f.path(scratch);
+        fs::create_dir(&repo).unwrap();
+        git(&repo, &["init", "-q", "--bare"]);
+        gitb(&repo, &["index-pack", "--stdin"], Some(&f.pack(&[record])));
+        let name = format!("refs/tags/evidence/{}/{record}", f.tree);
+        git(&repo, &["update-ref", &name, record]);
+        name
+    };
+    seed("native-verifier", &valid);
     let (out, value) = f.execute(
         &f.answer(&[(&valid, "full")]),
         "native-verifier",
@@ -715,15 +730,22 @@ fn pinned_native_verifier_checks_real_ssh_signatures() {
     );
     success(&out);
     assert_eq!(value["records"][0]["verified"], true);
-    let unsigned = f.record_kind("full", "linux-gate", false, "observed");
+    let unsigned = f.record_body(&body, false);
+    let existing = seed("native-refusal", &unsigned);
     let (out, value) = f.execute(
         &f.answer(&[(&unsigned, "full")]),
         "native-refusal",
         &["--verifier", env!("CARGO_BIN_EXE_mergemaster")],
         &[],
     );
-    failure(&out, &value, "did not verify");
-    assert_eq!(git(&f.path("native-refusal"), &["for-each-ref"]), "");
+    failure(&out, &value, "did not verify: bad_signature");
+    assert_eq!(
+        git(
+            &f.path("native-refusal"),
+            &["for-each-ref", "--format=%(refname)"]
+        ),
+        existing
+    );
 }
 
 #[test]
