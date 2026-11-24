@@ -1,6 +1,6 @@
 //! Read-only PR-head judgment from the trusted base checkout; every decision is shadow-only.
+use super::legacy_verify::statement_document::{Document, Node};
 use crate::gate::git::deadline::GitChild;
-use serde_json::Value;
 use std::{
     collections::BTreeMap,
     fs::OpenOptions,
@@ -56,11 +56,13 @@ fn text(bytes: &[u8]) -> Result<&str> {
         .map_err(|_| "UnicodeDecodeError")
 }
 fn oid(s: &str) -> bool {
+    let s = s.strip_suffix('\n').unwrap_or(s);
     [40, 64].contains(&s.len())
         && s.bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 fn repository(s: &str) -> bool {
+    let s = s.strip_suffix('\n').unwrap_or(s);
     s.split_once('/').is_some_and(|(a, b)| {
         [a, b].iter().all(|part| {
             !part.is_empty()
@@ -162,24 +164,68 @@ fn branch_point(base: &str, head: &str, pr: &str) -> Result<BranchPoint> {
         stderr: Vec::new(),
     })
 }
-fn truth(value: Option<&Value>) -> bool {
-    match value {
-        None | Some(Value::Null) => false,
-        Some(Value::Bool(b)) => *b,
-        Some(Value::Number(n)) => n.as_f64() != Some(0.0),
-        Some(Value::String(s)) => !s.is_empty(),
-        Some(Value::Array(a)) => !a.is_empty(),
-        Some(Value::Object(o)) => !o.is_empty(),
+/// Borrow only consumed fields from the shared, uncapped Python JSON byte loader.
+#[derive(Clone, Copy)]
+struct Json<'a> {
+    document: &'a Document,
+    node: &'a Node,
+}
+impl<'a> Json<'a> {
+    fn root(document: &'a Document) -> Self {
+        Self {
+            document,
+            node: document.root(),
+        }
+    }
+    fn get(self, key: &str) -> Option<Self> {
+        let Node::Object(fields) = self.node else {
+            return None;
+        };
+        let (_, id) = fields
+            .iter()
+            .find(|(name, _)| name.iter().copied().eq(key.chars().map(u32::from)))?;
+        Some(Self {
+            document: self.document,
+            node: self.document.node(*id),
+        })
+    }
+    fn object(self) -> Option<impl Iterator<Item = (&'a [u32], Self)>> {
+        let Node::Object(fields) = self.node else {
+            return None;
+        };
+        Some(fields.iter().map(move |(name, id)| {
+            (
+                name.as_slice(),
+                Self {
+                    document: self.document,
+                    node: self.document.node(*id),
+                },
+            )
+        }))
+    }
+    fn string(self) -> Option<String> {
+        let Node::String(points) = self.node else {
+            return None;
+        };
+        points.iter().copied().map(char::from_u32).collect()
+    }
+    fn is(self, text: &str) -> bool {
+        matches!(self.node, Node::String(points) if points.iter().copied().eq(text.chars().map(u32::from)))
     }
 }
-fn python_text(value: &Value) -> String {
-    match value {
-        Value::String(s) => s.clone(),
-        Value::Null => "None".into(),
-        Value::Bool(true) => "True".into(),
-        Value::Bool(false) => "False".into(),
-        _ => value.to_string(),
+fn truth(value: Option<Json<'_>>) -> bool {
+    match value.map(|value| value.node) {
+        None | Some(Node::Null) => false,
+        Some(Node::Bool(b)) => *b,
+        Some(Node::Integer(n)) => n != "0" && n != "-0",
+        Some(Node::Float(n)) => *n != 0.0,
+        Some(Node::String(s)) => !s.is_empty(),
+        Some(Node::Array(a)) => !a.is_empty(),
+        Some(Node::Object(o)) => !o.is_empty(),
     }
+}
+fn python_text(value: Json<'_>) -> Result<String> {
+    super::flip_skip_python::node_str(value.document, value.node).map_err(|_| "UnicodeEncodeError")
 }
 fn field(value: &str) -> String {
     let value = if value.is_empty() { "-" } else { value };
@@ -242,10 +288,8 @@ struct Context {
 fn env(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.into())
 }
-fn required(entry: &Value) -> bool {
-    entry
-        .as_object()
-        .is_some_and(|e| e.get("require").is_some_and(|v| v != "off"))
+fn required(entry: Json<'_>) -> bool {
+    entry.object().is_some() && entry.get("require").is_some_and(|v| !v.is("off"))
 }
 fn judge(context: &Context) -> Result<Outcome> {
     let Context {
@@ -288,19 +332,22 @@ fn judge(context: &Context) -> Result<Outcome> {
                 .unwrap_or(".st/evidence-skip-policy.json")
         ),
     ]);
-    let policy: Option<Value> = if policy.code == 0 {
-        serde_json::from_slice(&policy.stdout).ok()
+    let policy = if policy.code == 0 {
+        Document::from_bytes_with_depth_limit(&policy.stdout, None).ok()
     } else {
         None
     };
     let Some(checks) = policy
         .as_ref()
-        .and_then(|v| v.get("checks"))
-        .and_then(Value::as_object)
+        .and_then(|v| Json::root(v).get("checks"))
+        .filter(|v| v.object().is_some())
     else {
         return Ok(Outcome::base("error", "no-readable-policy-at-base", base));
     };
-    if !checks.values().any(required) {
+    if !checks
+        .object()
+        .is_some_and(|mut entries| entries.any(|(_, entry)| required(entry)))
+    {
         return Ok(Outcome::base("ok", "nothing-requires-a-signed-note", base));
     }
     if git(&[
@@ -348,18 +395,21 @@ fn judge(context: &Context) -> Result<Outcome> {
     if fetched.code != 0 {
         outcome.errors.push(("notes-fetch".into(), fetched.stderr));
     }
-    let mut sorted_checks: Vec<_> = checks.iter().collect();
+    let mut sorted_checks: Vec<_> = checks.object().into_iter().flatten().collect();
     sorted_checks.sort_unstable_by_key(|(name, _)| *name);
     for (check, entry) in sorted_checks {
         if !required(entry)
-            || entry.get("inputs").is_none_or(Value::is_null)
+            || entry
+                .get("inputs")
+                .is_none_or(|v| matches!(v.node, Node::Null))
             || check.is_empty()
-            || !check
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+            || !check.iter().all(|point| {
+                u8::try_from(*point).is_ok_and(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+            })
         {
             continue;
         }
+        let check: String = check.iter().copied().filter_map(char::from_u32).collect();
         let projected = capture(
             &[
                 verifier,
@@ -369,7 +419,7 @@ fn judge(context: &Context) -> Result<Outcome> {
                 "--revision",
                 head,
                 "--check",
-                check,
+                &check,
                 "--project",
                 "--policy-from",
                 base,
@@ -382,15 +432,16 @@ fn judge(context: &Context) -> Result<Outcome> {
         if projected.code != 0 {
             continue;
         }
-        let Ok(value) = serde_json::from_slice::<Value>(&projected.stdout) else {
+        let Ok(document) = Document::from_bytes_with_depth_limit(&projected.stdout, None) else {
             continue;
         };
-        if !value.is_object() {
+        let value = Json::root(&document);
+        if value.object().is_none() {
             return Err("AttributeError");
         }
         if let Some(key) = value
             .get("source_inputs")
-            .and_then(Value::as_str)
+            .and_then(Json::string)
             .filter(|key| oid(key))
         {
             let tags = format!(
@@ -453,33 +504,46 @@ fn judge(context: &Context) -> Result<Outcome> {
             .push((branch.reason.into(), branch.stderr.clone()));
     }
     let out = capture(&command, *timeout, false);
-    let value: Value = match serde_json::from_slice(&out.stdout) {
+    let document = match Document::from_bytes_with_depth_limit(&out.stdout, None) {
         Ok(value) => value,
         Err(_) => {
             outcome.reason = format!("verifier-exit-{}-without-json", out.code);
             return Ok(outcome);
         }
     };
-    let value = value.as_object().ok_or("AttributeError")?;
-    if value.get("decision").is_some_and(|d| d == "error") {
+    let value = Json::root(&document);
+    if value.object().is_none() {
+        return Err("AttributeError");
+    }
+    if value.get("decision").is_some_and(|d| d.is("error")) {
         outcome.reason = format!(
             "verifier:{}",
             value
                 .get("reason")
-                .map_or_else(|| "error".into(), python_text)
+                .map(python_text)
+                .transpose()?
+                .unwrap_or_else(|| "error".into())
         );
         return Ok(outcome);
     }
     if let Some(lanes) = value.get("lanes") {
-        for (name, lane) in lanes.as_object().ok_or("AttributeError")? {
-            let lane = lane.as_object().ok_or("AttributeError")?;
+        for (name, lane) in lanes.object().ok_or("AttributeError")? {
+            if lane.object().is_none() {
+                return Err("AttributeError");
+            }
             outcome.lanes.insert(
-                name.clone(),
+                name.iter()
+                    .copied()
+                    .map(char::from_u32)
+                    .collect::<Option<String>>()
+                    .ok_or("UnicodeEncodeError")?,
                 if truth(lane.get("satisfied")) {
                     "ok".into()
                 } else {
                     lane.get("reason")
-                        .map_or_else(|| "unsatisfied".into(), python_text)
+                        .map(python_text)
+                        .transpose()?
+                        .unwrap_or_else(|| "unsatisfied".into())
                 },
             );
         }
@@ -501,7 +565,9 @@ fn judge(context: &Context) -> Result<Outcome> {
     }
     outcome.decision = value
         .get("decision")
-        .map_or_else(|| "error".into(), python_text);
+        .map(python_text)
+        .transpose()?
+        .unwrap_or_else(|| "error".into());
     Ok(outcome)
 }
 pub fn run() -> std::io::Result<()> {
@@ -580,4 +646,49 @@ pub fn run() -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn projected_and_final_verifier_json_accept_python_nonfinite_numbers() {
+        let projected = Document::from_bytes_with_depth_limit(
+            format!(
+                "{{\"source_inputs\":\"{}\\n\",\"unused\":1e400}}",
+                "a".repeat(40)
+            )
+            .as_bytes(),
+            None,
+        )
+        .unwrap();
+        let key = Json::root(&projected)
+            .get("source_inputs")
+            .unwrap()
+            .string()
+            .unwrap();
+        assert!(oid(&key));
+        assert!(key.ends_with('\n'));
+        for number in ["1e400", "-1e400", "NaN", "Infinity", "-Infinity"] {
+            let document = Document::from_bytes_with_depth_limit(
+                format!("{{\"decision\":\"ok\",\"satisfied\":{number},\"lanes\":{{\"unit\":{{\"satisfied\":{number}}}}}}}").as_bytes(),
+                None,
+            ).unwrap();
+            let value = Json::root(&document);
+            assert!(truth(value.get("satisfied")), "{number}");
+            assert!(
+                truth(
+                    value
+                        .get("lanes")
+                        .unwrap()
+                        .get("unit")
+                        .unwrap()
+                        .get("satisfied")
+                ),
+                "{number}"
+            );
+        }
+        assert!(Document::from_bytes_with_depth_limit(b"{\"satisfied\":1e}", None).is_err());
+    }
 }

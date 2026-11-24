@@ -708,3 +708,85 @@ fn malformed_timeout_fails_before_writing_workflow_outputs() {
     assert_eq!(fs::read(summary).unwrap(), b"");
     assert_eq!(fs::read(output).unwrap(), b"");
 }
+
+#[test]
+fn context_regex_accepts_only_one_terminal_newline_without_removing_it() {
+    let f = Fixture::new();
+    let (head, _) = f.pr(&[("src.txt", "newline context\n")], 1);
+    let newline_head = format!("{head}\n");
+    let job = f.job(
+        &newline_head,
+        1,
+        false,
+        &[("PR_HEAD_REPOSITORY", "someone/fork")],
+    );
+    assert_eq!(
+        (job.get("decision"), job.get("reason")),
+        ("skipped", "not-a-same-repository-pull-request")
+    );
+    assert_eq!(job.get("head"), format!("{head}_"));
+    // The event value is retained: it no longer equals Git's stripped FETCH_HEAD.
+    assert_eq!(
+        f.run(&newline_head).get("reason"),
+        "fetched-head-differs-from-the-event"
+    );
+    let job = f.job(&head, 1, false, &[("REPOSITORY", "org/repo\n")]);
+    assert_eq!(
+        (job.get("decision"), job.get("reason")),
+        ("skipped", "not-a-same-repository-pull-request")
+    );
+    for suffix in ["\n\n", "\r\n", "\r", "\nextra"] {
+        let invalid_head = format!("{head}{suffix}");
+        assert_eq!(
+            f.job(
+                &invalid_head,
+                1,
+                false,
+                &[("PR_HEAD_REPOSITORY", "someone/fork")]
+            )
+            .get("reason"),
+            "bad-context",
+            "head suffix {suffix:?}"
+        );
+        let invalid_repository = format!("org/repo{suffix}");
+        assert_eq!(
+            f.job(&head, 1, false, &[("REPOSITORY", &invalid_repository)])
+                .get("reason"),
+            "bad-context",
+            "repository suffix {suffix:?}"
+        );
+    }
+}
+
+#[test]
+fn base_policy_uses_python_json_numbers_and_rejects_invalid_json() {
+    let f = Fixture::new();
+    let (head, _) = f.pr(&[("src.txt", "numeric policy\n")], 1);
+    for number in ["1e400", "-1e400", "NaN", "Infinity", "-Infinity"] {
+        f.write(
+            ".st/evidence-skip-policy.json",
+            &format!("{{\"checks\":{{}},\"unused\":{number}}}"),
+        );
+        f.commit(&format!("Python JSON {number}"));
+        let job = f.run(&head);
+        assert_eq!(
+            (job.get("decision"), job.get("reason")),
+            ("ok", "nothing-requires-a-signed-note"),
+            "{number}"
+        );
+    }
+    for invalid in [
+        "{\"checks\":{},\"unused\":1e}",
+        "{\"checks\":{},}",
+        "{\"checks\":{},\"unused\":undefined}",
+    ] {
+        f.write(".st/evidence-skip-policy.json", invalid);
+        f.commit("invalid JSON");
+        let job = f.run(&head);
+        assert_eq!(
+            (job.get("decision"), job.get("reason")),
+            ("error", "no-readable-policy-at-base"),
+            "{invalid}"
+        );
+    }
+}
