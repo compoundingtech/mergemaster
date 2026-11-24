@@ -463,6 +463,183 @@ fn policy_accepted_reuse_preserves_nonfresh_summary() {
             .contains("no fresh test execution")
     );
 }
+
+#[test]
+fn optional_selective_reuse_absence_preserves_legacy_acceptance() {
+    for outcome in ["satisfied", "reused"] {
+        let case = format!("selective_reuse absent / outcome={outcome}");
+        let mut f = Fixture::new();
+        f.decision["outcome"] = json!(outcome);
+        if outcome == "reused" {
+            f.decision["reason"] = json!("execution_reused");
+            f.decision["summary"] =
+                json!("Legacy realization reused; no fresh execution asserted.");
+        }
+        f.save();
+        let out = f.execute("finalize", &[]);
+        assert!(
+            out.status.success(),
+            "{case}: finalize: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let posts = f.posts();
+        let payload = &posts
+            .last()
+            .unwrap_or_else(|| panic!("{case}: no published check"))["payload"];
+        assert_eq!(payload["conclusion"], "success", "{case}");
+        assert_eq!(
+            payload["output"]["summary"], f.decision["summary"],
+            "{case}"
+        );
+        let out = f.execute("report", &[]);
+        assert_eq!(out.status.code(), Some(0), "{case}");
+        let summary = fs::read_to_string(f.path("summary")).unwrap();
+        assert!(!summary.contains("selective_reuse"), "{case}: {summary}");
+    }
+}
+
+#[test]
+fn selective_reuse_diagnostics_preserve_legacy_fallback_and_provenance() {
+    for (status, reason) in [
+        ("disabled", "receipt_contract_undefined"),
+        ("refused", "reuse_candidate_unverified"),
+    ] {
+        for root in [None, Some("c".repeat(40))] {
+            for accepted in [false, true] {
+                let case = format!("status={status} / root={root:?} / accepted={accepted}");
+                let mut f = Fixture::new();
+                let mut diagnostic = json!({"version":1,"status":status,"reason":reason});
+                let root_text = match &root {
+                    Some(root) => {
+                        diagnostic["root_record"] = json!(root);
+                        format!(", \"root_record\": \"{root}\"")
+                    }
+                    None => String::new(),
+                };
+                // Exact CPython json.dumps default separators and insertion order.
+                let diagnostic_text = format!(
+                    "{{\"version\": 1, \"status\": \"{status}\", \"reason\": \"{reason}\"{root_text}}}"
+                );
+                f.decision["selective_reuse"] = diagnostic;
+                f.decision["decision"] = json!(if accepted { "skip" } else { "run" });
+                f.decision["outcome"] = json!(if accepted { "satisfied" } else { "unavailable" });
+                f.save();
+                let out = f.execute("finalize", &[]);
+                assert_eq!(
+                    out.status.code(),
+                    Some(i32::from(!accepted)),
+                    "{case}: {}",
+                    String::from_utf8_lossy(&out.stderr)
+                );
+                if !accepted {
+                    assert!(
+                        String::from_utf8_lossy(&out.stderr).contains("evidence refused"),
+                        "{case}"
+                    );
+                }
+                let posts = f.posts();
+                let payload = &posts
+                    .last()
+                    .unwrap_or_else(|| panic!("{case}: no published check"))["payload"];
+                assert_eq!(
+                    payload["conclusion"],
+                    if accepted { "success" } else { "failure" },
+                    "{case}"
+                );
+                let summary = payload["output"]["summary"].as_str().unwrap();
+                assert!(
+                    summary.contains(f.decision["summary"].as_str().unwrap()),
+                    "{case}: {summary}"
+                );
+                assert!(
+                    summary.contains("not a fresh execution claim"),
+                    "{case}: {summary}"
+                );
+                assert!(
+                    summary.contains(&diagnostic_text),
+                    "{case}: expected {diagnostic_text:?} in {summary:?}"
+                );
+                let out = f.execute("report", &[]);
+                assert_eq!(out.status.code(), Some(i32::from(!accepted)), "{case}");
+                let summary = fs::read_to_string(f.path("summary")).unwrap();
+                assert!(
+                    summary.contains("not a fresh execution claim"),
+                    "{case}: {summary}"
+                );
+                assert!(summary.contains(reason), "{case}: {summary}");
+                if let Some(root) = &root {
+                    assert!(summary.contains(root), "{case}: {summary}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn selective_reuse_validated_and_malformed_diagnostics_never_accept() {
+    let valid = json!({"version":1,"status":"disabled","reason":"receipt_contract_undefined"});
+    let mut cases = vec![
+        ("null", Value::Null),
+        ("array", json!([])),
+        ("string", json!("disabled")),
+        ("empty-object", json!({})),
+    ];
+    for (name, key, value) in [
+        ("version-true", "version", json!(true)),
+        ("version-two", "version", json!(2)),
+        ("status-validated", "status", json!("validated")),
+        ("status-success", "status", json!("success")),
+        ("status-null", "status", Value::Null),
+        ("status-array", "status", json!([])),
+        ("reason-number", "reason", json!(1)),
+        ("extra-key", "extra", json!("unexpected")),
+    ] {
+        let mut diagnostic = valid.clone();
+        diagnostic[key] = value;
+        cases.push((name, diagnostic));
+    }
+    let mut missing_reason = valid.clone();
+    missing_reason.as_object_mut().unwrap().remove("reason");
+    // Keep the case order identical to Python's invalid list.
+    cases.insert(11, ("reason-missing", missing_reason));
+    for (name, root) in [
+        ("root-null", Value::Null),
+        ("root-number", json!(1)),
+        ("root-array", json!([])),
+        ("root-short", json!("c".repeat(39))),
+        ("root-uppercase", json!("C".repeat(40))),
+        ("root-nonhex", json!("g".repeat(40))),
+        ("root-newline", json!(format!("{}\n", "c".repeat(40)))),
+    ] {
+        let mut diagnostic = valid.clone();
+        diagnostic["root_record"] = root;
+        cases.push((name, diagnostic));
+    }
+    assert_eq!(cases.len(), 20);
+    for (name, diagnostic) in cases {
+        let case = format!("invalid selective_reuse / {name}: {diagnostic}");
+        let mut f = Fixture::new();
+        f.decision["selective_reuse"] = diagnostic;
+        f.save();
+        let out = f.execute("finalize", &[]);
+        assert_eq!(out.status.code(), Some(1), "{case}");
+        assert!(
+            String::from_utf8_lossy(&out.stderr).contains("evidence refused"),
+            "{case}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let posts = f.posts();
+        assert_eq!(
+            posts
+                .last()
+                .unwrap_or_else(|| panic!("{case}: no published check"))["payload"]["conclusion"],
+            "failure",
+            "{case}"
+        );
+        let out = f.execute("report", &[]);
+        assert_eq!(out.status.code(), Some(1), "{case}");
+    }
+}
 #[test]
 fn refusal_preserves_changed_workflow_summary() {
     let mut f = Fixture::new();
@@ -625,9 +802,6 @@ fn golden_real_genie_workflow_object_matches_semantic_json() {
         workflows.join("generic.yml.genie.ts"),
     )
     .unwrap();
-    // GenieOutput.data exposes the real workflow object; serialize it through Genie's own loader.
-    // This preserves semantic comparison without a YAML dependency or a Python decoder.
-    fs::write(workflows.join("generic-object.json.genie.ts"),"import workflow from './generic.yml.genie.ts'\nexport default { data: workflow.data, stringify: () => JSON.stringify(workflow.data) }\n").unwrap();
     git(work, &["init", "-q"]);
     let formatter = Command::new("oxfmt")
         .arg("--version")
@@ -642,7 +816,7 @@ fn golden_real_genie_workflow_object_matches_semantic_json() {
     success(&out);
     assert!(workflows.join("generic.yml").is_file());
     let mut actual: Value =
-        serde_json::from_slice(&fs::read(workflows.join("generic-object.json")).unwrap()).unwrap();
+        serde_norway::from_slice(&fs::read(workflows.join("generic.yml")).unwrap()).unwrap();
     let publisher = &mut actual["jobs"]["generic-evidence"];
     for (index, mode) in [(1, "prepare"), (4, "finalize")] {
         let script = publisher["steps"][index]["run"].as_str().unwrap();
