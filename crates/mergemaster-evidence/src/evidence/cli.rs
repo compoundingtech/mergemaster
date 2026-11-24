@@ -43,6 +43,8 @@ pub enum EvidenceCommand {
     RunnerReport(super::runner_report::RunnerReportArgs),
     /// Explain which signable gates ran without a pre-signed note; never fails.
     PresignNotice,
+    /// Judge a pull-request head as data using the trusted base's signed-note policy.
+    SignedTree,
     /// Report read-only evidence-gate SLO counters from GitHub Actions.
     #[command(disable_help_flag = true)]
     Slo {
@@ -171,6 +173,10 @@ pub fn run(args: EvidenceArgs) -> Result<()> {
         EvidenceCommand::RunnerReport(args) => return super::runner_report::run(args),
         EvidenceCommand::PresignNotice => {
             super::presign_notice::run();
+            return Ok(());
+        }
+        EvidenceCommand::SignedTree => {
+            super::signed_tree::run()?;
             return Ok(());
         }
         EvidenceCommand::Slo { argv } => {
