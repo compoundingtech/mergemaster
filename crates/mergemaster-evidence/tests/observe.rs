@@ -1267,7 +1267,7 @@ fn invalid_verifier_json_remains_a_per_record_failure() {
 }
 
 #[test]
-fn source_parent_without_oid_aborts_before_publication() {
+fn empty_message_source_parent_without_oid_aborts_before_publication() {
     let f = Fixture::new();
     let remote = f.remote("missing-parent-remote");
     let scratch = f.path("missing-parent");
@@ -1283,7 +1283,7 @@ fn source_parent_without_oid_aborts_before_publication() {
             "-w",
             "--stdin",
         ],
-        Some(format!("tree {}\nparent \n\nmalformed source\n", f.tree).as_bytes()),
+        Some(format!("tree {}\nparent \n\n", f.tree).as_bytes()),
     );
     let source = String::from_utf8(source).unwrap();
     let original = git(&f.source, &["show", &format!("{}:{}", f.degraded, f.tree)]);
@@ -1300,6 +1300,38 @@ fn source_parent_without_oid_aborts_before_publication() {
     assert!(out.stdout.is_empty());
     assert!(String::from_utf8_lossy(&out.stderr).contains("IndexError:"));
     assert!(git(&scratch, &["for-each-ref"]).is_empty());
+    assert!(
+        git(
+            &remote,
+            &["for-each-ref", "refs/tags/evidence", "refs/notes/evidence"]
+        )
+        .is_empty()
+    );
+}
+
+#[test]
+fn deeply_nested_verifier_json_aborts_before_refs_and_push() {
+    let f = Fixture::new();
+    let remote = f.remote("nested-verifier-remote");
+    let output = f.path("nested-verifier-output");
+    // Build the 100,000-level witness iteratively; no recursive test serializer.
+    let mut payload = Vec::with_capacity(200_030);
+    payload.extend_from_slice(br#"{"satisfied":true,"x":"#);
+    payload.extend(std::iter::repeat_n(b'[', 100_000));
+    payload.push(b'0');
+    payload.extend(std::iter::repeat_n(b']', 100_000));
+    payload.push(b'}');
+    fs::write(&output, payload).unwrap();
+    let out = f.execute_raw(
+        &f.answer(&[(&f.full, "full"), (&f.degraded, "degraded")]),
+        "nested-verifier",
+        &["--remote", remote.to_str().unwrap()],
+        &[("VERIFIER_OUTPUT", output.to_str().unwrap())],
+    );
+    assert_eq!(out.status.code(), Some(1));
+    assert!(out.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("RecursionError:"));
+    assert!(git(&f.path("nested-verifier"), &["for-each-ref"]).is_empty());
     assert!(
         git(
             &remote,

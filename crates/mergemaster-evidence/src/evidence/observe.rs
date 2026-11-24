@@ -532,7 +532,8 @@ fn authenticated_git(
 fn fetch_parents(repo: &Path, remote: &str, token: &str, sources: BTreeSet<String>) -> Result<()> {
     let mut parents = BTreeSet::new();
     for source in sources {
-        let header = text(repo, &["cat-file", "commit", &source])?;
+        let header =
+            String::from_utf8(git(repo, &["cat-file", "commit", &source], None, true)?.stdout)?;
         for line in header.split("\n\n").next().unwrap_or_default().lines() {
             if line.starts_with("parent ") {
                 let parent = line
@@ -601,7 +602,8 @@ fn verify(args: &Args, repo: &Path, tree: &str, check: &str, keys: &str) -> Resu
         None,
         120,
     )?;
-    let document = match Document::from_bytes_with_depth_limit(&done.stdout, None) {
+    // Match the ordinary JSON reader's conservative serde_json recursion bound.
+    let document = match Document::from_bytes_with_depth_limit(&done.stdout, Some(128)) {
         Ok(document) => document,
         Err(super::legacy_verify::statement_document::Error::NestingLimit) => {
             return Err(Uncaught("RecursionError: verifier JSON nesting limit").into());
