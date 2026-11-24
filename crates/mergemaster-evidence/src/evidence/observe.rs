@@ -284,7 +284,9 @@ fn api(repository: &str, suffix: &str) -> Result<Output> {
     )
 }
 fn object(value: &Value) -> Result<&serde_json::Map<String, Value>> {
-    value.as_object().context("expected a JSON object")
+    value
+        .as_object()
+        .ok_or_else(|| Uncaught("TypeError: expected a JSON object").into())
 }
 fn field<'a>(value: &'a Value, key: &str) -> Result<&'a Value> {
     object(value)?.get(key).with_context(|| format!("'{key}'"))
@@ -292,19 +294,22 @@ fn field<'a>(value: &'a Value, key: &str) -> Result<&'a Value> {
 fn string<'a>(value: &'a Value, key: &str) -> Result<&'a str> {
     field(value, key)?
         .as_str()
-        .with_context(|| format!("'{key}' must be a string"))
+        .ok_or_else(|| Uncaught("TypeError: expected a string").into())
 }
 fn array<'a>(value: &'a Value, key: &str) -> Result<&'a Vec<Value>> {
     field(value, key)?
         .as_array()
-        .with_context(|| format!("'{key}' must be an array"))
+        .ok_or_else(|| Uncaught("TypeError: expected a list").into())
 }
 fn read_json(bytes: &[u8]) -> Result<Value> {
     serde_json::from_slice(bytes).map_err(|error| {
         use super::legacy_verify::statement_document::{Document, Error};
-        match Document::from_bytes(bytes) {
+        match Document::from_bytes_with_depth_limit(bytes, None) {
+            Ok(_) | Err(Error::NestingLimit) => {
+                Uncaught("TypeError: unsupported native JSON value").into()
+            }
             Err(Error::Syntax(syntax)) => anyhow::anyhow!(syntax.to_string()),
-            _ => error.into(),
+            Err(_) => error.into(),
         }
     })
 }
@@ -349,13 +354,26 @@ fn skipped(args: &Args, run: i64, attempt: i64) -> Result<BTreeSet<String>> {
             &args.repository,
             &format!("{run}/attempts/{attempt}/jobs?per_page=100&page={page}"),
         )?;
-        let value = read_json(&done.stdout).map_err(|_| anyhow::anyhow!(message()))?;
-        let jobs = array(&value, "jobs").map_err(|_| anyhow::anyhow!(message()))?;
+        let value = read_json(&done.stdout).map_err(|error| {
+            if error.downcast_ref::<Uncaught>().is_some() {
+                error
+            } else {
+                anyhow::anyhow!(message())
+            }
+        })?;
+        let jobs = field(&value, "jobs")
+            .map_err(|_| anyhow::anyhow!(message()))?
+            .as_array()
+            .ok_or(Uncaught("TypeError: jobs must be a list"))?;
         for job in jobs {
             if !job.is_object() {
                 return Err(Uncaught("TypeError: job must be an object").into());
             }
-            let name = job.get("name").and_then(Value::as_str).unwrap_or_default();
+            let name = match job.get("name") {
+                None => "",
+                Some(Value::String(name)) => name,
+                Some(_) => return Err(Uncaught("AttributeError: job name must be a string").into()),
+            };
             let steps = match job.get("steps") {
                 None => &[][..],
                 Some(Value::Array(steps)) => steps.as_slice(),
@@ -364,6 +382,11 @@ fn skipped(args: &Args, run: i64, attempt: i64) -> Result<BTreeSet<String>> {
             for step in steps {
                 if !step.is_object() {
                     return Err(Uncaught("TypeError: job step must be an object").into());
+                }
+                if step.get("conclusion").and_then(Value::as_str) == Some("success")
+                    && matches!(step.get("name"), Some(Value::Array(_) | Value::Object(_)))
+                {
+                    return Err(Uncaught("TypeError: unhashable step name").into());
                 }
             }
             let ran = |wanted| {
@@ -398,15 +421,19 @@ fn artifact(args: &Args, run: i64, attempt: i64) -> Result<i64> {
     let listing = read_json(&done.stdout)?;
     object(&listing)?;
     let name = format!("ci-evidence-source-{attempt}");
-    let found: Vec<_> = listing
-        .get("artifacts")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter(|a| {
-            a.get("name").and_then(Value::as_str) == Some(&name) && !truth(a.get("expired"))
-        })
-        .collect();
+    let artifacts = match listing.get("artifacts") {
+        None => &[][..],
+        Some(Value::Array(artifacts)) => artifacts.as_slice(),
+        Some(_) => return Err(Uncaught("TypeError: artifacts must be a list").into()),
+    };
+    let mut found = Vec::new();
+    for entry in artifacts {
+        object(entry)?;
+        if entry.get("name").and_then(Value::as_str) == Some(&name) && !truth(entry.get("expired"))
+        {
+            found.push(entry);
+        }
+    }
     ensure!(
         found.len() == 1,
         "expected exactly one live artifact {name}, found {}",
@@ -414,7 +441,7 @@ fn artifact(args: &Args, run: i64, attempt: i64) -> Result<i64> {
     );
     field(found[0], "id")?
         .as_i64()
-        .context("artifact id must be an integer")
+        .ok_or_else(|| Uncaught("TypeError: artifact id must be an integer").into())
 }
 fn statement(repo: &Path, record: &str) -> Result<Value> {
     let listing = text(repo, &["ls-tree", "-r", record])?;
@@ -430,7 +457,7 @@ fn statement(repo: &Path, record: &str) -> Result<Value> {
 fn subject(body: &Value) -> Result<&Value> {
     array(body, "subject")?
         .first()
-        .context("list index out of range")
+        .ok_or_else(|| Uncaught("IndexError: list index out of range").into())
 }
 fn token() -> Result<String> {
     for key in ["EVIDENCE_PUSH_TOKEN", "GH_TOKEN"] {
@@ -441,8 +468,10 @@ fn token() -> Result<String> {
         }
     }
     let out = capture(Command::new("gh").args(["auth", "token"]), None, 600)?;
+    let stdout = String::from_utf8(out.stdout)?;
+    std::str::from_utf8(&out.stderr)?;
     Ok(if out.status.success() {
-        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+        stdout.trim().to_owned()
     } else {
         String::new()
     })
@@ -505,12 +534,17 @@ fn fetch_parents(repo: &Path, remote: &str, token: &str, sources: BTreeSet<Strin
     for source in sources {
         let header = text(repo, &["cat-file", "commit", &source])?;
         for line in header.split("\n\n").next().unwrap_or_default().lines() {
-            if let Some(parent) = line.strip_prefix("parent ")
-                && !git(repo, &["cat-file", "-e", parent], None, false)?
+            if line.starts_with("parent ") {
+                let parent = line
+                    .split_whitespace()
+                    .nth(1)
+                    .ok_or(Uncaught("IndexError: source parent is missing"))?;
+                if !git(repo, &["cat-file", "-e", parent], None, false)?
                     .status
                     .success()
-            {
-                parents.insert(parent.to_owned());
+                {
+                    parents.insert(parent.to_owned());
+                }
             }
         }
     }
@@ -521,7 +555,8 @@ fn fetch_parents(repo: &Path, remote: &str, token: &str, sources: BTreeSet<Strin
     let name = absolute
         .file_name()
         .context("scratch repository has no name")?
-        .to_string_lossy();
+        .to_str()
+        .context("scratch repository name is not UTF-8")?;
     let history = absolute.with_file_name(format!("{name}-history"));
     if !history.exists() {
         let done = capture(
@@ -566,18 +601,36 @@ fn verify(args: &Args, repo: &Path, tree: &str, check: &str, keys: &str) -> Resu
         None,
         120,
     )?;
-    let answer =
-        read_json(&done.stdout).unwrap_or_else(|_| json!({"reason":"unreadable verifier output"}));
-    if !answer.is_object() {
+    let document = match Document::from_bytes_with_depth_limit(&done.stdout, None) {
+        Ok(document) => document,
+        Err(super::legacy_verify::statement_document::Error::NestingLimit) => {
+            return Err(Uncaught("RecursionError: verifier JSON nesting limit").into());
+        }
+        Err(_) => {
+            return Err(Failure(format!(
+                "record for {check} on {tree} did not verify: unreadable verifier output"
+            ))
+            .into());
+        }
+    };
+    let Node::Object(fields) = document.root() else {
         return Err(Uncaught("AttributeError: verifier answer must be an object").into());
-    }
-    if !done.status.success() || !truth(answer.get("satisfied")) {
+    };
+    let get = |wanted: &str| {
+        fields
+            .iter()
+            .find(|(key, _)| key.iter().copied().eq(wanted.chars().map(u32::from)))
+            .map(|(_, id)| document.node(*id))
+    };
+    let satisfied = get("satisfied").is_some_and(super::flip_skip_python::truthy);
+    if !done.status.success() || !satisfied {
+        let reason = match get("reason") {
+            None => "unknown".into(),
+            Some(node) => super::flip_skip_python::node_str(&document, node)
+                .map_err(|_| Uncaught("UnicodeEncodeError: verifier reason"))?,
+        };
         return Err(Failure(format!(
-            "record for {check} on {tree} did not verify: {}",
-            answer.get("reason").map_or_else(
-                || "unknown".into(),
-                |v| v.as_str().map_or_else(|| repr(v), str::to_owned)
-            )
+            "record for {check} on {tree} did not verify: {reason}"
         ))
         .into());
     }
@@ -685,9 +738,11 @@ fn observe(args: &Args, run: i64, attempt: i64, summary: &mut Summary) -> Result
             stdout.rewind()?;
             let mut bytes = Vec::new();
             stdout.read_to_end(&mut bytes)?;
-            let message = read_json(&bytes)
-                .err()
-                .map_or_else(|| error.to_string(), |error| error.to_string());
+            let message = match read_json(&bytes) {
+                Err(error) if error.downcast_ref::<Uncaught>().is_some() => return Err(error),
+                Err(error) => error.to_string(),
+                Ok(_) => error.to_string(),
+            };
             bail!("observer printed no JSON document: {message}");
         }
     };
@@ -914,6 +969,7 @@ fn summary_text(summary: &Value) -> Result<String> {
     }
     let metrics = &summary["metrics"];
     if truth(Some(metrics)) {
+        object(metrics)?;
         let show = |key| {
             metrics.get(key).map_or_else(
                 || "None".into(),
@@ -986,7 +1042,10 @@ fn poll(args: &Args) -> Result<i32> {
                 ),
                 (
                     string(&entry, "state")?.to_owned(),
-                    entry.get("tries").and_then(Value::as_i64).unwrap_or(0),
+                    match entry.get("tries") {
+                        None => 0,
+                        Some(value) => value.as_i64().context("ledger tries must be an integer")?,
+                    },
                 ),
             );
         }
@@ -1028,15 +1087,22 @@ fn poll(args: &Args) -> Result<i32> {
         .context("run listing must be an array")?
         .iter()
         .collect();
+    for item in &runs {
+        field(item, "databaseId")?
+            .as_i64()
+            .context("databaseId must be an integer")?;
+    }
     runs.sort_by_key(|r| r.get("databaseId").and_then(Value::as_i64));
     let mut status = 0;
     for item in runs {
         let run = field(item, "databaseId")?.as_i64().context("databaseId")?;
-        let attempt = item
-            .get("attempt")
-            .and_then(Value::as_i64)
-            .filter(|n| *n != 0)
-            .unwrap_or(1);
+        let attempt = if truth(item.get("attempt")) {
+            field(item, "attempt")?
+                .as_i64()
+                .context("poll attempt must be an integer")?
+        } else {
+            1
+        };
         let (state, tries) = seen
             .get(&(run, attempt))
             .map_or(("new", 0), |(state, tries)| (state.as_str(), *tries));

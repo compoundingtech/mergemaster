@@ -98,8 +98,9 @@ impl Fixture {
             &root.path().join("bin/gh"),
             r##"#!/bin/sh
 if [ "$1" = run ]; then printf '%s\n' "${GH_RUNS:-[]}"; exit 0; fi
+if [ "$1" = auth ]; then if [ "$BAD_AUTH_UTF8" = 1 ]; then printf '\377'; else printf '%s\n' fixture-token; fi; exit 0; fi
 case "$2" in
-  */artifacts\?*) printf '{"artifacts":[{"name":"ci-evidence-source-1","id":9,"expired":false}]}\n';;
+  */artifacts\?*) if [ -n "$GH_ARTIFACTS" ]; then printf '%s\n' "$GH_ARTIFACTS"; else printf '{"artifacts":[{"name":"ci-evidence-source-1","id":9,"expired":false}]}\n'; fi;;
   */jobs\?*) case "$2" in *'&page=1') if [ -n "$GH_JOBS" ]; then printf '%s\n' "$GH_JOBS"; else printf '{"jobs":[]}\n'; fi;; *) printf '{"jobs":[]}\n';; esac;;
   */attempts/*) printf '{"conclusion":"%s"}\n' "${GH_CONCLUSION:-success}";;
   *) printf '{"run_attempt":1,"name":"%s"}\n' "${GH_RUN_NAME:-Workspace CI}";;
@@ -121,6 +122,7 @@ cat "$FIXTURE/response.json"
 shift
 printf 'CALL\n' >> "$FIXTURE/calls"
 printf '%s\n' "$@" >> "$FIXTURE/calls"
+if [ -n "$VERIFIER_OUTPUT" ]; then cat "$VERIFIER_OUTPUT"; exit "${VERIFIER_EXIT:-0}"; fi
 if [ "$VERIFIER_OK" = 1 ]; then echo '{"satisfied":true,"reason":"no_record"}'; else echo '{"satisfied":false,"reason":"no_record"}'; exit 1; fi
 "##,
         );
@@ -237,22 +239,7 @@ if [ "$VERIFIER_OK" = 1 ]; then echo '{"satisfied":true,"reason":"no_record"}'; 
         extra: &[&str],
         env: &[(&str, &str)],
     ) -> (Output, Value) {
-        fs::write(
-            self.path("response.json"),
-            serde_json::to_vec(response).unwrap(),
-        )
-        .unwrap();
-        fs::write(self.path("calls"), "").unwrap();
-        let out = self
-            .command()
-            .args(["--run", "7", "--attempt", "1", "--artifact", "9", "--keys"])
-            .arg(self.path("allowed"))
-            .arg("--scratch")
-            .arg(self.path(scratch))
-            .args(extra)
-            .envs(env.iter().copied())
-            .output()
-            .unwrap();
+        let out = self.execute_raw(response, scratch, extra, env);
         let value = serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
             panic!(
                 "{e}: {} / {}",
@@ -261,6 +248,29 @@ if [ "$VERIFIER_OK" = 1 ]; then echo '{"satisfied":true,"reason":"no_record"}'; 
             )
         });
         (out, value)
+    }
+    fn execute_raw(
+        &self,
+        response: &Value,
+        scratch: &str,
+        extra: &[&str],
+        env: &[(&str, &str)],
+    ) -> Output {
+        fs::write(
+            self.path("response.json"),
+            serde_json::to_vec(response).unwrap(),
+        )
+        .unwrap();
+        fs::write(self.path("calls"), "").unwrap();
+        self.command()
+            .args(["--run", "7", "--attempt", "1", "--artifact", "9", "--keys"])
+            .arg(self.path("allowed"))
+            .arg("--scratch")
+            .arg(self.path(scratch))
+            .args(extra)
+            .envs(env.iter().copied())
+            .output()
+            .unwrap()
     }
     fn remote(&self, name: &str) -> PathBuf {
         let remote = self.path(name);
@@ -953,4 +963,348 @@ fn remote_failure_masks_token_in_every_output() {
     ] {
         assert!(!String::from_utf8_lossy(bytes).contains("fixture-token"));
     }
+}
+
+#[test]
+fn invalid_job_and_unhashable_successful_step_names_abort() {
+    let f = Fixture::new();
+    let response = f.answer(&[(&f.degraded, "degraded")]);
+    for jobs in [
+        json!({"jobs":[{"name":null,"steps":[]}]}),
+        json!({"jobs":[{"name":7,"steps":[]}]}),
+        json!({"jobs":[{"name":"job","steps":[{"name":[],"conclusion":"success"}]}]}),
+        json!({"jobs":[{"name":"job","steps":[{"name":{},"conclusion":"success"}]}]}),
+        json!({"jobs":null}),
+    ] {
+        let out = f.execute_raw(
+            &response,
+            "bad-job-names",
+            &[],
+            &[("GH_JOBS", &jobs.to_string())],
+        );
+        assert_eq!(out.status.code(), Some(1));
+        assert!(out.stdout.is_empty());
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("TypeError:") || stderr.contains("AttributeError:"),
+            "{stderr}"
+        );
+        assert!(!f.path("bad-job-names").exists());
+    }
+    for name in [json!(7), Value::Null, json!(false)] {
+        let jobs = json!({"jobs":[{"name":"job","steps":[{"name":name,"conclusion":"success"}]}]});
+        let (out, _) = f.execute(
+            &response,
+            "hashable-step-names",
+            &[],
+            &[("GH_JOBS", &jobs.to_string())],
+        );
+        success(&out);
+    }
+    let jobs = json!({"jobs":[{"name":"job","steps":[{"name":[],"conclusion":"skipped"}]}]});
+    let (out, _) = f.execute(
+        &response,
+        "unsuccessful-unhashable-name",
+        &[],
+        &[("GH_JOBS", &jobs.to_string())],
+    );
+    success(&out);
+}
+
+#[test]
+fn non_object_artifact_entry_aborts_before_observation() {
+    let f = Fixture::new();
+    let remote = f.remote("artifact-entry-remote");
+    fs::write(
+        f.path("response.json"),
+        serde_json::to_vec(&f.answer(&[(&f.degraded, "degraded")])).unwrap(),
+    )
+    .unwrap();
+    let out = f
+        .command()
+        .args(["--run", "7", "--attempt", "1", "--keys"])
+        .arg(f.path("allowed"))
+        .arg("--remote")
+        .arg(&remote)
+        .env(
+            "GH_ARTIFACTS",
+            r#"{"artifacts":[null,{"name":"ci-evidence-source-1","id":9,"expired":false}]}"#,
+        )
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(out.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("TypeError:"));
+    assert!(!f.path("state/scratch.git").exists());
+    assert!(
+        git(
+            &remote,
+            &["for-each-ref", "refs/tags/evidence", "refs/notes/evidence"]
+        )
+        .is_empty()
+    );
+}
+
+#[test]
+fn poll_rejects_truthy_non_integer_attempts_and_preserves_falsy_default() {
+    let f = Fixture::new();
+    let remote = f.remote("poll-attempt-remote");
+    fs::write(
+        f.path("response.json"),
+        serde_json::to_vec(&f.answer(&[(&f.degraded, "degraded")])).unwrap(),
+    )
+    .unwrap();
+    for attempt in [
+        json!("2"),
+        json!(true),
+        json!(1.5),
+        json!([1]),
+        json!({"x":1}),
+    ] {
+        let out = f
+            .command()
+            .arg("--poll")
+            .arg("--remote")
+            .arg(&remote)
+            .env(
+                "GH_RUNS",
+                json!([{"databaseId":7,"attempt":attempt,"conclusion":"success"}]).to_string(),
+            )
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(1));
+        assert!(!f.path("state/scratch.git").exists());
+        assert!(
+            git(
+                &remote,
+                &["for-each-ref", "refs/tags/evidence", "refs/notes/evidence"]
+            )
+            .is_empty()
+        );
+    }
+    for (index, attempt) in [
+        Value::Null,
+        json!(0),
+        json!(""),
+        json!([]),
+        json!({}),
+        json!(false),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let out = f
+            .command()
+            .arg("--poll")
+            .arg("--state-dir")
+            .arg(f.path(&format!("falsy-attempt-{index}")))
+            .env(
+                "GH_RUNS",
+                json!([{"databaseId":7,"attempt":attempt,"conclusion":"success"}]).to_string(),
+            )
+            .output()
+            .unwrap();
+        success(&out);
+        let result: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(result["attempt"], 1);
+    }
+}
+
+#[test]
+fn python_parsable_non_object_verifier_answers_abort_before_later_records() {
+    let f = Fixture::new();
+    let remote = f.remote("verifier-json-remote");
+    let response = f.answer(&[(&f.full, "full"), (&f.degraded, "degraded")]);
+    let output = f.path("verifier-output");
+    let mut payloads = vec![
+        b"NaN".to_vec(),
+        b"Infinity".to_vec(),
+        b"-Infinity".to_vec(),
+        br#""\ud800""#.to_vec(),
+        b"[]".to_vec(),
+    ];
+    payloads.push(
+        [
+            b"\xff\xfe".as_slice(),
+            &"null"
+                .encode_utf16()
+                .flat_map(u16::to_le_bytes)
+                .collect::<Vec<_>>(),
+        ]
+        .concat(),
+    );
+    for (index, payload) in payloads.into_iter().enumerate() {
+        fs::write(&output, payload).unwrap();
+        let scratch = format!("verifier-json-{index}");
+        let out = f.execute_raw(
+            &response,
+            &scratch,
+            &["--remote", remote.to_str().unwrap()],
+            &[("VERIFIER_OUTPUT", output.to_str().unwrap())],
+        );
+        assert_eq!(out.status.code(), Some(1));
+        assert!(out.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&out.stderr).contains("AttributeError:"));
+        assert!(git(&f.path(&scratch), &["for-each-ref"]).is_empty());
+        assert!(
+            git(
+                &remote,
+                &["for-each-ref", "refs/tags/evidence", "refs/notes/evidence"]
+            )
+            .is_empty()
+        );
+        assert_eq!(
+            fs::read_to_string(f.path("calls"))
+                .unwrap()
+                .matches("CALL")
+                .count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn malformed_auth_token_utf8_refuses_before_push() {
+    let f = Fixture::new();
+    let remote = f.remote("auth-utf8-remote");
+    fs::write(
+        f.path("response.json"),
+        serde_json::to_vec(&f.answer(&[(&f.degraded, "degraded")])).unwrap(),
+    )
+    .unwrap();
+    let out = f
+        .command()
+        .args(["--run", "7", "--attempt", "1", "--artifact", "9"])
+        .arg("--remote")
+        .arg(&remote)
+        .env_remove("EVIDENCE_PUSH_TOKEN")
+        .env_remove("GH_TOKEN")
+        .env("BAD_AUTH_UTF8", "1")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let value: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(value["failures"][0].as_str().unwrap().contains("utf-8"));
+    assert!(git(&f.path("state/scratch.git"), &["for-each-ref"]).is_empty());
+    assert!(
+        git(
+            &remote,
+            &["for-each-ref", "refs/tags/evidence", "refs/notes/evidence"]
+        )
+        .is_empty()
+    );
+}
+
+#[test]
+fn malformed_record_containers_abort_instead_of_continuing() {
+    let f = Fixture::new();
+    let original = git(&f.source, &["show", &format!("{}:{}", f.degraded, f.tree)]);
+    let mut empty_subject: Value = serde_json::from_str(&original).unwrap();
+    empty_subject["subject"] = json!([]);
+    for (index, body) in [json!([]), empty_subject].into_iter().enumerate() {
+        let record = f.record_body(&body, false);
+        let scratch = format!("bad-container-{index}");
+        let out = f.execute_raw(
+            &f.answer(&[(&record, "degraded"), (&f.degraded, "degraded")]),
+            &scratch,
+            &[],
+            &[],
+        );
+        assert_eq!(out.status.code(), Some(1));
+        assert!(out.stdout.is_empty());
+        assert!(git(&f.path(&scratch), &["for-each-ref"]).is_empty());
+    }
+}
+
+#[test]
+fn malformed_ledger_tries_is_not_defaulted_to_zero() {
+    let f = Fixture::new();
+    fs::create_dir(f.path("state")).unwrap();
+    fs::write(
+        f.path("state/observed.jsonl"),
+        b"{\"run\":7,\"attempt\":1,\"state\":\"failed\",\"tries\":null}\n",
+    )
+    .unwrap();
+    let out = f
+        .command()
+        .arg("--poll")
+        .env(
+            "GH_RUNS",
+            r#"[{"databaseId":7,"attempt":1,"conclusion":"success"}]"#,
+        )
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(!f.path("state/scratch.git").exists());
+}
+
+#[test]
+fn invalid_verifier_json_remains_a_per_record_failure() {
+    let f = Fixture::new();
+    let remote = f.remote("invalid-json-remote");
+    let output = f.path("invalid-verifier-output");
+    fs::write(&output, b"not json").unwrap();
+    let (out, value) = f.execute(
+        &f.answer(&[(&f.full, "full"), (&f.degraded, "degraded")]),
+        "invalid-json-scratch",
+        &["--remote", remote.to_str().unwrap()],
+        &[("VERIFIER_OUTPUT", output.to_str().unwrap())],
+    );
+    failure(&out, &value, "unreadable verifier output");
+    assert_eq!(value["published"], 1);
+    assert_eq!(
+        git(
+            &remote,
+            &[
+                "for-each-ref",
+                "--format=%(refname) %(objectname)",
+                "refs/tags/evidence",
+                "refs/notes/evidence"
+            ]
+        ),
+        f.names(&[&f.degraded])
+    );
+}
+
+#[test]
+fn source_parent_without_oid_aborts_before_publication() {
+    let f = Fixture::new();
+    let remote = f.remote("missing-parent-remote");
+    let scratch = f.path("missing-parent");
+    fs::create_dir(&scratch).unwrap();
+    git(&scratch, &["init", "-q", "--bare"]);
+    let source = gitb(
+        &scratch,
+        &[
+            "hash-object",
+            "--literally",
+            "-t",
+            "commit",
+            "-w",
+            "--stdin",
+        ],
+        Some(format!("tree {}\nparent \n\nmalformed source\n", f.tree).as_bytes()),
+    );
+    let source = String::from_utf8(source).unwrap();
+    let original = git(&f.source, &["show", &format!("{}:{}", f.degraded, f.tree)]);
+    let mut body: Value = serde_json::from_str(&original).unwrap();
+    body["subject"][0]["name"] = json!(source.trim());
+    let record = f.record_body(&body, false);
+    let out = f.execute_raw(
+        &f.answer(&[(&record, "degraded")]),
+        "missing-parent",
+        &["--remote", remote.to_str().unwrap()],
+        &[],
+    );
+    assert_eq!(out.status.code(), Some(1));
+    assert!(out.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("IndexError:"));
+    assert!(git(&scratch, &["for-each-ref"]).is_empty());
+    assert!(
+        git(
+            &remote,
+            &["for-each-ref", "refs/tags/evidence", "refs/notes/evidence"]
+        )
+        .is_empty()
+    );
 }
