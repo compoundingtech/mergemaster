@@ -38,6 +38,7 @@ pub mod runner_report;
 mod runner_report_args;
 mod runner_report_numbers;
 mod runner_report_value;
+pub mod signed_tree;
 pub mod signer_input;
 pub mod signing;
 pub mod skip_report;
