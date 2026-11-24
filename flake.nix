@@ -133,12 +133,14 @@
           evidence = (packageFor system).overrideAttrs (_: {
             doCheck = true;
             nativeCheckInputs = [ pkgs.git pkgs.openssh pkgs.openssl pkgs.coreutils oraclePython ]
+              ++ [ pkgs.nodejs pkgs.oxfmt effect-utils.packages.${system}.genie ]
               ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.strace ];
             MERGEMASTER_ORACLE_PYTHON = "${oraclePython}/bin/python3.14";
             MERGEMASTER_PYTHON_KEYS_ORACLE = "${python-keys-oracle}";
             MERGEMASTER_PYTHON_ORACLE = "${python-oracle}";
             MERGEMASTER_PYTHON_PARITY_ORACLE = "${python-oracle-parity}";
             MERGEMASTER_FRACTAL_FIXTURE = "${fractal-fixture}";
+            MERGEMASTER_EFFECT_UTILS = "${effect-utils}";
           });
           oracle-corpus = pkgs.runCommand "mergemaster-oracle-corpus" {
             nativeBuildInputs = [ pkgs.git pkgs.openssh ];

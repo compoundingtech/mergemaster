@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add a staged harness port of generic publisher/reporter assertions and the real Genie workflow golden to Rust; the unchanged embedded production Python and existing Python harness remain in place until their coordinated retirement.
 - Port the signed-tree shadow adapter to `mergemaster evidence signed-tree`, retaining base-only policy and lane authority, tree/input-scoped evidence fetching, branch-point judgment and always-success shadow decisions, including Python's terminal-newline regex anchors and lossless JSON byte acceptance; preserve the Python leaf and workflow caller until the coordinated wave-4 cutover.
 - Preserve legacy rejected/untrusted-signer output for disabled v2 notes, and enforce bounded candidate object/layout loading before reading BASE policy.
 - Derive selective-reuse validation fixture producer systems from the verifier host, keeping signed measurements and BASE producer authority consistent on ARM as well as x86.

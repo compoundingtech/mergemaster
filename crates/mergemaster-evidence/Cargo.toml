@@ -27,3 +27,6 @@ sha2 = "0.10"
 tempfile = "3"
 unicode-normalization = "0.1"
 zip = { version = "9.2", default-features = false, features = ["deflate-flate2-zlib-rs", "bzip2", "lzma"] }
+
+[dev-dependencies]
+serde_norway = "0.9"
