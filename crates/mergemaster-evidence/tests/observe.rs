@@ -49,8 +49,10 @@ fn git(repo: &Path, args: &[&str]) -> String {
         .to_owned()
 }
 fn executable(path: &Path, body: &str) {
-    fs::write(path, body).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    let staged = path.with_extension("tmp");
+    fs::write(&staged, body).unwrap();
+    fs::set_permissions(&staged, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::rename(staged, path).unwrap();
 }
 struct Fixture {
     root: tempfile::TempDir,
@@ -139,6 +141,9 @@ if [ "$VERIFIER_OK" = 1 ]; then echo '{"satisfied":true,"reason":"no_record"}'; 
     }
     fn record_kind(&self, tier: &str, check: &str, signed: bool, kind: &str) -> String {
         let body = json!({"_type":"https://in-toto.io/Statement/v1","subject":[{"name":self.commit,"digest":{"gitTree":self.tree}}],"predicateType":"https://smalltalk.dev/evidence/gate/v1","predicate":{"schema_version":1,"change_id":"github:example/repo#1","signer":if signed {json!("machine/ci-test")} else {Value::Null},"tier":tier,"re_attests":null,"producer_sha256":"0".repeat(64),"observed_at":"2026-10-14T10:00:00Z","observed":{"kind":kind,"runner":"ci","inputs":{},"checks":{check:{"command":["gh","job"],"exit_code":0,"output_sha256":"1".repeat(64)}}}}});
+        self.record_body(&body, signed)
+    }
+    fn record_body(&self, body: &Value, signed: bool) -> String {
         let blob = String::from_utf8(gitb(
             &self.source,
             &["hash-object", "-w", "--stdin"],
@@ -778,4 +783,152 @@ fn malformed_observer_arguments_json_and_record_ids_are_refused() {
     bad["records"][0]["record"] = json!("A".repeat(40));
     let (out, value) = f.execute(&bad, "record-id", &[], &[]);
     failure(&out, &value, "observer returned a malformed record id");
+}
+
+#[test]
+fn missing_subject_name_aborts_without_remote() {
+    let f = Fixture::new();
+    let blob = git(&f.source, &["show", &format!("{}:{}", f.degraded, f.tree)]);
+    let mut body: Value = serde_json::from_str(&blob).unwrap();
+    body["subject"][0].as_object_mut().unwrap().remove("name");
+    let record = f.record_body(&body, false);
+    let (out, value) = f.execute(
+        &f.answer(&[(&record, "degraded")]),
+        "missing-name",
+        &[],
+        &[],
+    );
+    failure(&out, &value, "'name'");
+    assert_eq!(value["records"], json!([]));
+    assert!(git(&f.path("missing-name"), &["for-each-ref"]).is_empty());
+}
+
+#[test]
+fn malformed_steps_abort_before_observation() {
+    let f = Fixture::new();
+    fs::write(
+        f.path("response.json"),
+        serde_json::to_vec(&f.answer(&[(&f.degraded, "degraded")])).unwrap(),
+    )
+    .unwrap();
+    for steps in [
+        Value::Null,
+        json!({}),
+        json!("bad"),
+        json!([null]),
+        json!([1]),
+    ] {
+        let out = f
+            .command()
+            .args(["--run", "7", "--attempt", "1"])
+            .env(
+                "GH_JOBS",
+                json!({"jobs":[{"name":"job","steps":steps}]}).to_string(),
+            )
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(1));
+        assert!(out.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&out.stderr).contains("TypeError:"));
+        assert!(!f.path("state/scratch.git").exists());
+    }
+    let (out, _) = f.execute(
+        &f.answer(&[]),
+        "missing-steps",
+        &[],
+        &[("GH_JOBS", r#"{"jobs":[{"name":"job"}]}"#)],
+    );
+    success(&out);
+}
+
+#[test]
+fn missing_verifier_stops_before_later_records_and_push() {
+    let f = Fixture::new();
+    let remote = f.remote("fatal-verifier-remote");
+    let (out, value) = f.execute(
+        &f.answer(&[(&f.full, "full"), (&f.degraded, "degraded")]),
+        "fatal-verifier",
+        &[
+            "--verifier",
+            "/nonexistent",
+            "--remote",
+            remote.to_str().unwrap(),
+        ],
+        &[],
+    );
+    failure(&out, &value, "/nonexistent");
+    assert_eq!(value["records"].as_array().unwrap().len(), 1);
+    assert!(value["records"][0].get("error").is_none());
+    assert!(git(&f.path("fatal-verifier"), &["for-each-ref"]).is_empty());
+    assert!(
+        git(
+            &remote,
+            &["for-each-ref", "refs/tags/evidence", "refs/notes/evidence"]
+        )
+        .is_empty()
+    );
+}
+
+#[test]
+fn json_output_matches_python_bytes_and_ascii() {
+    let f = Fixture::new();
+    let mut response = f.answer(&[]);
+    response["trust_limitation"] = json!("é😀");
+    let (out, _) = f.execute(&response, "json-output", &[], &[]);
+    success(&out);
+    assert_eq!(
+        String::from_utf8(out.stdout).unwrap(),
+        "{\n  \"repository\": \"example/repo\",\n  \"run\": 7,\n  \"attempt\": 1,\n  \"records\": [],\n  \"metrics\": {\n    \"fresh_records\": 0,\n    \"full_records\": 1\n  },\n  \"full_trust_eligible\": true,\n  \"trust_limitation\": \"\\u00e9\\ud83d\\ude00\",\n  \"published\": 0\n}\n"
+    );
+    let out = f
+        .command()
+        .arg("--poll")
+        .env(
+            "GH_RUNS",
+            r#"[{"databaseId":7,"attempt":1,"conclusion":"success"}]"#,
+        )
+        .output()
+        .unwrap();
+    success(&out);
+    assert_eq!(
+        out.stdout,
+        b"{\"run\": 7, \"attempt\": 1, \"state\": \"done\", \"records\": 0, \"failures\": []}\n"
+    );
+    assert_eq!(
+        fs::read(f.path("state/observed.jsonl")).unwrap(),
+        b"{\"run\": 7, \"attempt\": 1, \"state\": \"done\", \"tries\": 0, \"records\": []}\n"
+    );
+}
+
+#[test]
+fn remote_failure_masks_token_in_every_output() {
+    let f = Fixture::new();
+    executable(
+        &f.path("bin/git"),
+        "#!/bin/sh\ncase \" $* \" in *' push '*) printf '%s\\n' \"$GH_TOKEN\" >&2; exit 1;; esac\nexec \"$REAL_GIT\" \"$@\"\n",
+    );
+    let real_git = Command::new("sh")
+        .args(["-c", "command -v git"])
+        .output()
+        .unwrap();
+    let real_git = String::from_utf8(real_git.stdout).unwrap();
+    let summary = f.path("masked-summary");
+    let (out, value) = f.execute(
+        &f.answer(&[(&f.degraded, "degraded")]),
+        "masked",
+        &["--remote", f.source.to_str().unwrap()],
+        &[
+            ("REAL_GIT", real_git.trim()),
+            ("GITHUB_STEP_SUMMARY", summary.to_str().unwrap()),
+        ],
+    );
+    failure(&out, &value, "***");
+    for bytes in [
+        &out.stdout,
+        &out.stderr,
+        &fs::read(summary).unwrap(),
+        &serde_json::to_vec(&value["failures"]).unwrap(),
+    ] {
+        assert!(!String::from_utf8_lossy(bytes).contains("fixture-token"));
+    }
 }

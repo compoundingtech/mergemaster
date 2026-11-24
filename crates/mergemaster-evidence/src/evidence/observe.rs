@@ -1,4 +1,5 @@
 //! Import protected CI observations, verify full records, and publish immutable refs.
+use super::legacy_verify::statement_document::{Document, Node};
 use super::observe_args::Args;
 use crate::gate::git::deadline::GitChild;
 use anyhow::{Context, Result, bail, ensure};
@@ -13,12 +14,231 @@ use std::{
     time::Duration,
 };
 
+struct Summary {
+    value: Value,
+    response: Option<Document>,
+}
+impl std::ops::Deref for Summary {
+    type Target = Value;
+    fn deref(&self) -> &Value {
+        &self.value
+    }
+}
+impl std::ops::DerefMut for Summary {
+    fn deref_mut(&mut self) -> &mut Value {
+        &mut self.value
+    }
+}
+
+/// Python dictionary order and spacing, with the shared ASCII string encoder.
+fn dumps(value: &Value, pretty: bool, response: Option<&Document>) -> Result<String> {
+    fn emit(
+        doc: &Document,
+        node: &Node,
+        out: &mut String,
+        depth: usize,
+        pretty: bool,
+        response: Option<&Document>,
+        schema: bool,
+    ) -> Result<()> {
+        let newline = |out: &mut String, depth| {
+            if pretty {
+                out.push('\n');
+                out.extend(std::iter::repeat_n(' ', depth * 2));
+            }
+        };
+        match node {
+            Node::String(points) => {
+                let _ = super::legacy_json::codepoints(points.iter().copied(), out);
+            }
+            Node::Null => out.push_str("null"),
+            Node::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+            Node::Integer(n) => out.push_str(if n == "-0" { "0" } else { n }),
+            Node::Float(n) => {
+                if n.is_nan() {
+                    out.push_str("NaN");
+                } else if n.is_infinite() {
+                    out.push_str(if n.is_sign_negative() {
+                        "-Infinity"
+                    } else {
+                        "Infinity"
+                    });
+                } else {
+                    out.push_str(&super::legacy_request::float_token(*n)?);
+                }
+            }
+            Node::Array(items) => {
+                out.push('[');
+                for (i, id) in items.iter().enumerate() {
+                    if i != 0 {
+                        out.push(',');
+                        if !pretty {
+                            out.push(' ');
+                        }
+                    }
+                    newline(out, depth + 1);
+                    emit(doc, doc.node(*id), out, depth + 1, pretty, response, schema)?;
+                }
+                if !items.is_empty() {
+                    newline(out, depth);
+                }
+                out.push(']');
+            }
+            Node::Object(fields) => {
+                let has = |key: &str| {
+                    fields.contains_key(&key.chars().map(u32::from).collect::<Vec<_>>())
+                };
+                let order: &[&str] = if !schema {
+                    &[]
+                } else if has("repository") {
+                    &[
+                        "repository",
+                        "run",
+                        "attempt",
+                        "records",
+                        "skip_taken",
+                        "nothing_to_attest",
+                        "metrics",
+                        "full_trust_eligible",
+                        "trust_limitation",
+                        "published",
+                        "failures",
+                    ]
+                } else if has("state") {
+                    &["run", "attempt", "state", "tries", "records", "failures"]
+                } else if has("tier") {
+                    &[
+                        "record",
+                        "tier",
+                        "checks",
+                        "tree",
+                        "verified",
+                        "newly_recorded",
+                        "error",
+                    ]
+                } else if has("record") {
+                    &["record", "checks"]
+                } else {
+                    &[]
+                };
+                let mut fields: Vec<_> = fields.iter().collect();
+                if !order.is_empty() {
+                    fields.sort_by_key(|(key, _)| {
+                        order
+                            .iter()
+                            .position(|wanted| {
+                                key.iter().copied().eq(wanted.chars().map(u32::from))
+                            })
+                            .unwrap_or(order.len())
+                    });
+                }
+                out.push('{');
+                for (i, (key, id)) in fields.iter().enumerate() {
+                    if i != 0 {
+                        out.push(',');
+                        if !pretty {
+                            out.push(' ');
+                        }
+                    }
+                    newline(out, depth + 1);
+                    let _ = super::legacy_json::codepoints(key.iter().copied(), out);
+                    out.push_str(": ");
+                    let original = response
+                        .filter(|_| {
+                            ["metrics", "full_trust_eligible", "trust_limitation"]
+                                .iter()
+                                .any(|wanted| key.iter().copied().eq(wanted.chars().map(u32::from)))
+                        })
+                        .and_then(|response| {
+                            let Node::Object(fields) = response.root() else {
+                                return None;
+                            };
+                            fields.get(*key).map(|id| (response, response.node(*id)))
+                        });
+                    if depth == 0
+                        && let Some((original, node)) = original
+                    {
+                        emit(original, node, out, depth + 1, pretty, None, false)?;
+                    } else {
+                        emit(
+                            doc,
+                            doc.node(**id),
+                            out,
+                            depth + 1,
+                            pretty,
+                            response,
+                            schema,
+                        )?;
+                    }
+                }
+                if !fields.is_empty() {
+                    newline(out, depth);
+                }
+                out.push('}');
+            }
+        }
+        Ok(())
+    }
+    let doc = Document::from_bytes(&serde_json::to_vec(value)?)
+        .map_err(|error| anyhow::anyhow!("{error:?}"))?;
+    let mut out = String::new();
+    emit(&doc, doc.root(), &mut out, 0, pretty, response, true)?;
+    Ok(out)
+}
+
+/// Python's outer handler does not catch TypeError/AttributeError.
+#[derive(Debug)]
+struct Uncaught(&'static str);
+impl std::fmt::Display for Uncaught {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+impl std::error::Error for Uncaught {}
+
+/// Only Failure (not process/JSON/type errors) is recoverable per record.
+#[derive(Debug)]
+struct Failure(String);
+impl std::fmt::Display for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+impl std::error::Error for Failure {}
+
+fn redact(mut message: String) -> String {
+    for name in ["EVIDENCE_PUSH_TOKEN", "GH_TOKEN"] {
+        if let Ok(token) = std::env::var(name)
+            && !token.is_empty()
+            && message.contains(&token)
+        {
+            message = message.replace(&token, "***");
+        }
+    }
+    message
+}
 fn capture(command: &mut Command, input: Option<&[u8]>, seconds: u64) -> Result<Output> {
-    Ok(GitChild::capture(
-        command,
-        input,
-        Duration::from_secs(seconds),
-    )?)
+    if input.is_some() {
+        command.stdin(std::process::Stdio::piped());
+    }
+    GitChild::capture(command, input, Duration::from_secs(seconds)).map_err(|error| {
+        // RawCapture appends stderr to I/O errors. Python never includes it for
+        // TimeoutExpired/OSError; discard it, including any authentication token.
+        if error.kind() == std::io::ErrorKind::TimedOut {
+            anyhow::anyhow!(
+                "Command {:?} timed out after {seconds} seconds",
+                command_argv(command)
+            )
+        } else {
+            anyhow::anyhow!("{:?}: {:?}", error.kind(), command_argv(command))
+        }
+    })
+}
+fn command_argv(command: &Command) -> Vec<String> {
+    std::iter::once(command.get_program())
+        .chain(command.get_args())
+        .map(|s| s.to_string_lossy().into_owned())
+        .collect()
 }
 fn tail(bytes: &[u8], count: usize) -> String {
     let text = String::from_utf8_lossy(bytes);
@@ -41,12 +261,14 @@ fn git(repo: &Path, args: &[&str], input: Option<&[u8]>, check: bool) -> Result<
         input,
         300,
     )?;
-    ensure!(
-        !check || out.status.success(),
-        "git {} failed: {}",
-        args.first().copied().unwrap_or_default(),
-        tail(String::from_utf8_lossy(&out.stderr).trim().as_bytes(), 2000)
-    );
+    if check && !out.status.success() {
+        return Err(Failure(format!(
+            "git {} failed: {}",
+            args.first().copied().unwrap_or_default(),
+            tail(String::from_utf8_lossy(&out.stderr).trim().as_bytes(), 2000)
+        ))
+        .into());
+    }
     Ok(out)
 }
 fn text(repo: &Path, args: &[&str]) -> Result<String> {
@@ -130,15 +352,24 @@ fn skipped(args: &Args, run: i64, attempt: i64) -> Result<BTreeSet<String>> {
         let value = read_json(&done.stdout).map_err(|_| anyhow::anyhow!(message()))?;
         let jobs = array(&value, "jobs").map_err(|_| anyhow::anyhow!(message()))?;
         for job in jobs {
-            object(job)?;
+            if !job.is_object() {
+                return Err(Uncaught("TypeError: job must be an object").into());
+            }
             let name = job.get("name").and_then(Value::as_str).unwrap_or_default();
-            let steps = job.get("steps").and_then(Value::as_array);
+            let steps = match job.get("steps") {
+                None => &[][..],
+                Some(Value::Array(steps)) => steps.as_slice(),
+                Some(_) => return Err(Uncaught("TypeError: job steps must be a list").into()),
+            };
+            for step in steps {
+                if !step.is_object() {
+                    return Err(Uncaught("TypeError: job step must be an object").into());
+                }
+            }
             let ran = |wanted| {
-                steps.is_some_and(|steps| {
-                    steps.iter().any(|s| {
-                        s.get("name").and_then(Value::as_str) == Some(wanted)
-                            && s.get("conclusion").and_then(Value::as_str) == Some("success")
-                    })
+                steps.iter().any(|s| {
+                    s.get("name").and_then(Value::as_str) == Some(wanted)
+                        && s.get("conclusion").and_then(Value::as_str) == Some("success")
                 })
             };
             if let Some(check) = name.strip_prefix("evidence-gate-")
@@ -216,13 +447,19 @@ fn token() -> Result<String> {
         String::new()
     })
 }
-fn remote_git(repo: &Path, args: &[&str], token: &str, fetch: bool) -> Result<()> {
+fn remote_git(repo: &Path, args: &[&str], token: &str, fetch: bool, seconds: u64) -> Result<()> {
     let mut command = Command::new("git");
-    command
-        .arg("-C")
-        .arg(repo)
-        .args(args)
-        .env("GIT_TERMINAL_PROMPT", "0");
+    command.arg("-C").arg(repo);
+    authenticated_git(&mut command, args, token, fetch, seconds)
+}
+fn authenticated_git(
+    command: &mut Command,
+    args: &[&str],
+    token: &str,
+    fetch: bool,
+    seconds: u64,
+) -> Result<()> {
+    command.args(args).env("GIT_TERMINAL_PROMPT", "0");
     if !token.is_empty() {
         command
             .env("GIT_CONFIG_COUNT", "1")
@@ -235,7 +472,13 @@ fn remote_git(repo: &Path, args: &[&str], token: &str, fetch: bool) -> Result<()
                 ),
             );
     }
-    let done = capture(&mut command, None, 1800)?;
+    let done = capture(command, None, seconds).map_err(|error| {
+        anyhow::anyhow!(if token.is_empty() {
+            error.to_string()
+        } else {
+            error.to_string().replace(token, "***")
+        })
+    })?;
     if !done.status.success() {
         let text = String::from_utf8_lossy(&done.stderr);
         let text = if token.is_empty() {
@@ -296,7 +539,7 @@ fn fetch_parents(repo: &Path, remote: &str, token: &str, sources: BTreeSet<Strin
     }
     let mut argv = vec!["fetch", "--quiet", "--no-tags", remote];
     argv.extend(parents.iter().map(String::as_str));
-    remote_git(&history, &argv, token, true)?;
+    remote_git(&history, &argv, token, true, 1800)?;
     let alternates = repo.join("objects/info/alternates");
     let line = format!("{}\n", history.join("objects").display());
     let mut existing = if alternates.exists() {
@@ -325,15 +568,19 @@ fn verify(args: &Args, repo: &Path, tree: &str, check: &str, keys: &str) -> Resu
     )?;
     let answer =
         read_json(&done.stdout).unwrap_or_else(|_| json!({"reason":"unreadable verifier output"}));
-    object(&answer)?;
-    ensure!(
-        done.status.success() && truth(answer.get("satisfied")),
-        "record for {check} on {tree} did not verify: {}",
-        answer.get("reason").map_or_else(
-            || "unknown".into(),
-            |v| v.as_str().map_or_else(|| repr(v), str::to_owned)
-        )
-    );
+    if !answer.is_object() {
+        return Err(Uncaught("AttributeError: verifier answer must be an object").into());
+    }
+    if !done.status.success() || !truth(answer.get("satisfied")) {
+        return Err(Failure(format!(
+            "record for {check} on {tree} did not verify: {}",
+            answer.get("reason").map_or_else(
+                || "unknown".into(),
+                |v| v.as_str().map_or_else(|| repr(v), str::to_owned)
+            )
+        ))
+        .into());
+    }
     Ok(())
 }
 fn keys(args: &Args) -> Result<tempfile::NamedTempFile> {
@@ -363,7 +610,7 @@ fn keys(args: &Args) -> Result<tempfile::NamedTempFile> {
     file.write_all(&found.stdout)?;
     Ok(file)
 }
-fn observe(args: &Args, run: i64, attempt: i64, summary: &mut Value) -> Result<()> {
+fn observe(args: &Args, run: i64, attempt: i64, summary: &mut Summary) -> Result<()> {
     let argv = read_json(args.observer.as_bytes())?;
     let argv = argv
         .as_array()
@@ -408,9 +655,12 @@ fn observe(args: &Args, run: i64, attempt: i64, summary: &mut Value) -> Result<(
         stderr.rewind()?;
         let mut bytes = Vec::new();
         stderr.read_to_end(&mut bytes)?;
-        let message = tail(String::from_utf8_lossy(&bytes).trim().as_bytes(), 2000);
-        if let Ok(done) = api(&args.repository, &format!("{run}/attempts/{attempt}"))
-            && done.status.success()
+        let message = redact(tail(
+            String::from_utf8_lossy(&bytes).trim().as_bytes(),
+            2000,
+        ));
+        let done = api(&args.repository, &format!("{run}/attempts/{attempt}"))?;
+        if done.status.success()
             && read_json(&done.stdout).ok().is_some_and(|v| {
                 matches!(
                     v.get("conclusion").and_then(Value::as_str),
@@ -442,6 +692,18 @@ fn observe(args: &Args, run: i64, attempt: i64, summary: &mut Value) -> Result<(
         }
     };
     object(&response)?;
+    stdout.rewind()?;
+    let mut response_bytes = Vec::new();
+    stdout.read_to_end(&mut response_bytes)?;
+    let original = Document::from_bytes_with_depth_limit(&response_bytes, None)
+        .map_err(|error| anyhow::anyhow!("{error:?}"))?;
+    let metadata = json!({"metrics": response.get("metrics").cloned().unwrap_or_else(|| json!({})),
+        "full_trust_eligible": response["full_trust_eligible"], "trust_limitation": response["trust_limitation"]});
+    let metadata = dumps(&metadata, false, Some(&original))?;
+    summary.response = Some(
+        Document::from_bytes_with_depth_limit(metadata.as_bytes(), None)
+            .map_err(|error| anyhow::anyhow!("{error:?}"))?,
+    );
     for (key, expected) in [
         ("repository", json!(args.repository)),
         ("run", json!(run)),
@@ -497,6 +759,7 @@ fn observe(args: &Args, run: i64, attempt: i64, summary: &mut Value) -> Result<(
         let body = statement(&scratch, record)?;
         let subject = subject(&body)?;
         let tree = string(field(subject, "digest")?, "gitTree")?;
+        field(subject, "name")?;
         let observed = field(field(&body, "predicate")?, "observed")?;
         object(observed)?;
         let checks: Vec<String> = match observed.get("checks") {
@@ -552,7 +815,10 @@ fn observe(args: &Args, run: i64, attempt: i64, summary: &mut Value) -> Result<(
             Ok(())
         })();
         if let Err(error) = verified {
-            let message = error.to_string();
+            if error.downcast_ref::<Failure>().is_none() && tier == "full" {
+                return Err(error);
+            }
+            let message = redact(error.to_string());
             entry["error"] = json!(message);
             failures.push(message);
             continue;
@@ -593,7 +859,7 @@ fn observe(args: &Args, run: i64, attempt: i64, summary: &mut Value) -> Result<(
         let refspecs: Vec<_> = refs.iter().map(|r| format!("{r}:{r}")).collect();
         let mut argv = vec!["push", "--quiet", remote];
         argv.extend(refspecs.iter().map(String::as_str));
-        remote_git(&scratch, &argv, &token()?, false)?;
+        remote_git(&scratch, &argv, &token()?, false, 1800)?;
     }
     summary["metrics"] = response
         .get("metrics")
@@ -615,6 +881,14 @@ fn write_summary(summary: &Value) -> Result<()> {
     let Some(path) = std::env::var_os("GITHUB_STEP_SUMMARY").filter(|p| !p.is_empty()) else {
         return Ok(());
     };
+    writeln!(
+        OpenOptions::new().create(true).append(true).open(path)?,
+        "{}",
+        summary_text(summary)?
+    )?;
+    Ok(())
+}
+fn summary_text(summary: &Value) -> Result<String> {
     let mut lines = vec![format!(
         "### Evidence observation of run {} attempt {}",
         summary["run"], summary["attempt"]
@@ -683,18 +957,18 @@ fn write_summary(summary: &Value) -> Result<()> {
             ));
         }
     }
-    writeln!(
-        OpenOptions::new().create(true).append(true).open(path)?,
-        "{}",
-        lines.join("\n")
-    )?;
-    Ok(())
+    Ok(lines.join("\n"))
 }
-fn one_run(args: &Args, run: i64, attempt: i64) -> Result<Value> {
-    let mut summary =
-        json!({"repository":args.repository,"run":run,"attempt":attempt,"records":[]});
+fn one_run(args: &Args, run: i64, attempt: i64) -> Result<Summary> {
+    let mut summary = Summary {
+        value: json!({"repository":args.repository,"run":run,"attempt":attempt,"records":[]}),
+        response: None,
+    };
     if let Err(error) = observe(args, run, attempt, &mut summary) {
-        summary["failures"] = json!([error.to_string()]);
+        summary["failures"] = json!([redact(error.to_string())]);
+        if error.downcast_ref::<Uncaught>().is_some() {
+            return Err(error);
+        }
     }
     write_summary(&summary)?;
     Ok(summary)
@@ -740,7 +1014,11 @@ fn poll(args: &Args) -> Result<i32> {
     if !done.status.success() {
         crate::cli_println!(
             "{}",
-            json!({"failures":[format!("cannot list runs: {}", tail(&done.stderr, 300))]})
+            dumps(
+                &json!({"failures":[redact(format!("cannot list runs: {}", tail(&done.stderr, 300)))]}),
+                false,
+                None
+            )?
         );
         return Ok(1);
     }
@@ -784,11 +1062,19 @@ fn poll(args: &Args) -> Result<i32> {
         writeln!(
             OpenOptions::new().create(true).append(true).open(&ledger)?,
             "{}",
-            json!({"run":run,"attempt":attempt,"state":state,"tries":tries + i64::from(failed),"records":ids})
+            dumps(
+                &json!({"run":run,"attempt":attempt,"state":state,"tries":tries + i64::from(failed),"records":ids}),
+                false,
+                None
+            )?
         )?;
         crate::cli_println!(
             "{}",
-            json!({"run":run,"attempt":attempt,"state":state,"records":records.len(),"failures":summary.get("failures").cloned().unwrap_or_else(|| json!([]))})
+            dumps(
+                &json!({"run":run,"attempt":attempt,"state":state,"records":records.len(),"failures":summary.get("failures").cloned().unwrap_or_else(|| json!([]))}),
+                false,
+                None
+            )?
         );
         status |= i32::from(failed);
     }
@@ -815,9 +1101,51 @@ pub(super) fn run(argv: &[String]) -> Result<i32> {
                 })?,
         };
         let summary = one_run(&args, run, attempt)?;
-        crate::cli_println!("{}", serde_json::to_string_pretty(&summary)?);
+        crate::cli_println!("{}", dumps(&summary, true, summary.response.as_ref())?);
         Ok(i32::from(truth(summary.get("failures"))))
     } else {
         poll(&args)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn remote_timeout_never_exposes_captured_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let shim = dir.path().join("git");
+        let staged = dir.path().join("git.tmp");
+        fs::write(
+            &staged,
+            "#!/bin/sh\nprintf '%s\\n' \"$SECRET_TOKEN\" >&2\nexec sleep 5\n",
+        )
+        .unwrap();
+        fs::set_permissions(&staged, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::rename(staged, &shim).unwrap();
+        let secret = "timeout-secret-token";
+        let error = authenticated_git(
+            Command::new(&shim).env("SECRET_TOKEN", secret),
+            &["push"],
+            secret,
+            false,
+            1,
+        )
+        .unwrap_err();
+        let failure = error.to_string();
+        assert!(failure.contains("timed out after 1 seconds"), "{failure}");
+        let summary = json!({"run":7,"attempt":1,"records":[],"failures":[failure]});
+        let stdout = dumps(&summary, true, None).unwrap();
+        let step_summary = summary_text(&summary).unwrap();
+        for output in [
+            stdout,
+            step_summary,
+            summary["failures"].to_string(),
+            error.to_string(),
+        ] {
+            assert!(!output.contains(secret), "{output}");
+        }
     }
 }
