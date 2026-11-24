@@ -1,4 +1,5 @@
 //! Import protected CI observations, verify full records, and publish immutable refs.
+use super::flip_skip_python::splitlines;
 use super::legacy_verify::statement_document::{Document, Node};
 use super::observe_args::Args;
 use crate::gate::git::deadline::GitChild;
@@ -276,6 +277,10 @@ fn text(repo: &Path, args: &[&str]) -> Result<String> {
         .trim()
         .to_owned())
 }
+fn split_words(text: &str) -> impl Iterator<Item = &str> {
+    text.split(super::legacy_verify::projection_oid::space)
+        .filter(|part| !part.is_empty())
+}
 fn api(repository: &str, suffix: &str) -> Result<Output> {
     capture(
         Command::new("gh").args(["api", &format!("repos/{repository}/actions/runs/{suffix}")]),
@@ -445,7 +450,7 @@ fn artifact(args: &Args, run: i64, attempt: i64) -> Result<i64> {
 }
 fn statement(repo: &Path, record: &str) -> Result<Value> {
     let listing = text(repo, &["ls-tree", "-r", record])?;
-    let parts: Vec<_> = listing.split_whitespace().collect();
+    let parts: Vec<_> = split_words(&listing).collect();
     ensure!(
         parts.len() == 4 && parts[0] == "100644" && parts[1] == "blob",
         "record {record} is not a single-note commit"
@@ -534,10 +539,9 @@ fn fetch_parents(repo: &Path, remote: &str, token: &str, sources: BTreeSet<Strin
     for source in sources {
         let header =
             String::from_utf8(git(repo, &["cat-file", "commit", &source], None, true)?.stdout)?;
-        for line in header.split("\n\n").next().unwrap_or_default().lines() {
+        for line in splitlines(header.split("\n\n").next().unwrap_or_default()) {
             if line.starts_with("parent ") {
-                let parent = line
-                    .split_whitespace()
+                let parent = split_words(line)
                     .nth(1)
                     .ok_or(Uncaught("IndexError: source parent is missing"))?;
                 if !git(repo, &["cat-file", "-e", parent], None, false)?
@@ -1180,6 +1184,50 @@ pub(super) fn run(argv: &[String]) -> Result<i32> {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn python_line_and_word_separators() {
+        for separator in [
+            "\n", "\r", "\r\n", "\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\u{85}", "\u{2028}",
+            "\u{2029}",
+        ] {
+            let text = format!("{separator}a{separator}{separator}b{separator}");
+            assert_eq!(
+                splitlines(&text).collect::<Vec<_>>(),
+                ["", "a", "", "b"],
+                "{separator:?}"
+            );
+            assert_eq!(
+                split_words(&text).collect::<Vec<_>>(),
+                ["a", "b"],
+                "{separator:?}"
+            );
+        }
+        for separator in [
+            '\t', ' ', '\x1f', '\u{a0}', '\u{1680}', '\u{2000}', '\u{2001}', '\u{2002}',
+            '\u{2003}', '\u{2004}', '\u{2005}', '\u{2006}', '\u{2007}', '\u{2008}', '\u{2009}',
+            '\u{200a}', '\u{202f}', '\u{205f}', '\u{3000}',
+        ] {
+            let text = format!("{separator}a{separator}{separator}b{separator}");
+            assert_eq!(
+                split_words(&text).collect::<Vec<_>>(),
+                ["a", "b"],
+                "{separator:?}"
+            );
+            assert_eq!(
+                splitlines(&text).collect::<Vec<_>>(),
+                [text.as_str()],
+                "{separator:?}"
+            );
+        }
+        assert_eq!(splitlines("").count(), 0);
+        assert_eq!(splitlines("\r\n").collect::<Vec<_>>(), [""]);
+        assert_eq!(split_words("").count(), 0);
+        assert_eq!(
+            split_words("a\u{200b}b").collect::<Vec<_>>(),
+            ["a\u{200b}b"]
+        );
+    }
 
     #[test]
     fn remote_timeout_never_exposes_captured_token() {

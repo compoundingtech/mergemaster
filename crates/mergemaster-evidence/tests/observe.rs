@@ -1266,8 +1266,7 @@ fn invalid_verifier_json_remains_a_per_record_failure() {
     );
 }
 
-#[test]
-fn empty_message_source_parent_without_oid_aborts_before_publication() {
+fn assert_source_parent_without_oid_aborts(separator: &str) {
     let f = Fixture::new();
     let remote = f.remote("missing-parent-remote");
     let scratch = f.path("missing-parent");
@@ -1283,7 +1282,7 @@ fn empty_message_source_parent_without_oid_aborts_before_publication() {
             "-w",
             "--stdin",
         ],
-        Some(format!("tree {}\nparent \n\n", f.tree).as_bytes()),
+        Some(format!("tree {}{separator}parent \n\n", f.tree).as_bytes()),
     );
     let source = String::from_utf8(source).unwrap();
     let original = git(&f.source, &["show", &format!("{}:{}", f.degraded, f.tree)]);
@@ -1307,6 +1306,16 @@ fn empty_message_source_parent_without_oid_aborts_before_publication() {
         )
         .is_empty()
     );
+}
+
+#[test]
+fn empty_message_source_parent_without_oid_aborts_before_publication() {
+    assert_source_parent_without_oid_aborts("\n");
+}
+
+#[test]
+fn carriage_return_source_parent_without_oid_aborts_before_publication() {
+    assert_source_parent_without_oid_aborts("\r");
 }
 
 #[test]
