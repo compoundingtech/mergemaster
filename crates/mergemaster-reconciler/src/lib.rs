@@ -366,6 +366,65 @@ impl Capabilities for RealCapabilities {
     }
 }
 
+/// Bootstrap diagnostics are static: never include environment values or error sources.
+#[derive(Debug)]
+pub struct BootstrapError(&'static str);
+
+impl std::fmt::Display for BootstrapError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.0)
+    }
+}
+
+impl std::error::Error for BootstrapError {}
+
+pub struct BootstrapConfig {
+    app_id: u64,
+    private_key: String,
+    bootstrap_token: String,
+}
+
+impl BootstrapConfig {
+    pub fn new(app_id: &str, key: &str, bootstrap: &str) -> Result<Self> {
+        if app_id.trim().is_empty() {
+            return Err(BootstrapError(
+                "MERGEMASTER_APP_ID is missing or empty; set the repository Actions variable to the GitHub App ID (not the installation ID).",
+            ).into());
+        }
+        let invalid_id = || {
+            BootstrapError(
+                "MERGEMASTER_APP_ID must be a positive decimal integer within the u64 range; use the GitHub App ID (not the installation ID).",
+            )
+        };
+        if !app_id.bytes().all(|byte| byte.is_ascii_digit()) {
+            return Err(invalid_id().into());
+        }
+        let app_id = app_id.parse::<u64>().map_err(|_| invalid_id())?;
+        if app_id == 0 {
+            return Err(invalid_id().into());
+        }
+        if key.trim().is_empty() {
+            return Err(BootstrapError(
+                "MERGEMASTER_APP_PRIVATE_KEY is missing or empty; set the App private key secret in the mergemaster-check-publisher environment.",
+            ).into());
+        }
+        if bootstrap.trim().is_empty() {
+            return Err(BootstrapError(
+                "GH_TOKEN is missing or empty; supply the workflow token for public verifier bootstrap.",
+            ).into());
+        }
+        // PEM decoding alone accepts incomplete DER; exercise the real RSA signer.
+        sign_jwt(app_id, key, 0).map_err(|_| BootstrapError(
+            "MERGEMASTER_APP_PRIVATE_KEY must be a valid RSA PEM private key; replace the environment secret with the GitHub App private key.",
+        ))?;
+        Ok(Self {
+            app_id,
+            private_key: key.into(),
+            bootstrap_token: bootstrap.into(),
+        })
+    }
+}
+
 pub struct Reconciler<C> {
     pub capabilities: C,
     pub app_id: u64,
@@ -376,28 +435,22 @@ pub struct Reconciler<C> {
 }
 impl<C: Capabilities> Reconciler<C> {
     pub fn new(
-        app_id: &str,
-        key: &str,
-        bootstrap: &str,
+        config: BootstrapConfig,
         capabilities: C,
         environ: BTreeMap<String, String>,
         workspace: PathBuf,
     ) -> Result<Self> {
-        ensure!(
-            !app_id.is_empty() && app_id.bytes().all(|c| c.is_ascii_digit()),
-            "invalid App ID"
-        );
-        let app_id = app_id.parse::<u64>()?;
-        ensure!(
-            app_id > 0 && !key.is_empty() && !bootstrap.is_empty(),
-            "App or bootstrap credentials missing"
-        );
+        let BootstrapConfig {
+            app_id,
+            private_key,
+            bootstrap_token,
+        } = config;
         fs::create_dir_all(&workspace)?;
         Ok(Self {
             capabilities,
             app_id,
-            private_key: key.into(),
-            bootstrap_token: bootstrap.into(),
+            private_key,
+            bootstrap_token,
             environ,
             workspace,
         })
