@@ -676,7 +676,7 @@ pub fn run_worker(args: SignArgs) -> Result<()> {
     )?;
     verify_toolchain_claims(&toolchain.claims, &request.inputs)?;
     super::workspace::verify(&request.repo, &request.head, lane, false, Some(&toolchain))?;
-    let expected = config::expected_inputs(
+    let mut expected = config::expected_inputs(
         &request.repo,
         &request.head,
         &request.check,
@@ -684,6 +684,15 @@ pub fn run_worker(args: SignArgs) -> Result<()> {
         &policy.environment,
         &policy.environment_bytes,
     )?;
+    expected.extend(crate::gate::selection::inputs(
+        crate::gate::selection::select(
+            &request.repo,
+            &request.base,
+            &request.head,
+            &policy.policy,
+        )?
+        .as_ref(),
+    )?);
     ensure!(
         expected
             .iter()

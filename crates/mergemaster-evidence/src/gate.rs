@@ -3,6 +3,7 @@ mod approval;
 pub mod config;
 pub mod git;
 pub mod reuse;
+pub mod selection;
 
 use crate::evidence::{self, Fact, Statement, TrustTier};
 use anyhow::{Context, Result, ensure};
@@ -98,6 +99,8 @@ pub struct Decision {
     pub base: String,
     pub head: String,
     pub tree: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lane_selection: Option<selection::Selection>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub queue_binding: Option<QueueBinding>,
     pub expectation_source: &'static str,
@@ -653,6 +656,7 @@ fn compute(
             head: head.into(),
             tree: String::new(),
             queue_binding: None,
+            lane_selection: None,
             expectation_source: "caller",
             decision: "refuse",
             outcome: "rejected",
@@ -685,6 +689,7 @@ fn compute(
                 head: head.into(),
                 tree,
                 queue_binding: None,
+                lane_selection: None,
                 expectation_source: "caller",
                 decision: "refuse",
                 outcome: "rejected",
@@ -713,6 +718,7 @@ fn compute(
         base: base.into(),
         head: head.into(),
         tree,
+        lane_selection: None,
         queue_binding: None,
         expectation_source: "caller",
         decision: if lane.mode == "required_evidence" {
@@ -923,6 +929,38 @@ fn compute(
         }
         return Ok(decision);
     }
+    // Applicability is PR-only. Push admission keeps its identical-tree
+    // transfer contract and must not require the original PR's commit IDs.
+    if !push && !merge_group && !queue {
+        decision.lane_selection = selection::select(repo, base, head, &config.policy)?;
+    }
+    if !push
+        && !merge_group
+        && !queue
+        && decision
+            .lane_selection
+            .as_ref()
+            .is_some_and(|selection| !selection.lanes.iter().any(|lane| lane == check))
+    {
+        // A non-applicable App context still needs an exact-head signed review.
+        // review-go is mandatory in `always`, so this cannot recurse again.
+        let review = compute(repo, "review-go", base, head, event, hosted, source)?;
+        decision.record = review.record;
+        decision.signer = review.signer;
+        decision.observed_at = review.observed_at;
+        decision.age_seconds = review.age_seconds;
+        if review.decision == "skip" && review.outcome == "satisfied" {
+            decision.decision = "skip";
+            decision.outcome = "satisfied";
+            decision.reason = "path_not_applicable";
+            decision.summary = "BASE path policy excludes this lane; exact-head review-go signs the complete selection.".into();
+        } else {
+            decision.decision = "refuse";
+            decision.reason = "selection_review_required";
+            decision.summary = "A non-applicable lane requires accepted exact-head review-go with the BASE selection binding.".into();
+        }
+        return Ok(decision);
+    }
     let (records, malformed, other_tree) = records(repo, &decision.tree)?;
     let mut candidates = Vec::new();
     let mut reuse_attempt = None;
@@ -941,7 +979,7 @@ fn compute(
         config::validate_candidate(repo, head, lane)?;
         return Ok(decision);
     }
-    let expected = config::expected_inputs(
+    let mut expected = config::expected_inputs(
         repo,
         head,
         check,
@@ -949,6 +987,7 @@ fn compute(
         &config.environment,
         &config.environment_bytes,
     )?;
+    expected.extend(selection::inputs(decision.lane_selection.as_ref())?);
     let mut keys = tempfile::NamedTempFile::new()?;
     keys.write_all(&config.keys)?;
     keys.flush()?;

@@ -159,8 +159,8 @@ pub fn reuse_producer_authorized(
     })
 }
 
-// Must equal the legacy deserialized field count, excluding skipped state and
-// the ignored extension field. Keep sequence admission identical to v1.
+// Must equal the legacy deserialized field count, excluding skipped state,
+// path_selection and the ignored extension field. Keep v1 sequence admission.
 const LEGACY_POLICY_FIELDS: usize = 7;
 
 #[derive(Debug, Deserialize)]
@@ -176,6 +176,8 @@ pub struct Policy {
     #[serde(default)]
     pub bootstrap_paths: Vec<String>,
     pub lanes: BTreeMap<String, Lane>,
+    #[serde(default)]
+    pub path_selection: Option<super::selection::PathSelection>,
     /// Parsed BASE authorization only. No gate decision consumes it; reuse is disabled.
     #[serde(skip)]
     pub reuse_authority: ReuseAuthority,
@@ -628,6 +630,7 @@ pub fn load(repo: &Path, base: &str) -> Result<Config> {
         Err(error) => return Err(error),
     };
     let mut policy = decode_policy(&config_blob(repo, base, ".mergemaster/lanes.json")?)?;
+    super::selection::validate(&policy)?;
     if let Some(repository) = &policy.repository {
         crate::evidence::validate_repository(repository)?;
     }
@@ -1003,7 +1006,7 @@ fn manifest(
         .collect()
 }
 
-fn hash(value: &impl Serialize) -> Result<String> {
+pub(super) fn hash(value: &impl Serialize) -> Result<String> {
     Ok(hex::encode(Sha256::digest(serde_json::to_vec(value)?)))
 }
 
@@ -1918,7 +1921,7 @@ mod reuse_policy_tests {
             }
         }
         assert_eq!(
-            Policy::deserialize(FieldCount(LEGACY_POLICY_FIELDS))
+            Policy::deserialize(FieldCount(LEGACY_POLICY_FIELDS + 1))
                 .unwrap_err()
                 .to_string(),
             "field count checked"
