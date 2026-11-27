@@ -269,6 +269,60 @@ impl Fixture {
     }
 }
 
+#[test]
+fn path_selection_wrap_sign_publish_and_gate_bind_the_same_selection() {
+    let mut f = Fixture::new("required_evidence", "printf reviewed");
+    let mut policy: Value =
+        serde_json::from_slice(&fs::read(f.repo.join(".mergemaster/lanes.json")).unwrap()).unwrap();
+    policy["lanes"]["review-go"] = policy["lanes"][CHECK].clone();
+    policy["path_selection"] = json!({
+        "always":["review-go"],
+        "rules":[{"paths":["docs/**"],"lanes":["review-go"]}]
+    });
+    f.write(".mergemaster/lanes.json", policy.to_string());
+    f.base = f.commit();
+    f.git(&["update-ref", "refs/heads/gate-base", &f.base]);
+    f.write("docs/readme.md", "review this exact documentation\n");
+    f.head = f.commit();
+    assert_eq!(f.gate()["reason"], "selection_review_required");
+    let signer = json!([mergemaster_bin(), "evidence", "sign", "--config", f.config]);
+    let output = f
+        .command(mergemaster_bin())
+        .args([
+            "evidence",
+            "wrap",
+            "--check",
+            "review-go",
+            "--base",
+            &f.base,
+            "--config",
+        ])
+        .arg(&f.config)
+        .args(["--signer", &signer.to_string(), "--"])
+        .args(f.argv())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let record = f.refs();
+    let tree = f.git(&["rev-parse", "HEAD^{tree}"]);
+    let statement: Value =
+        serde_json::from_str(&f.git(&["show", &format!("{record}:{tree}")])).unwrap();
+    let selection: Value = serde_json::from_str(
+        statement["predicate"]["observed"]["inputs"]["lane_selection"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(selection["base"], f.base);
+    assert_eq!(selection["head"], f.head);
+    assert_eq!(selection["lanes"], json!(["review-go"]));
+    assert_eq!(f.gate()["reason"], "path_not_applicable");
+}
+
 fn materialized_fixture(script: &str) -> Fixture {
     let mut f = Fixture::new("required_evidence", script);
     f.write(".gitignore", "node_modules/\n.build/\nignored/\n");

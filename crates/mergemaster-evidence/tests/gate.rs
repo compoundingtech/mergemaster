@@ -668,10 +668,14 @@ fn path_selection_docs_cannot_hide_command_or_environment_dependencies() {
         f.write("docs/input.md", "changed dependency\n");
         f.refresh_head();
         let config = load(&f.repo, &f.base).unwrap();
-        let selected =
-            mergemaster_evidence::gate::selection::select(&f.repo, &f.base, &f.head, &config.policy)
-                .unwrap()
-                .unwrap();
+        let selected = mergemaster_evidence::gate::selection::select(
+            &f.repo,
+            &f.base,
+            &f.head,
+            &config.policy,
+        )
+        .unwrap()
+        .unwrap();
         assert!(selected.lanes.contains(&CHECK.to_owned()));
         assert!(!selected.fallback_all);
     }
