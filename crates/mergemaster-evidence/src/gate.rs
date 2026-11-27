@@ -930,8 +930,13 @@ fn compute(
         return Ok(decision);
     }
     decision.lane_selection = selection::select(repo, base, head, &config.policy)?;
-    if !push && !merge_group && !queue
-        && decision.lane_selection.as_ref().is_some_and(|selection| !selection.lanes.iter().any(|lane| lane == check))
+    if !push
+        && !merge_group
+        && !queue
+        && decision
+            .lane_selection
+            .as_ref()
+            .is_some_and(|selection| !selection.lanes.iter().any(|lane| lane == check))
     {
         // A non-applicable App context still needs an exact-head signed review.
         // review-go is mandatory in `always`, so this cannot recurse again.

@@ -685,7 +685,13 @@ pub fn run_worker(args: SignArgs) -> Result<()> {
         &policy.environment_bytes,
     )?;
     expected.extend(crate::gate::selection::inputs(
-        crate::gate::selection::select(&request.repo, &request.base, &request.head, &policy.policy)?.as_ref(),
+        crate::gate::selection::select(
+            &request.repo,
+            &request.base,
+            &request.head,
+            &policy.policy,
+        )?
+        .as_ref(),
     )?);
     ensure!(
         expected

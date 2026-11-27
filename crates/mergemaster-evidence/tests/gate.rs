@@ -493,10 +493,28 @@ fn path_selection_fixture() -> Fixture {
 fn selection_review(f: &Fixture) -> Value {
     let config = load(&f.repo, &f.base).unwrap();
     let mut statement = f.statement();
-    let mut inputs = expected_inputs(&f.repo, &f.head, "review-go", &config.policy.lanes["review-go"], &config.environment, &config.environment_bytes).unwrap();
-    inputs.extend(mergemaster_evidence::gate::selection::inputs(
-        mergemaster_evidence::gate::selection::select(&f.repo, &f.base, &f.head, &config.policy).unwrap().as_ref(),
-    ).unwrap());
+    let mut inputs = expected_inputs(
+        &f.repo,
+        &f.head,
+        "review-go",
+        &config.policy.lanes["review-go"],
+        &config.environment,
+        &config.environment_bytes,
+    )
+    .unwrap();
+    inputs.extend(
+        mergemaster_evidence::gate::selection::inputs(
+            mergemaster_evidence::gate::selection::select(
+                &f.repo,
+                &f.base,
+                &f.head,
+                &config.policy,
+            )
+            .unwrap()
+            .as_ref(),
+        )
+        .unwrap(),
+    );
     for (key, value) in inputs {
         statement["predicate"]["observed"]["inputs"][key] = json!(value);
     }
@@ -526,7 +544,10 @@ fn path_selection_missing_or_forged_signed_binding_cannot_skip() {
         if forged {
             review["predicate"]["observed"]["inputs"]["lane_selection"] = json!("{\"lanes\":[]}");
         } else {
-            review["predicate"]["observed"]["inputs"].as_object_mut().unwrap().remove("lane_selection");
+            review["predicate"]["observed"]["inputs"]
+                .as_object_mut()
+                .unwrap()
+                .remove("lane_selection");
         }
         f.note(&review, &f.key, "indexed");
         assert_eq!(f.decision(&[])["decision"], "refuse");
@@ -542,8 +563,16 @@ fn path_selection_nix_unknown_and_renamed_paths_fail_closed() {
         f.note(&selection_review(&f), &f.key, "indexed");
         let decision = f.decision(&[]);
         assert_ne!(decision["decision"], "skip", "{path}");
-        assert!(decision["lane_selection"]["lanes"].as_array().unwrap().contains(&json!(CHECK)));
-        assert_eq!(decision["lane_selection"]["fallback_all"], path == "unknown.rs");
+        assert!(
+            decision["lane_selection"]["lanes"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(CHECK))
+        );
+        assert_eq!(
+            decision["lane_selection"]["fallback_all"],
+            path == "unknown.rs"
+        );
     }
     let mut f = path_selection_fixture();
     f.write("source.txt", "");
@@ -551,19 +580,29 @@ fn path_selection_nix_unknown_and_renamed_paths_fail_closed() {
     fs::remove_file(f.repo.join("source.txt")).unwrap();
     f.refresh_head();
     let config = load(&f.repo, &f.base).unwrap();
-    assert!(mergemaster_evidence::gate::selection::select(&f.repo, &f.base, &f.head, &config.policy).unwrap().unwrap().fallback_all);
+    assert!(
+        mergemaster_evidence::gate::selection::select(&f.repo, &f.base, &f.head, &config.policy)
+            .unwrap()
+            .unwrap()
+            .fallback_all
+    );
 }
 
 #[test]
 fn path_selection_head_cannot_narrow_base_map() {
     let mut f = path_selection_fixture();
-    let mut policy: Value = serde_json::from_str(&fs::read_to_string(f.repo.join(".mergemaster/lanes.json")).unwrap()).unwrap();
+    let mut policy: Value =
+        serde_json::from_str(&fs::read_to_string(f.repo.join(".mergemaster/lanes.json")).unwrap())
+            .unwrap();
     policy["path_selection"]["rules"] = json!([{"paths":["**"],"lanes":["review-go"]}]);
     f.write(".mergemaster/lanes.json", policy.to_string());
     f.write("flake.lock", "changed\n");
     f.refresh_head();
     let config = load(&f.repo, &f.base).unwrap();
-    let selected = mergemaster_evidence::gate::selection::select(&f.repo, &f.base, &f.head, &config.policy).unwrap().unwrap();
+    let selected =
+        mergemaster_evidence::gate::selection::select(&f.repo, &f.base, &f.head, &config.policy)
+            .unwrap()
+            .unwrap();
     assert!(selected.lanes.contains(&CHECK.to_owned()));
     assert!(selected.fallback_all);
     f.note(&selection_review(&f), &f.key, "indexed");
@@ -575,8 +614,16 @@ fn path_selection_cli_uses_base_and_unions_overlapping_rules() {
     let mut f = path_selection_fixture();
     f.write("docs/example.nix", "nix despite docs prefix\n");
     f.refresh_head();
-    let output = f.command(mergemaster_bin()).args(["select-lanes", "--base", &f.base, "--head", &f.head]).output().unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let output = f
+        .command(mergemaster_bin())
+        .args(["select-lanes", "--base", &f.base, "--head", &f.head])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let selection: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(selection["lanes"], json!([CHECK, "review-go"]));
     assert_eq!(selection["fallback_all"], false);
@@ -592,7 +639,10 @@ fn path_selection_rejects_invalid_authority() {
         json!({"always":["review-go"],"rules":[{"paths":["[ab]"],"lanes":[CHECK]}]}),
     ] {
         let mut f = path_selection_fixture();
-        let mut policy: Value = serde_json::from_str(&fs::read_to_string(f.repo.join(".mergemaster/lanes.json")).unwrap()).unwrap();
+        let mut policy: Value = serde_json::from_str(
+            &fs::read_to_string(f.repo.join(".mergemaster/lanes.json")).unwrap(),
+        )
+        .unwrap();
         policy["path_selection"] = selection;
         f.write(".mergemaster/lanes.json", policy.to_string());
         f.base = f.commit("invalid selection");
@@ -600,6 +650,32 @@ fn path_selection_rejects_invalid_authority() {
     }
 }
 
+#[test]
+fn path_selection_docs_cannot_hide_command_or_environment_dependencies() {
+    for environment in [false, true] {
+        let mut f = path_selection_fixture();
+        let mut policy: Value = serde_json::from_str(
+            &fs::read_to_string(f.repo.join(".mergemaster/lanes.json")).unwrap(),
+        )
+        .unwrap();
+        if environment {
+            policy["lanes"][CHECK]["environment"]["paths"] = json!(["docs"]);
+        } else {
+            policy["lanes"][CHECK]["definition_paths"] = json!(["docs"]);
+        }
+        f.write(".mergemaster/lanes.json", policy.to_string());
+        f.base = f.commit("declare dependency");
+        f.write("docs/input.md", "changed dependency\n");
+        f.refresh_head();
+        let config = load(&f.repo, &f.base).unwrap();
+        let selected =
+            mergemaster_evidence::gate::selection::select(&f.repo, &f.base, &f.head, &config.policy)
+                .unwrap()
+                .unwrap();
+        assert!(selected.lanes.contains(&CHECK.to_owned()));
+        assert!(!selected.fallback_all);
+    }
+}
 
 fn queue_fixture() -> Fixture {
     queue_fixture_with_repository(None)

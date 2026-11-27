@@ -622,6 +622,9 @@ negation and multiple `**` components are rejected. No match for even one path
 (including a deleted/renamed source path), or a non-UTF-8 path, selects **all**
 lanes. No configuration retains the existing all-lanes behavior. Keep selectors
 conservative: a filename extension alone does not describe a complete input closure.
+Changes overlapping a lane's BASE `definition_paths`, environment manifest or
+environment paths always add that lane, even when a broad docs rule matches.
+Include command/selector dependencies in those declarations.
 
 Fleet producers can query `mergemaster select-lanes --base BASE --head HEAD`;
 JSON `lanes` is sorted and `fallback_all` explains conservative fallback.
