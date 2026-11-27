@@ -25,12 +25,7 @@ fn run(args: Args) -> Result<i32> {
     } else {
         std::env::current_dir()?.join(workspace)
     };
-    let mut reconciler = Reconciler::new(
-        config,
-        RealCapabilities::new()?,
-        environ,
-        workspace,
-    )?;
+    let mut reconciler = Reconciler::new(config, RealCapabilities::new()?, environ, workspace)?;
     Ok(reconciler.run_all(&consumers, args.pr))
 }
 

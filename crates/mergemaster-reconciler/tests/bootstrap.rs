@@ -7,7 +7,8 @@ const ID_MISSING: &str = "MERGEMASTER_APP_ID is missing or empty; set the reposi
 const ID_INVALID: &str = "MERGEMASTER_APP_ID must be a positive decimal integer within the u64 range; use the GitHub App ID (not the installation ID).";
 const KEY_MISSING: &str = "MERGEMASTER_APP_PRIVATE_KEY is missing or empty; set the App private key secret in the mergemaster-check-publisher environment.";
 const KEY_INVALID: &str = "MERGEMASTER_APP_PRIVATE_KEY must be a valid RSA PEM private key; replace the environment secret with the GitHub App private key.";
-const TOKEN_MISSING: &str = "GH_TOKEN is missing or empty; supply the workflow token for public verifier bootstrap.";
+const TOKEN_MISSING: &str =
+    "GH_TOKEN is missing or empty; supply the workflow token for public verifier bootstrap.";
 
 fn preflight() -> Command {
     let workflow = include_str!("../../../.github/workflows/evidence-reconcile.yml");

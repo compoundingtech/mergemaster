@@ -391,9 +391,11 @@ impl BootstrapConfig {
                 "MERGEMASTER_APP_ID is missing or empty; set the repository Actions variable to the GitHub App ID (not the installation ID).",
             ).into());
         }
-        let invalid_id = || BootstrapError(
-            "MERGEMASTER_APP_ID must be a positive decimal integer within the u64 range; use the GitHub App ID (not the installation ID).",
-        );
+        let invalid_id = || {
+            BootstrapError(
+                "MERGEMASTER_APP_ID must be a positive decimal integer within the u64 range; use the GitHub App ID (not the installation ID).",
+            )
+        };
         if !app_id.bytes().all(|byte| byte.is_ascii_digit()) {
             return Err(invalid_id().into());
         }
