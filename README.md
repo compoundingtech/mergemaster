@@ -619,8 +619,8 @@ and every matching rule; they are not ordered overrides. Globs are case-sensitiv
 repository-root anchored: `*` matches within one component; one whole `**`
 component matches zero or more components. `?`, character classes, escaping,
 negation and multiple `**` components are rejected. No match for even one path
-(including a deleted/renamed source path), or a non-UTF-8 path, selects **all**
-lanes. No configuration retains the existing all-lanes behavior. Keep selectors
+(including a deleted/renamed source path), a non-UTF-8 path, or a symlink/gitlink
+change selects **all** lanes. No configuration retains the existing all-lanes behavior. Keep selectors
 conservative: a filename extension alone does not describe a complete input closure.
 Changes overlapping a lane's BASE `definition_paths`, environment manifest or
 environment paths always add that lane, even when a broad docs rule matches.
@@ -635,7 +635,8 @@ and is scheduling advice, not an admission decision.
 `inputs.lane_selection` JSON string: exact base/head, policy SHA-256, changed-path
 SHA-256, sorted selected lanes and fallback flag. Selection/policy hashes use
 compact serialized JSON; changed paths hash the JSON integer array of Git's
-NUL-separated, no-renames diff output. Missing or mismatched bindings refuse.
+NUL-separated, no-renames raw diff including modes and object IDs.
+Missing or mismatched bindings refuse.
 The gate also exposes this object as `lane_selection`.
 
 For a non-selected PR lane, the gate still enforces ancestry, PR eligibility,

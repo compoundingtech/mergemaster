@@ -681,6 +681,25 @@ fn path_selection_docs_cannot_hide_command_or_environment_dependencies() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn path_selection_symlink_documentation_falls_back_to_all_lanes() {
+    let mut f = path_selection_fixture();
+    std::os::unix::fs::symlink("../source.txt", f.repo.join("docs/link.md")).unwrap();
+    f.refresh_head();
+    let config = load(&f.repo, &f.base).unwrap();
+    let selected = mergemaster_evidence::gate::selection::select(
+        &f.repo,
+        &f.base,
+        &f.head,
+        &config.policy,
+    )
+    .unwrap()
+    .unwrap();
+    assert!(selected.fallback_all);
+    assert!(selected.lanes.contains(&CHECK.to_owned()));
+}
+
 fn queue_fixture() -> Fixture {
     queue_fixture_with_repository(None)
 }

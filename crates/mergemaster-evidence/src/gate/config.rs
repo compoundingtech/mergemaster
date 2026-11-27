@@ -159,8 +159,8 @@ pub fn reuse_producer_authorized(
     })
 }
 
-// Must equal the legacy deserialized field count, excluding skipped state and
-// the ignored extension field. Keep sequence admission identical to v1.
+// Must equal the legacy deserialized field count, excluding skipped state,
+// path_selection and the ignored extension field. Keep v1 sequence admission.
 const LEGACY_POLICY_FIELDS: usize = 7;
 
 #[derive(Debug, Deserialize)]
@@ -1921,7 +1921,7 @@ mod reuse_policy_tests {
             }
         }
         assert_eq!(
-            Policy::deserialize(FieldCount(LEGACY_POLICY_FIELDS))
+            Policy::deserialize(FieldCount(LEGACY_POLICY_FIELDS + 1))
                 .unwrap_err()
                 .to_string(),
             "field count checked"

@@ -97,6 +97,7 @@ pub fn validate(policy: &Policy) -> Result<()> {
             config::validate_path(pattern)?;
             ensure!(
                 pattern.is_ascii()
+                    && !pattern.starts_with('!')
                     && !pattern.contains(['?', '[', ']'])
                     && pattern.split('/').filter(|part| *part == "**").count() <= 1
                     && pattern
@@ -172,7 +173,8 @@ pub fn select(repo: &Path, base: &str, head: &str, policy: &Policy) -> Result<Op
             "--no-ext-diff",
             "--no-textconv",
             "--no-renames",
-            "--name-only",
+            "--raw",
+            "--no-abbrev",
             "-z",
             base,
             head,
@@ -181,10 +183,21 @@ pub fn select(repo: &Path, base: &str, head: &str, policy: &Policy) -> Result<Op
     )?;
     let mut lanes: BTreeSet<&str> = selection.always.iter().map(String::as_str).collect();
     let mut fallback_all = false;
-    for path in paths
-        .split(|byte| *byte == 0)
-        .filter(|path| !path.is_empty())
-    {
+    let mut entries = paths.split(|byte| *byte == 0);
+    while let Some(header) = entries.next().filter(|header| !header.is_empty()) {
+        let header = std::str::from_utf8(header)?;
+        let mut fields = header.split_ascii_whitespace();
+        let old = fields.next().and_then(|mode| mode.strip_prefix(':'));
+        let new = fields.next();
+        if !old.is_some_and(|mode| ["000000", "100644", "100755"].contains(&mode))
+            || !new.is_some_and(|mode| ["000000", "100644", "100755"].contains(&mode))
+        {
+            fallback_all = true;
+            break;
+        }
+        let path = entries
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("incomplete path diff"))?;
         let Ok(path) = std::str::from_utf8(path) else {
             fallback_all = true;
             break;
