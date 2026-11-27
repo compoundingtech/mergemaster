@@ -219,7 +219,7 @@ impl Capabilities for FixtureCapabilities {
     }
     fn jwt(&mut self, app_id: u64, key: &str) -> Result<String> {
         assert_eq!(app_id, APP_ID);
-        assert_eq!(key, "fixture-key");
+        assert_eq!(key, RSA_KEY.0);
         Ok("fixture-app-jwt".to_owned())
     }
 }
@@ -227,13 +227,11 @@ fn runtime() -> (Reconciler<FixtureCapabilities>, tempfile::TempDir) {
     let directory = tempfile::tempdir().unwrap();
     let env = BTreeMap::from([(
         "MERGEMASTER_APP_PRIVATE_KEY".to_owned(),
-        "fixture-key".to_owned(),
+        RSA_KEY.0.clone(),
     )]);
     (
         Reconciler::new(
-            &APP_ID.to_string(),
-            "fixture-key",
-            BOOTSTRAP,
+            BootstrapConfig::new(&APP_ID.to_string(), &RSA_KEY.0, BOOTSTRAP).unwrap(),
             FixtureCapabilities::default(),
             env,
             directory.path().to_owned(),

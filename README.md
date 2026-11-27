@@ -2559,6 +2559,17 @@ The central workflow reads that variable and the environment-scoped
 or copy it to consumers. Installation consent and runtime configuration must
 be complete before enabling central publication.
 
+Before discovering runtime tools, creating the workspace or making API calls,
+the binary rejects missing, empty or whitespace-only `MERGEMASTER_APP_ID`,
+`MERGEMASTER_APP_PRIVATE_KEY` and `GH_TOKEN` with a setting-specific error.
+The App ID must be a positive decimal `u64` (no signs or surrounding whitespace);
+the key must parse as an RSA PEM private key. `GH_TOKEN` is the workflow token
+used only for public verifier bootstrap. Diagnostics name the setting and its
+remediation, never its value, PEM parser details, credentials or response bodies.
+Unexpected startup failures retain a generic safe diagnostic. This validates
+local configuration only; it does not prove the App exists, the key belongs to
+it, or an installation grants the required permissions.
+
 Consumer required-check contexts remain their BASE `required_evidence` lane
 IDs. After installation and successful central publication, bind every required
 lane context to the same `integration_id = publisher.integrationId`; do not
