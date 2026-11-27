@@ -4232,15 +4232,42 @@ fn immutable_ids_alone_are_not_a_local_live_authority() {
 }
 
 fn push_fixture(merge: bool) -> Fixture {
+    push_fixture_with_selection(merge, false)
+}
+
+fn push_fixture_with_selection(merge: bool, scoped: bool) -> Fixture {
     let mut f = Fixture::new();
     f.git(&["checkout", "-q", "--detach", &f.base], b"");
     let mut policy = Fixture::policy("required_evidence");
     policy["lanes"][CHECK]["events"] = json!(["pull_request", "push"]);
+    if scoped {
+        policy["lanes"]["review-go"] = Fixture::policy("required_evidence")["lanes"][CHECK].clone();
+        policy["path_selection"] = json!({
+            "always":["review-go"],
+            "rules":[{"paths":["source.txt"],"lanes":[CHECK]}]
+        });
+    }
     f.write(".mergemaster/lanes.json", policy.to_string());
     f.base = f.commit("accepted push policy");
     f.write("source.txt", "candidate\n");
     f.refresh_head();
-    f.note(&f.statement(), &f.key, "tree");
+    let mut statement = f.statement();
+    if scoped {
+        let config = load(&f.repo, &f.base).unwrap();
+        let selection = mergemaster_evidence::gate::selection::select(
+            &f.repo,
+            &f.base,
+            &f.head,
+            &config.policy,
+        )
+        .unwrap();
+        for (key, value) in
+            mergemaster_evidence::gate::selection::inputs(selection.as_ref()).unwrap()
+        {
+            statement["predicate"]["observed"]["inputs"][key] = json!(value);
+        }
+    }
+    f.note(&statement, &f.key, "tree");
     let mut args = vec!["commit-tree", &f.tree, "-p", &f.base];
     if merge {
         args.extend(["-p", &f.head]);
@@ -4268,6 +4295,17 @@ fn push_reuses_signed_tree_for_squash_and_merge_but_pr_default_is_unchanged() {
         let push = f.push("refs/heads/main", &f.head, &f.head);
         assert_eq!(push["decision"], "skip", "{push}");
         assert_eq!(push["outcome"], "satisfied");
+    }
+}
+
+#[test]
+fn push_identical_tree_reuse_ignores_pr_selection_commit_binding() {
+    for merge in [false, true] {
+        let f = push_fixture_with_selection(merge, true);
+        let push = f.push("refs/heads/main", &f.head, &f.head);
+        assert_eq!(push["decision"], "skip", "{push}");
+        assert_eq!(push["outcome"], "satisfied");
+        assert!(push.get("lane_selection").is_none());
     }
 }
 

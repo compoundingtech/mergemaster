@@ -649,6 +649,10 @@ Protected lane-map edits still require the existing protected-path approval
 route and cannot narrow their own selection. Push and queue behavior is not
 scoped; queue admission remains disabled. Enabling this policy requires fresh
 selection-bound evidence and a verifier/tool pin supporting it.
+Push verification does not require the PR-only selection binding: it still
+checks every requested lane and may transfer a signed PR observation to an
+identical landing tree despite different commit IDs. No path-based push skip
+is authorized. Queue and merge-group admission remain report-only.
 
 
 The final authenticated pull-request recheck refuses with `stale_head` when the

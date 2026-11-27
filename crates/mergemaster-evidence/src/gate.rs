@@ -929,7 +929,11 @@ fn compute(
         }
         return Ok(decision);
     }
-    decision.lane_selection = selection::select(repo, base, head, &config.policy)?;
+    // Applicability is PR-only. Push admission keeps its identical-tree
+    // transfer contract and must not require the original PR's commit IDs.
+    if !push && !merge_group && !queue {
+        decision.lane_selection = selection::select(repo, base, head, &config.policy)?;
+    }
     if !push
         && !merge_group
         && !queue
