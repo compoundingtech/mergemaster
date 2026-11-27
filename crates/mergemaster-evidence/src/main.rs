@@ -25,6 +25,8 @@ enum Command {
     Evidence(mergemaster_evidence::evidence::cli::EvidenceArgs),
     /// Decide whether BASE-authorized evidence satisfies an exact HEAD lane.
     Gate(mergemaster_evidence::gate::Args),
+    /// Report PR lanes selected by immutable BASE policy (JSON; does not authorize admission).
+    SelectLanes(mergemaster_evidence::gate::selection::Args),
     /// Report newer upstream commits touching extracted origin paths.
     ParityDrift(mergemaster_evidence::parity_drift::ParityDriftArgs),
     /// Measure and canonicalize executable producer manifests.
@@ -71,6 +73,7 @@ fn main() -> ExitCode {
     let result = match Cli::parse().command {
         Command::Evidence(args) => mergemaster_evidence::evidence::cli::run(args),
         Command::Gate(args) => mergemaster_evidence::gate::run(args),
+        Command::SelectLanes(args) => mergemaster_evidence::gate::selection::run(args),
         Command::Producers(args) => mergemaster_evidence::producers::run(args),
         Command::GateVerifyRecord(args) => mergemaster_evidence::gate::verify_worker(args),
         Command::ParityDrift(args) => {

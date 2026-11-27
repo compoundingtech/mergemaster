@@ -472,6 +472,134 @@ print(json.dumps(r))
         serde_json::from_slice(&output.stdout).unwrap()
     }
 }
+fn path_selection_fixture() -> Fixture {
+    let mut f = Fixture::new();
+    let mut policy = Fixture::policy("required_evidence");
+    policy["lanes"]["review-go"] = policy["lanes"][CHECK].clone();
+    policy["path_selection"] = json!({
+        "always": ["review-go"],
+        "rules": [
+            {"paths":["**/*.md", "docs/**"], "lanes":["review-go"]},
+            {"paths":["**/*.nix", "flake.lock"], "lanes":[CHECK]}
+        ]
+    });
+    f.write(".mergemaster/lanes.json", policy.to_string());
+    f.base = f.commit("trusted path policy");
+    f.write("docs/readme.md", "docs candidate\n");
+    f.refresh_head();
+    f
+}
+
+fn selection_review(f: &Fixture) -> Value {
+    let config = load(&f.repo, &f.base).unwrap();
+    let mut statement = f.statement();
+    let mut inputs = expected_inputs(&f.repo, &f.head, "review-go", &config.policy.lanes["review-go"], &config.environment, &config.environment_bytes).unwrap();
+    inputs.extend(mergemaster_evidence::gate::selection::inputs(
+        mergemaster_evidence::gate::selection::select(&f.repo, &f.base, &f.head, &config.policy).unwrap().as_ref(),
+    ).unwrap());
+    for (key, value) in inputs {
+        statement["predicate"]["observed"]["inputs"][key] = json!(value);
+    }
+    let check = statement["predicate"]["observed"]["checks"][CHECK].take();
+    statement["predicate"]["observed"]["checks"] = json!({"review-go":check});
+    statement
+}
+
+#[test]
+fn path_selection_docs_need_signed_selection_review_not_all_lanes() {
+    let f = path_selection_fixture();
+    assert_eq!(f.decision(&[])["reason"], "selection_review_required");
+    let review = selection_review(&f);
+    let record = f.note(&review, &f.key, "indexed");
+    let decision = f.decision(&[]);
+    assert_eq!(decision["decision"], "skip");
+    assert_eq!(decision["reason"], "path_not_applicable");
+    assert_eq!(decision["record"], record);
+    assert_eq!(decision["lane_selection"]["lanes"], json!(["review-go"]));
+}
+
+#[test]
+fn path_selection_missing_or_forged_signed_binding_cannot_skip() {
+    for forged in [false, true] {
+        let f = path_selection_fixture();
+        let mut review = selection_review(&f);
+        if forged {
+            review["predicate"]["observed"]["inputs"]["lane_selection"] = json!("{\"lanes\":[]}");
+        } else {
+            review["predicate"]["observed"]["inputs"].as_object_mut().unwrap().remove("lane_selection");
+        }
+        f.note(&review, &f.key, "indexed");
+        assert_eq!(f.decision(&[])["decision"], "refuse");
+    }
+}
+
+#[test]
+fn path_selection_nix_unknown_and_renamed_paths_fail_closed() {
+    for path in ["flake.lock", "nested/host.nix", "unknown.rs"] {
+        let mut f = path_selection_fixture();
+        f.write(path, "changed\n");
+        f.refresh_head();
+        f.note(&selection_review(&f), &f.key, "indexed");
+        let decision = f.decision(&[]);
+        assert_ne!(decision["decision"], "skip", "{path}");
+        assert!(decision["lane_selection"]["lanes"].as_array().unwrap().contains(&json!(CHECK)));
+        assert_eq!(decision["lane_selection"]["fallback_all"], path == "unknown.rs");
+    }
+    let mut f = path_selection_fixture();
+    f.write("source.txt", "");
+    // Deletion is included even when the added path looks like documentation.
+    fs::remove_file(f.repo.join("source.txt")).unwrap();
+    f.refresh_head();
+    let config = load(&f.repo, &f.base).unwrap();
+    assert!(mergemaster_evidence::gate::selection::select(&f.repo, &f.base, &f.head, &config.policy).unwrap().unwrap().fallback_all);
+}
+
+#[test]
+fn path_selection_head_cannot_narrow_base_map() {
+    let mut f = path_selection_fixture();
+    let mut policy: Value = serde_json::from_str(&fs::read_to_string(f.repo.join(".mergemaster/lanes.json")).unwrap()).unwrap();
+    policy["path_selection"]["rules"] = json!([{"paths":["**"],"lanes":["review-go"]}]);
+    f.write(".mergemaster/lanes.json", policy.to_string());
+    f.write("flake.lock", "changed\n");
+    f.refresh_head();
+    let config = load(&f.repo, &f.base).unwrap();
+    let selected = mergemaster_evidence::gate::selection::select(&f.repo, &f.base, &f.head, &config.policy).unwrap().unwrap();
+    assert!(selected.lanes.contains(&CHECK.to_owned()));
+    assert!(selected.fallback_all);
+    f.note(&selection_review(&f), &f.key, "indexed");
+    assert_eq!(f.decision(&[])["reason"], "protected_paths");
+}
+
+#[test]
+fn path_selection_cli_uses_base_and_unions_overlapping_rules() {
+    let mut f = path_selection_fixture();
+    f.write("docs/example.nix", "nix despite docs prefix\n");
+    f.refresh_head();
+    let output = f.command(mergemaster_bin()).args(["select-lanes", "--base", &f.base, "--head", &f.head]).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let selection: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(selection["lanes"], json!([CHECK, "review-go"]));
+    assert_eq!(selection["fallback_all"], false);
+}
+
+#[test]
+fn path_selection_rejects_invalid_authority() {
+    for selection in [
+        json!({"always":[CHECK],"rules":[{"paths":["**"],"lanes":[CHECK]}]}),
+        json!({"always":["review-go"],"rules":[{"paths":["**"],"lanes":["typo"]}]}),
+        json!({"always":["review-go"],"rules":[{"paths":["../**"],"lanes":[CHECK]}]}),
+        json!({"always":["review-go"],"rules":[{"paths":["**/**"],"lanes":[CHECK]}]}),
+        json!({"always":["review-go"],"rules":[{"paths":["[ab]"],"lanes":[CHECK]}]}),
+    ] {
+        let mut f = path_selection_fixture();
+        let mut policy: Value = serde_json::from_str(&fs::read_to_string(f.repo.join(".mergemaster/lanes.json")).unwrap()).unwrap();
+        policy["path_selection"] = selection;
+        f.write(".mergemaster/lanes.json", policy.to_string());
+        f.base = f.commit("invalid selection");
+        assert!(load(&f.repo, &f.base).is_err());
+    }
+}
+
 
 fn queue_fixture() -> Fixture {
     queue_fixture_with_repository(None)

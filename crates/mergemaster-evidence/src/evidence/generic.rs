@@ -225,6 +225,9 @@ pub fn run_wrap(args: &WrapArgs) -> Result<i32> {
         &policy.environment,
         &policy.environment_bytes,
     )?;
+    inputs.extend(crate::gate::selection::inputs(
+        crate::gate::selection::select(&repo, &args.base, &head, &policy.policy)?.as_ref(),
+    )?);
     inputs.extend(toolchain.claims);
     let nix_check =
         super::signing::derivation(&repo, &head, lane, &policy.environment, &args.config)?;

@@ -599,6 +599,54 @@ does not execute its full check in the publisher job. The separate unprivileged
 validate job may execute candidate code. Copied Fractal wrappers retain their
 original contracts and are not generic environment producers.
 
+#### Trusted path-scoped PR lanes
+
+Optionally add `path_selection` to the accepted BASE `lanes.json` (version 1):
+
+```json
+"path_selection": {
+  "always": ["review-go"],
+  "rules": [
+    {"paths": ["**/*.md", "**/*.nmd", "docs/**", "context/**"], "lanes": ["review-go"]},
+    {"paths": ["**/*.nix", "flake.lock", "nixpkgs/**", "nix/**", "lib/**", "hosts.nix", "megarepo.lock", "repo.contract.json", "flakes/*/nix/**"], "lanes": ["nix-eval"]}
+  ]
+}
+```
+
+Every referenced lane must exist. `review-go` must be an always-selected,
+`required_evidence` pull-request lane. Rules union across **every** changed path
+and every matching rule; they are not ordered overrides. Globs are case-sensitive,
+repository-root anchored: `*` matches within one component; one whole `**`
+component matches zero or more components. `?`, character classes, escaping,
+negation and multiple `**` components are rejected. No match for even one path
+(including a deleted/renamed source path), or a non-UTF-8 path, selects **all**
+lanes. No configuration retains the existing all-lanes behavior. Keep selectors
+conservative: a filename extension alone does not describe a complete input closure.
+
+Fleet producers can query `mergemaster select-lanes --base BASE --head HEAD`;
+JSON `lanes` is sorted and `fallback_all` explains conservative fallback.
+This reads Git objects and BASE policy, never the worktree or PR lane map,
+and is scheduling advice, not an admission decision.
+
+`evidence wrap`, the independent signer, and the gate derive the same signed
+`inputs.lane_selection` JSON string: exact base/head, policy SHA-256, changed-path
+SHA-256, sorted selected lanes and fallback flag. Selection/policy hashes use
+compact serialized JSON; changed paths hash the JSON integer array of Git's
+NUL-separated, no-renames diff output. Missing or mismatched bindings refuse.
+The gate also exposes this object as `lane_selection`.
+
+For a non-selected PR lane, the gate still enforces ancestry, PR eligibility,
+protected paths and live-head/base rechecks. Only an accepted, exact-head signed
+`review-go` with the complete selection binding yields `skip/satisfied` and
+`reason=path_not_applicable`; without it, `selection_review_required` refuses.
+The reconciler publishes **every** BASE-required App context, including these
+explicit policy exclusions, so required ruleset contexts never disappear.
+Protected lane-map edits still require the existing protected-path approval
+route and cannot narrow their own selection. Push and queue behavior is not
+scoped; queue admission remains disabled. Enabling this policy requires fresh
+selection-bound evidence and a verifier/tool pin supporting it.
+
+
 The final authenticated pull-request recheck refuses with `stale_head` when the
 live head SHA moved, `stale_base` when the live base branch tip moved, or
 `pr_metadata_changed` when the head/base repository or base ref changed.
