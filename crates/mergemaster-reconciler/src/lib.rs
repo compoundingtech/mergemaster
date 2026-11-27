@@ -411,7 +411,8 @@ impl BootstrapConfig {
                 "GH_TOKEN is missing or empty; supply the workflow token for public verifier bootstrap.",
             ).into());
         }
-        jsonwebtoken::EncodingKey::from_rsa_pem(key.as_bytes()).map_err(|_| BootstrapError(
+        // PEM decoding alone accepts incomplete DER; exercise the real RSA signer.
+        sign_jwt(app_id, key, 0).map_err(|_| BootstrapError(
             "MERGEMASTER_APP_PRIVATE_KEY must be a valid RSA PEM private key; replace the environment secret with the GitHub App private key.",
         ))?;
         Ok(Self {
