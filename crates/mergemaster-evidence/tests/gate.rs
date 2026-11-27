@@ -688,14 +688,10 @@ fn path_selection_symlink_documentation_falls_back_to_all_lanes() {
     std::os::unix::fs::symlink("../source.txt", f.repo.join("docs/link.md")).unwrap();
     f.refresh_head();
     let config = load(&f.repo, &f.base).unwrap();
-    let selected = mergemaster_evidence::gate::selection::select(
-        &f.repo,
-        &f.base,
-        &f.head,
-        &config.policy,
-    )
-    .unwrap()
-    .unwrap();
+    let selected =
+        mergemaster_evidence::gate::selection::select(&f.repo, &f.base, &f.head, &config.policy)
+            .unwrap()
+            .unwrap();
     assert!(selected.fallback_all);
     assert!(selected.lanes.contains(&CHECK.to_owned()));
 }
