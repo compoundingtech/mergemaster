@@ -30,6 +30,33 @@ jobs:
     environment: mergemaster-check-publisher
     timeout-minutes: 45
     steps:
+      - name: Validate App bootstrap configuration
+        env:
+          MERGEMASTER_APP_ID: ${{ vars.MERGEMASTER_APP_ID }}
+          MERGEMASTER_APP_PRIVATE_KEY: ${{ secrets.MERGEMASTER_APP_PRIVATE_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set +x
+          export LC_ALL=C
+          fail() { printf 'Evidence reconciliation configuration failed: %s\n' "$1" >&2; exit 1; }
+          if [[ -z "${MERGEMASTER_APP_ID//[[:space:]]/}" ]]; then
+            fail 'MERGEMASTER_APP_ID is missing or empty; set the repository Actions variable to the GitHub App ID (not the installation ID).'
+          fi
+          id="${MERGEMASTER_APP_ID#"${MERGEMASTER_APP_ID%%[!0]*}"}"
+          if [[ ! "$MERGEMASTER_APP_ID" =~ ^[0-9]+$ || -z "$id" || ${#id} -gt 20 ]] ||
+             [[ ${#id} -eq 20 && "$id" > 18446744073709551615 ]]; then
+            fail 'MERGEMASTER_APP_ID must be a positive decimal integer within the u64 range; use the GitHub App ID (not the installation ID).'
+          fi
+          if [[ -z "${MERGEMASTER_APP_PRIVATE_KEY//[[:space:]]/}" ]]; then
+            fail 'MERGEMASTER_APP_PRIVATE_KEY is missing or empty; set the App private key secret in the mergemaster-check-publisher environment.'
+          fi
+          if [[ -z "${GH_TOKEN//[[:space:]]/}" ]]; then
+            fail 'GH_TOKEN is missing or empty; supply the workflow token for public verifier bootstrap.'
+          fi
+          if ! printf '%s' "$MERGEMASTER_APP_PRIVATE_KEY" | openssl rsa -check -noout -passin pass: >/dev/null 2>&1; then
+            fail 'MERGEMASTER_APP_PRIVATE_KEY must be a valid RSA PEM private key; replace the environment secret with the GitHub App private key.'
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: refs/heads/main

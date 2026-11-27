@@ -2559,6 +2559,12 @@ The central workflow reads that variable and the environment-scoped
 or copy it to consumers. Installation consent and runtime configuration must
 be complete before enabling central publication.
 
+The workflow first validates these settings using Bash and the hosted runner's
+OpenSSL, before checkout, Nix installation or package building. The private key
+is passed on standard input, never in argv or a temporary file; OpenSSL output
+is suppressed in favor of static remediation messages. The Nix/build steps do
+not receive the App key. The binary repeats validation for direct invocations.
+
 Before discovering runtime tools, creating the workspace or making API calls,
 the binary rejects missing, empty or whitespace-only `MERGEMASTER_APP_ID`,
 `MERGEMASTER_APP_PRIVATE_KEY` and `GH_TOKEN` with a setting-specific error.

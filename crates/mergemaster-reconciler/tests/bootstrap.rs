@@ -9,32 +9,47 @@ const KEY_MISSING: &str = "MERGEMASTER_APP_PRIVATE_KEY is missing or empty; set 
 const KEY_INVALID: &str = "MERGEMASTER_APP_PRIVATE_KEY must be a valid RSA PEM private key; replace the environment secret with the GitHub App private key.";
 const TOKEN_MISSING: &str = "GH_TOKEN is missing or empty; supply the workflow token for public verifier bootstrap.";
 
+fn preflight() -> Command {
+    let workflow = include_str!("../../../.github/workflows/evidence-reconcile.yml");
+    let step = workflow
+        .split_once("      - name: Validate App bootstrap configuration\n")
+        .unwrap().1
+        .split_once("      - uses: actions/checkout@")
+        .unwrap().0;
+    let script = step.split_once("        run: |\n").unwrap().1
+        .lines().map(|line| line.strip_prefix("          ").unwrap())
+        .collect::<Vec<_>>().join("\n");
+    let mut command = Command::new("bash");
+    command.args(["--noprofile", "--norc", "-euo", "pipefail", "-c", &script]);
+    command
+}
+
 fn reject(id: Option<&str>, key: Option<&str>, token: Option<&str>, expected: &str) {
     let directory = tempfile::tempdir().unwrap();
     let workspace = directory.path().join("must-not-be-created");
-    let mut command = Command::new(env!("CARGO_BIN_EXE_mergemaster-reconciler"));
-    command
-        .env_clear()
-        .env("PATH", "")
-        .env("RUNNER_TEMP", &workspace)
-        .current_dir(directory.path());
-    for (name, value) in [
-        ("MERGEMASTER_APP_ID", id),
-        ("MERGEMASTER_APP_PRIVATE_KEY", key),
-        ("GH_TOKEN", token),
-    ] {
-        if let Some(value) = value {
-            command.env(name, value);
+    let mut binary = Command::new(env!("CARGO_BIN_EXE_mergemaster-reconciler"));
+    binary.env_clear().env("PATH", "");
+    let mut workflow = preflight();
+    workflow.env_clear().env("PATH", std::env::var_os("PATH").unwrap());
+    for mut command in [binary, workflow] {
+        command.env("RUNNER_TEMP", &workspace).current_dir(directory.path());
+        for (name, value) in [
+            ("MERGEMASTER_APP_ID", id),
+            ("MERGEMASTER_APP_PRIVATE_KEY", key),
+            ("GH_TOKEN", token),
+        ] {
+            // Actions materializes absent variables/secrets as empty strings.
+            command.env(name, value.unwrap_or(""));
         }
+        let output = command.output().unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        assert_eq!(
+            String::from_utf8(output.stderr).unwrap(),
+            format!("Evidence reconciliation configuration failed: {expected}\n")
+        );
+        assert!(!workspace.exists(), "validation must precede workspace creation");
     }
-    let output = command.output().unwrap();
-    assert_eq!(output.status.code(), Some(1));
-    assert!(output.stdout.is_empty());
-    assert_eq!(
-        String::from_utf8(output.stderr).unwrap(),
-        format!("Evidence reconciliation configuration failed: {expected}\n")
-    );
-    assert!(!workspace.exists(), "validation must precede workspace creation");
 }
 
 #[test]
@@ -75,6 +90,19 @@ fn valid_configuration_preserves_safe_unexpected_error_fallback() {
         .unwrap();
     assert!(generated.status.success());
     let key = fs::read_to_string(key_path).unwrap();
+    for id in ["1", "000123", "18446744073709551615"] {
+        let output = preflight()
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap())
+            .env("MERGEMASTER_APP_ID", id)
+            .env("MERGEMASTER_APP_PRIVATE_KEY", &key)
+            .env("GH_TOKEN", TOKEN)
+            .current_dir(directory.path())
+            .output().unwrap();
+        assert!(output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(output.stderr.is_empty());
+    }
     // The maximum valid ID reaches tool discovery, not a configuration error.
     // An empty PATH guarantees no subprocess or GitHub request can execute.
     let output = Command::new(env!("CARGO_BIN_EXE_mergemaster-reconciler"))

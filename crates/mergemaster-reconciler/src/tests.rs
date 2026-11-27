@@ -726,7 +726,14 @@ fn hostless_main_only_serialized_schedule_and_manual_repair() {
     let (before, run) = workflow
         .split_once("      - name: Reconcile enrolled evidence checks")
         .unwrap();
-    assert!(!before.contains("MERGEMASTER_APP_PRIVATE_KEY"));
+    let (preflight, build) = before.split_once("      - uses: actions/checkout@").unwrap();
+    assert!(preflight.contains("      - name: Validate App bootstrap configuration"));
+    assert!(preflight.contains(
+        "MERGEMASTER_APP_PRIVATE_KEY: ${{ secrets.MERGEMASTER_APP_PRIVATE_KEY }}"
+    ));
+    assert!(!preflight.contains("DeterminateSystems/"));
+    assert!(build.contains("DeterminateSystems/"));
+    assert!(!build.contains("MERGEMASTER_APP_PRIVATE_KEY"));
     assert!(
         run.contains("MERGEMASTER_APP_PRIVATE_KEY: ${{ secrets.MERGEMASTER_APP_PRIVATE_KEY }}")
     );
